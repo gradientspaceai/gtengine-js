@@ -371,7 +371,7 @@
   "status": "pending"
  },
  "DisjointIntervals.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DisjointRectangles.h": {
   "status": "pending"
@@ -1277,7 +1277,7 @@
   "status": "pending"
  },
  "MinimumVolumeBox3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "MinimumVolumeBox3FloatingPoint.h": {
   "status": "pending"
@@ -1546,7 +1546,7 @@
   "status": "pending"
  },
  "SortPointsOnCircle.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "SplitMeshByPlane.h": {
   "status": "pending"
