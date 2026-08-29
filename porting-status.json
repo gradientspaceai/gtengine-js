@@ -129,13 +129,16 @@
   "status": "pending"
  },
  "Array2.h": {
-  "status": "pending"
+  "status": "ported",
+  "notes": "Ported to a flat-storage class; C++ pointer indirection a[i1][i0] becomes a.get(i0,i1)/a.set(i0,i1,v); copy/move machinery not ported; storage may alias a caller-owned flat array."
  },
  "Array3.h": {
-  "status": "pending"
+  "status": "ported",
+  "notes": "Ported to a flat-storage class; C++ a[i2][i1][i0] becomes a.get(i0,i1,i2); see Array2.h notes."
  },
  "Array4.h": {
-  "status": "pending"
+  "status": "ported",
+  "notes": "Ported to a flat-storage class; C++ a[i3][i2][i1][i0] becomes a.get(i0,i1,i2,i3); see Array2.h notes."
  },
  "ASinEstimate.h": {
   "status": "pending"
@@ -244,7 +247,7 @@
   "status": "pending"
  },
  "Constants.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ConstrainedDelaunay2.h": {
   "status": "pending"
@@ -352,7 +355,8 @@
   "status": "pending"
  },
  "DCPQuery.h": {
-  "status": "pending"
+  "status": "ported",
+  "notes": "Empty primary template ported as interface DCPQuery<Type0,Type1,Result> with compute(); Real template parameter dropped (always number); each Dist* file exports a concrete implementing class named after its file."
  },
  "Delaunay2.h": {
   "status": "pending"
@@ -658,7 +662,8 @@
   "status": "pending"
  },
  "FIQuery.h": {
-  "status": "pending"
+  "status": "ported",
+  "notes": "Empty primary template ported as interface FIQuery<Type0,Type1,Result> with find(); concrete Intr* classes use an FI suffix (e.g. IntrRay3Sphere3FI) since TI and FI specializations share one upstream file."
  },
  "FPInterval.h": {
   "status": "pending"
@@ -703,7 +708,8 @@
   "status": "pending"
  },
  "HashCombine.h": {
-  "status": "pending"
+  "status": "ported",
+  "notes": "Restricted to number values; 32-bit unsigned seeds (C++ size_t hashes are implementation-defined); returns the new seed instead of mutating an out-parameter; std::hash<double> replaced by folding the IEEE binary64 bits."
  },
  "HelmertTransformation7.h": {
   "status": "pending"
@@ -739,7 +745,8 @@
   "status": "pending"
  },
  "IEEEBinary.h": {
-  "status": "pending"
+  "status": "ported",
+  "notes": "Template collapsed to concrete IEEEBinary32 (uint32 encoding as number) and IEEEBinary64 (bigint encoding); union ported as encoding field + number accessor; ambiguous C++ constructor overloads replaced by fromEncoding/fromNumber/fromParts factories; nested Classification enum exported as IEEEClassification."
  },
  "IEEEBinary16.h": {
   "status": "pending"
@@ -1180,7 +1187,8 @@
   "status": "pending"
  },
  "LexicoArray2.h": {
-  "status": "pending"
+  "status": "ported",
+  "notes": "Four template specializations collapsed to one class with a runtime rowMajor flag and runtime dimensions; operator() ported as get/set."
  },
  "LieGroupsAlgebras.h": {
   "status": "pending"
@@ -1198,7 +1206,8 @@
   "status": "pending"
  },
  "Logger.h": {
-  "status": "pending"
+  "status": "ported",
+  "notes": "Macros ported as logAssert/logError throwing Error with the caller message; the C++ file(function,line) prefix is omitted because JS Error stack traces carry source locations."
  },
  "Lozenge3.h": {
   "status": "pending"
@@ -1246,7 +1255,8 @@
   "status": "pending"
  },
  "MinHeap.h": {
-  "status": "pending"
+  "status": "ported",
+  "notes": "Faithful port including update/remove-by-record; out-parameters replaced by {key,value}|null returns and insert returning the record or null; ValueType defaults to number with an optional lessThan comparator (a<=b derived as !(b<a)); record key/value are undefined until first insert (upstream leaves them uninitialized)."
  },
  "MinimalCycleBasis.h": {
   "status": "pending"
@@ -1609,7 +1619,8 @@
   "notes": "C++ chrono wrapper; use performance.now() directly in TS"
  },
  "TIQuery.h": {
-  "status": "pending"
+  "status": "ported",
+  "notes": "Empty primary template ported as interface TIQuery<Type0,Type1,Result> with test(); concrete Intr* classes use a TI suffix (e.g. IntrRay3Sphere3TI)."
  },
  "Torus3.h": {
   "status": "pending"
@@ -1636,7 +1647,8 @@
   "status": "pending"
  },
  "TypeTraits.h": {
-  "status": "pending"
+  "status": "ported",
+  "notes": "Compile-time traits ported as runtime predicates isArbitraryPrecision(x)/hasDivisionOperator(x) plus the ArbitraryPrecisionNumber marker interface that BSNumber/BSRational/QFNumber will implement; SFINAE helper aliases (TraitSelector, IsFPType, IsAPType, IsDivisionType, IsNotDivisionType) omitted as compile-time-only machinery."
  },
  "UIntegerALU32.h": {
   "status": "pending"
@@ -1657,7 +1669,8 @@
   "status": "pending"
  },
  "Vector.h": {
-  "status": "pending"
+  "status": "ported",
+  "notes": "Template Vector<N,Real> ported as runtime-dimension class over number[]; operators ported as module functions (negate/add/sub/mul/div, componentwise compMul/compDiv); normalize/orthonormalize mutate in place and return length as upstream; Vector(int d) unit constructor is Vector.unit(size,d); default constructor zero-fills instead of leaving the tuple uninitialized; unary operator+ not ported; out-parameter ComputeExtremes returns {vmin,vmax}|null."
  },
  "Vector2.h": {
   "status": "pending"
