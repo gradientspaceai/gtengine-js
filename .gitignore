@@ -5,3 +5,4 @@ coverage/
 *.token
 *token*.txt
 .DS_Store
+.claude/worktrees/
