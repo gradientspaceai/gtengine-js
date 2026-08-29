@@ -19,6 +19,7 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "gen:index": "node scripts/gen-index.mjs",
+    "update:status": "node scripts/update-status.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },

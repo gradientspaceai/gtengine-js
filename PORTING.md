@@ -20,8 +20,10 @@ Upstream baseline: `davideberly/GeometricTools` commit
 ```
 
 - `porting-status.json` maps every upstream header to
-  `pending | ported | omitted`, with a `notes` field for omissions and
-  deliberate deviations. Update it in the same commit as the port.
+  `pending | ported | omitted`. It and the generated `src/index.ts` are
+  maintained by the orchestrator on `main` (`npm run update:status`,
+  `npm run gen:index`) — **port PRs must not touch either file**, so parallel
+  PRs never conflict. Record deviations from upstream in the PR description.
 
 ## Type mapping
 
@@ -117,4 +119,5 @@ similar files with no mathematical content. File I/O utilities are ported using
    known values, mathematical identities, degenerate inputs, and where
    practical randomized cross-checks against an independent computation.
 3. No new runtime dependencies. devDependencies only, and only with good reason.
-4. `porting-status.json` and `src/index.ts` updated in the same PR.
+4. PRs touch only `src/<PortedName>.ts` and `test/<PortedName>.test.ts` files —
+   never `src/index.ts`, `porting-status.json`, or config files.
