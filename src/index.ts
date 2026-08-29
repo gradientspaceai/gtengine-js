@@ -10,6 +10,7 @@ export * from './Array3';
 export * from './Array4';
 export * from './Constants';
 export * from './DCPQuery';
+export * from './Exp2Estimate';
 export * from './FIQuery';
 export * from './HashCombine';
 export * from './IEEEBinary';
