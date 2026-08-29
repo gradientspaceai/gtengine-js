@@ -112,6 +112,21 @@ C++-runtime-specific utilities are omitted (recorded in
 similar files with no mathematical content. File I/O utilities are ported using
 `ArrayBuffer`/`DataView` where they carry geometric value (e.g. STL files).
 
+## Upstream bugs
+
+If while porting you find a suspected bug in the upstream C++ (wrong math,
+undefined behavior, unreachable code, stale documentation), do all of:
+
+1. Port the fix if the bug would corrupt results in TS (document the fix in a
+   code comment referencing upstream), or preserve the quirk faithfully if it
+   is harmless — judgment call, explained in the PR.
+2. Describe it in the PR body under a heading exactly titled
+   `## Upstream bug suspects`, with file, line context, evidence, and whether
+   the port fixes or preserves it.
+
+The orchestrator files each confirmed suspect as a GitHub issue labeled
+`upstream-bug` — the canonical list of upstream findings.
+
 ## Quality gates (every PR)
 
 1. `npm run typecheck` passes (strict).
