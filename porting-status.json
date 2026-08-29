@@ -331,7 +331,7 @@
   "status": "pending"
  },
  "CubicRootsQR.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "CurvatureFlow2.h": {
   "status": "pending"
@@ -1473,7 +1473,7 @@
   "status": "pending"
  },
  "RootsBisection.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "RootsBisection1.h": {
   "status": "pending"
@@ -1482,7 +1482,7 @@
   "status": "pending"
  },
  "RootsBrentsMethod.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "RootsCubic.h": {
   "status": "pending"
@@ -1494,7 +1494,7 @@
   "status": "pending"
  },
  "RootsPolynomial.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "RootsQuadratic.h": {
   "status": "pending"
