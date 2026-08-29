@@ -14,6 +14,8 @@ export * from './DCPQuery';
 export * from './Exp2Estimate';
 export * from './FIQuery';
 export * from './HashCombine';
+export * from './HermiteCubic';
+export * from './HermiteQuintic';
 export * from './IEEEBinary';
 export * from './LexicoArray2';
 export * from './Logger';

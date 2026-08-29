@@ -721,10 +721,10 @@
   "status": "pending"
  },
  "HermiteCubic.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "HermiteQuintic.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "HermiteTricubic.h": {
   "status": "pending"
