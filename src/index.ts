@@ -5,6 +5,7 @@
 // https://www.boost.org/LICENSE_1_0.txt
 // GENERATED FILE - run 'npm run gen:index' to regenerate. Do not edit by hand.
 
+export * from './ApprQuery';
 export * from './Array2';
 export * from './Array3';
 export * from './Array4';
