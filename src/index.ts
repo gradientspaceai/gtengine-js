@@ -9,6 +9,7 @@ export * from './ApprQuery';
 export * from './Array2';
 export * from './Array3';
 export * from './Array4';
+export * from './BSPrecision';
 export * from './Constants';
 export * from './DCPQuery';
 export * from './DisjointIntervals';
