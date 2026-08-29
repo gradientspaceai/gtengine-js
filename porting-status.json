@@ -776,7 +776,7 @@
   "status": "pending"
  },
  "IndexAttribute.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "InscribedFixedAspectRectInQuad.h": {
   "status": "pending"
@@ -1175,7 +1175,7 @@
   "status": "pending"
  },
  "IsPlanarGraph.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "LCPSolver.h": {
   "status": "pending"
@@ -1561,7 +1561,7 @@
   "status": "pending"
  },
  "STLBinaryFile.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "StringUtility.h": {
   "status": "omitted",
@@ -1685,7 +1685,7 @@
   "status": "pending"
  },
  "VertexAttribute.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "VertexCollapseMesh.h": {
   "status": "pending"
