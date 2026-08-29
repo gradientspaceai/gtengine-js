@@ -55,6 +55,40 @@ Upstream baseline: `davideberly/GeometricTools` commit
 - `GTE_ASSERT` / `LogError` / exceptions → helpers in `src/Logger.ts` that
   `throw new Error(...)` with the same message text.
 
+## Established precedents (follow these; set by the foundation port)
+
+- **Global export uniqueness**: `src/index.ts` star-exports every file, so every
+  exported symbol must be unique across the whole library. `npm run gen:index`
+  fails on duplicates. Strategies, in order of preference: (1) reuse via
+  subclassing like upstream (`GVector extends Vector`, `Quaternion` over
+  `Vector`-of-4) so base free functions (`dot`, `normalize`, …) apply; (2) add
+  overloads inside the file that owns the name only if you are porting that
+  file; (3) prefix with the type context (`IEEEClassification`, not
+  `Classification`).
+- **Query bases are interfaces**: `DCPQuery<Type0, Type1, Result>` with
+  `compute()`, `TIQuery` with `test()`, `FIQuery` with `find()`. Upstream Intr*
+  headers containing both TI and FI specializations become two classes with
+  suffixes: `IntrRay3Sphere3TI` / `IntrRay3Sphere3FI`, result types
+  `...TIResult` / `...FIResult`. Dist* headers export one class named after the
+  file.
+- **Vector conventions**: runtime dimension over `number[]`; element access
+  `get(i)`/`set(i, x)` (public `values` for hot loops); operators are module
+  functions `negate/add/sub/mul/div/compMul/compDiv` returning new vectors;
+  `normalize`/`orthonormalize` mutate in place and return the length (as
+  upstream); comparisons are methods (`equals`, `lessThan`, … lexicographic);
+  dimension mismatches throw via `logAssert`; `HLift/HProject/Lift/Project` →
+  `hlift/hproject/lift/project`.
+- **Errors**: use `logAssert(cond, msg)` / `logError(msg)` from `src/Logger.ts`
+  (they throw `Error`; no file/line prefix — JS stacks carry that).
+- **Arbitrary precision marker**: `BSNumber`/`BSRational`/`QFNumber` implement
+  `ArbitraryPrecisionNumber` from `src/TypeTraits.ts`
+  (`isArbitraryPrecision: true`, `hasDivisionOperator`).
+- **Multi-dim arrays**: `Array2/3/4` use flat storage, `a.get(i0, i1)` with
+  index order matching constructor bound order (C++ `a[i1][i0]` → `a.get(i0, i1)`).
+- **Constructors**: default constructors zero-fill (upstream leaves
+  uninitialized); ambiguous C++ constructor overloads become static factories
+  (`fromEncoding/fromNumber/…`).
+
 ## Semantics rules
 
 - Preserve upstream algorithms and numerical behavior; do not "improve" math
