@@ -1,0 +1,1693 @@
+{
+ "AABBBVTreeOfTriangles.h": {
+  "status": "pending"
+ },
+ "ACosEstimate.h": {
+  "status": "pending"
+ },
+ "AdaptiveSkeletonClimbing2.h": {
+  "status": "pending"
+ },
+ "AdaptiveSkeletonClimbing3.h": {
+  "status": "pending"
+ },
+ "AlignedBox.h": {
+  "status": "pending"
+ },
+ "AlignedBoxBV.h": {
+  "status": "pending"
+ },
+ "AlignedBoxTreeOfPoints.h": {
+  "status": "pending"
+ },
+ "AlignedBoxTreeOfSegments.h": {
+  "status": "pending"
+ },
+ "AlignedBoxTreeOfTriangles.h": {
+  "status": "pending"
+ },
+ "APConversion.h": {
+  "status": "pending"
+ },
+ "APInterval.h": {
+  "status": "pending"
+ },
+ "ApprCircle2.h": {
+  "status": "pending"
+ },
+ "ApprCone3.h": {
+  "status": "pending"
+ },
+ "ApprCone3EllipseAndPoints.h": {
+  "status": "pending"
+ },
+ "ApprCurveByArcs.h": {
+  "status": "pending"
+ },
+ "ApprCylinder3.h": {
+  "status": "pending"
+ },
+ "ApprEllipse2.h": {
+  "status": "pending"
+ },
+ "ApprEllipseByArcs.h": {
+  "status": "pending"
+ },
+ "ApprEllipsoid3.h": {
+  "status": "pending"
+ },
+ "ApprGaussian2.h": {
+  "status": "pending"
+ },
+ "ApprGaussian3.h": {
+  "status": "pending"
+ },
+ "ApprGreatCircle3.h": {
+  "status": "pending"
+ },
+ "ApprHeightLine2.h": {
+  "status": "pending"
+ },
+ "ApprHeightPlane3.h": {
+  "status": "pending"
+ },
+ "ApprOrthogonalLine2.h": {
+  "status": "pending"
+ },
+ "ApprOrthogonalLine3.h": {
+  "status": "pending"
+ },
+ "ApprOrthogonalPlane3.h": {
+  "status": "pending"
+ },
+ "ApprParabola2.h": {
+  "status": "pending"
+ },
+ "ApprParaboloid3.h": {
+  "status": "pending"
+ },
+ "ApprParallelLines2.h": {
+  "status": "pending"
+ },
+ "ApprPolynomial2.h": {
+  "status": "pending"
+ },
+ "ApprPolynomial3.h": {
+  "status": "pending"
+ },
+ "ApprPolynomial4.h": {
+  "status": "pending"
+ },
+ "ApprPolynomialSpecial2.h": {
+  "status": "pending"
+ },
+ "ApprPolynomialSpecial3.h": {
+  "status": "pending"
+ },
+ "ApprPolynomialSpecial4.h": {
+  "status": "pending"
+ },
+ "ApprQuadratic2.h": {
+  "status": "pending"
+ },
+ "ApprQuadratic3.h": {
+  "status": "pending"
+ },
+ "ApprQuery.h": {
+  "status": "pending"
+ },
+ "ApprSphere3.h": {
+  "status": "pending"
+ },
+ "ApprTorus3.h": {
+  "status": "pending"
+ },
+ "ArbitraryPrecision.h": {
+  "status": "pending"
+ },
+ "Arc2.h": {
+  "status": "pending"
+ },
+ "Array2.h": {
+  "status": "pending"
+ },
+ "Array3.h": {
+  "status": "pending"
+ },
+ "Array4.h": {
+  "status": "pending"
+ },
+ "ASinEstimate.h": {
+  "status": "pending"
+ },
+ "ATanEstimate.h": {
+  "status": "pending"
+ },
+ "AtomicMinMax.h": {
+  "status": "omitted",
+  "notes": "C++ std::atomic utility, no mathematical content"
+ },
+ "AxisAngle.h": {
+  "status": "pending"
+ },
+ "BandedMatrix.h": {
+  "status": "pending"
+ },
+ "BasisFunction.h": {
+  "status": "pending"
+ },
+ "BezierCurve.h": {
+  "status": "pending"
+ },
+ "BitHacks.h": {
+  "status": "pending"
+ },
+ "BoxManager.h": {
+  "status": "pending"
+ },
+ "BSNumber.h": {
+  "status": "pending"
+ },
+ "BSplineCurve.h": {
+  "status": "pending"
+ },
+ "BSplineCurveFit.h": {
+  "status": "pending"
+ },
+ "BSplineGeodesic.h": {
+  "status": "pending"
+ },
+ "BSplineReduction.h": {
+  "status": "pending"
+ },
+ "BSplineSurface.h": {
+  "status": "pending"
+ },
+ "BSplineSurfaceFit.h": {
+  "status": "pending"
+ },
+ "BSplineVolume.h": {
+  "status": "pending"
+ },
+ "BSPPolygon2.h": {
+  "status": "pending"
+ },
+ "BSPrecision.h": {
+  "status": "pending"
+ },
+ "BSRational.h": {
+  "status": "pending"
+ },
+ "BVTree.h": {
+  "status": "pending"
+ },
+ "BVTreeOfPoints.h": {
+  "status": "pending"
+ },
+ "BVTreeOfSegments.h": {
+  "status": "pending"
+ },
+ "BVTreeOfTriangles.h": {
+  "status": "pending"
+ },
+ "CanonicalBox.h": {
+  "status": "pending"
+ },
+ "Capsule.h": {
+  "status": "pending"
+ },
+ "ChebyshevRatio.h": {
+  "status": "pending"
+ },
+ "ChebyshevRatioEstimate.h": {
+  "status": "pending"
+ },
+ "CholeskyDecomposition.h": {
+  "status": "pending"
+ },
+ "Circle3.h": {
+  "status": "pending"
+ },
+ "CircleThroughPointSpecifiedTangentAndRadius.h": {
+  "status": "pending"
+ },
+ "CircleThroughTwoPointsSpecifiedRadius.h": {
+  "status": "pending"
+ },
+ "CLODPolyline.h": {
+  "status": "pending"
+ },
+ "Cone.h": {
+  "status": "pending"
+ },
+ "ConformalMapGenus0.h": {
+  "status": "pending"
+ },
+ "Constants.h": {
+  "status": "pending"
+ },
+ "ConstrainedDelaunay2.h": {
+  "status": "pending"
+ },
+ "ContAlignedBox.h": {
+  "status": "pending"
+ },
+ "ContAlignedBox2Arc2.h": {
+  "status": "pending"
+ },
+ "ContCapsule3.h": {
+  "status": "pending"
+ },
+ "ContCircle2.h": {
+  "status": "pending"
+ },
+ "ContCone.h": {
+  "status": "pending"
+ },
+ "ContCylinder3.h": {
+  "status": "pending"
+ },
+ "ContEllipse2.h": {
+  "status": "pending"
+ },
+ "ContEllipse2MinCR.h": {
+  "status": "pending"
+ },
+ "ContEllipsoid3.h": {
+  "status": "pending"
+ },
+ "ContEllipsoid3MinCR.h": {
+  "status": "pending"
+ },
+ "ContLozenge3.h": {
+  "status": "pending"
+ },
+ "ContOrientedBox2.h": {
+  "status": "pending"
+ },
+ "ContOrientedBox3.h": {
+  "status": "pending"
+ },
+ "ContPointInPolygon2.h": {
+  "status": "pending"
+ },
+ "ContPointInPolyhedron3.h": {
+  "status": "pending"
+ },
+ "ContScribeCircle2.h": {
+  "status": "pending"
+ },
+ "ContScribeCircle3Sphere3.h": {
+  "status": "pending"
+ },
+ "ContSphere3.h": {
+  "status": "pending"
+ },
+ "ContTetrahedron3.h": {
+  "status": "pending"
+ },
+ "ConvertCoordinates.h": {
+  "status": "pending"
+ },
+ "ConvexHull2.h": {
+  "status": "pending"
+ },
+ "ConvexHull3.h": {
+  "status": "pending"
+ },
+ "ConvexHullSimplePolygon.h": {
+  "status": "pending"
+ },
+ "ConvexMesh3.h": {
+  "status": "pending"
+ },
+ "ConvexPolyhedron3.h": {
+  "status": "pending"
+ },
+ "CosEstimate.h": {
+  "status": "pending"
+ },
+ "CubicRootsQR.h": {
+  "status": "pending"
+ },
+ "CurvatureFlow2.h": {
+  "status": "pending"
+ },
+ "CurvatureFlow3.h": {
+  "status": "pending"
+ },
+ "CurveExtractor.h": {
+  "status": "pending"
+ },
+ "CurveExtractorSquares.h": {
+  "status": "pending"
+ },
+ "CurveExtractorTriangles.h": {
+  "status": "pending"
+ },
+ "Cylinder3.h": {
+  "status": "pending"
+ },
+ "DarbouxFrame.h": {
+  "status": "pending"
+ },
+ "DCPQuery.h": {
+  "status": "pending"
+ },
+ "Delaunay2.h": {
+  "status": "pending"
+ },
+ "Delaunay2Mesh.h": {
+  "status": "pending"
+ },
+ "Delaunay3.h": {
+  "status": "pending"
+ },
+ "Delaunay3Mesh.h": {
+  "status": "pending"
+ },
+ "DisjointIntervals.h": {
+  "status": "pending"
+ },
+ "DisjointRectangles.h": {
+  "status": "pending"
+ },
+ "DistAlignedBox3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "DistAlignedBoxAlignedBox.h": {
+  "status": "pending"
+ },
+ "DistCircle2Circle2.h": {
+  "status": "pending"
+ },
+ "DistCircle3Circle3.h": {
+  "status": "pending"
+ },
+ "DistLine2AlignedBox2.h": {
+  "status": "pending"
+ },
+ "DistLine2Arc2.h": {
+  "status": "pending"
+ },
+ "DistLine2Circle2.h": {
+  "status": "pending"
+ },
+ "DistLine2OrientedBox2.h": {
+  "status": "pending"
+ },
+ "DistLine2Triangle2.h": {
+  "status": "pending"
+ },
+ "DistLine3AlignedBox3.h": {
+  "status": "pending"
+ },
+ "DistLine3CanonicalBox3.h": {
+  "status": "pending"
+ },
+ "DistLine3Circle3.h": {
+  "status": "pending"
+ },
+ "DistLine3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "DistLine3Rectangle3.h": {
+  "status": "pending"
+ },
+ "DistLine3Triangle3.h": {
+  "status": "pending"
+ },
+ "DistLineLine.h": {
+  "status": "pending"
+ },
+ "DistLineRay.h": {
+  "status": "pending"
+ },
+ "DistLineSegment.h": {
+  "status": "pending"
+ },
+ "DistOrientedBox3Cone3.h": {
+  "status": "pending"
+ },
+ "DistOrientedBox3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "DistPlane3AlignedBox3.h": {
+  "status": "pending"
+ },
+ "DistPlane3CanonicalBox3.h": {
+  "status": "pending"
+ },
+ "DistPlane3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "DistPoint2Arc2.h": {
+  "status": "pending"
+ },
+ "DistPoint2Circle2.h": {
+  "status": "pending"
+ },
+ "DistPoint2Parallelogram2.h": {
+  "status": "pending"
+ },
+ "DistPoint3Circle3.h": {
+  "status": "pending"
+ },
+ "DistPoint3ConvexPolyhedron3.h": {
+  "status": "pending"
+ },
+ "DistPoint3Cylinder3.h": {
+  "status": "pending"
+ },
+ "DistPoint3Frustum3.h": {
+  "status": "pending"
+ },
+ "DistPoint3Parallelepiped3.h": {
+  "status": "pending"
+ },
+ "DistPoint3Tetrahedron3.h": {
+  "status": "pending"
+ },
+ "DistPointAlignedBox.h": {
+  "status": "pending"
+ },
+ "DistPointCanonicalBox.h": {
+  "status": "pending"
+ },
+ "DistPointHyperellipsoid.h": {
+  "status": "pending"
+ },
+ "DistPointHyperplane.h": {
+  "status": "pending"
+ },
+ "DistPointLine.h": {
+  "status": "pending"
+ },
+ "DistPointOrientedBox.h": {
+  "status": "pending"
+ },
+ "DistPointRay.h": {
+  "status": "pending"
+ },
+ "DistPointRectangle.h": {
+  "status": "pending"
+ },
+ "DistPointSegment.h": {
+  "status": "pending"
+ },
+ "DistPointTriangle.h": {
+  "status": "pending"
+ },
+ "DistRay2AlignedBox2.h": {
+  "status": "pending"
+ },
+ "DistRay2Arc2.h": {
+  "status": "pending"
+ },
+ "DistRay2Circle2.h": {
+  "status": "pending"
+ },
+ "DistRay2OrientedBox2.h": {
+  "status": "pending"
+ },
+ "DistRay2Triangle2.h": {
+  "status": "pending"
+ },
+ "DistRay3AlignedBox3.h": {
+  "status": "pending"
+ },
+ "DistRay3CanonicalBox3.h": {
+  "status": "pending"
+ },
+ "DistRay3Circle3.h": {
+  "status": "pending"
+ },
+ "DistRay3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "DistRay3Rectangle3.h": {
+  "status": "pending"
+ },
+ "DistRay3Triangle3.h": {
+  "status": "pending"
+ },
+ "DistRayRay.h": {
+  "status": "pending"
+ },
+ "DistRaySegment.h": {
+  "status": "pending"
+ },
+ "DistRectangle3AlignedBox3.h": {
+  "status": "pending"
+ },
+ "DistRectangle3CanonicalBox3.h": {
+  "status": "pending"
+ },
+ "DistRectangle3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "DistRectangle3Rectangle3.h": {
+  "status": "pending"
+ },
+ "DistSegment2AlignedBox2.h": {
+  "status": "pending"
+ },
+ "DistSegment2Arc2.h": {
+  "status": "pending"
+ },
+ "DistSegment2Circle2.h": {
+  "status": "pending"
+ },
+ "DistSegment2OrientedBox2.h": {
+  "status": "pending"
+ },
+ "DistSegment2Triangle2.h": {
+  "status": "pending"
+ },
+ "DistSegment3AlignedBox3.h": {
+  "status": "pending"
+ },
+ "DistSegment3CanonicalBox3.h": {
+  "status": "pending"
+ },
+ "DistSegment3Circle3.h": {
+  "status": "pending"
+ },
+ "DistSegment3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "DistSegment3Rectangle3.h": {
+  "status": "pending"
+ },
+ "DistSegment3Triangle3.h": {
+  "status": "pending"
+ },
+ "DistSegmentSegment.h": {
+  "status": "pending"
+ },
+ "DistTetrahedron3Tetrahedron3.h": {
+  "status": "pending"
+ },
+ "DistTriangle3AlignedBox3.h": {
+  "status": "pending"
+ },
+ "DistTriangle3CanonicalBox3.h": {
+  "status": "pending"
+ },
+ "DistTriangle3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "DistTriangle3Rectangle3.h": {
+  "status": "pending"
+ },
+ "DistTriangle3Triangle3.h": {
+  "status": "pending"
+ },
+ "EdgeKey.h": {
+  "status": "pending"
+ },
+ "Ellipse3.h": {
+  "status": "pending"
+ },
+ "EllipsoidGeodesic.h": {
+  "status": "pending"
+ },
+ "ETManifoldMesh.h": {
+  "status": "pending"
+ },
+ "ETNonmanifoldMesh.h": {
+  "status": "pending"
+ },
+ "EulerAngles.h": {
+  "status": "pending"
+ },
+ "Exp2Estimate.h": {
+  "status": "pending"
+ },
+ "ExpEstimate.h": {
+  "status": "pending"
+ },
+ "ExtremalQuery3.h": {
+  "status": "pending"
+ },
+ "ExtremalQuery3BSP.h": {
+  "status": "pending"
+ },
+ "ExtremalQuery3PRJ.h": {
+  "status": "pending"
+ },
+ "FastGaussianBlur1.h": {
+  "status": "pending"
+ },
+ "FastGaussianBlur2.h": {
+  "status": "pending"
+ },
+ "FastGaussianBlur3.h": {
+  "status": "pending"
+ },
+ "FastMarch.h": {
+  "status": "pending"
+ },
+ "FastMarch2.h": {
+  "status": "pending"
+ },
+ "FastMarch3.h": {
+  "status": "pending"
+ },
+ "FeatureKey.h": {
+  "status": "pending"
+ },
+ "FIQuery.h": {
+  "status": "pending"
+ },
+ "FPInterval.h": {
+  "status": "pending"
+ },
+ "FrenetFrame.h": {
+  "status": "pending"
+ },
+ "Frustum3.h": {
+  "status": "pending"
+ },
+ "Functions.h": {
+  "status": "pending"
+ },
+ "GaussianBlur2.h": {
+  "status": "pending"
+ },
+ "GaussianBlur3.h": {
+  "status": "pending"
+ },
+ "GaussianElimination.h": {
+  "status": "pending"
+ },
+ "GaussNewtonMinimizer.h": {
+  "status": "pending"
+ },
+ "GenerateMeshUV.h": {
+  "status": "pending"
+ },
+ "GMatrix.h": {
+  "status": "pending"
+ },
+ "GradientAnisotropic2.h": {
+  "status": "pending"
+ },
+ "GradientAnisotropic3.h": {
+  "status": "pending"
+ },
+ "GVector.h": {
+  "status": "pending"
+ },
+ "Halfspace.h": {
+  "status": "pending"
+ },
+ "HashCombine.h": {
+  "status": "pending"
+ },
+ "HelmertTransformation7.h": {
+  "status": "pending"
+ },
+ "HermiteBicubic.h": {
+  "status": "pending"
+ },
+ "HermiteBiquintic.h": {
+  "status": "pending"
+ },
+ "HermiteCubic.h": {
+  "status": "pending"
+ },
+ "HermiteQuintic.h": {
+  "status": "pending"
+ },
+ "HermiteTricubic.h": {
+  "status": "pending"
+ },
+ "HermiteTriquintic.h": {
+  "status": "pending"
+ },
+ "Histogram.h": {
+  "status": "pending"
+ },
+ "Hyperellipsoid.h": {
+  "status": "pending"
+ },
+ "Hyperplane.h": {
+  "status": "pending"
+ },
+ "Hypersphere.h": {
+  "status": "pending"
+ },
+ "IEEEBinary.h": {
+  "status": "pending"
+ },
+ "IEEEBinary16.h": {
+  "status": "pending"
+ },
+ "Image.h": {
+  "status": "pending"
+ },
+ "Image2.h": {
+  "status": "pending"
+ },
+ "Image3.h": {
+  "status": "pending"
+ },
+ "ImageUtility2.h": {
+  "status": "pending"
+ },
+ "ImageUtility3.h": {
+  "status": "pending"
+ },
+ "ImplicitCurve2.h": {
+  "status": "pending"
+ },
+ "ImplicitSurface3.h": {
+  "status": "pending"
+ },
+ "IncrementalDelaunay2.h": {
+  "status": "pending"
+ },
+ "IndexAttribute.h": {
+  "status": "pending"
+ },
+ "InscribedFixedAspectRectInQuad.h": {
+  "status": "pending"
+ },
+ "Integration.h": {
+  "status": "pending"
+ },
+ "IntpAkima1.h": {
+  "status": "pending"
+ },
+ "IntpAkimaNonuniform1.h": {
+  "status": "pending"
+ },
+ "IntpAkimaUniform1.h": {
+  "status": "pending"
+ },
+ "IntpAkimaUniform2.h": {
+  "status": "pending"
+ },
+ "IntpAkimaUniform3.h": {
+  "status": "pending"
+ },
+ "IntpBicubic2.h": {
+  "status": "pending"
+ },
+ "IntpBilinear2.h": {
+  "status": "pending"
+ },
+ "IntpBSplineUniform.h": {
+  "status": "pending"
+ },
+ "IntpLinearNonuniform2.h": {
+  "status": "pending"
+ },
+ "IntpLinearNonuniform3.h": {
+  "status": "pending"
+ },
+ "IntpQuadraticNonuniform2.h": {
+  "status": "pending"
+ },
+ "IntpSphere2.h": {
+  "status": "pending"
+ },
+ "IntpThinPlateSpline2.h": {
+  "status": "pending"
+ },
+ "IntpThinPlateSpline3.h": {
+  "status": "pending"
+ },
+ "IntpTricubic3.h": {
+  "status": "pending"
+ },
+ "IntpTrilinear3.h": {
+  "status": "pending"
+ },
+ "IntpVectorField2.h": {
+  "status": "pending"
+ },
+ "IntrAlignedBox2AlignedBox2.h": {
+  "status": "pending"
+ },
+ "IntrAlignedBox2Circle2.h": {
+  "status": "pending"
+ },
+ "IntrAlignedBox2OrientedBox2.h": {
+  "status": "pending"
+ },
+ "IntrAlignedBox3AlignedBox3.h": {
+  "status": "pending"
+ },
+ "IntrAlignedBox3Cone3.h": {
+  "status": "pending"
+ },
+ "IntrAlignedBox3Cylinder3.h": {
+  "status": "pending"
+ },
+ "IntrAlignedBox3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "IntrAlignedBox3Sphere3.h": {
+  "status": "pending"
+ },
+ "IntrArc2Arc2.h": {
+  "status": "pending"
+ },
+ "IntrAreaEllipse2Ellipse2.h": {
+  "status": "pending"
+ },
+ "IntrCanonicalBox3Cylinder3.h": {
+  "status": "pending"
+ },
+ "IntrCapsule3Capsule3.h": {
+  "status": "pending"
+ },
+ "IntrCircle2Arc2.h": {
+  "status": "pending"
+ },
+ "IntrCircle2Circle2.h": {
+  "status": "pending"
+ },
+ "IntrConvexMesh3Plane3.h": {
+  "status": "pending"
+ },
+ "IntrConvexPolygonHyperplane.h": {
+  "status": "pending"
+ },
+ "IntrCylinder3Cylinder3.h": {
+  "status": "pending"
+ },
+ "IntrDisk2Sector2.h": {
+  "status": "pending"
+ },
+ "IntrEllipse2Ellipse2.h": {
+  "status": "pending"
+ },
+ "IntrEllipsoid3Ellipsoid3.h": {
+  "status": "pending"
+ },
+ "IntrHalfspace2Polygon2.h": {
+  "status": "pending"
+ },
+ "IntrHalfspace3Capsule3.h": {
+  "status": "pending"
+ },
+ "IntrHalfspace3Cylinder3.h": {
+  "status": "pending"
+ },
+ "IntrHalfspace3Ellipsoid3.h": {
+  "status": "pending"
+ },
+ "IntrHalfspace3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "IntrHalfspace3Segment3.h": {
+  "status": "pending"
+ },
+ "IntrHalfspace3Sphere3.h": {
+  "status": "pending"
+ },
+ "IntrHalfspace3Triangle3.h": {
+  "status": "pending"
+ },
+ "IntrIntervals.h": {
+  "status": "pending"
+ },
+ "IntrLine2AlignedBox2.h": {
+  "status": "pending"
+ },
+ "IntrLine2Arc2.h": {
+  "status": "pending"
+ },
+ "IntrLine2Circle2.h": {
+  "status": "pending"
+ },
+ "IntrLine2Line2.h": {
+  "status": "pending"
+ },
+ "IntrLine2OrientedBox2.h": {
+  "status": "pending"
+ },
+ "IntrLine2Ray2.h": {
+  "status": "pending"
+ },
+ "IntrLine2Segment2.h": {
+  "status": "pending"
+ },
+ "IntrLine2SegmentMesh2.h": {
+  "status": "pending"
+ },
+ "IntrLine2Triangle2.h": {
+  "status": "pending"
+ },
+ "IntrLine3AlignedBox3.h": {
+  "status": "pending"
+ },
+ "IntrLine3Capsule3.h": {
+  "status": "pending"
+ },
+ "IntrLine3Cone3.h": {
+  "status": "pending"
+ },
+ "IntrLine3Cylinder3.h": {
+  "status": "pending"
+ },
+ "IntrLine3Ellipsoid3.h": {
+  "status": "pending"
+ },
+ "IntrLine3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "IntrLine3Plane3.h": {
+  "status": "pending"
+ },
+ "IntrLine3Rectangle3.h": {
+  "status": "pending"
+ },
+ "IntrLine3Sphere3.h": {
+  "status": "pending"
+ },
+ "IntrLine3Torus3.h": {
+  "status": "pending"
+ },
+ "IntrLine3Triangle3.h": {
+  "status": "pending"
+ },
+ "IntrOrientedBox2Circle2.h": {
+  "status": "pending"
+ },
+ "IntrOrientedBox2Cone2.h": {
+  "status": "pending"
+ },
+ "IntrOrientedBox2OrientedBox2.h": {
+  "status": "pending"
+ },
+ "IntrOrientedBox2Sector2.h": {
+  "status": "pending"
+ },
+ "IntrOrientedBox3Cone3.h": {
+  "status": "pending"
+ },
+ "IntrOrientedBox3Cylinder3.h": {
+  "status": "pending"
+ },
+ "IntrOrientedBox3Frustum3.h": {
+  "status": "pending"
+ },
+ "IntrOrientedBox3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "IntrOrientedBox3Sphere3.h": {
+  "status": "pending"
+ },
+ "IntrPlane3Capsule3.h": {
+  "status": "pending"
+ },
+ "IntrPlane3Circle3.h": {
+  "status": "pending"
+ },
+ "IntrPlane3Cylinder3.h": {
+  "status": "pending"
+ },
+ "IntrPlane3Ellipsoid3.h": {
+  "status": "pending"
+ },
+ "IntrPlane3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "IntrPlane3Plane3.h": {
+  "status": "pending"
+ },
+ "IntrPlane3Sphere3.h": {
+  "status": "pending"
+ },
+ "IntrPlane3Triangle3.h": {
+  "status": "pending"
+ },
+ "IntrRay2AlignedBox2.h": {
+  "status": "pending"
+ },
+ "IntrRay2Arc2.h": {
+  "status": "pending"
+ },
+ "IntrRay2Circle2.h": {
+  "status": "pending"
+ },
+ "IntrRay2OrientedBox2.h": {
+  "status": "pending"
+ },
+ "IntrRay2Ray2.h": {
+  "status": "pending"
+ },
+ "IntrRay2Segment2.h": {
+  "status": "pending"
+ },
+ "IntrRay2SegmentMesh2.h": {
+  "status": "pending"
+ },
+ "IntrRay2Triangle2.h": {
+  "status": "pending"
+ },
+ "IntrRay3AlignedBox3.h": {
+  "status": "pending"
+ },
+ "IntrRay3Capsule3.h": {
+  "status": "pending"
+ },
+ "IntrRay3Cone3.h": {
+  "status": "pending"
+ },
+ "IntrRay3Cylinder3.h": {
+  "status": "pending"
+ },
+ "IntrRay3Ellipsoid3.h": {
+  "status": "pending"
+ },
+ "IntrRay3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "IntrRay3Plane3.h": {
+  "status": "pending"
+ },
+ "IntrRay3Rectangle3.h": {
+  "status": "pending"
+ },
+ "IntrRay3Sphere3.h": {
+  "status": "pending"
+ },
+ "IntrRay3Triangle3.h": {
+  "status": "pending"
+ },
+ "IntrSegment2AlignedBox2.h": {
+  "status": "pending"
+ },
+ "IntrSegment2Arc2.h": {
+  "status": "pending"
+ },
+ "IntrSegment2Circle2.h": {
+  "status": "pending"
+ },
+ "IntrSegment2OrientedBox2.h": {
+  "status": "pending"
+ },
+ "IntrSegment2Segment2.h": {
+  "status": "pending"
+ },
+ "IntrSegment2SegmentMesh2.h": {
+  "status": "pending"
+ },
+ "IntrSegment2Triangle2.h": {
+  "status": "pending"
+ },
+ "IntrSegment3AlignedBox3.h": {
+  "status": "pending"
+ },
+ "IntrSegment3Capsule3.h": {
+  "status": "pending"
+ },
+ "IntrSegment3Cone3.h": {
+  "status": "pending"
+ },
+ "IntrSegment3Cylinder3.h": {
+  "status": "pending"
+ },
+ "IntrSegment3Ellipsoid3.h": {
+  "status": "pending"
+ },
+ "IntrSegment3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "IntrSegment3Plane3.h": {
+  "status": "pending"
+ },
+ "IntrSegment3Rectangle3.h": {
+  "status": "pending"
+ },
+ "IntrSegment3Sphere3.h": {
+  "status": "pending"
+ },
+ "IntrSegment3Triangle3.h": {
+  "status": "pending"
+ },
+ "IntrSphere3Cone3.h": {
+  "status": "pending"
+ },
+ "IntrSphere3Frustum3.h": {
+  "status": "pending"
+ },
+ "IntrSphere3Sphere3.h": {
+  "status": "pending"
+ },
+ "IntrSphere3Triangle3.h": {
+  "status": "pending"
+ },
+ "IntrTetrahedron3Tetrahedron3.h": {
+  "status": "pending"
+ },
+ "IntrTriangle2Triangle2.h": {
+  "status": "pending"
+ },
+ "IntrTriangle3AlignedBox3.h": {
+  "status": "pending"
+ },
+ "IntrTriangle3CanonicalBox3.h": {
+  "status": "pending"
+ },
+ "IntrTriangle3Cylinder3.h": {
+  "status": "pending"
+ },
+ "IntrTriangle3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "IntrTriangle3Triangle3.h": {
+  "status": "pending"
+ },
+ "InvSqrtEstimate.h": {
+  "status": "pending"
+ },
+ "IsPlanarGraph.h": {
+  "status": "pending"
+ },
+ "LCPSolver.h": {
+  "status": "pending"
+ },
+ "LDLTDecomposition.h": {
+  "status": "pending"
+ },
+ "LevenbergMarquardtMinimizer.h": {
+  "status": "pending"
+ },
+ "LexicoArray2.h": {
+  "status": "pending"
+ },
+ "LieGroupsAlgebras.h": {
+  "status": "pending"
+ },
+ "Line.h": {
+  "status": "pending"
+ },
+ "LinearSystem.h": {
+  "status": "pending"
+ },
+ "Log2Estimate.h": {
+  "status": "pending"
+ },
+ "LogEstimate.h": {
+  "status": "pending"
+ },
+ "Logger.h": {
+  "status": "pending"
+ },
+ "Lozenge3.h": {
+  "status": "pending"
+ },
+ "MarchingCubes.h": {
+  "status": "pending"
+ },
+ "MassSpringArbitrary.h": {
+  "status": "pending"
+ },
+ "MassSpringCurve.h": {
+  "status": "pending"
+ },
+ "MassSpringSurface.h": {
+  "status": "pending"
+ },
+ "MassSpringVolume.h": {
+  "status": "pending"
+ },
+ "Matrix.h": {
+  "status": "pending"
+ },
+ "Matrix2x2.h": {
+  "status": "pending"
+ },
+ "Matrix3x3.h": {
+  "status": "pending"
+ },
+ "Matrix4x4.h": {
+  "status": "pending"
+ },
+ "Mesh.h": {
+  "status": "pending"
+ },
+ "MeshCurvature.h": {
+  "status": "pending"
+ },
+ "MeshSmoother.h": {
+  "status": "pending"
+ },
+ "MeshStaticManifold2.h": {
+  "status": "pending"
+ },
+ "MeshStaticManifold3.h": {
+  "status": "pending"
+ },
+ "MinHeap.h": {
+  "status": "pending"
+ },
+ "MinimalCycleBasis.h": {
+  "status": "pending"
+ },
+ "Minimize1.h": {
+  "status": "pending"
+ },
+ "MinimizeN.h": {
+  "status": "pending"
+ },
+ "MinimumAreaBox2.h": {
+  "status": "pending"
+ },
+ "MinimumAreaCircle2.h": {
+  "status": "pending"
+ },
+ "MinimumSpanningTree.h": {
+  "status": "pending"
+ },
+ "MinimumVolumeBox3.h": {
+  "status": "pending"
+ },
+ "MinimumVolumeBox3FloatingPoint.h": {
+  "status": "pending"
+ },
+ "MinimumVolumeBox3Rational.h": {
+  "status": "pending"
+ },
+ "MinimumVolumeSphere3.h": {
+  "status": "pending"
+ },
+ "MinimumWidthPoints2.h": {
+  "status": "pending"
+ },
+ "NaturalCubicSpline.h": {
+  "status": "pending"
+ },
+ "NaturalQuinticSpline.h": {
+  "status": "pending"
+ },
+ "NaturalSplineCurve.h": {
+  "status": "pending"
+ },
+ "NearestNeighborQuery.h": {
+  "status": "pending"
+ },
+ "NURBSCircle.h": {
+  "status": "pending"
+ },
+ "NURBSCurve.h": {
+  "status": "pending"
+ },
+ "NURBSSphere.h": {
+  "status": "pending"
+ },
+ "NURBSSurface.h": {
+  "status": "pending"
+ },
+ "NURBSVolume.h": {
+  "status": "pending"
+ },
+ "OBBTree.h": {
+  "status": "pending"
+ },
+ "OBBTreeOfPoints.h": {
+  "status": "pending"
+ },
+ "OBBTreeOfSegments.h": {
+  "status": "pending"
+ },
+ "OBBTreeOfTriangles.h": {
+  "status": "pending"
+ },
+ "OdeEuler.h": {
+  "status": "pending"
+ },
+ "OdeImplicitEuler.h": {
+  "status": "pending"
+ },
+ "OdeMidpoint.h": {
+  "status": "pending"
+ },
+ "OdeRungeKutta4.h": {
+  "status": "pending"
+ },
+ "OdeSolver.h": {
+  "status": "pending"
+ },
+ "OrientedBox.h": {
+  "status": "pending"
+ },
+ "OrientedBoxBV.h": {
+  "status": "pending"
+ },
+ "OrientedBoxTreeOfPoints.h": {
+  "status": "pending"
+ },
+ "OrientedBoxTreeOfSegments.h": {
+  "status": "pending"
+ },
+ "OrientedBoxTreeOfTriangles.h": {
+  "status": "pending"
+ },
+ "Parallelepiped3.h": {
+  "status": "pending"
+ },
+ "Parallelogram2.h": {
+  "status": "pending"
+ },
+ "ParametricCurve.h": {
+  "status": "pending"
+ },
+ "ParametricSurface.h": {
+  "status": "pending"
+ },
+ "ParticleSystem.h": {
+  "status": "pending"
+ },
+ "PdeFilter.h": {
+  "status": "pending"
+ },
+ "PdeFilter1.h": {
+  "status": "pending"
+ },
+ "PdeFilter2.h": {
+  "status": "pending"
+ },
+ "PdeFilter3.h": {
+  "status": "pending"
+ },
+ "PlanarMesh.h": {
+  "status": "pending"
+ },
+ "Polygon2.h": {
+  "status": "pending"
+ },
+ "PolygonTree.h": {
+  "status": "pending"
+ },
+ "PolygonWindingOrder.h": {
+  "status": "pending"
+ },
+ "PolyhedralMassProperties.h": {
+  "status": "pending"
+ },
+ "Polyhedron3.h": {
+  "status": "pending"
+ },
+ "PolylineOffset.h": {
+  "status": "pending"
+ },
+ "Polynomial1.h": {
+  "status": "pending"
+ },
+ "PolynomialCurve.h": {
+  "status": "pending"
+ },
+ "PolynomialRoot.h": {
+  "status": "pending"
+ },
+ "PrimalQuery2.h": {
+  "status": "pending"
+ },
+ "PrimalQuery3.h": {
+  "status": "pending"
+ },
+ "Projection.h": {
+  "status": "pending"
+ },
+ "QFNumber.h": {
+  "status": "pending"
+ },
+ "QuadricSurface.h": {
+  "status": "pending"
+ },
+ "QuarticRootsQR.h": {
+  "status": "pending"
+ },
+ "Quaternion.h": {
+  "status": "pending"
+ },
+ "RangeIteration.h": {
+  "status": "omitted",
+  "notes": "C++ reverse-iterator adapter, not applicable in TS"
+ },
+ "Ray.h": {
+  "status": "pending"
+ },
+ "Rectangle.h": {
+  "status": "pending"
+ },
+ "RectangleManager.h": {
+  "status": "pending"
+ },
+ "RectangleMesh.h": {
+  "status": "pending"
+ },
+ "RectanglePatchMesh.h": {
+  "status": "pending"
+ },
+ "RemezAlgorithm.h": {
+  "status": "pending"
+ },
+ "ReparameterizeByArclength.h": {
+  "status": "pending"
+ },
+ "RevolutionMesh.h": {
+  "status": "pending"
+ },
+ "RiemannianGeodesic.h": {
+  "status": "pending"
+ },
+ "RigidBody.h": {
+  "status": "pending"
+ },
+ "RootsBisection.h": {
+  "status": "pending"
+ },
+ "RootsBisection1.h": {
+  "status": "pending"
+ },
+ "RootsBisection2.h": {
+  "status": "pending"
+ },
+ "RootsBrentsMethod.h": {
+  "status": "pending"
+ },
+ "RootsCubic.h": {
+  "status": "pending"
+ },
+ "RootsGeneralPolynomial.h": {
+  "status": "pending"
+ },
+ "RootsLinear.h": {
+  "status": "pending"
+ },
+ "RootsPolynomial.h": {
+  "status": "pending"
+ },
+ "RootsQuadratic.h": {
+  "status": "pending"
+ },
+ "RootsQuartic.h": {
+  "status": "pending"
+ },
+ "RotatingCalipers.h": {
+  "status": "pending"
+ },
+ "Rotation.h": {
+  "status": "pending"
+ },
+ "RotationEstimate.h": {
+  "status": "pending"
+ },
+ "SampleCircularArc.h": {
+  "status": "pending"
+ },
+ "Sector2.h": {
+  "status": "pending"
+ },
+ "Segment.h": {
+  "status": "pending"
+ },
+ "SegmentMesh.h": {
+  "status": "pending"
+ },
+ "SeparatePoints2.h": {
+  "status": "pending"
+ },
+ "SeparatePoints3.h": {
+  "status": "pending"
+ },
+ "SharedPtrCompare.h": {
+  "status": "omitted",
+  "notes": "C++ smart-pointer comparator, not applicable in TS"
+ },
+ "SinEstimate.h": {
+  "status": "pending"
+ },
+ "SingularValueDecomposition.h": {
+  "status": "pending"
+ },
+ "Slerp.h": {
+  "status": "pending"
+ },
+ "SlerpEstimate.h": {
+  "status": "pending"
+ },
+ "SortPointsOnCircle.h": {
+  "status": "pending"
+ },
+ "SplitMeshByPlane.h": {
+  "status": "pending"
+ },
+ "SqrtEstimate.h": {
+  "status": "pending"
+ },
+ "StaticVETManifoldMesh2.h": {
+  "status": "pending"
+ },
+ "StaticVTSManifoldMesh3.h": {
+  "status": "pending"
+ },
+ "STLBinaryFile.h": {
+  "status": "pending"
+ },
+ "StringUtility.h": {
+  "status": "omitted",
+  "notes": "C++ narrow/wide string conversions, not applicable in TS"
+ },
+ "SurfaceExtractor.h": {
+  "status": "pending"
+ },
+ "SurfaceExtractorCubes.h": {
+  "status": "pending"
+ },
+ "SurfaceExtractorMC.h": {
+  "status": "pending"
+ },
+ "SurfaceExtractorTetrahedra.h": {
+  "status": "pending"
+ },
+ "SWInterval.h": {
+  "status": "pending"
+ },
+ "SymmetricEigensolver.h": {
+  "status": "pending"
+ },
+ "SymmetricEigensolver2x2.h": {
+  "status": "pending"
+ },
+ "SymmetricEigensolver3x3.h": {
+  "status": "pending"
+ },
+ "TanEstimate.h": {
+  "status": "pending"
+ },
+ "TCBSplineCurve.h": {
+  "status": "pending"
+ },
+ "TetrahedraRasterizer.h": {
+  "status": "pending"
+ },
+ "Tetrahedron3.h": {
+  "status": "pending"
+ },
+ "TetrahedronKey.h": {
+  "status": "pending"
+ },
+ "ThreadSafeMap.h": {
+  "status": "omitted",
+  "notes": "C++ thread/mutex wrapper, no mathematical content"
+ },
+ "ThreadSafeQueue.h": {
+  "status": "omitted",
+  "notes": "C++ thread/mutex wrapper, no mathematical content"
+ },
+ "Timer.h": {
+  "status": "omitted",
+  "notes": "C++ chrono wrapper; use performance.now() directly in TS"
+ },
+ "TIQuery.h": {
+  "status": "pending"
+ },
+ "Torus3.h": {
+  "status": "pending"
+ },
+ "Transform.h": {
+  "status": "pending"
+ },
+ "Triangle.h": {
+  "status": "pending"
+ },
+ "TriangleKey.h": {
+  "status": "pending"
+ },
+ "TriangulateCDT.h": {
+  "status": "pending"
+ },
+ "TriangulateEC.h": {
+  "status": "pending"
+ },
+ "TSManifoldMesh.h": {
+  "status": "pending"
+ },
+ "TubeMesh.h": {
+  "status": "pending"
+ },
+ "TypeTraits.h": {
+  "status": "pending"
+ },
+ "UIntegerALU32.h": {
+  "status": "pending"
+ },
+ "UIntegerAP32.h": {
+  "status": "pending"
+ },
+ "UIntegerFP32.h": {
+  "status": "pending"
+ },
+ "UniqueVerticesSimplices.h": {
+  "status": "pending"
+ },
+ "UniqueVerticesTriangles.h": {
+  "status": "pending"
+ },
+ "UnsymmetricEigenvalues.h": {
+  "status": "pending"
+ },
+ "Vector.h": {
+  "status": "pending"
+ },
+ "Vector2.h": {
+  "status": "pending"
+ },
+ "Vector3.h": {
+  "status": "pending"
+ },
+ "Vector4.h": {
+  "status": "pending"
+ },
+ "VEManifoldMesh.h": {
+  "status": "pending"
+ },
+ "VertexAttribute.h": {
+  "status": "pending"
+ },
+ "VertexCollapseMesh.h": {
+  "status": "pending"
+ },
+ "VETManifoldMesh.h": {
+  "status": "pending"
+ },
+ "VETNonmanifoldMesh.h": {
+  "status": "pending"
+ },
+ "VTSManifoldMesh.h": {
+  "status": "pending"
+ },
+ "WeakPtrCompare.h": {
+  "status": "omitted",
+  "notes": "C++ smart-pointer comparator, not applicable in TS"
+ }
+}

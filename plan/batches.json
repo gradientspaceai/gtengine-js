@@ -1,0 +1,5660 @@
+[
+ {
+  "category": "algebra",
+  "depth": 0,
+  "lines": 612,
+  "files": [
+   {
+    "file": "Vector.h",
+    "lines": 612,
+    "deps": []
+   }
+  ],
+  "id": 1
+ },
+ {
+  "category": "approximation",
+  "depth": 0,
+  "lines": 221,
+  "files": [
+   {
+    "file": "ApprQuery.h",
+    "lines": 221,
+    "deps": []
+   }
+  ],
+  "id": 2
+ },
+ {
+  "category": "arbitrary-precision",
+  "depth": 0,
+  "lines": 247,
+  "files": [
+   {
+    "file": "BSPrecision.h",
+    "lines": 247,
+    "deps": []
+   }
+  ],
+  "id": 3
+ },
+ {
+  "category": "computational-geometry",
+  "depth": 0,
+  "lines": 681,
+  "files": [
+   {
+    "file": "DisjointIntervals.h",
+    "lines": 408,
+    "deps": []
+   },
+   {
+    "file": "MinimumVolumeBox3.h",
+    "lines": 105,
+    "deps": []
+   },
+   {
+    "file": "SortPointsOnCircle.h",
+    "lines": 168,
+    "deps": []
+   }
+  ],
+  "id": 4
+ },
+ {
+  "category": "core",
+  "depth": 0,
+  "lines": 1849,
+  "files": [
+   {
+    "file": "Array2.h",
+    "lines": 149,
+    "deps": []
+   },
+   {
+    "file": "Array3.h",
+    "lines": 170,
+    "deps": []
+   },
+   {
+    "file": "Array4.h",
+    "lines": 191,
+    "deps": []
+   },
+   {
+    "file": "Constants.h",
+    "lines": 32,
+    "deps": []
+   },
+   {
+    "file": "DCPQuery.h",
+    "lines": 18,
+    "deps": []
+   },
+   {
+    "file": "FIQuery.h",
+    "lines": 18,
+    "deps": []
+   },
+   {
+    "file": "HashCombine.h",
+    "lines": 61,
+    "deps": []
+   },
+   {
+    "file": "IEEEBinary.h",
+    "lines": 455,
+    "deps": []
+   },
+   {
+    "file": "LexicoArray2.h",
+    "lines": 165,
+    "deps": []
+   },
+   {
+    "file": "Logger.h",
+    "lines": 49,
+    "deps": []
+   },
+   {
+    "file": "MinHeap.h",
+    "lines": 424,
+    "deps": []
+   },
+   {
+    "file": "TIQuery.h",
+    "lines": 18,
+    "deps": []
+   },
+   {
+    "file": "TypeTraits.h",
+    "lines": 99,
+    "deps": []
+   }
+  ],
+  "id": 5
+ },
+ {
+  "category": "estimates",
+  "depth": 0,
+  "lines": 142,
+  "files": [
+   {
+    "file": "Exp2Estimate.h",
+    "lines": 142,
+    "deps": []
+   }
+  ],
+  "id": 6
+ },
+ {
+  "category": "imaging",
+  "depth": 0,
+  "lines": 2082,
+  "files": [
+   {
+    "file": "FastGaussianBlur1.h",
+    "lines": 104,
+    "deps": []
+   },
+   {
+    "file": "FastGaussianBlur2.h",
+    "lines": 164,
+    "deps": []
+   },
+   {
+    "file": "FastGaussianBlur3.h",
+    "lines": 193,
+    "deps": []
+   },
+   {
+    "file": "Image.h",
+    "lines": 198,
+    "deps": []
+   },
+   {
+    "file": "MarchingCubes.h",
+    "lines": 1251,
+    "deps": []
+   },
+   {
+    "file": "PdeFilter.h",
+    "lines": 172,
+    "deps": []
+   }
+  ],
+  "id": 7
+ },
+ {
+  "category": "interpolation",
+  "depth": 0,
+  "lines": 612,
+  "files": [
+   {
+    "file": "HermiteCubic.h",
+    "lines": 236,
+    "deps": []
+   },
+   {
+    "file": "HermiteQuintic.h",
+    "lines": 376,
+    "deps": []
+   }
+  ],
+  "id": 8
+ },
+ {
+  "category": "meshes-graphs",
+  "depth": 0,
+  "lines": 775,
+  "files": [
+   {
+    "file": "IndexAttribute.h",
+    "lines": 88,
+    "deps": []
+   },
+   {
+    "file": "IsPlanarGraph.h",
+    "lines": 498,
+    "deps": []
+   },
+   {
+    "file": "STLBinaryFile.h",
+    "lines": 143,
+    "deps": []
+   },
+   {
+    "file": "VertexAttribute.h",
+    "lines": 46,
+    "deps": []
+   }
+  ],
+  "id": 9
+ },
+ {
+  "category": "numerical",
+  "depth": 0,
+  "lines": 1265,
+  "files": [
+   {
+    "file": "OdeSolver.h",
+    "lines": 58,
+    "deps": []
+   },
+   {
+    "file": "SymmetricEigensolver2x2.h",
+    "lines": 90,
+    "deps": []
+   },
+   {
+    "file": "SymmetricEigensolver3x3.h",
+    "lines": 731,
+    "deps": []
+   },
+   {
+    "file": "UnsymmetricEigenvalues.h",
+    "lines": 386,
+    "deps": []
+   }
+  ],
+  "id": 10
+ },
+ {
+  "category": "roots-polynomials",
+  "depth": 0,
+  "lines": 1737,
+  "files": [
+   {
+    "file": "CubicRootsQR.h",
+    "lines": 220,
+    "deps": []
+   },
+   {
+    "file": "RootsBisection.h",
+    "lines": 176,
+    "deps": []
+   },
+   {
+    "file": "RootsBrentsMethod.h",
+    "lines": 230,
+    "deps": []
+   },
+   {
+    "file": "RootsPolynomial.h",
+    "lines": 1111,
+    "deps": []
+   }
+  ],
+  "id": 11
+ },
+ {
+  "category": "algebra",
+  "depth": 1,
+  "lines": 1294,
+  "files": [
+   {
+    "file": "AxisAngle.h",
+    "lines": 45,
+    "deps": [
+     "Vector.h"
+    ]
+   },
+   {
+    "file": "EulerAngles.h",
+    "lines": 75,
+    "deps": [
+     "Vector.h"
+    ]
+   },
+   {
+    "file": "GVector.h",
+    "lines": 523,
+    "deps": [
+     "Logger.h"
+    ]
+   },
+   {
+    "file": "Vector2.h",
+    "lines": 259,
+    "deps": [
+     "Vector.h"
+    ]
+   },
+   {
+    "file": "Vector3.h",
+    "lines": 392,
+    "deps": [
+     "Vector.h"
+    ]
+   }
+  ],
+  "id": 12
+ },
+ {
+  "category": "arbitrary-precision",
+  "depth": 1,
+  "lines": 890,
+  "files": [
+   {
+    "file": "QFNumber.h",
+    "lines": 413,
+    "deps": [
+     "Logger.h"
+    ]
+   },
+   {
+    "file": "SWInterval.h",
+    "lines": 477,
+    "deps": [
+     "Logger.h"
+    ]
+   }
+  ],
+  "id": 13
+ },
+ {
+  "category": "computational-geometry",
+  "depth": 1,
+  "lines": 817,
+  "files": [
+   {
+    "file": "DisjointRectangles.h",
+    "lines": 457,
+    "deps": [
+     "DisjointIntervals.h"
+    ]
+   },
+   {
+    "file": "NearestNeighborQuery.h",
+    "lines": 360,
+    "deps": [
+     "Logger.h",
+     "Vector.h"
+    ]
+   }
+  ],
+  "id": 14
+ },
+ {
+  "category": "core",
+  "depth": 1,
+  "lines": 2128,
+  "files": [
+   {
+    "file": "BitHacks.h",
+    "lines": 212,
+    "deps": [
+     "Logger.h"
+    ]
+   },
+   {
+    "file": "CurveExtractor.h",
+    "lines": 288,
+    "deps": [
+     "Logger.h"
+    ]
+   },
+   {
+    "file": "Functions.h",
+    "lines": 227,
+    "deps": [
+     "Constants.h"
+    ]
+   },
+   {
+    "file": "MeshStaticManifold2.h",
+    "lines": 617,
+    "deps": [
+     "Logger.h"
+    ]
+   },
+   {
+    "file": "MeshStaticManifold3.h",
+    "lines": 438,
+    "deps": [
+     "Logger.h"
+    ]
+   },
+   {
+    "file": "UniqueVerticesTriangles.h",
+    "lines": 346,
+    "deps": [
+     "Logger.h"
+    ]
+   }
+  ],
+  "id": 15
+ },
+ {
+  "category": "curves",
+  "depth": 1,
+  "lines": 489,
+  "files": [
+   {
+    "file": "BasisFunction.h",
+    "lines": 489,
+    "deps": [
+     "Array2.h",
+     "Logger.h"
+    ]
+   }
+  ],
+  "id": 16
+ },
+ {
+  "category": "estimates",
+  "depth": 1,
+  "lines": 1744,
+  "files": [
+   {
+    "file": "ACosEstimate.h",
+    "lines": 135,
+    "deps": [
+     "Constants.h"
+    ]
+   },
+   {
+    "file": "ATanEstimate.h",
+    "lines": 141,
+    "deps": [
+     "Constants.h"
+    ]
+   },
+   {
+    "file": "ChebyshevRatio.h",
+    "lines": 155,
+    "deps": [
+     "Constants.h",
+     "Logger.h"
+    ]
+   },
+   {
+    "file": "ChebyshevRatioEstimate.h",
+    "lines": 290,
+    "deps": [
+     "Constants.h"
+    ]
+   },
+   {
+    "file": "CosEstimate.h",
+    "lines": 138,
+    "deps": [
+     "Constants.h"
+    ]
+   },
+   {
+    "file": "ExpEstimate.h",
+    "lines": 79,
+    "deps": [
+     "Constants.h",
+     "Exp2Estimate.h"
+    ]
+   },
+   {
+    "file": "InvSqrtEstimate.h",
+    "lines": 165,
+    "deps": [
+     "Constants.h"
+    ]
+   },
+   {
+    "file": "Log2Estimate.h",
+    "lines": 167,
+    "deps": [
+     "Constants.h"
+    ]
+   },
+   {
+    "file": "SinEstimate.h",
+    "lines": 139,
+    "deps": [
+     "Constants.h"
+    ]
+   },
+   {
+    "file": "SqrtEstimate.h",
+    "lines": 165,
+    "deps": [
+     "Constants.h"
+    ]
+   },
+   {
+    "file": "TanEstimate.h",
+    "lines": 170,
+    "deps": [
+     "Constants.h"
+    ]
+   }
+  ],
+  "id": 17
+ },
+ {
+  "category": "imaging",
+  "depth": 1,
+  "lines": 2006,
+  "files": [
+   {
+    "file": "AdaptiveSkeletonClimbing2.h",
+    "lines": 942,
+    "deps": [
+     "Logger.h"
+    ]
+   },
+   {
+    "file": "FastMarch.h",
+    "lines": 199,
+    "deps": [
+     "MinHeap.h"
+    ]
+   },
+   {
+    "file": "Histogram.h",
+    "lines": 342,
+    "deps": [
+     "Logger.h"
+    ]
+   },
+   {
+    "file": "Image2.h",
+    "lines": 523,
+    "deps": [
+     "Image.h",
+     "Logger.h"
+    ]
+   }
+  ],
+  "id": 18
+ },
+ {
+  "category": "imaging",
+  "depth": 1,
+  "lines": 1557,
+  "files": [
+   {
+    "file": "Image3.h",
+    "lines": 760,
+    "deps": [
+     "Image.h",
+     "Logger.h"
+    ]
+   },
+   {
+    "file": "PdeFilter1.h",
+    "lines": 296,
+    "deps": [
+     "PdeFilter.h"
+    ]
+   },
+   {
+    "file": "PdeFilter2.h",
+    "lines": 501,
+    "deps": [
+     "Array2.h",
+     "PdeFilter.h"
+    ]
+   }
+  ],
+  "id": 19
+ },
+ {
+  "category": "imaging",
+  "depth": 1,
+  "lines": 1810,
+  "files": [
+   {
+    "file": "PdeFilter3.h",
+    "lines": 957,
+    "deps": [
+     "Array3.h",
+     "PdeFilter.h"
+    ]
+   },
+   {
+    "file": "SurfaceExtractor.h",
+    "lines": 469,
+    "deps": [
+     "Logger.h"
+    ]
+   },
+   {
+    "file": "TetrahedraRasterizer.h",
+    "lines": 384,
+    "deps": [
+     "Logger.h"
+    ]
+   }
+  ],
+  "id": 20
+ },
+ {
+  "category": "interpolation",
+  "depth": 1,
+  "lines": 1613,
+  "files": [
+   {
+    "file": "HermiteBicubic.h",
+    "lines": 160,
+    "deps": [
+     "HermiteCubic.h"
+    ]
+   },
+   {
+    "file": "HermiteBiquintic.h",
+    "lines": 194,
+    "deps": [
+     "HermiteQuintic.h"
+    ]
+   },
+   {
+    "file": "HermiteTricubic.h",
+    "lines": 202,
+    "deps": [
+     "HermiteCubic.h"
+    ]
+   },
+   {
+    "file": "HermiteTriquintic.h",
+    "lines": 324,
+    "deps": [
+     "HermiteQuintic.h"
+    ]
+   },
+   {
+    "file": "IntpAkima1.h",
+    "lines": 162,
+    "deps": [
+     "Logger.h"
+    ]
+   },
+   {
+    "file": "IntpAkimaUniform2.h",
+    "lines": 571,
+    "deps": [
+     "Array2.h",
+     "Logger.h"
+    ]
+   }
+  ],
+  "id": 21
+ },
+ {
+  "category": "interpolation",
+  "depth": 1,
+  "lines": 2123,
+  "files": [
+   {
+    "file": "IntpAkimaUniform3.h",
+    "lines": 1424,
+    "deps": [
+     "Array3.h",
+     "Logger.h"
+    ]
+   },
+   {
+    "file": "IntpBicubic2.h",
+    "lines": 399,
+    "deps": [
+     "Logger.h"
+    ]
+   },
+   {
+    "file": "IntpBilinear2.h",
+    "lines": 300,
+    "deps": [
+     "Logger.h"
+    ]
+   }
+  ],
+  "id": 22
+ },
+ {
+  "category": "interpolation",
+  "depth": 1,
+  "lines": 934,
+  "files": [
+   {
+    "file": "IntpTricubic3.h",
+    "lines": 532,
+    "deps": [
+     "Logger.h"
+    ]
+   },
+   {
+    "file": "IntpTrilinear3.h",
+    "lines": 402,
+    "deps": [
+     "Logger.h"
+    ]
+   }
+  ],
+  "id": 23
+ },
+ {
+  "category": "intersection",
+  "depth": 1,
+  "lines": 564,
+  "files": [
+   {
+    "file": "IntrIntervals.h",
+    "lines": 564,
+    "deps": [
+     "FIQuery.h",
+     "TIQuery.h"
+    ]
+   }
+  ],
+  "id": 24
+ },
+ {
+  "category": "meshes-graphs",
+  "depth": 1,
+  "lines": 2285,
+  "files": [
+   {
+    "file": "FeatureKey.h",
+    "lines": 110,
+    "deps": [
+     "HashCombine.h"
+    ]
+   },
+   {
+    "file": "MinimumSpanningTree.h",
+    "lines": 323,
+    "deps": [
+     "Logger.h",
+     "MinHeap.h"
+    ]
+   },
+   {
+    "file": "StaticVETManifoldMesh2.h",
+    "lines": 655,
+    "deps": [
+     "Logger.h"
+    ]
+   },
+   {
+    "file": "StaticVTSManifoldMesh3.h",
+    "lines": 545,
+    "deps": [
+     "Logger.h"
+    ]
+   },
+   {
+    "file": "UniqueVerticesSimplices.h",
+    "lines": 376,
+    "deps": [
+     "Logger.h"
+    ]
+   },
+   {
+    "file": "VEManifoldMesh.h",
+    "lines": 276,
+    "deps": [
+     "Logger.h"
+    ]
+   }
+  ],
+  "id": 25
+ },
+ {
+  "category": "numerical",
+  "depth": 1,
+  "lines": 2312,
+  "files": [
+   {
+    "file": "BandedMatrix.h",
+    "lines": 528,
+    "deps": [
+     "LexicoArray2.h"
+    ]
+   },
+   {
+    "file": "FPInterval.h",
+    "lines": 639,
+    "deps": [
+     "Logger.h"
+    ]
+   },
+   {
+    "file": "GaussianElimination.h",
+    "lines": 279,
+    "deps": [
+     "LexicoArray2.h",
+     "Logger.h",
+     "TypeTraits.h"
+    ]
+   },
+   {
+    "file": "Integration.h",
+    "lines": 223,
+    "deps": [
+     "RootsPolynomial.h"
+    ]
+   },
+   {
+    "file": "LCPSolver.h",
+    "lines": 643,
+    "deps": [
+     "Logger.h"
+    ]
+   }
+  ],
+  "id": 26
+ },
+ {
+  "category": "numerical",
+  "depth": 1,
+  "lines": 2337,
+  "files": [
+   {
+    "file": "Minimize1.h",
+    "lines": 347,
+    "deps": [
+     "Logger.h"
+    ]
+   },
+   {
+    "file": "OdeEuler.h",
+    "lines": 46,
+    "deps": [
+     "OdeSolver.h"
+    ]
+   },
+   {
+    "file": "OdeImplicitEuler.h",
+    "lines": 62,
+    "deps": [
+     "OdeSolver.h"
+    ]
+   },
+   {
+    "file": "OdeMidpoint.h",
+    "lines": 53,
+    "deps": [
+     "OdeSolver.h"
+    ]
+   },
+   {
+    "file": "OdeRungeKutta4.h",
+    "lines": 62,
+    "deps": [
+     "OdeSolver.h"
+    ]
+   },
+   {
+    "file": "SingularValueDecomposition.h",
+    "lines": 932,
+    "deps": [
+     "Logger.h"
+    ]
+   },
+   {
+    "file": "SymmetricEigensolver.h",
+    "lines": 835,
+    "deps": [
+     "RangeIteration.h"
+    ]
+   }
+  ],
+  "id": 27
+ },
+ {
+  "category": "physics",
+  "depth": 1,
+  "lines": 232,
+  "files": [
+   {
+    "file": "ParticleSystem.h",
+    "lines": 232,
+    "deps": [
+     "Vector.h"
+    ]
+   }
+  ],
+  "id": 28
+ },
+ {
+  "category": "primitives",
+  "depth": 1,
+  "lines": 1308,
+  "files": [
+   {
+    "file": "AlignedBox.h",
+    "lines": 138,
+    "deps": [
+     "Vector.h"
+    ]
+   },
+   {
+    "file": "CanonicalBox.h",
+    "lines": 104,
+    "deps": [
+     "Vector.h"
+    ]
+   },
+   {
+    "file": "Halfspace.h",
+    "lines": 94,
+    "deps": [
+     "Vector.h"
+    ]
+   },
+   {
+    "file": "Hypersphere.h",
+    "lines": 95,
+    "deps": [
+     "Vector.h"
+    ]
+   },
+   {
+    "file": "Line.h",
+    "lines": 93,
+    "deps": [
+     "Vector.h"
+    ]
+   },
+   {
+    "file": "OrientedBox.h",
+    "lines": 148,
+    "deps": [
+     "Vector.h"
+    ]
+   },
+   {
+    "file": "Ray.h",
+    "lines": 93,
+    "deps": [
+     "Vector.h"
+    ]
+   },
+   {
+    "file": "Rectangle.h",
+    "lines": 152,
+    "deps": [
+     "Vector.h"
+    ]
+   },
+   {
+    "file": "Segment.h",
+    "lines": 117,
+    "deps": [
+     "Vector.h"
+    ]
+   },
+   {
+    "file": "SegmentMesh.h",
+    "lines": 185,
+    "deps": [
+     "Logger.h",
+     "Vector.h"
+    ]
+   },
+   {
+    "file": "Triangle.h",
+    "lines": 89,
+    "deps": [
+     "Vector.h"
+    ]
+   }
+  ],
+  "id": 29
+ },
+ {
+  "category": "roots-polynomials",
+  "depth": 1,
+  "lines": 1116,
+  "files": [
+   {
+    "file": "Polynomial1.h",
+    "lines": 608,
+    "deps": [
+     "Logger.h"
+    ]
+   },
+   {
+    "file": "QuarticRootsQR.h",
+    "lines": 291,
+    "deps": [
+     "CubicRootsQR.h"
+    ]
+   },
+   {
+    "file": "RootsBisection1.h",
+    "lines": 217,
+    "deps": [
+     "Logger.h",
+     "TypeTraits.h"
+    ]
+   }
+  ],
+  "id": 30
+ },
+ {
+  "category": "surfaces-volumes",
+  "depth": 1,
+  "lines": 121,
+  "files": [
+   {
+    "file": "ParametricSurface.h",
+    "lines": 121,
+    "deps": [
+     "Vector.h"
+    ]
+   }
+  ],
+  "id": 31
+ },
+ {
+  "category": "algebra",
+  "depth": 2,
+  "lines": 1635,
+  "files": [
+   {
+    "file": "GMatrix.h",
+    "lines": 708,
+    "deps": [
+     "GVector.h",
+     "GaussianElimination.h"
+    ]
+   },
+   {
+    "file": "Matrix.h",
+    "lines": 755,
+    "deps": [
+     "GaussianElimination.h",
+     "Vector.h"
+    ]
+   },
+   {
+    "file": "Vector4.h",
+    "lines": 172,
+    "deps": [
+     "Vector3.h"
+    ]
+   }
+  ],
+  "id": 32
+ },
+ {
+  "category": "approximation",
+  "depth": 2,
+  "lines": 1569,
+  "files": [
+   {
+    "file": "ApprCircle2.h",
+    "lines": 162,
+    "deps": [
+     "Hypersphere.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "ApprGaussian2.h",
+    "lines": 132,
+    "deps": [
+     "ApprQuery.h",
+     "OrientedBox.h",
+     "SymmetricEigensolver2x2.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "ApprGaussian3.h",
+    "lines": 143,
+    "deps": [
+     "ApprQuery.h",
+     "OrientedBox.h",
+     "SymmetricEigensolver3x3.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "ApprHeightLine2.h",
+    "lines": 112,
+    "deps": [
+     "ApprQuery.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "ApprHeightPlane3.h",
+    "lines": 120,
+    "deps": [
+     "ApprQuery.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "ApprOrthogonalLine2.h",
+    "lines": 121,
+    "deps": [
+     "ApprQuery.h",
+     "Line.h",
+     "SymmetricEigensolver2x2.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "ApprOrthogonalLine3.h",
+    "lines": 133,
+    "deps": [
+     "ApprQuery.h",
+     "Line.h",
+     "SymmetricEigensolver3x3.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "ApprOrthogonalPlane3.h",
+    "lines": 130,
+    "deps": [
+     "ApprQuery.h",
+     "SymmetricEigensolver3x3.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "ApprParallelLines2.h",
+    "lines": 341,
+    "deps": [
+     "Polynomial1.h",
+     "RootsPolynomial.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "ApprSphere3.h",
+    "lines": 175,
+    "deps": [
+     "Hypersphere.h",
+     "Vector3.h"
+    ]
+   }
+  ],
+  "id": 33
+ },
+ {
+  "category": "arbitrary-precision",
+  "depth": 2,
+  "lines": 2428,
+  "files": [
+   {
+    "file": "BSNumber.h",
+    "lines": 1530,
+    "deps": [
+     "BitHacks.h",
+     "Functions.h",
+     "IEEEBinary.h",
+     "TypeTraits.h"
+    ]
+   },
+   {
+    "file": "BSplineCurveFit.h",
+    "lines": 245,
+    "deps": [
+     "BandedMatrix.h",
+     "BasisFunction.h"
+    ]
+   },
+   {
+    "file": "BSplineSurface.h",
+    "lines": 191,
+    "deps": [
+     "BasisFunction.h",
+     "ParametricSurface.h"
+    ]
+   },
+   {
+    "file": "BSplineSurfaceFit.h",
+    "lines": 250,
+    "deps": [
+     "BandedMatrix.h",
+     "BasisFunction.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "BSplineVolume.h",
+    "lines": 212,
+    "deps": [
+     "BasisFunction.h",
+     "Vector.h"
+    ]
+   }
+  ],
+  "id": 34
+ },
+ {
+  "category": "arbitrary-precision",
+  "depth": 2,
+  "lines": 576,
+  "files": [
+   {
+    "file": "UIntegerALU32.h",
+    "lines": 576,
+    "deps": [
+     "BitHacks.h"
+    ]
+   }
+  ],
+  "id": 35
+ },
+ {
+  "category": "bounding-trees",
+  "depth": 2,
+  "lines": 714,
+  "files": [
+   {
+    "file": "BVTree.h",
+    "lines": 399,
+    "deps": [
+     "BitHacks.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "OBBTree.h",
+    "lines": 315,
+    "deps": [
+     "BitHacks.h",
+     "OrientedBox.h",
+     "SymmetricEigensolver3x3.h",
+     "Vector3.h"
+    ]
+   }
+  ],
+  "id": 36
+ },
+ {
+  "category": "computational-geometry",
+  "depth": 2,
+  "lines": 1365,
+  "files": [
+   {
+    "file": "CircleThroughPointSpecifiedTangentAndRadius.h",
+    "lines": 159,
+    "deps": [
+     "Hypersphere.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "CircleThroughTwoPointsSpecifiedRadius.h",
+    "lines": 95,
+    "deps": [
+     "Hypersphere.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "ConvexHullSimplePolygon.h",
+    "lines": 158,
+    "deps": [
+     "Logger.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "InscribedFixedAspectRectInQuad.h",
+    "lines": 252,
+    "deps": [
+     "IntrIntervals.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "PrimalQuery2.h",
+    "lines": 404,
+    "deps": [
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "PrimalQuery3.h",
+    "lines": 297,
+    "deps": [
+     "Vector3.h"
+    ]
+   }
+  ],
+  "id": 37
+ },
+ {
+  "category": "containment",
+  "depth": 2,
+  "lines": 447,
+  "files": [
+   {
+    "file": "ContAlignedBox.h",
+    "lines": 55,
+    "deps": [
+     "AlignedBox.h"
+    ]
+   },
+   {
+    "file": "ContCircle2.h",
+    "lines": 93,
+    "deps": [
+     "Hypersphere.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "ContPointInPolygon2.h",
+    "lines": 206,
+    "deps": [
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "ContSphere3.h",
+    "lines": 93,
+    "deps": [
+     "Hypersphere.h",
+     "Vector3.h"
+    ]
+   }
+  ],
+  "id": 38
+ },
+ {
+  "category": "core",
+  "depth": 2,
+  "lines": 1944,
+  "files": [
+   {
+    "file": "CurveExtractorSquares.h",
+    "lines": 476,
+    "deps": [
+     "CurveExtractor.h"
+    ]
+   },
+   {
+    "file": "CurveExtractorTriangles.h",
+    "lines": 233,
+    "deps": [
+     "CurveExtractor.h"
+    ]
+   },
+   {
+    "file": "IEEEBinary16.h",
+    "lines": 680,
+    "deps": [
+     "BitHacks.h",
+     "Functions.h",
+     "IEEEBinary.h"
+    ]
+   },
+   {
+    "file": "MeshSmoother.h",
+    "lines": 196,
+    "deps": [
+     "Logger.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "PolygonTree.h",
+    "lines": 294,
+    "deps": [
+     "Logger.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "PolygonWindingOrder.h",
+    "lines": 65,
+    "deps": [
+     "Vector2.h"
+    ]
+   }
+  ],
+  "id": 39
+ },
+ {
+  "category": "curves",
+  "depth": 2,
+  "lines": 684,
+  "files": [
+   {
+    "file": "MassSpringCurve.h",
+    "lines": 119,
+    "deps": [
+     "ParticleSystem.h"
+    ]
+   },
+   {
+    "file": "ParametricCurve.h",
+    "lines": 318,
+    "deps": [
+     "Integration.h",
+     "RootsBisection.h",
+     "Vector.h"
+    ]
+   },
+   {
+    "file": "PolylineOffset.h",
+    "lines": 247,
+    "deps": [
+     "Logger.h",
+     "Vector2.h"
+    ]
+   }
+  ],
+  "id": 40
+ },
+ {
+  "category": "distance",
+  "depth": 2,
+  "lines": 2452,
+  "files": [
+   {
+    "file": "DistAlignedBoxAlignedBox.h",
+    "lines": 95,
+    "deps": [
+     "AlignedBox.h",
+     "DCPQuery.h",
+     "IntrIntervals.h"
+    ]
+   },
+   {
+    "file": "DistCircle2Circle2.h",
+    "lines": 188,
+    "deps": [
+     "DCPQuery.h",
+     "Hypersphere.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "DistLine2AlignedBox2.h",
+    "lines": 256,
+    "deps": [
+     "AlignedBox.h",
+     "DCPQuery.h",
+     "Functions.h",
+     "Line.h",
+     "OrientedBox.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "DistLine2Circle2.h",
+    "lines": 170,
+    "deps": [
+     "DCPQuery.h",
+     "Hypersphere.h",
+     "Line.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "DistLine2Triangle2.h",
+    "lines": 389,
+    "deps": [
+     "DCPQuery.h",
+     "Line.h",
+     "Triangle.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "DistLine3CanonicalBox3.h",
+    "lines": 503,
+    "deps": [
+     "CanonicalBox.h",
+     "DCPQuery.h",
+     "Line.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "DistLineLine.h",
+    "lines": 99,
+    "deps": [
+     "DCPQuery.h",
+     "Line.h"
+    ]
+   },
+   {
+    "file": "DistLineRay.h",
+    "lines": 114,
+    "deps": [
+     "DCPQuery.h",
+     "Line.h",
+     "Ray.h"
+    ]
+   },
+   {
+    "file": "DistLineSegment.h",
+    "lines": 131,
+    "deps": [
+     "DCPQuery.h",
+     "Line.h",
+     "Segment.h"
+    ]
+   },
+   {
+    "file": "DistPoint2Circle2.h",
+    "lines": 76,
+    "deps": [
+     "DCPQuery.h",
+     "Hypersphere.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "DistPointCanonicalBox.h",
+    "lines": 86,
+    "deps": [
+     "CanonicalBox.h",
+     "DCPQuery.h"
+    ]
+   },
+   {
+    "file": "DistPointLine.h",
+    "lines": 72,
+    "deps": [
+     "DCPQuery.h",
+     "Line.h"
+    ]
+   },
+   {
+    "file": "DistPointRay.h",
+    "lines": 82,
+    "deps": [
+     "DCPQuery.h",
+     "Ray.h"
+    ]
+   },
+   {
+    "file": "DistPointRectangle.h",
+    "lines": 81,
+    "deps": [
+     "DCPQuery.h",
+     "Rectangle.h"
+    ]
+   },
+   {
+    "file": "DistPointSegment.h",
+    "lines": 110,
+    "deps": [
+     "DCPQuery.h",
+     "Segment.h"
+    ]
+   }
+  ],
+  "id": 41
+ },
+ {
+  "category": "distance",
+  "depth": 2,
+  "lines": 1587,
+  "files": [
+   {
+    "file": "DistPointTriangle.h",
+    "lines": 499,
+    "deps": [
+     "DCPQuery.h",
+     "Triangle.h"
+    ]
+   },
+   {
+    "file": "DistRayRay.h",
+    "lines": 183,
+    "deps": [
+     "DCPQuery.h",
+     "Ray.h"
+    ]
+   },
+   {
+    "file": "DistRaySegment.h",
+    "lines": 215,
+    "deps": [
+     "DCPQuery.h",
+     "Ray.h",
+     "Segment.h"
+    ]
+   },
+   {
+    "file": "DistSegmentSegment.h",
+    "lines": 690,
+    "deps": [
+     "DCPQuery.h",
+     "Segment.h"
+    ]
+   }
+  ],
+  "id": 42
+ },
+ {
+  "category": "estimates",
+  "depth": 2,
+  "lines": 403,
+  "files": [
+   {
+    "file": "ASinEstimate.h",
+    "lines": 62,
+    "deps": [
+     "ACosEstimate.h",
+     "Constants.h"
+    ]
+   },
+   {
+    "file": "LogEstimate.h",
+    "lines": 63,
+    "deps": [
+     "Constants.h",
+     "Log2Estimate.h"
+    ]
+   },
+   {
+    "file": "Slerp.h",
+    "lines": 156,
+    "deps": [
+     "ChebyshevRatio.h"
+    ]
+   },
+   {
+    "file": "SlerpEstimate.h",
+    "lines": 122,
+    "deps": [
+     "ChebyshevRatioEstimate.h",
+     "Constants.h"
+    ]
+   }
+  ],
+  "id": 43
+ },
+ {
+  "category": "imaging",
+  "depth": 2,
+  "lines": 1474,
+  "files": [
+   {
+    "file": "CurvatureFlow2.h",
+    "lines": 60,
+    "deps": [
+     "PdeFilter2.h"
+    ]
+   },
+   {
+    "file": "CurvatureFlow3.h",
+    "lines": 65,
+    "deps": [
+     "PdeFilter3.h"
+    ]
+   },
+   {
+    "file": "FastMarch2.h",
+    "lines": 357,
+    "deps": [
+     "FastMarch.h"
+    ]
+   },
+   {
+    "file": "FastMarch3.h",
+    "lines": 615,
+    "deps": [
+     "FastMarch.h"
+    ]
+   },
+   {
+    "file": "GaussianBlur2.h",
+    "lines": 55,
+    "deps": [
+     "PdeFilter2.h"
+    ]
+   },
+   {
+    "file": "GaussianBlur3.h",
+    "lines": 55,
+    "deps": [
+     "PdeFilter3.h"
+    ]
+   },
+   {
+    "file": "GradientAnisotropic2.h",
+    "lines": 116,
+    "deps": [
+     "PdeFilter2.h"
+    ]
+   },
+   {
+    "file": "GradientAnisotropic3.h",
+    "lines": 151,
+    "deps": [
+     "PdeFilter3.h"
+    ]
+   }
+  ],
+  "id": 44
+ },
+ {
+  "category": "imaging",
+  "depth": 2,
+  "lines": 2282,
+  "files": [
+   {
+    "file": "ImageUtility2.h",
+    "lines": 1548,
+    "deps": [
+     "Image2.h"
+    ]
+   },
+   {
+    "file": "ImageUtility3.h",
+    "lines": 734,
+    "deps": [
+     "Image3.h"
+    ]
+   }
+  ],
+  "id": 45
+ },
+ {
+  "category": "imaging",
+  "depth": 2,
+  "lines": 2489,
+  "files": [
+   {
+    "file": "SurfaceExtractorCubes.h",
+    "lines": 1050,
+    "deps": [
+     "SurfaceExtractor.h"
+    ]
+   },
+   {
+    "file": "SurfaceExtractorMC.h",
+    "lines": 430,
+    "deps": [
+     "Image3.h",
+     "MarchingCubes.h",
+     "UniqueVerticesSimplices.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "SurfaceExtractorTetrahedra.h",
+    "lines": 1009,
+    "deps": [
+     "SurfaceExtractor.h"
+    ]
+   }
+  ],
+  "id": 46
+ },
+ {
+  "category": "interpolation",
+  "depth": 2,
+  "lines": 1844,
+  "files": [
+   {
+    "file": "IntpAkimaNonuniform1.h",
+    "lines": 121,
+    "deps": [
+     "IntpAkima1.h"
+    ]
+   },
+   {
+    "file": "IntpAkimaUniform1.h",
+    "lines": 118,
+    "deps": [
+     "IntpAkima1.h"
+    ]
+   },
+   {
+    "file": "IntpBSplineUniform.h",
+    "lines": 1451,
+    "deps": [
+     "Logger.h",
+     "Polynomial1.h"
+    ]
+   },
+   {
+    "file": "IntpLinearNonuniform2.h",
+    "lines": 77,
+    "deps": [
+     "Logger.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "IntpLinearNonuniform3.h",
+    "lines": 77,
+    "deps": [
+     "Logger.h",
+     "Vector3.h"
+    ]
+   }
+  ],
+  "id": 47
+ },
+ {
+  "category": "intersection",
+  "depth": 2,
+  "lines": 2394,
+  "files": [
+   {
+    "file": "IntrAlignedBox2AlignedBox2.h",
+    "lines": 110,
+    "deps": [
+     "AlignedBox.h",
+     "FIQuery.h",
+     "TIQuery.h"
+    ]
+   },
+   {
+    "file": "IntrAlignedBox2OrientedBox2.h",
+    "lines": 116,
+    "deps": [
+     "AlignedBox.h",
+     "FIQuery.h",
+     "OrientedBox.h",
+     "TIQuery.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "IntrAlignedBox3AlignedBox3.h",
+    "lines": 110,
+    "deps": [
+     "AlignedBox.h",
+     "FIQuery.h",
+     "TIQuery.h"
+    ]
+   },
+   {
+    "file": "IntrAlignedBox3OrientedBox3.h",
+    "lines": 340,
+    "deps": [
+     "AlignedBox.h",
+     "FIQuery.h",
+     "OrientedBox.h",
+     "TIQuery.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "IntrCircle2Circle2.h",
+    "lines": 178,
+    "deps": [
+     "FIQuery.h",
+     "Hypersphere.h",
+     "TIQuery.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "IntrHalfspace2Polygon2.h",
+    "lines": 170,
+    "deps": [
+     "FIQuery.h",
+     "Halfspace.h",
+     "OrientedBox.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "IntrHalfspace3OrientedBox3.h",
+    "lines": 58,
+    "deps": [
+     "Halfspace.h",
+     "OrientedBox.h",
+     "TIQuery.h"
+    ]
+   },
+   {
+    "file": "IntrHalfspace3Segment3.h",
+    "lines": 158,
+    "deps": [
+     "FIQuery.h",
+     "Halfspace.h",
+     "Segment.h",
+     "TIQuery.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "IntrHalfspace3Sphere3.h",
+    "lines": 51,
+    "deps": [
+     "Halfspace.h",
+     "Hypersphere.h",
+     "TIQuery.h"
+    ]
+   },
+   {
+    "file": "IntrHalfspace3Triangle3.h",
+    "lines": 245,
+    "deps": [
+     "FIQuery.h",
+     "Halfspace.h",
+     "TIQuery.h",
+     "Triangle.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "IntrLine2AlignedBox2.h",
+    "lines": 190,
+    "deps": [
+     "AlignedBox.h",
+     "FIQuery.h",
+     "Line.h",
+     "TIQuery.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "IntrLine2Line2.h",
+    "lines": 197,
+    "deps": [
+     "FIQuery.h",
+     "Line.h",
+     "TIQuery.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "IntrLine2Triangle2.h",
+    "lines": 255,
+    "deps": [
+     "FIQuery.h",
+     "Line.h",
+     "TIQuery.h",
+     "Triangle.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "IntrLine3AlignedBox3.h",
+    "lines": 216,
+    "deps": [
+     "AlignedBox.h",
+     "FIQuery.h",
+     "Line.h",
+     "TIQuery.h",
+     "Vector3.h"
+    ]
+   }
+  ],
+  "id": 48
+ },
+ {
+  "category": "intersection",
+  "depth": 2,
+  "lines": 1508,
+  "files": [
+   {
+    "file": "IntrLine3Rectangle3.h",
+    "lines": 163,
+    "deps": [
+     "FIQuery.h",
+     "Line.h",
+     "Rectangle.h",
+     "TIQuery.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "IntrLine3Sphere3.h",
+    "lines": 134,
+    "deps": [
+     "FIQuery.h",
+     "Hypersphere.h",
+     "Line.h",
+     "TIQuery.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "IntrLine3Triangle3.h",
+    "lines": 182,
+    "deps": [
+     "FIQuery.h",
+     "Line.h",
+     "TIQuery.h",
+     "Triangle.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "IntrOrientedBox2OrientedBox2.h",
+    "lines": 299,
+    "deps": [
+     "FIQuery.h",
+     "OrientedBox.h",
+     "TIQuery.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "IntrOrientedBox3OrientedBox3.h",
+    "lines": 340,
+    "deps": [
+     "OrientedBox.h",
+     "TIQuery.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "IntrRay3Triangle3.h",
+    "lines": 189,
+    "deps": [
+     "FIQuery.h",
+     "Ray.h",
+     "TIQuery.h",
+     "Triangle.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "IntrSegment3Triangle3.h",
+    "lines": 201,
+    "deps": [
+     "FIQuery.h",
+     "Segment.h",
+     "TIQuery.h",
+     "Triangle.h",
+     "Vector3.h"
+    ]
+   }
+  ],
+  "id": 49
+ },
+ {
+  "category": "meshes-graphs",
+  "depth": 2,
+  "lines": 431,
+  "files": [
+   {
+    "file": "ConvexMesh3.h",
+    "lines": 71,
+    "deps": [
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "EdgeKey.h",
+    "lines": 65,
+    "deps": [
+     "FeatureKey.h"
+    ]
+   },
+   {
+    "file": "TetrahedronKey.h",
+    "lines": 167,
+    "deps": [
+     "FeatureKey.h"
+    ]
+   },
+   {
+    "file": "TriangleKey.h",
+    "lines": 128,
+    "deps": [
+     "FeatureKey.h"
+    ]
+   }
+  ],
+  "id": 50
+ },
+ {
+  "category": "numerical",
+  "depth": 2,
+  "lines": 646,
+  "files": [
+   {
+    "file": "MinimizeN.h",
+    "lines": 210,
+    "deps": [
+     "GVector.h",
+     "Minimize1.h"
+    ]
+   },
+   {
+    "file": "RemezAlgorithm.h",
+    "lines": 436,
+    "deps": [
+     "Constants.h",
+     "Logger.h",
+     "Polynomial1.h"
+    ]
+   }
+  ],
+  "id": 51
+ },
+ {
+  "category": "physics",
+  "depth": 2,
+  "lines": 415,
+  "files": [
+   {
+    "file": "MassSpringArbitrary.h",
+    "lines": 126,
+    "deps": [
+     "ParticleSystem.h"
+    ]
+   },
+   {
+    "file": "MassSpringVolume.h",
+    "lines": 289,
+    "deps": [
+     "ParticleSystem.h"
+    ]
+   }
+  ],
+  "id": 52
+ },
+ {
+  "category": "primitives",
+  "depth": 2,
+  "lines": 1705,
+  "files": [
+   {
+    "file": "Arc2.h",
+    "lines": 159,
+    "deps": [
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "Capsule.h",
+    "lines": 91,
+    "deps": [
+     "Segment.h"
+    ]
+   },
+   {
+    "file": "Circle3.h",
+    "lines": 102,
+    "deps": [
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "Cylinder3.h",
+    "lines": 133,
+    "deps": [
+     "Line.h"
+    ]
+   },
+   {
+    "file": "Ellipse3.h",
+    "lines": 133,
+    "deps": [
+     "Vector2.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "Frustum3.h",
+    "lines": 225,
+    "deps": [
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "Lozenge3.h",
+    "lines": 86,
+    "deps": [
+     "Rectangle.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "Parallelepiped3.h",
+    "lines": 113,
+    "deps": [
+     "Logger.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "Parallelogram2.h",
+    "lines": 109,
+    "deps": [
+     "Logger.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "Polyhedron3.h",
+    "lines": 177,
+    "deps": [
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "Sector2.h",
+    "lines": 142,
+    "deps": [
+     "Constants.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "Torus3.h",
+    "lines": 235,
+    "deps": [
+     "Vector3.h"
+    ]
+   }
+  ],
+  "id": 53
+ },
+ {
+  "category": "roots-polynomials",
+  "depth": 2,
+  "lines": 117,
+  "files": [
+   {
+    "file": "RootsBisection2.h",
+    "lines": 117,
+    "deps": [
+     "RootsBisection1.h",
+     "TypeTraits.h"
+    ]
+   }
+  ],
+  "id": 54
+ },
+ {
+  "category": "surfaces-volumes",
+  "depth": 2,
+  "lines": 738,
+  "files": [
+   {
+    "file": "MassSpringSurface.h",
+    "lines": 233,
+    "deps": [
+     "ParticleSystem.h"
+    ]
+   },
+   {
+    "file": "NURBSSurface.h",
+    "lines": 252,
+    "deps": [
+     "BasisFunction.h",
+     "ParametricSurface.h",
+     "Vector.h"
+    ]
+   },
+   {
+    "file": "NURBSVolume.h",
+    "lines": 253,
+    "deps": [
+     "BasisFunction.h",
+     "Vector.h"
+    ]
+   }
+  ],
+  "id": 55
+ },
+ {
+  "category": "algebra",
+  "depth": 3,
+  "lines": 1537,
+  "files": [
+   {
+    "file": "ConvertCoordinates.h",
+    "lines": 360,
+    "deps": [
+     "GaussianElimination.h",
+     "Matrix.h"
+    ]
+   },
+   {
+    "file": "Matrix2x2.h",
+    "lines": 164,
+    "deps": [
+     "Matrix.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "Matrix3x3.h",
+    "lines": 146,
+    "deps": [
+     "Matrix.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "Matrix4x4.h",
+    "lines": 373,
+    "deps": [
+     "Matrix.h",
+     "Vector4.h"
+    ]
+   },
+   {
+    "file": "Quaternion.h",
+    "lines": 494,
+    "deps": [
+     "ChebyshevRatio.h",
+     "Matrix.h",
+     "Vector.h",
+     "Vector3.h"
+    ]
+   }
+  ],
+  "id": 56
+ },
+ {
+  "category": "approximation",
+  "depth": 3,
+  "lines": 2423,
+  "files": [
+   {
+    "file": "ApprCurveByArcs.h",
+    "lines": 177,
+    "deps": [
+     "Arc2.h",
+     "Logger.h",
+     "ParametricCurve.h"
+    ]
+   },
+   {
+    "file": "ApprPolynomial2.h",
+    "lines": 187,
+    "deps": [
+     "ApprQuery.h",
+     "Array2.h",
+     "GMatrix.h"
+    ]
+   },
+   {
+    "file": "ApprPolynomial3.h",
+    "lines": 244,
+    "deps": [
+     "ApprQuery.h",
+     "Array2.h",
+     "GMatrix.h"
+    ]
+   },
+   {
+    "file": "ApprPolynomial4.h",
+    "lines": 289,
+    "deps": [
+     "ApprQuery.h",
+     "Array2.h",
+     "GMatrix.h"
+    ]
+   },
+   {
+    "file": "ApprPolynomialSpecial2.h",
+    "lines": 279,
+    "deps": [
+     "ApprQuery.h",
+     "GMatrix.h"
+    ]
+   },
+   {
+    "file": "ApprPolynomialSpecial3.h",
+    "lines": 326,
+    "deps": [
+     "ApprQuery.h",
+     "GMatrix.h"
+    ]
+   },
+   {
+    "file": "ApprPolynomialSpecial4.h",
+    "lines": 365,
+    "deps": [
+     "ApprQuery.h",
+     "GMatrix.h"
+    ]
+   },
+   {
+    "file": "ApprQuadratic2.h",
+    "lines": 236,
+    "deps": [
+     "Hypersphere.h",
+     "Matrix.h",
+     "SymmetricEigensolver.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "ApprQuadratic3.h",
+    "lines": 320,
+    "deps": [
+     "Hypersphere.h",
+     "Matrix.h",
+     "SymmetricEigensolver.h",
+     "Vector3.h"
+    ]
+   }
+  ],
+  "id": 57
+ },
+ {
+  "category": "arbitrary-precision",
+  "depth": 3,
+  "lines": 2403,
+  "files": [
+   {
+    "file": "BSplineCurve.h",
+    "lines": 161,
+    "deps": [
+     "BasisFunction.h",
+     "ParametricCurve.h"
+    ]
+   },
+   {
+    "file": "BSplineReduction.h",
+    "lines": 247,
+    "deps": [
+     "BandedMatrix.h",
+     "GMatrix.h",
+     "Integration.h",
+     "IntrIntervals.h",
+     "Vector.h"
+    ]
+   },
+   {
+    "file": "BSPPolygon2.h",
+    "lines": 881,
+    "deps": [
+     "EdgeKey.h",
+     "Logger.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "BSRational.h",
+    "lines": 1114,
+    "deps": [
+     "BSNumber.h"
+    ]
+   }
+  ],
+  "id": 58
+ },
+ {
+  "category": "arbitrary-precision",
+  "depth": 3,
+  "lines": 537,
+  "files": [
+   {
+    "file": "UIntegerAP32.h",
+    "lines": 238,
+    "deps": [
+     "AtomicMinMax.h",
+     "Logger.h",
+     "UIntegerALU32.h"
+    ]
+   },
+   {
+    "file": "UIntegerFP32.h",
+    "lines": 299,
+    "deps": [
+     "AtomicMinMax.h",
+     "Logger.h",
+     "UIntegerALU32.h"
+    ]
+   }
+  ],
+  "id": 59
+ },
+ {
+  "category": "bounding-trees",
+  "depth": 3,
+  "lines": 602,
+  "files": [
+   {
+    "file": "BVTreeOfPoints.h",
+    "lines": 81,
+    "deps": [
+     "BVTree.h"
+    ]
+   },
+   {
+    "file": "BVTreeOfSegments.h",
+    "lines": 96,
+    "deps": [
+     "BVTree.h"
+    ]
+   },
+   {
+    "file": "BVTreeOfTriangles.h",
+    "lines": 190,
+    "deps": [
+     "BVTree.h",
+     "IntrLine3Triangle3.h",
+     "IntrRay3Triangle3.h",
+     "IntrSegment3Triangle3.h"
+    ]
+   },
+   {
+    "file": "OBBTreeOfPoints.h",
+    "lines": 101,
+    "deps": [
+     "OBBTree.h"
+    ]
+   },
+   {
+    "file": "OBBTreeOfSegments.h",
+    "lines": 134,
+    "deps": [
+     "OBBTree.h"
+    ]
+   }
+  ],
+  "id": 60
+ },
+ {
+  "category": "computational-geometry",
+  "depth": 3,
+  "lines": 1589,
+  "files": [
+   {
+    "file": "BoxManager.h",
+    "lines": 286,
+    "deps": [
+     "EdgeKey.h",
+     "IntrAlignedBox3AlignedBox3.h"
+    ]
+   },
+   {
+    "file": "ConvexPolyhedron3.h",
+    "lines": 102,
+    "deps": [
+     "AlignedBox.h",
+     "Vector4.h"
+    ]
+   },
+   {
+    "file": "ExtremalQuery3.h",
+    "lines": 77,
+    "deps": [
+     "Polyhedron3.h"
+    ]
+   },
+   {
+    "file": "TriangulateEC.h",
+    "lines": 1124,
+    "deps": [
+     "Logger.h",
+     "PolygonTree.h",
+     "PrimalQuery2.h"
+    ]
+   }
+  ],
+  "id": 61
+ },
+ {
+  "category": "containment",
+  "depth": 3,
+  "lines": 834,
+  "files": [
+   {
+    "file": "ContAlignedBox2Arc2.h",
+    "lines": 69,
+    "deps": [
+     "AlignedBox.h",
+     "Arc2.h"
+    ]
+   },
+   {
+    "file": "ContCapsule3.h",
+    "lines": 280,
+    "deps": [
+     "ApprOrthogonalLine3.h",
+     "Capsule.h",
+     "DistPointLine.h",
+     "DistPointSegment.h",
+     "Hypersphere.h"
+    ]
+   },
+   {
+    "file": "ContCylinder3.h",
+    "lines": 81,
+    "deps": [
+     "ApprOrthogonalLine3.h",
+     "Cylinder3.h",
+     "DistPointLine.h"
+    ]
+   },
+   {
+    "file": "ContLozenge3.h",
+    "lines": 221,
+    "deps": [
+     "ApprGaussian3.h",
+     "DistPointRectangle.h",
+     "Lozenge3.h"
+    ]
+   },
+   {
+    "file": "ContOrientedBox2.h",
+    "lines": 183,
+    "deps": [
+     "ApprGaussian2.h"
+    ]
+   }
+  ],
+  "id": 62
+ },
+ {
+  "category": "core",
+  "depth": 3,
+  "lines": 389,
+  "files": [
+   {
+    "file": "ETNonmanifoldMesh.h",
+    "lines": 389,
+    "deps": [
+     "EdgeKey.h",
+     "Logger.h",
+     "TriangleKey.h",
+     "WeakPtrCompare.h"
+    ]
+   }
+  ],
+  "id": 63
+ },
+ {
+  "category": "curves",
+  "depth": 3,
+  "lines": 2153,
+  "files": [
+   {
+    "file": "BezierCurve.h",
+    "lines": 186,
+    "deps": [
+     "Array2.h",
+     "Logger.h",
+     "ParametricCurve.h"
+    ]
+   },
+   {
+    "file": "CLODPolyline.h",
+    "lines": 342,
+    "deps": [
+     "DistPointSegment.h",
+     "Logger.h",
+     "MinHeap.h"
+    ]
+   },
+   {
+    "file": "FrenetFrame.h",
+    "lines": 137,
+    "deps": [
+     "ParametricCurve.h",
+     "Vector2.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "NURBSCurve.h",
+    "lines": 222,
+    "deps": [
+     "BasisFunction.h",
+     "ParametricCurve.h"
+    ]
+   },
+   {
+    "file": "NURBSSphere.h",
+    "lines": 462,
+    "deps": [
+     "NURBSSurface.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "ReparameterizeByArclength.h",
+    "lines": 310,
+    "deps": [
+     "Logger.h",
+     "ParametricCurve.h"
+    ]
+   },
+   {
+    "file": "SampleCircularArc.h",
+    "lines": 183,
+    "deps": [
+     "Arc2.h",
+     "Constants.h"
+    ]
+   },
+   {
+    "file": "TCBSplineCurve.h",
+    "lines": 311,
+    "deps": [
+     "Logger.h",
+     "ParametricCurve.h"
+    ]
+   }
+  ],
+  "id": 64
+ },
+ {
+  "category": "distance",
+  "depth": 3,
+  "lines": 2454,
+  "files": [
+   {
+    "file": "DistLine2Arc2.h",
+    "lines": 115,
+    "deps": [
+     "Arc2.h",
+     "DistLine2Circle2.h",
+     "DistPointLine.h"
+    ]
+   },
+   {
+    "file": "DistLine2OrientedBox2.h",
+    "lines": 73,
+    "deps": [
+     "DistLine2AlignedBox2.h"
+    ]
+   },
+   {
+    "file": "DistLine3AlignedBox3.h",
+    "lines": 67,
+    "deps": [
+     "AlignedBox.h",
+     "DistLine3CanonicalBox3.h"
+    ]
+   },
+   {
+    "file": "DistLine3Circle3.h",
+    "lines": 409,
+    "deps": [
+     "Circle3.h",
+     "DCPQuery.h",
+     "Line.h",
+     "Ray.h",
+     "RootsBisection1.h",
+     "Segment.h"
+    ]
+   },
+   {
+    "file": "DistLine3OrientedBox3.h",
+    "lines": 79,
+    "deps": [
+     "DistLine3CanonicalBox3.h",
+     "OrientedBox.h"
+    ]
+   },
+   {
+    "file": "DistLine3Rectangle3.h",
+    "lines": 163,
+    "deps": [
+     "DistLineSegment.h",
+     "Rectangle.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "DistLine3Triangle3.h",
+    "lines": 162,
+    "deps": [
+     "DistLineSegment.h",
+     "Triangle.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "DistPoint2Arc2.h",
+    "lines": 101,
+    "deps": [
+     "Arc2.h",
+     "DistPoint2Circle2.h"
+    ]
+   },
+   {
+    "file": "DistPoint3Circle3.h",
+    "lines": 150,
+    "deps": [
+     "Circle3.h",
+     "DCPQuery.h",
+     "Logger.h"
+    ]
+   },
+   {
+    "file": "DistPoint3Cylinder3.h",
+    "lines": 141,
+    "deps": [
+     "Cylinder3.h",
+     "DCPQuery.h",
+     "Logger.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "DistPoint3Frustum3.h",
+    "lines": 442,
+    "deps": [
+     "DCPQuery.h",
+     "Frustum3.h"
+    ]
+   },
+   {
+    "file": "DistPointAlignedBox.h",
+    "lines": 70,
+    "deps": [
+     "AlignedBox.h",
+     "DistPointCanonicalBox.h"
+    ]
+   },
+   {
+    "file": "DistPointOrientedBox.h",
+    "lines": 79,
+    "deps": [
+     "DistPointCanonicalBox.h",
+     "OrientedBox.h"
+    ]
+   },
+   {
+    "file": "DistRay2Circle2.h",
+    "lines": 124,
+    "deps": [
+     "DistLine2Circle2.h",
+     "DistPoint2Circle2.h",
+     "Ray.h"
+    ]
+   },
+   {
+    "file": "DistRay2Triangle2.h",
+    "lines": 65,
+    "deps": [
+     "DistLine2Triangle2.h",
+     "DistPointTriangle.h",
+     "Ray.h"
+    ]
+   },
+   {
+    "file": "DistRay3CanonicalBox3.h",
+    "lines": 63,
+    "deps": [
+     "DistLine3CanonicalBox3.h",
+     "DistPointCanonicalBox.h",
+     "Ray.h"
+    ]
+   },
+   {
+    "file": "DistSegment2Circle2.h",
+    "lines": 151,
+    "deps": [
+     "DistLine2Circle2.h",
+     "DistPoint2Circle2.h",
+     "Segment.h"
+    ]
+   }
+  ],
+  "id": 65
+ },
+ {
+  "category": "distance",
+  "depth": 3,
+  "lines": 162,
+  "files": [
+   {
+    "file": "DistSegment2Triangle2.h",
+    "lines": 82,
+    "deps": [
+     "DistLine2Triangle2.h",
+     "DistPointTriangle.h",
+     "Segment.h"
+    ]
+   },
+   {
+    "file": "DistSegment3CanonicalBox3.h",
+    "lines": 80,
+    "deps": [
+     "DistLine3CanonicalBox3.h",
+     "DistPointCanonicalBox.h",
+     "Segment.h"
+    ]
+   }
+  ],
+  "id": 66
+ },
+ {
+  "category": "imaging",
+  "depth": 3,
+  "lines": 2906,
+  "files": [
+   {
+    "file": "AdaptiveSkeletonClimbing3.h",
+    "lines": 2906,
+    "deps": [
+     "Array2.h",
+     "Logger.h",
+     "TriangleKey.h"
+    ]
+   }
+  ],
+  "id": 67
+ },
+ {
+  "category": "interpolation",
+  "depth": 3,
+  "lines": 580,
+  "files": [
+   {
+    "file": "IntpThinPlateSpline2.h",
+    "lines": 282,
+    "deps": [
+     "GMatrix.h"
+    ]
+   },
+   {
+    "file": "IntpThinPlateSpline3.h",
+    "lines": 298,
+    "deps": [
+     "GMatrix.h"
+    ]
+   }
+  ],
+  "id": 68
+ },
+ {
+  "category": "intersection",
+  "depth": 3,
+  "lines": 2305,
+  "files": [
+   {
+    "file": "IntrArc2Arc2.h",
+    "lines": 232,
+    "deps": [
+     "Arc2.h",
+     "IntrCircle2Circle2.h"
+    ]
+   },
+   {
+    "file": "IntrCanonicalBox3Cylinder3.h",
+    "lines": 702,
+    "deps": [
+     "CanonicalBox.h",
+     "Cylinder3.h",
+     "Logger.h",
+     "TIQuery.h",
+     "Vector2.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "IntrCapsule3Capsule3.h",
+    "lines": 44,
+    "deps": [
+     "Capsule.h",
+     "DistSegmentSegment.h",
+     "TIQuery.h"
+    ]
+   },
+   {
+    "file": "IntrCircle2Arc2.h",
+    "lines": 105,
+    "deps": [
+     "Arc2.h",
+     "IntrCircle2Circle2.h"
+    ]
+   },
+   {
+    "file": "IntrCylinder3Cylinder3.h",
+    "lines": 333,
+    "deps": [
+     "Constants.h",
+     "Cylinder3.h",
+     "Logger.h",
+     "TIQuery.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "IntrDisk2Sector2.h",
+    "lines": 194,
+    "deps": [
+     "Hypersphere.h",
+     "Sector2.h",
+     "TIQuery.h"
+    ]
+   },
+   {
+    "file": "IntrHalfspace3Capsule3.h",
+    "lines": 52,
+    "deps": [
+     "Capsule.h",
+     "Halfspace.h",
+     "TIQuery.h"
+    ]
+   },
+   {
+    "file": "IntrHalfspace3Cylinder3.h",
+    "lines": 58,
+    "deps": [
+     "Cylinder3.h",
+     "Halfspace.h",
+     "TIQuery.h"
+    ]
+   },
+   {
+    "file": "IntrLine2Circle2.h",
+    "lines": 130,
+    "deps": [
+     "DistPointLine.h",
+     "FIQuery.h",
+     "Hypersphere.h",
+     "TIQuery.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "IntrLine2OrientedBox2.h",
+    "lines": 109,
+    "deps": [
+     "IntrLine2AlignedBox2.h",
+     "OrientedBox.h"
+    ]
+   },
+   {
+    "file": "IntrLine2Ray2.h",
+    "lines": 169,
+    "deps": [
+     "IntrLine2Line2.h",
+     "Ray.h"
+    ]
+   },
+   {
+    "file": "IntrLine2Segment2.h",
+    "lines": 177,
+    "deps": [
+     "IntrLine2Line2.h",
+     "Segment.h"
+    ]
+   }
+  ],
+  "id": 69
+ },
+ {
+  "category": "intersection",
+  "depth": 3,
+  "lines": 2424,
+  "files": [
+   {
+    "file": "IntrLine3Capsule3.h",
+    "lines": 353,
+    "deps": [
+     "Capsule.h",
+     "DistLineSegment.h",
+     "FIQuery.h",
+     "TIQuery.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "IntrLine3Cylinder3.h",
+    "lines": 265,
+    "deps": [
+     "Cylinder3.h",
+     "FIQuery.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "IntrLine3OrientedBox3.h",
+    "lines": 107,
+    "deps": [
+     "IntrLine3AlignedBox3.h",
+     "OrientedBox.h"
+    ]
+   },
+   {
+    "file": "IntrLine3Torus3.h",
+    "lines": 169,
+    "deps": [
+     "FIQuery.h",
+     "Line.h",
+     "Polynomial1.h",
+     "RootsPolynomial.h",
+     "Torus3.h"
+    ]
+   },
+   {
+    "file": "IntrOrientedBox2Sector2.h",
+    "lines": 143,
+    "deps": [
+     "DistPointSegment.h",
+     "IntrHalfspace2Polygon2.h",
+     "OrientedBox.h",
+     "Sector2.h",
+     "TIQuery.h"
+    ]
+   },
+   {
+    "file": "IntrOrientedBox3Frustum3.h",
+    "lines": 376,
+    "deps": [
+     "Frustum3.h",
+     "OrientedBox.h",
+     "TIQuery.h"
+    ]
+   },
+   {
+    "file": "IntrRay2AlignedBox2.h",
+    "lines": 146,
+    "deps": [
+     "IntrIntervals.h",
+     "IntrLine2AlignedBox2.h",
+     "Ray.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "IntrRay2Ray2.h",
+    "lines": 248,
+    "deps": [
+     "IntrLine2Line2.h",
+     "Ray.h"
+    ]
+   },
+   {
+    "file": "IntrRay2Segment2.h",
+    "lines": 219,
+    "deps": [
+     "IntrIntervals.h",
+     "IntrLine2Line2.h",
+     "Ray.h",
+     "Segment.h"
+    ]
+   },
+   {
+    "file": "IntrRay2Triangle2.h",
+    "lines": 118,
+    "deps": [
+     "IntrIntervals.h",
+     "IntrLine2Triangle2.h",
+     "Ray.h"
+    ]
+   },
+   {
+    "file": "IntrRay3AlignedBox3.h",
+    "lines": 159,
+    "deps": [
+     "IntrIntervals.h",
+     "IntrLine3AlignedBox3.h",
+     "Ray.h"
+    ]
+   },
+   {
+    "file": "IntrRay3Rectangle3.h",
+    "lines": 121,
+    "deps": [
+     "IntrLine3Rectangle3.h",
+     "Ray.h"
+    ]
+   }
+  ],
+  "id": 70
+ },
+ {
+  "category": "intersection",
+  "depth": 3,
+  "lines": 2128,
+  "files": [
+   {
+    "file": "IntrRay3Sphere3.h",
+    "lines": 138,
+    "deps": [
+     "IntrIntervals.h",
+     "IntrLine3Sphere3.h",
+     "Ray.h"
+    ]
+   },
+   {
+    "file": "IntrSegment2AlignedBox2.h",
+    "lines": 202,
+    "deps": [
+     "ContAlignedBox.h",
+     "IntrIntervals.h",
+     "IntrLine2AlignedBox2.h",
+     "Segment.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "IntrSegment2Segment2.h",
+    "lines": 419,
+    "deps": [
+     "IntrIntervals.h",
+     "IntrLine2Line2.h",
+     "Segment.h"
+    ]
+   },
+   {
+    "file": "IntrSegment2Triangle2.h",
+    "lines": 117,
+    "deps": [
+     "IntrIntervals.h",
+     "IntrLine2Triangle2.h",
+     "Segment.h"
+    ]
+   },
+   {
+    "file": "IntrSegment3AlignedBox3.h",
+    "lines": 172,
+    "deps": [
+     "IntrIntervals.h",
+     "IntrLine3AlignedBox3.h",
+     "Segment.h"
+    ]
+   },
+   {
+    "file": "IntrSegment3Rectangle3.h",
+    "lines": 124,
+    "deps": [
+     "IntrLine3Rectangle3.h",
+     "Segment.h"
+    ]
+   },
+   {
+    "file": "IntrSegment3Sphere3.h",
+    "lines": 165,
+    "deps": [
+     "IntrIntervals.h",
+     "IntrLine3Sphere3.h",
+     "Segment.h"
+    ]
+   },
+   {
+    "file": "IntrSphere3Sphere3.h",
+    "lines": 158,
+    "deps": [
+     "Circle3.h",
+     "FIQuery.h",
+     "Hypersphere.h",
+     "TIQuery.h"
+    ]
+   },
+   {
+    "file": "IntrSphere3Triangle3.h",
+    "lines": 633,
+    "deps": [
+     "DistPointTriangle.h",
+     "FIQuery.h",
+     "Hypersphere.h",
+     "QFNumber.h",
+     "TypeTraits.h",
+     "Vector3.h"
+    ]
+   }
+  ],
+  "id": 71
+ },
+ {
+  "category": "intersection",
+  "depth": 3,
+  "lines": 492,
+  "files": [
+   {
+    "file": "IntrTriangle3Cylinder3.h",
+    "lines": 492,
+    "deps": [
+     "Cylinder3.h",
+     "TIQuery.h",
+     "Triangle.h",
+     "Vector2.h",
+     "Vector3.h"
+    ]
+   }
+  ],
+  "id": 72
+ },
+ {
+  "category": "meshes-graphs",
+  "depth": 3,
+  "lines": 1299,
+  "files": [
+   {
+    "file": "ETManifoldMesh.h",
+    "lines": 947,
+    "deps": [
+     "EdgeKey.h",
+     "HashCombine.h",
+     "Logger.h",
+     "TriangleKey.h"
+    ]
+   },
+   {
+    "file": "TSManifoldMesh.h",
+    "lines": 352,
+    "deps": [
+     "HashCombine.h",
+     "Logger.h",
+     "TetrahedronKey.h",
+     "TriangleKey.h"
+    ]
+   }
+  ],
+  "id": 73
+ },
+ {
+  "category": "numerical",
+  "depth": 3,
+  "lines": 1406,
+  "files": [
+   {
+    "file": "CholeskyDecomposition.h",
+    "lines": 558,
+    "deps": [
+     "GMatrix.h",
+     "Matrix.h"
+    ]
+   },
+   {
+    "file": "LDLTDecomposition.h",
+    "lines": 848,
+    "deps": [
+     "GMatrix.h",
+     "Matrix.h"
+    ]
+   }
+  ],
+  "id": 74
+ },
+ {
+  "category": "primitives",
+  "depth": 3,
+  "lines": 787,
+  "files": [
+   {
+    "file": "Hyperellipsoid.h",
+    "lines": 335,
+    "deps": [
+     "Matrix.h",
+     "SymmetricEigensolver.h"
+    ]
+   },
+   {
+    "file": "Hyperplane.h",
+    "lines": 182,
+    "deps": [
+     "Matrix.h",
+     "SingularValueDecomposition.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "RectangleManager.h",
+    "lines": 270,
+    "deps": [
+     "EdgeKey.h",
+     "IntrAlignedBox2AlignedBox2.h"
+    ]
+   }
+  ],
+  "id": 75
+ },
+ {
+  "category": "roots-polynomials",
+  "depth": 3,
+  "lines": 123,
+  "files": [
+   {
+    "file": "PolynomialCurve.h",
+    "lines": 123,
+    "deps": [
+     "ParametricCurve.h",
+     "Polynomial1.h"
+    ]
+   }
+  ],
+  "id": 76
+ },
+ {
+  "category": "surfaces-volumes",
+  "depth": 3,
+  "lines": 698,
+  "files": [
+   {
+    "file": "Mesh.h",
+    "lines": 698,
+    "deps": [
+     "IndexAttribute.h",
+     "Logger.h",
+     "Matrix.h",
+     "Vector2.h",
+     "Vector3.h",
+     "VertexAttribute.h"
+    ]
+   }
+  ],
+  "id": 77
+ },
+ {
+  "category": "algebra",
+  "depth": 4,
+  "lines": 1731,
+  "files": [
+   {
+    "file": "Projection.h",
+    "lines": 167,
+    "deps": [
+     "Hyperellipsoid.h",
+     "Hyperplane.h",
+     "Line.h",
+     "Matrix2x2.h",
+     "Matrix3x3.h"
+    ]
+   },
+   {
+    "file": "Rotation.h",
+    "lines": 847,
+    "deps": [
+     "AxisAngle.h",
+     "EulerAngles.h",
+     "Matrix.h",
+     "Quaternion.h"
+    ]
+   },
+   {
+    "file": "RotationEstimate.h",
+    "lines": 717,
+    "deps": [
+     "Matrix3x3.h"
+    ]
+   }
+  ],
+  "id": 78
+ },
+ {
+  "category": "approximation",
+  "depth": 4,
+  "lines": 1232,
+  "files": [
+   {
+    "file": "ApprCylinder3.h",
+    "lines": 772,
+    "deps": [
+     "ApprCircle2.h",
+     "Constants.h",
+     "Cylinder3.h",
+     "Matrix3x3.h",
+     "SymmetricEigensolver3x3.h"
+    ]
+   },
+   {
+    "file": "ApprEllipse2.h",
+    "lines": 322,
+    "deps": [
+     "ContOrientedBox2.h",
+     "Hyperellipsoid.h",
+     "Matrix2x2.h",
+     "RootsPolynomial.h"
+    ]
+   },
+   {
+    "file": "ApprGreatCircle3.h",
+    "lines": 138,
+    "deps": [
+     "Constants.h",
+     "Matrix3x3.h",
+     "SymmetricEigensolver3x3.h"
+    ]
+   }
+  ],
+  "id": 79
+ },
+ {
+  "category": "arbitrary-precision",
+  "depth": 4,
+  "lines": 18,
+  "files": [
+   {
+    "file": "ArbitraryPrecision.h",
+    "lines": 18,
+    "deps": [
+     "BSNumber.h",
+     "BSPrecision.h",
+     "BSRational.h",
+     "UIntegerALU32.h",
+     "UIntegerAP32.h",
+     "UIntegerFP32.h"
+    ]
+   }
+  ],
+  "id": 80
+ },
+ {
+  "category": "bounding-trees",
+  "depth": 4,
+  "lines": 149,
+  "files": [
+   {
+    "file": "AABBBVTreeOfTriangles.h",
+    "lines": 149,
+    "deps": [
+     "BVTreeOfTriangles.h",
+     "IntrLine3AlignedBox3.h",
+     "IntrRay3AlignedBox3.h",
+     "IntrSegment3AlignedBox3.h"
+    ]
+   }
+  ],
+  "id": 81
+ },
+ {
+  "category": "computational-geometry",
+  "depth": 4,
+  "lines": 68,
+  "files": [
+   {
+    "file": "ExtremalQuery3PRJ.h",
+    "lines": 68,
+    "deps": [
+     "ExtremalQuery3.h"
+    ]
+   }
+  ],
+  "id": 82
+ },
+ {
+  "category": "containment",
+  "depth": 4,
+  "lines": 537,
+  "files": [
+   {
+    "file": "ContEllipse2MinCR.h",
+    "lines": 231,
+    "deps": [
+     "Logger.h",
+     "Matrix2x2.h"
+    ]
+   },
+   {
+    "file": "ContEllipsoid3MinCR.h",
+    "lines": 306,
+    "deps": [
+     "Matrix3x3.h"
+    ]
+   }
+  ],
+  "id": 83
+ },
+ {
+  "category": "core",
+  "depth": 4,
+  "lines": 1224,
+  "files": [
+   {
+    "file": "ImplicitSurface3.h",
+    "lines": 145,
+    "deps": [
+     "Matrix2x2.h",
+     "Matrix3x3.h",
+     "SymmetricEigensolver2x2.h"
+    ]
+   },
+   {
+    "file": "MeshCurvature.h",
+    "lines": 293,
+    "deps": [
+     "Matrix2x2.h",
+     "Matrix3x3.h"
+    ]
+   },
+   {
+    "file": "RevolutionMesh.h",
+    "lines": 327,
+    "deps": [
+     "Constants.h",
+     "Mesh.h",
+     "ParametricCurve.h"
+    ]
+   },
+   {
+    "file": "TubeMesh.h",
+    "lines": 239,
+    "deps": [
+     "Constants.h",
+     "FrenetFrame.h",
+     "Mesh.h"
+    ]
+   },
+   {
+    "file": "VETNonmanifoldMesh.h",
+    "lines": 220,
+    "deps": [
+     "ETNonmanifoldMesh.h",
+     "SharedPtrCompare.h"
+    ]
+   }
+  ],
+  "id": 84
+ },
+ {
+  "category": "curves",
+  "depth": 4,
+  "lines": 1314,
+  "files": [
+   {
+    "file": "DarbouxFrame.h",
+    "lines": 154,
+    "deps": [
+     "Matrix2x2.h",
+     "ParametricSurface.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "ImplicitCurve2.h",
+    "lines": 119,
+    "deps": [
+     "Matrix2x2.h"
+    ]
+   },
+   {
+    "file": "NaturalCubicSpline.h",
+    "lines": 386,
+    "deps": [
+     "Matrix.h",
+     "Matrix3x3.h",
+     "ParametricCurve.h"
+    ]
+   },
+   {
+    "file": "NaturalQuinticSpline.h",
+    "lines": 457,
+    "deps": [
+     "Matrix.h",
+     "Matrix4x4.h",
+     "ParametricCurve.h"
+    ]
+   },
+   {
+    "file": "NURBSCircle.h",
+    "lines": 198,
+    "deps": [
+     "Arc2.h",
+     "NURBSCurve.h"
+    ]
+   }
+  ],
+  "id": 85
+ },
+ {
+  "category": "distance",
+  "depth": 4,
+  "lines": 2427,
+  "files": [
+   {
+    "file": "DistPlane3CanonicalBox3.h",
+    "lines": 261,
+    "deps": [
+     "CanonicalBox.h",
+     "DCPQuery.h",
+     "Functions.h",
+     "Hyperplane.h"
+    ]
+   },
+   {
+    "file": "DistPoint2Parallelogram2.h",
+    "lines": 173,
+    "deps": [
+     "DCPQuery.h",
+     "Matrix2x2.h",
+     "Parallelogram2.h"
+    ]
+   },
+   {
+    "file": "DistPoint3ConvexPolyhedron3.h",
+    "lines": 205,
+    "deps": [
+     "ConvexPolyhedron3.h",
+     "DCPQuery.h",
+     "LCPSolver.h"
+    ]
+   },
+   {
+    "file": "DistPointHyperellipsoid.h",
+    "lines": 378,
+    "deps": [
+     "DCPQuery.h",
+     "Hyperellipsoid.h",
+     "Vector.h"
+    ]
+   },
+   {
+    "file": "DistPointHyperplane.h",
+    "lines": 60,
+    "deps": [
+     "DCPQuery.h",
+     "Hyperplane.h"
+    ]
+   },
+   {
+    "file": "DistRay2AlignedBox2.h",
+    "lines": 63,
+    "deps": [
+     "DistLine2AlignedBox2.h",
+     "DistPointAlignedBox.h",
+     "Ray.h"
+    ]
+   },
+   {
+    "file": "DistRay2Arc2.h",
+    "lines": 155,
+    "deps": [
+     "DistPoint2Arc2.h",
+     "DistPointRay.h",
+     "DistRay2Circle2.h"
+    ]
+   },
+   {
+    "file": "DistRay2OrientedBox2.h",
+    "lines": 64,
+    "deps": [
+     "DistLine2OrientedBox2.h",
+     "DistPointOrientedBox.h",
+     "Ray.h"
+    ]
+   },
+   {
+    "file": "DistRay3AlignedBox3.h",
+    "lines": 62,
+    "deps": [
+     "DistLine3AlignedBox3.h",
+     "DistPointAlignedBox.h",
+     "Ray.h"
+    ]
+   },
+   {
+    "file": "DistRay3Circle3.h",
+    "lines": 173,
+    "deps": [
+     "DistLine3Circle3.h",
+     "DistPoint3Circle3.h",
+     "Ray.h"
+    ]
+   },
+   {
+    "file": "DistRay3OrientedBox3.h",
+    "lines": 63,
+    "deps": [
+     "DistLine3OrientedBox3.h",
+     "DistPointOrientedBox.h",
+     "Ray.h"
+    ]
+   },
+   {
+    "file": "DistRay3Rectangle3.h",
+    "lines": 67,
+    "deps": [
+     "DistLine3Rectangle3.h",
+     "DistPointRectangle.h",
+     "Ray.h"
+    ]
+   },
+   {
+    "file": "DistRay3Triangle3.h",
+    "lines": 65,
+    "deps": [
+     "DistLine3Triangle3.h",
+     "DistPointTriangle.h",
+     "Ray.h"
+    ]
+   },
+   {
+    "file": "DistSegment2AlignedBox2.h",
+    "lines": 80,
+    "deps": [
+     "DistLine2AlignedBox2.h",
+     "DistPointAlignedBox.h",
+     "Segment.h"
+    ]
+   },
+   {
+    "file": "DistSegment2Arc2.h",
+    "lines": 161,
+    "deps": [
+     "DistPoint2Arc2.h",
+     "DistPointSegment.h",
+     "DistSegment2Circle2.h"
+    ]
+   },
+   {
+    "file": "DistSegment2OrientedBox2.h",
+    "lines": 81,
+    "deps": [
+     "DistLine2OrientedBox2.h",
+     "DistPointOrientedBox.h",
+     "Segment.h"
+    ]
+   },
+   {
+    "file": "DistSegment3AlignedBox3.h",
+    "lines": 79,
+    "deps": [
+     "DistLine3AlignedBox3.h",
+     "DistPointAlignedBox.h",
+     "Segment.h"
+    ]
+   },
+   {
+    "file": "DistSegment3Circle3.h",
+    "lines": 237,
+    "deps": [
+     "DistLine3Circle3.h",
+     "DistPoint3Circle3.h",
+     "Segment.h"
+    ]
+   }
+  ],
+  "id": 86
+ },
+ {
+  "category": "distance",
+  "depth": 4,
+  "lines": 246,
+  "files": [
+   {
+    "file": "DistSegment3OrientedBox3.h",
+    "lines": 80,
+    "deps": [
+     "DistLine3OrientedBox3.h",
+     "DistPointOrientedBox.h",
+     "Segment.h"
+    ]
+   },
+   {
+    "file": "DistSegment3Rectangle3.h",
+    "lines": 84,
+    "deps": [
+     "DistLine3Rectangle3.h",
+     "DistPointRectangle.h",
+     "Segment.h"
+    ]
+   },
+   {
+    "file": "DistSegment3Triangle3.h",
+    "lines": 82,
+    "deps": [
+     "DistLine3Triangle3.h",
+     "DistPointTriangle.h",
+     "Segment.h"
+    ]
+   }
+  ],
+  "id": 87
+ },
+ {
+  "category": "intersection",
+  "depth": 4,
+  "lines": 2302,
+  "files": [
+   {
+    "file": "IntrAlignedBox2Circle2.h",
+    "lines": 368,
+    "deps": [
+     "DistPointAlignedBox.h",
+     "FIQuery.h",
+     "Hypersphere.h",
+     "TIQuery.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "IntrAlignedBox3Cylinder3.h",
+    "lines": 64,
+    "deps": [
+     "AlignedBox.h",
+     "IntrCanonicalBox3Cylinder3.h"
+    ]
+   },
+   {
+    "file": "IntrAlignedBox3Sphere3.h",
+    "lines": 617,
+    "deps": [
+     "DistPointAlignedBox.h",
+     "Hypersphere.h",
+     "IntrRay3AlignedBox3.h"
+    ]
+   },
+   {
+    "file": "IntrConvexPolygonHyperplane.h",
+    "lines": 424,
+    "deps": [
+     "FIQuery.h",
+     "Hyperplane.h",
+     "TIQuery.h",
+     "Vector.h"
+    ]
+   },
+   {
+    "file": "IntrEllipse2Ellipse2.h",
+    "lines": 829,
+    "deps": [
+     "AlignedBox.h",
+     "FIQuery.h",
+     "Functions.h",
+     "Hyperellipsoid.h",
+     "Logger.h",
+     "Matrix2x2.h",
+     "Polynomial1.h",
+     "RootsBisection.h",
+     "RootsPolynomial.h",
+     "SymmetricEigensolver2x2.h",
+     "TIQuery.h"
+    ]
+   }
+  ],
+  "id": 88
+ },
+ {
+  "category": "intersection",
+  "depth": 4,
+  "lines": 2411,
+  "files": [
+   {
+    "file": "IntrEllipsoid3Ellipsoid3.h",
+    "lines": 544,
+    "deps": [
+     "Hyperellipsoid.h",
+     "Logger.h",
+     "Matrix3x3.h",
+     "RootsBisection.h",
+     "RootsPolynomial.h",
+     "SymmetricEigensolver3x3.h",
+     "TIQuery.h"
+    ]
+   },
+   {
+    "file": "IntrHalfspace3Ellipsoid3.h",
+    "lines": 58,
+    "deps": [
+     "Halfspace.h",
+     "Hyperellipsoid.h",
+     "Matrix3x3.h",
+     "TIQuery.h"
+    ]
+   },
+   {
+    "file": "IntrLine2Arc2.h",
+    "lines": 99,
+    "deps": [
+     "Arc2.h",
+     "IntrLine2Circle2.h"
+    ]
+   },
+   {
+    "file": "IntrLine2SegmentMesh2.h",
+    "lines": 134,
+    "deps": [
+     "FIQuery.h",
+     "IntrLine2Segment2.h",
+     "SegmentMesh.h"
+    ]
+   },
+   {
+    "file": "IntrLine3Ellipsoid3.h",
+    "lines": 145,
+    "deps": [
+     "FIQuery.h",
+     "Hyperellipsoid.h",
+     "Line.h",
+     "Matrix3x3.h",
+     "TIQuery.h"
+    ]
+   },
+   {
+    "file": "IntrOrientedBox3Cylinder3.h",
+    "lines": 71,
+    "deps": [
+     "IntrCanonicalBox3Cylinder3.h",
+     "OrientedBox.h"
+    ]
+   },
+   {
+    "file": "IntrPlane3Plane3.h",
+    "lines": 160,
+    "deps": [
+     "FIQuery.h",
+     "Hyperplane.h",
+     "Line.h",
+     "TIQuery.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "IntrPlane3Triangle3.h",
+    "lines": 295,
+    "deps": [
+     "FIQuery.h",
+     "Hyperplane.h",
+     "TIQuery.h",
+     "Triangle.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "IntrRay2Circle2.h",
+    "lines": 100,
+    "deps": [
+     "IntrIntervals.h",
+     "IntrLine2Circle2.h",
+     "Ray.h"
+    ]
+   },
+   {
+    "file": "IntrRay2OrientedBox2.h",
+    "lines": 109,
+    "deps": [
+     "IntrRay2AlignedBox2.h",
+     "OrientedBox.h"
+    ]
+   },
+   {
+    "file": "IntrRay3Capsule3.h",
+    "lines": 115,
+    "deps": [
+     "DistRaySegment.h",
+     "IntrIntervals.h",
+     "IntrLine3Capsule3.h"
+    ]
+   },
+   {
+    "file": "IntrRay3Cylinder3.h",
+    "lines": 88,
+    "deps": [
+     "IntrIntervals.h",
+     "IntrLine3Cylinder3.h",
+     "Ray.h"
+    ]
+   },
+   {
+    "file": "IntrRay3OrientedBox3.h",
+    "lines": 117,
+    "deps": [
+     "IntrRay3AlignedBox3.h",
+     "OrientedBox.h"
+    ]
+   },
+   {
+    "file": "IntrSegment2Circle2.h",
+    "lines": 104,
+    "deps": [
+     "IntrIntervals.h",
+     "IntrLine2Circle2.h",
+     "Segment.h"
+    ]
+   },
+   {
+    "file": "IntrSegment2OrientedBox2.h",
+    "lines": 151,
+    "deps": [
+     "ContOrientedBox2.h",
+     "IntrSegment2AlignedBox2.h",
+     "OrientedBox.h"
+    ]
+   },
+   {
+    "file": "IntrSegment3Capsule3.h",
+    "lines": 121,
+    "deps": [
+     "DistSegmentSegment.h",
+     "IntrIntervals.h",
+     "IntrLine3Capsule3.h"
+    ]
+   }
+  ],
+  "id": 89
+ },
+ {
+  "category": "intersection",
+  "depth": 4,
+  "lines": 271,
+  "files": [
+   {
+    "file": "IntrSegment3Cylinder3.h",
+    "lines": 94,
+    "deps": [
+     "IntrIntervals.h",
+     "IntrLine3Cylinder3.h",
+     "Segment.h"
+    ]
+   },
+   {
+    "file": "IntrSegment3OrientedBox3.h",
+    "lines": 134,
+    "deps": [
+     "IntrSegment3AlignedBox3.h",
+     "OrientedBox.h"
+    ]
+   },
+   {
+    "file": "IntrSphere3Frustum3.h",
+    "lines": 43,
+    "deps": [
+     "DistPoint3Frustum3.h",
+     "Hypersphere.h",
+     "TIQuery.h"
+    ]
+   }
+  ],
+  "id": 90
+ },
+ {
+  "category": "meshes-graphs",
+  "depth": 4,
+  "lines": 914,
+  "files": [
+   {
+    "file": "PlanarMesh.h",
+    "lines": 460,
+    "deps": [
+     "ContPointInPolygon2.h",
+     "ETManifoldMesh.h",
+     "PrimalQuery2.h"
+    ]
+   },
+   {
+    "file": "VETManifoldMesh.h",
+    "lines": 219,
+    "deps": [
+     "ETManifoldMesh.h"
+    ]
+   },
+   {
+    "file": "VTSManifoldMesh.h",
+    "lines": 235,
+    "deps": [
+     "TSManifoldMesh.h"
+    ]
+   }
+  ],
+  "id": 91
+ },
+ {
+  "category": "numerical",
+  "depth": 4,
+  "lines": 887,
+  "files": [
+   {
+    "file": "GaussNewtonMinimizer.h",
+    "lines": 239,
+    "deps": [
+     "CholeskyDecomposition.h"
+    ]
+   },
+   {
+    "file": "LevenbergMarquardtMinimizer.h",
+    "lines": 298,
+    "deps": [
+     "CholeskyDecomposition.h"
+    ]
+   },
+   {
+    "file": "LinearSystem.h",
+    "lines": 350,
+    "deps": [
+     "GaussianElimination.h",
+     "Matrix2x2.h",
+     "Matrix3x3.h",
+     "Matrix4x4.h"
+    ]
+   }
+  ],
+  "id": 92
+ },
+ {
+  "category": "physics",
+  "depth": 4,
+  "lines": 462,
+  "files": [
+   {
+    "file": "HelmertTransformation7.h",
+    "lines": 312,
+    "deps": [
+     "Logger.h",
+     "Matrix3x3.h"
+    ]
+   },
+   {
+    "file": "PolyhedralMassProperties.h",
+    "lines": 150,
+    "deps": [
+     "Matrix3x3.h"
+    ]
+   }
+  ],
+  "id": 93
+ },
+ {
+  "category": "primitives",
+  "depth": 4,
+  "lines": 1500,
+  "files": [
+   {
+    "file": "AlignedBoxBV.h",
+    "lines": 87,
+    "deps": [
+     "IntrLine3AlignedBox3.h",
+     "IntrRay3AlignedBox3.h",
+     "IntrSegment3AlignedBox3.h"
+    ]
+   },
+   {
+    "file": "Cone.h",
+    "lines": 510,
+    "deps": [
+     "Constants.h",
+     "Logger.h",
+     "Matrix3x3.h",
+     "Ray.h",
+     "UniqueVerticesSimplices.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "Polygon2.h",
+    "lines": 277,
+    "deps": [
+     "IntrSegment2Segment2.h"
+    ]
+   },
+   {
+    "file": "RectangleMesh.h",
+    "lines": 158,
+    "deps": [
+     "Mesh.h",
+     "Rectangle.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "RectanglePatchMesh.h",
+    "lines": 201,
+    "deps": [
+     "Mesh.h",
+     "ParametricSurface.h"
+    ]
+   },
+   {
+    "file": "Tetrahedron3.h",
+    "lines": 267,
+    "deps": [
+     "Hyperplane.h",
+     "Vector3.h"
+    ]
+   }
+  ],
+  "id": 94
+ },
+ {
+  "category": "surfaces-volumes",
+  "depth": 4,
+  "lines": 670,
+  "files": [
+   {
+    "file": "GenerateMeshUV.h",
+    "lines": 670,
+    "deps": [
+     "Constants.h",
+     "ETManifoldMesh.h",
+     "Vector2.h",
+     "Vector3.h"
+    ]
+   }
+  ],
+  "id": 95
+ },
+ {
+  "category": "algebra",
+  "depth": 5,
+  "lines": 846,
+  "files": [
+   {
+    "file": "Transform.h",
+    "lines": 846,
+    "deps": [
+     "Logger.h",
+     "Matrix3x3.h",
+     "Matrix4x4.h",
+     "Rotation.h"
+    ]
+   }
+  ],
+  "id": 96
+ },
+ {
+  "category": "approximation",
+  "depth": 5,
+  "lines": 1243,
+  "files": [
+   {
+    "file": "ApprCone3.h",
+    "lines": 302,
+    "deps": [
+     "ApprHeightLine2.h",
+     "GaussNewtonMinimizer.h",
+     "LevenbergMarquardtMinimizer.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "ApprParabola2.h",
+    "lines": 206,
+    "deps": [
+     "LinearSystem.h"
+    ]
+   },
+   {
+    "file": "ApprParaboloid3.h",
+    "lines": 324,
+    "deps": [
+     "LDLTDecomposition.h",
+     "LinearSystem.h",
+     "TypeTraits.h"
+    ]
+   },
+   {
+    "file": "ApprTorus3.h",
+    "lines": 411,
+    "deps": [
+     "ApprOrthogonalPlane3.h",
+     "ArbitraryPrecision.h",
+     "GaussNewtonMinimizer.h",
+     "LevenbergMarquardtMinimizer.h",
+     "RootsPolynomial.h"
+    ]
+   }
+  ],
+  "id": 97
+ },
+ {
+  "category": "arbitrary-precision",
+  "depth": 5,
+  "lines": 1005,
+  "files": [
+   {
+    "file": "APConversion.h",
+    "lines": 508,
+    "deps": [
+     "ArbitraryPrecision.h",
+     "QFNumber.h"
+    ]
+   },
+   {
+    "file": "APInterval.h",
+    "lines": 497,
+    "deps": [
+     "ArbitraryPrecision.h",
+     "Logger.h"
+    ]
+   }
+  ],
+  "id": 98
+ },
+ {
+  "category": "bounding-trees",
+  "depth": 5,
+  "lines": 348,
+  "files": [
+   {
+    "file": "OBBTreeOfTriangles.h",
+    "lines": 348,
+    "deps": [
+     "IntrLine3OrientedBox3.h",
+     "IntrLine3Triangle3.h",
+     "IntrRay3OrientedBox3.h",
+     "IntrRay3Triangle3.h",
+     "IntrSegment3OrientedBox3.h",
+     "IntrSegment3Triangle3.h",
+     "OBBTree.h"
+    ]
+   }
+  ],
+  "id": 99
+ },
+ {
+  "category": "computational-geometry",
+  "depth": 5,
+  "lines": 2420,
+  "files": [
+   {
+    "file": "ConvexHull2.h",
+    "lines": 568,
+    "deps": [
+     "ArbitraryPrecision.h",
+     "Line.h",
+     "SWInterval.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "Delaunay2.h",
+    "lines": 1852,
+    "deps": [
+     "ArbitraryPrecision.h",
+     "HashCombine.h",
+     "Line.h",
+     "Logger.h",
+     "PrimalQuery2.h",
+     "SWInterval.h",
+     "VETManifoldMesh.h",
+     "Vector2.h"
+    ]
+   }
+  ],
+  "id": 100
+ },
+ {
+  "category": "computational-geometry",
+  "depth": 5,
+  "lines": 2244,
+  "files": [
+   {
+    "file": "Delaunay3.h",
+    "lines": 2244,
+    "deps": [
+     "ArbitraryPrecision.h",
+     "Hyperplane.h",
+     "Line.h",
+     "Logger.h",
+     "PrimalQuery3.h",
+     "SWInterval.h",
+     "TSManifoldMesh.h"
+    ]
+   }
+  ],
+  "id": 101
+ },
+ {
+  "category": "computational-geometry",
+  "depth": 5,
+  "lines": 2336,
+  "files": [
+   {
+    "file": "ExtremalQuery3BSP.h",
+    "lines": 439,
+    "deps": [
+     "ExtremalQuery3.h",
+     "Functions.h",
+     "RangeIteration.h",
+     "VETManifoldMesh.h"
+    ]
+   },
+   {
+    "file": "IncrementalDelaunay2.h",
+    "lines": 1897,
+    "deps": [
+     "ArbitraryPrecision.h",
+     "MinHeap.h",
+     "SWInterval.h",
+     "VETManifoldMesh.h",
+     "Vector2.h"
+    ]
+   }
+  ],
+  "id": 102
+ },
+ {
+  "category": "computational-geometry",
+  "depth": 5,
+  "lines": 1448,
+  "files": [
+   {
+    "file": "MinimumAreaCircle2.h",
+    "lines": 463,
+    "deps": [
+     "ContCircle2.h",
+     "Hypersphere.h",
+     "LinearSystem.h",
+     "Logger.h"
+    ]
+   },
+   {
+    "file": "MinimumVolumeSphere3.h",
+    "lines": 713,
+    "deps": [
+     "ContSphere3.h",
+     "LinearSystem.h",
+     "Logger.h"
+    ]
+   },
+   {
+    "file": "RotatingCalipers.h",
+    "lines": 272,
+    "deps": [
+     "ArbitraryPrecision.h",
+     "Vector2.h"
+    ]
+   }
+  ],
+  "id": 103
+ },
+ {
+  "category": "containment",
+  "depth": 5,
+  "lines": 859,
+  "files": [
+   {
+    "file": "ContCone.h",
+    "lines": 26,
+    "deps": [
+     "Cone.h"
+    ]
+   },
+   {
+    "file": "ContEllipse2.h",
+    "lines": 154,
+    "deps": [
+     "ApprGaussian2.h",
+     "Hyperellipsoid.h",
+     "Projection.h"
+    ]
+   },
+   {
+    "file": "ContEllipsoid3.h",
+    "lines": 169,
+    "deps": [
+     "ApprGaussian3.h",
+     "Hyperellipsoid.h",
+     "Matrix3x3.h",
+     "Projection.h",
+     "Rotation.h"
+    ]
+   },
+   {
+    "file": "ContOrientedBox3.h",
+    "lines": 205,
+    "deps": [
+     "ApprGaussian3.h",
+     "Matrix3x3.h",
+     "Rotation.h"
+    ]
+   },
+   {
+    "file": "ContScribeCircle2.h",
+    "lines": 65,
+    "deps": [
+     "Hypersphere.h",
+     "LinearSystem.h"
+    ]
+   },
+   {
+    "file": "ContScribeCircle3Sphere3.h",
+    "lines": 173,
+    "deps": [
+     "Circle3.h",
+     "Hypersphere.h",
+     "LinearSystem.h"
+    ]
+   },
+   {
+    "file": "ContTetrahedron3.h",
+    "lines": 67,
+    "deps": [
+     "Tetrahedron3.h"
+    ]
+   }
+  ],
+  "id": 104
+ },
+ {
+  "category": "core",
+  "depth": 5,
+  "lines": 536,
+  "files": [
+   {
+    "file": "VertexCollapseMesh.h",
+    "lines": 536,
+    "deps": [
+     "MinHeap.h",
+     "Polygon2.h",
+     "TriangulateEC.h",
+     "VETManifoldMesh.h",
+     "Vector3.h"
+    ]
+   }
+  ],
+  "id": 105
+ },
+ {
+  "category": "curves",
+  "depth": 5,
+  "lines": 884,
+  "files": [
+   {
+    "file": "NaturalSplineCurve.h",
+    "lines": 424,
+    "deps": [
+     "LinearSystem.h",
+     "ParametricCurve.h"
+    ]
+   },
+   {
+    "file": "RiemannianGeodesic.h",
+    "lines": 460,
+    "deps": [
+     "GMatrix.h",
+     "LinearSystem.h"
+    ]
+   }
+  ],
+  "id": 106
+ },
+ {
+  "category": "distance",
+  "depth": 5,
+  "lines": 1773,
+  "files": [
+   {
+    "file": "DistOrientedBox3Cone3.h",
+    "lines": 264,
+    "deps": [
+     "Cone.h",
+     "DCPQuery.h",
+     "LCPSolver.h",
+     "Matrix.h",
+     "Minimize1.h",
+     "OrientedBox.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "DistPlane3AlignedBox3.h",
+    "lines": 66,
+    "deps": [
+     "AlignedBox.h",
+     "DistPlane3CanonicalBox3.h"
+    ]
+   },
+   {
+    "file": "DistPlane3OrientedBox3.h",
+    "lines": 79,
+    "deps": [
+     "DistPlane3CanonicalBox3.h",
+     "OrientedBox.h"
+    ]
+   },
+   {
+    "file": "DistPoint3Parallelepiped3.h",
+    "lines": 608,
+    "deps": [
+     "DistPoint2Parallelogram2.h",
+     "Matrix2x2.h",
+     "Matrix3x3.h",
+     "Parallelepiped3.h"
+    ]
+   },
+   {
+    "file": "DistPoint3Tetrahedron3.h",
+    "lines": 113,
+    "deps": [
+     "DistPointTriangle.h",
+     "Tetrahedron3.h"
+    ]
+   },
+   {
+    "file": "DistRectangle3CanonicalBox3.h",
+    "lines": 135,
+    "deps": [
+     "DistPlane3CanonicalBox3.h",
+     "DistSegment3CanonicalBox3.h",
+     "Rectangle.h"
+    ]
+   },
+   {
+    "file": "DistRectangle3Rectangle3.h",
+    "lines": 131,
+    "deps": [
+     "DistSegment3Rectangle3.h"
+    ]
+   },
+   {
+    "file": "DistTriangle3CanonicalBox3.h",
+    "lines": 131,
+    "deps": [
+     "DistPlane3CanonicalBox3.h",
+     "DistSegment3CanonicalBox3.h",
+     "Triangle.h"
+    ]
+   },
+   {
+    "file": "DistTriangle3Rectangle3.h",
+    "lines": 136,
+    "deps": [
+     "DistSegment3Rectangle3.h",
+     "DistSegment3Triangle3.h"
+    ]
+   },
+   {
+    "file": "DistTriangle3Triangle3.h",
+    "lines": 110,
+    "deps": [
+     "DistSegment3Triangle3.h"
+    ]
+   }
+  ],
+  "id": 107
+ },
+ {
+  "category": "intersection",
+  "depth": 5,
+  "lines": 2322,
+  "files": [
+   {
+    "file": "IntrAlignedBox3Cone3.h",
+    "lines": 1024,
+    "deps": [
+     "AlignedBox.h",
+     "Cone.h",
+     "IntrRay3AlignedBox3.h",
+     "IntrSegment3AlignedBox3.h"
+    ]
+   },
+   {
+    "file": "IntrAreaEllipse2Ellipse2.h",
+    "lines": 376,
+    "deps": [
+     "IntrEllipse2Ellipse2.h"
+    ]
+   },
+   {
+    "file": "IntrConvexMesh3Plane3.h",
+    "lines": 922,
+    "deps": [
+     "ArbitraryPrecision.h",
+     "ConvexMesh3.h",
+     "EdgeKey.h",
+     "FIQuery.h",
+     "Hyperplane.h",
+     "UniqueVerticesSimplices.h"
+    ]
+   }
+  ],
+  "id": 108
+ },
+ {
+  "category": "intersection",
+  "depth": 5,
+  "lines": 2466,
+  "files": [
+   {
+    "file": "IntrLine3Cone3.h",
+    "lines": 487,
+    "deps": [
+     "Cone.h",
+     "IntrIntervals.h",
+     "Line.h",
+     "QFNumber.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "IntrLine3Plane3.h",
+    "lines": 135,
+    "deps": [
+     "DistPointHyperplane.h",
+     "FIQuery.h",
+     "Line.h",
+     "TIQuery.h"
+    ]
+   },
+   {
+    "file": "IntrOrientedBox2Circle2.h",
+    "lines": 107,
+    "deps": [
+     "DistPointOrientedBox.h",
+     "IntrAlignedBox2Circle2.h"
+    ]
+   },
+   {
+    "file": "IntrOrientedBox2Cone2.h",
+    "lines": 115,
+    "deps": [
+     "Cone.h",
+     "IntrRay2OrientedBox2.h"
+    ]
+   },
+   {
+    "file": "IntrOrientedBox3Sphere3.h",
+    "lines": 109,
+    "deps": [
+     "DistPointOrientedBox.h",
+     "IntrAlignedBox3Sphere3.h"
+    ]
+   },
+   {
+    "file": "IntrPlane3Capsule3.h",
+    "lines": 58,
+    "deps": [
+     "Capsule.h",
+     "DistPointHyperplane.h",
+     "TIQuery.h"
+    ]
+   },
+   {
+    "file": "IntrPlane3Circle3.h",
+    "lines": 195,
+    "deps": [
+     "Circle3.h",
+     "IntrPlane3Plane3.h"
+    ]
+   },
+   {
+    "file": "IntrPlane3Cylinder3.h",
+    "lines": 328,
+    "deps": [
+     "Cylinder3.h",
+     "Ellipse3.h",
+     "Hyperellipsoid.h",
+     "IntrPlane3Plane3.h",
+     "Matrix.h",
+     "Matrix3x3.h"
+    ]
+   },
+   {
+    "file": "IntrPlane3Ellipsoid3.h",
+    "lines": 50,
+    "deps": [
+     "DistPointHyperplane.h",
+     "Hyperellipsoid.h",
+     "Matrix3x3.h",
+     "TIQuery.h"
+    ]
+   },
+   {
+    "file": "IntrPlane3OrientedBox3.h",
+    "lines": 50,
+    "deps": [
+     "DistPointHyperplane.h",
+     "OrientedBox.h",
+     "TIQuery.h"
+    ]
+   },
+   {
+    "file": "IntrPlane3Sphere3.h",
+    "lines": 108,
+    "deps": [
+     "Circle3.h",
+     "DistPointHyperplane.h",
+     "FIQuery.h",
+     "Hypersphere.h",
+     "TIQuery.h"
+    ]
+   },
+   {
+    "file": "IntrRay2Arc2.h",
+    "lines": 99,
+    "deps": [
+     "Arc2.h",
+     "IntrRay2Circle2.h"
+    ]
+   },
+   {
+    "file": "IntrRay2SegmentMesh2.h",
+    "lines": 104,
+    "deps": [
+     "IntrLine2SegmentMesh2.h",
+     "Ray.h"
+    ]
+   },
+   {
+    "file": "IntrRay3Ellipsoid3.h",
+    "lines": 148,
+    "deps": [
+     "IntrIntervals.h",
+     "IntrLine3Ellipsoid3.h",
+     "Matrix3x3.h",
+     "Ray.h"
+    ]
+   },
+   {
+    "file": "IntrSegment2Arc2.h",
+    "lines": 99,
+    "deps": [
+     "Arc2.h",
+     "IntrSegment2Circle2.h"
+    ]
+   },
+   {
+    "file": "IntrSegment2SegmentMesh2.h",
+    "lines": 102,
+    "deps": [
+     "IntrLine2SegmentMesh2.h"
+    ]
+   },
+   {
+    "file": "IntrSegment3Ellipsoid3.h",
+    "lines": 172,
+    "deps": [
+     "IntrIntervals.h",
+     "IntrLine3Ellipsoid3.h",
+     "Matrix3x3.h",
+     "Segment.h"
+    ]
+   }
+  ],
+  "id": 109
+ },
+ {
+  "category": "intersection",
+  "depth": 5,
+  "lines": 1011,
+  "files": [
+   {
+    "file": "IntrSphere3Cone3.h",
+    "lines": 363,
+    "deps": [
+     "Cone.h",
+     "FIQuery.h",
+     "Hypersphere.h",
+     "TIQuery.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "IntrTetrahedron3Tetrahedron3.h",
+    "lines": 204,
+    "deps": [
+     "TIQuery.h",
+     "Tetrahedron3.h"
+    ]
+   },
+   {
+    "file": "IntrTriangle2Triangle2.h",
+    "lines": 168,
+    "deps": [
+     "IntrConvexPolygonHyperplane.h",
+     "Triangle.h",
+     "Vector2.h"
+    ]
+   },
+   {
+    "file": "IntrTriangle3CanonicalBox3.h",
+    "lines": 276,
+    "deps": [
+     "CanonicalBox.h",
+     "FIQuery.h",
+     "IntrConvexPolygonHyperplane.h",
+     "TIQuery.h",
+     "Triangle.h",
+     "Vector3.h"
+    ]
+   }
+  ],
+  "id": 110
+ },
+ {
+  "category": "meshes-graphs",
+  "depth": 5,
+  "lines": 1230,
+  "files": [
+   {
+    "file": "MinimalCycleBasis.h",
+    "lines": 824,
+    "deps": [
+     "ArbitraryPrecision.h"
+    ]
+   },
+   {
+    "file": "SplitMeshByPlane.h",
+    "lines": 406,
+    "deps": [
+     "DistPointHyperplane.h",
+     "EdgeKey.h"
+    ]
+   }
+  ],
+  "id": 111
+ },
+ {
+  "category": "physics",
+  "depth": 5,
+  "lines": 1397,
+  "files": [
+   {
+    "file": "LieGroupsAlgebras.h",
+    "lines": 728,
+    "deps": [
+     "Matrix2x2.h",
+     "Matrix3x3.h",
+     "Matrix4x4.h",
+     "RotationEstimate.h"
+    ]
+   },
+   {
+    "file": "RigidBody.h",
+    "lines": 669,
+    "deps": [
+     "LinearSystem.h",
+     "Matrix3x3.h",
+     "Rotation.h"
+    ]
+   }
+  ],
+  "id": 112
+ },
+ {
+  "category": "primitives",
+  "depth": 5,
+  "lines": 340,
+  "files": [
+   {
+    "file": "AlignedBoxTreeOfPoints.h",
+    "lines": 73,
+    "deps": [
+     "AlignedBoxBV.h",
+     "BVTreeOfPoints.h"
+    ]
+   },
+   {
+    "file": "AlignedBoxTreeOfSegments.h",
+    "lines": 92,
+    "deps": [
+     "AlignedBoxBV.h",
+     "BVTreeOfSegments.h"
+    ]
+   },
+   {
+    "file": "AlignedBoxTreeOfTriangles.h",
+    "lines": 91,
+    "deps": [
+     "AlignedBoxBV.h",
+     "BVTreeOfTriangles.h"
+    ]
+   },
+   {
+    "file": "OrientedBoxBV.h",
+    "lines": 84,
+    "deps": [
+     "IntrLine3OrientedBox3.h",
+     "IntrRay3OrientedBox3.h",
+     "IntrSegment3OrientedBox3.h"
+    ]
+   }
+  ],
+  "id": 113
+ },
+ {
+  "category": "roots-polynomials",
+  "depth": 5,
+  "lines": 637,
+  "files": [
+   {
+    "file": "PolynomialRoot.h",
+    "lines": 136,
+    "deps": [
+     "ArbitraryPrecision.h"
+    ]
+   },
+   {
+    "file": "RootsGeneralPolynomial.h",
+    "lines": 501,
+    "deps": [
+     "ArbitraryPrecision.h"
+    ]
+   }
+  ],
+  "id": 114
+ },
+ {
+  "category": "surfaces-volumes",
+  "depth": 5,
+  "lines": 991,
+  "files": [
+   {
+    "file": "ConformalMapGenus0.h",
+    "lines": 430,
+    "deps": [
+     "Constants.h",
+     "ETManifoldMesh.h",
+     "LinearSystem.h",
+     "Logger.h",
+     "Polynomial1.h",
+     "Vector2.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "QuadricSurface.h",
+    "lines": 561,
+    "deps": [
+     "ArbitraryPrecision.h",
+     "Logger.h",
+     "Matrix2x2.h",
+     "Matrix3x3.h"
+    ]
+   }
+  ],
+  "id": 115
+ },
+ {
+  "category": "approximation",
+  "depth": 6,
+  "lines": 460,
+  "files": [
+   {
+    "file": "ApprEllipseByArcs.h",
+    "lines": 125,
+    "deps": [
+     "ContScribeCircle2.h"
+    ]
+   },
+   {
+    "file": "ApprEllipsoid3.h",
+    "lines": 335,
+    "deps": [
+     "ContOrientedBox3.h",
+     "Hyperellipsoid.h",
+     "RootsPolynomial.h"
+    ]
+   }
+  ],
+  "id": 116
+ },
+ {
+  "category": "arbitrary-precision",
+  "depth": 6,
+  "lines": 81,
+  "files": [
+   {
+    "file": "BSplineGeodesic.h",
+    "lines": 81,
+    "deps": [
+     "BSplineSurface.h",
+     "RiemannianGeodesic.h"
+    ]
+   }
+  ],
+  "id": 117
+ },
+ {
+  "category": "computational-geometry",
+  "depth": 6,
+  "lines": 2404,
+  "files": [
+   {
+    "file": "ConstrainedDelaunay2.h",
+    "lines": 1157,
+    "deps": [
+     "Delaunay2.h"
+    ]
+   },
+   {
+    "file": "ConvexHull3.h",
+    "lines": 666,
+    "deps": [
+     "ConvexHull2.h",
+     "SWInterval.h",
+     "VETManifoldMesh.h",
+     "Vector3.h"
+    ]
+   },
+   {
+    "file": "Delaunay2Mesh.h",
+    "lines": 298,
+    "deps": [
+     "Delaunay2.h"
+    ]
+   },
+   {
+    "file": "Delaunay3Mesh.h",
+    "lines": 283,
+    "deps": [
+     "Delaunay3.h"
+    ]
+   }
+  ],
+  "id": 118
+ },
+ {
+  "category": "computational-geometry",
+  "depth": 6,
+  "lines": 1247,
+  "files": [
+   {
+    "file": "MinimumAreaBox2.h",
+    "lines": 703,
+    "deps": [
+     "ConvexHull2.h",
+     "OrientedBox.h"
+    ]
+   },
+   {
+    "file": "MinimumWidthPoints2.h",
+    "lines": 336,
+    "deps": [
+     "ConvexHull2.h",
+     "OrientedBox.h",
+     "RotatingCalipers.h"
+    ]
+   },
+   {
+    "file": "SeparatePoints2.h",
+    "lines": 208,
+    "deps": [
+     "ConvexHull2.h"
+    ]
+   }
+  ],
+  "id": 119
+ },
+ {
+  "category": "curves",
+  "depth": 6,
+  "lines": 153,
+  "files": [
+   {
+    "file": "EllipsoidGeodesic.h",
+    "lines": 153,
+    "deps": [
+     "RiemannianGeodesic.h"
+    ]
+   }
+  ],
+  "id": 120
+ },
+ {
+  "category": "distance",
+  "depth": 6,
+  "lines": 1004,
+  "files": [
+   {
+    "file": "DistCircle3Circle3.h",
+    "lines": 539,
+    "deps": [
+     "ArbitraryPrecision.h",
+     "Circle3.h",
+     "DCPQuery.h",
+     "Matrix3x3.h",
+     "Polynomial1.h",
+     "RootsGeneralPolynomial.h",
+     "Rotation.h"
+    ]
+   },
+   {
+    "file": "DistRectangle3AlignedBox3.h",
+    "lines": 66,
+    "deps": [
+     "AlignedBox.h",
+     "DistRectangle3CanonicalBox3.h",
+     "DistSegment3CanonicalBox3.h"
+    ]
+   },
+   {
+    "file": "DistRectangle3OrientedBox3.h",
+    "lines": 85,
+    "deps": [
+     "DistRectangle3CanonicalBox3.h",
+     "OrientedBox.h"
+    ]
+   },
+   {
+    "file": "DistTetrahedron3Tetrahedron3.h",
+    "lines": 165,
+    "deps": [
+     "ContTetrahedron3.h",
+     "DistTriangle3Triangle3.h"
+    ]
+   },
+   {
+    "file": "DistTriangle3AlignedBox3.h",
+    "lines": 67,
+    "deps": [
+     "AlignedBox.h",
+     "DistSegment3CanonicalBox3.h",
+     "DistTriangle3CanonicalBox3.h"
+    ]
+   },
+   {
+    "file": "DistTriangle3OrientedBox3.h",
+    "lines": 82,
+    "deps": [
+     "DistSegment3CanonicalBox3.h",
+     "DistTriangle3CanonicalBox3.h",
+     "OrientedBox.h"
+    ]
+   }
+  ],
+  "id": 121
+ },
+ {
+  "category": "interpolation",
+  "depth": 6,
+  "lines": 507,
+  "files": [
+   {
+    "file": "IntpQuadraticNonuniform2.h",
+    "lines": 507,
+    "deps": [
+     "ContScribeCircle2.h",
+     "Delaunay2.h",
+     "DistPointAlignedBox.h"
+    ]
+   }
+  ],
+  "id": 122
+ },
+ {
+  "category": "intersection",
+  "depth": 6,
+  "lines": 2246,
+  "files": [
+   {
+    "file": "IntrOrientedBox3Cone3.h",
+    "lines": 96,
+    "deps": [
+     "Cone.h",
+     "IntrAlignedBox3Cone3.h",
+     "OrientedBox.h"
+    ]
+   },
+   {
+    "file": "IntrRay3Cone3.h",
+    "lines": 117,
+    "deps": [
+     "IntrLine3Cone3.h",
+     "Ray.h"
+    ]
+   },
+   {
+    "file": "IntrRay3Plane3.h",
+    "lines": 114,
+    "deps": [
+     "IntrLine3Plane3.h",
+     "Ray.h"
+    ]
+   },
+   {
+    "file": "IntrSegment3Cone3.h",
+    "lines": 138,
+    "deps": [
+     "IntrLine3Cone3.h",
+     "Segment.h"
+    ]
+   },
+   {
+    "file": "IntrSegment3Plane3.h",
+    "lines": 117,
+    "deps": [
+     "IntrLine3Plane3.h",
+     "Segment.h"
+    ]
+   },
+   {
+    "file": "IntrTriangle3AlignedBox3.h",
+    "lines": 151,
+    "deps": [
+     "AlignedBox.h",
+     "IntrTriangle3CanonicalBox3.h"
+    ]
+   },
+   {
+    "file": "IntrTriangle3OrientedBox3.h",
+    "lines": 158,
+    "deps": [
+     "IntrTriangle3CanonicalBox3.h",
+     "OrientedBox.h"
+    ]
+   },
+   {
+    "file": "IntrTriangle3Triangle3.h",
+    "lines": 1355,
+    "deps": [
+     "FIQuery.h",
+     "IntrSegment2Triangle2.h",
+     "IntrTriangle2Triangle2.h",
+     "TIQuery.h",
+     "Vector3.h"
+    ]
+   }
+  ],
+  "id": 123
+ },
+ {
+  "category": "primitives",
+  "depth": 6,
+  "lines": 263,
+  "files": [
+   {
+    "file": "OrientedBoxTreeOfPoints.h",
+    "lines": 75,
+    "deps": [
+     "BVTreeOfPoints.h",
+     "ContOrientedBox3.h",
+     "OrientedBoxBV.h"
+    ]
+   },
+   {
+    "file": "OrientedBoxTreeOfSegments.h",
+    "lines": 94,
+    "deps": [
+     "BVTreeOfSegments.h",
+     "ContOrientedBox3.h",
+     "OrientedBoxBV.h"
+    ]
+   },
+   {
+    "file": "OrientedBoxTreeOfTriangles.h",
+    "lines": 94,
+    "deps": [
+     "BVTreeOfTriangles.h",
+     "ContOrientedBox3.h",
+     "OrientedBoxBV.h"
+    ]
+   }
+  ],
+  "id": 124
+ },
+ {
+  "category": "roots-polynomials",
+  "depth": 6,
+  "lines": 76,
+  "files": [
+   {
+    "file": "RootsLinear.h",
+    "lines": 76,
+    "deps": [
+     "PolynomialRoot.h"
+    ]
+   }
+  ],
+  "id": 125
+ },
+ {
+  "category": "approximation",
+  "depth": 7,
+  "lines": 458,
+  "files": [
+   {
+    "file": "ApprCone3EllipseAndPoints.h",
+    "lines": 458,
+    "deps": [
+     "ApprEllipse2.h",
+     "ApprGaussian3.h",
+     "Cone.h",
+     "Ellipse3.h",
+     "Hyperplane.h",
+     "Logger.h",
+     "Minimize1.h",
+     "OrientedBoxTreeOfPoints.h"
+    ]
+   }
+  ],
+  "id": 126
+ },
+ {
+  "category": "computational-geometry",
+  "depth": 7,
+  "lines": 2436,
+  "files": [
+   {
+    "file": "MinimumVolumeBox3FloatingPoint.h",
+    "lines": 2436,
+    "deps": [
+     "AlignedBox.h",
+     "ConvexHull3.h",
+     "Logger.h",
+     "MinimumAreaBox2.h",
+     "MinimumVolumeBox3.h",
+     "UniqueVerticesSimplices.h",
+     "VETManifoldMesh.h"
+    ]
+   }
+  ],
+  "id": 127
+ },
+ {
+  "category": "computational-geometry",
+  "depth": 7,
+  "lines": 2413,
+  "files": [
+   {
+    "file": "MinimumVolumeBox3Rational.h",
+    "lines": 2413,
+    "deps": [
+     "AlignedBox.h",
+     "ConvexHull3.h",
+     "Logger.h",
+     "MinimumAreaBox2.h",
+     "MinimumVolumeBox3.h",
+     "UniqueVerticesSimplices.h",
+     "VETManifoldMesh.h"
+    ]
+   }
+  ],
+  "id": 128
+ },
+ {
+  "category": "computational-geometry",
+  "depth": 7,
+  "lines": 1343,
+  "files": [
+   {
+    "file": "SeparatePoints3.h",
+    "lines": 229,
+    "deps": [
+     "ConvexHull3.h",
+     "Hyperplane.h"
+    ]
+   },
+   {
+    "file": "TriangulateCDT.h",
+    "lines": 1114,
+    "deps": [
+     "ConstrainedDelaunay2.h",
+     "Logger.h",
+     "PolygonTree.h"
+    ]
+   }
+  ],
+  "id": 129
+ },
+ {
+  "category": "containment",
+  "depth": 7,
+  "lines": 500,
+  "files": [
+   {
+    "file": "ContPointInPolyhedron3.h",
+    "lines": 500,
+    "deps": [
+     "ContPointInPolygon2.h",
+     "IntrRay3Plane3.h",
+     "IntrRay3Triangle3.h",
+     "Logger.h"
+    ]
+   }
+  ],
+  "id": 130
+ },
+ {
+  "category": "distance",
+  "depth": 7,
+  "lines": 125,
+  "files": [
+   {
+    "file": "DistOrientedBox3OrientedBox3.h",
+    "lines": 125,
+    "deps": [
+     "DistRectangle3OrientedBox3.h"
+    ]
+   }
+  ],
+  "id": 131
+ },
+ {
+  "category": "interpolation",
+  "depth": 7,
+  "lines": 406,
+  "files": [
+   {
+    "file": "IntpSphere2.h",
+    "lines": 246,
+    "deps": [
+     "Delaunay2Mesh.h",
+     "IntpQuadraticNonuniform2.h"
+    ]
+   },
+   {
+    "file": "IntpVectorField2.h",
+    "lines": 160,
+    "deps": [
+     "Delaunay2Mesh.h",
+     "IntpQuadraticNonuniform2.h"
+    ]
+   }
+  ],
+  "id": 132
+ },
+ {
+  "category": "roots-polynomials",
+  "depth": 7,
+  "lines": 283,
+  "files": [
+   {
+    "file": "RootsQuadratic.h",
+    "lines": 283,
+    "deps": [
+     "ArbitraryPrecision.h",
+     "RootsLinear.h"
+    ]
+   }
+  ],
+  "id": 133
+ },
+ {
+  "category": "distance",
+  "depth": 8,
+  "lines": 58,
+  "files": [
+   {
+    "file": "DistAlignedBox3OrientedBox3.h",
+    "lines": 58,
+    "deps": [
+     "AlignedBox.h",
+     "DistOrientedBox3OrientedBox3.h"
+    ]
+   }
+  ],
+  "id": 134
+ },
+ {
+  "category": "roots-polynomials",
+  "depth": 9,
+  "lines": 1235,
+  "files": [
+   {
+    "file": "RootsCubic.h",
+    "lines": 517,
+    "deps": [
+     "RootsQuadratic.h"
+    ]
+   },
+   {
+    "file": "RootsQuartic.h",
+    "lines": 718,
+    "deps": [
+     "RootsCubic.h"
+    ]
+   }
+  ],
+  "id": 135
+ }
+]
