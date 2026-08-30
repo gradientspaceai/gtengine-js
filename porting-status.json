@@ -6,7 +6,7 @@
   "status": "pending"
  },
  "AdaptiveSkeletonClimbing2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "AdaptiveSkeletonClimbing3.h": {
   "status": "pending"
@@ -650,7 +650,7 @@
   "status": "ported"
  },
  "FastMarch.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "FastMarch2.h": {
   "status": "pending"
@@ -733,7 +733,7 @@
   "status": "pending"
  },
  "Histogram.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "Hyperellipsoid.h": {
   "status": "pending"
@@ -755,7 +755,7 @@
   "status": "ported"
  },
  "Image2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "Image3.h": {
   "status": "pending"

@@ -5,6 +5,7 @@
 // https://www.boost.org/LICENSE_1_0.txt
 // GENERATED FILE - run 'npm run gen:index' to regenerate. Do not edit by hand.
 
+export * from './AdaptiveSkeletonClimbing2';
 export * from './ApprQuery';
 export * from './Array2';
 export * from './Array3';
@@ -22,13 +23,16 @@ export * from './Exp2Estimate';
 export * from './FastGaussianBlur1';
 export * from './FastGaussianBlur2';
 export * from './FastGaussianBlur3';
+export * from './FastMarch';
 export * from './FIQuery';
 export * from './GVector';
 export * from './HashCombine';
 export * from './HermiteCubic';
 export * from './HermiteQuintic';
+export * from './Histogram';
 export * from './IEEEBinary';
 export * from './Image';
+export * from './Image2';
 export * from './IndexAttribute';
 export * from './IsPlanarGraph';
 export * from './LexicoArray2';
