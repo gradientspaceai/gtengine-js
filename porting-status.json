@@ -1427,7 +1427,7 @@
   "status": "pending"
  },
  "QFNumber.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "QuadricSurface.h": {
   "status": "pending"
@@ -1580,7 +1580,7 @@
   "status": "pending"
  },
  "SWInterval.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "SymmetricEigensolver.h": {
   "status": "pending"
