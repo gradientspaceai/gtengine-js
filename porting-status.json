@@ -715,10 +715,10 @@
   "status": "pending"
  },
  "HermiteBicubic.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "HermiteBiquintic.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "HermiteCubic.h": {
   "status": "ported"
@@ -727,10 +727,10 @@
   "status": "ported"
  },
  "HermiteTricubic.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "HermiteTriquintic.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "Histogram.h": {
   "status": "ported"
@@ -785,7 +785,7 @@
   "status": "pending"
  },
  "IntpAkima1.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntpAkimaNonuniform1.h": {
   "status": "pending"
@@ -794,7 +794,7 @@
   "status": "pending"
  },
  "IntpAkimaUniform2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntpAkimaUniform3.h": {
   "status": "pending"
