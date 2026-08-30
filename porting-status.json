@@ -3,7 +3,7 @@
   "status": "pending"
  },
  "ACosEstimate.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "AdaptiveSkeletonClimbing2.h": {
   "status": "ported"
@@ -144,7 +144,7 @@
   "status": "pending"
  },
  "ATanEstimate.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "AtomicMinMax.h": {
   "status": "omitted",
@@ -220,10 +220,10 @@
   "status": "pending"
  },
  "ChebyshevRatio.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ChebyshevRatioEstimate.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "CholeskyDecomposition.h": {
   "status": "pending"
@@ -328,7 +328,7 @@
   "status": "pending"
  },
  "CosEstimate.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "CubicRootsQR.h": {
   "status": "ported"
@@ -629,7 +629,7 @@
   "status": "ported"
  },
  "ExpEstimate.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ExtremalQuery3.h": {
   "status": "pending"
@@ -1172,7 +1172,7 @@
   "status": "pending"
  },
  "InvSqrtEstimate.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IsPlanarGraph.h": {
   "status": "ported"
@@ -1200,7 +1200,7 @@
   "status": "pending"
  },
  "Log2Estimate.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "LogEstimate.h": {
   "status": "pending"
@@ -1534,7 +1534,7 @@
   "notes": "C++ smart-pointer comparator, not applicable in TS"
  },
  "SinEstimate.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "SingularValueDecomposition.h": {
   "status": "pending"
@@ -1552,7 +1552,7 @@
   "status": "pending"
  },
  "SqrtEstimate.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "StaticVETManifoldMesh2.h": {
   "status": "pending"
@@ -1592,7 +1592,7 @@
   "status": "ported"
  },
  "TanEstimate.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "TCBSplineCurve.h": {
   "status": "pending"
