@@ -151,7 +151,7 @@
   "notes": "C++ std::atomic utility, no mathematical content"
  },
  "AxisAngle.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "BandedMatrix.h": {
   "status": "pending"
@@ -374,7 +374,7 @@
   "status": "ported"
  },
  "DisjointRectangles.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistAlignedBox3OrientedBox3.h": {
   "status": "pending"
@@ -623,7 +623,7 @@
   "status": "pending"
  },
  "EulerAngles.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "Exp2Estimate.h": {
   "status": "ported"
@@ -702,7 +702,7 @@
   "status": "pending"
  },
  "GVector.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "Halfspace.h": {
   "status": "pending"
@@ -1301,7 +1301,7 @@
   "status": "pending"
  },
  "NearestNeighborQuery.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "NURBSCircle.h": {
   "status": "pending"
@@ -1673,10 +1673,10 @@
   "notes": "Template Vector<N,Real> ported as runtime-dimension class over number[]; operators ported as module functions (negate/add/sub/mul/div, componentwise compMul/compDiv); normalize/orthonormalize mutate in place and return length as upstream; Vector(int d) unit constructor is Vector.unit(size,d); default constructor zero-fills instead of leaving the tuple uninitialized; unary operator+ not ported; out-parameter ComputeExtremes returns {vmin,vmax}|null."
  },
  "Vector2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "Vector3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "Vector4.h": {
   "status": "pending"
