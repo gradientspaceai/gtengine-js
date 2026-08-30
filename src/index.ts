@@ -51,6 +51,7 @@ export * from './MinimumVolumeBox3';
 export * from './NearestNeighborQuery';
 export * from './OdeSolver';
 export * from './ParametricSurface';
+export * from './ParticleSystem';
 export * from './PdeFilter';
 export * from './QFNumber';
 export * from './RootsBisection';
