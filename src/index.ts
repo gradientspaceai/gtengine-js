@@ -46,6 +46,7 @@ export * from './Image2';
 export * from './IndexAttribute';
 export * from './IntpAkima1';
 export * from './IntpAkimaUniform2';
+export * from './IntrIntervals';
 export * from './InvSqrtEstimate';
 export * from './IsPlanarGraph';
 export * from './LexicoArray2';

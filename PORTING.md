@@ -72,7 +72,11 @@ Upstream baseline: `davideberly/GeometricTools` commit
   headers containing both TI and FI specializations become two classes with
   suffixes: `IntrRay3Sphere3TI` / `IntrRay3Sphere3FI`, result types
   `...TIResult` / `...FIResult`. Dist* headers export one class named after the
-  file.
+  file. When an upstream Intr* class has multiple `operator()` overloads, only
+  the canonical two-argument query keeps `test`/`find`; the others get
+  descriptive method names (e.g. `findDynamic`, `testFiniteSemiInfinite` — see
+  `src/IntrIntervals.ts`). Result-kind integer constants become a
+  file-qualified exported enum (e.g. `IntrIntervalsFIResultType`).
 - **Vector conventions**: runtime dimension over `number[]`; element access
   `get(i)`/`set(i, x)` (public `values` for hot loops); operators are module
   functions `negate/add/sub/mul/div/compMul/compDiv` returning new vectors;
