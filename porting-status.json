@@ -1385,7 +1385,7 @@
   "status": "pending"
  },
  "PdeFilter3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "PlanarMesh.h": {
   "status": "pending"
@@ -1568,7 +1568,7 @@
   "notes": "C++ narrow/wide string conversions, not applicable in TS"
  },
  "SurfaceExtractor.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "SurfaceExtractorCubes.h": {
   "status": "pending"
@@ -1598,7 +1598,7 @@
   "status": "pending"
  },
  "TetrahedraRasterizer.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "Tetrahedron3.h": {
   "status": "pending"
