@@ -169,13 +169,13 @@
     "status": "pending"
   },
   "BSNumber.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "BSplineCurve.h": {
     "status": "pending"
   },
   "BSplineCurveFit.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "BSplineGeodesic.h": {
     "status": "pending"
@@ -184,13 +184,13 @@
     "status": "pending"
   },
   "BSplineSurface.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "BSplineSurfaceFit.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "BSplineVolume.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "BSPPolygon2.h": {
     "status": "pending"
