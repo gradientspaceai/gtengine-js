@@ -202,7 +202,7 @@
     "status": "pending"
   },
   "BVTree.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "BVTreeOfPoints.h": {
     "status": "pending"
@@ -1319,7 +1319,7 @@
     "status": "pending"
   },
   "OBBTree.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "OBBTreeOfPoints.h": {
     "status": "pending"
@@ -1328,7 +1328,8 @@
     "status": "pending"
   },
   "OBBTreeOfTriangles.h": {
-    "status": "pending"
+    "status": "pending",
+    "note": "porter: check ComputeInteriorBox pmin/pmax zero-init suspect flagged during B36 — see upstream-bug issue"
   },
   "OdeEuler.h": {
     "status": "ported"
