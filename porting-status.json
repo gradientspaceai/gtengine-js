@@ -12,7 +12,7 @@
     "status": "pending"
   },
   "AlignedBox.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "AlignedBoxBV.h": {
     "status": "pending"
@@ -214,7 +214,7 @@
     "status": "pending"
   },
   "CanonicalBox.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "Capsule.h": {
     "status": "pending"
@@ -705,7 +705,7 @@
     "status": "ported"
   },
   "Halfspace.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "HashCombine.h": {
     "status": "ported",
@@ -742,7 +742,7 @@
     "status": "pending"
   },
   "Hypersphere.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IEEEBinary.h": {
     "status": "ported",
@@ -1194,7 +1194,7 @@
     "status": "pending"
   },
   "Line.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "LinearSystem.h": {
     "status": "pending"
@@ -1346,7 +1346,7 @@
     "status": "ported"
   },
   "OrientedBox.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "OrientedBoxBV.h": {
     "status": "pending"
@@ -1443,10 +1443,10 @@
     "notes": "C++ reverse-iterator adapter, not applicable in TS"
   },
   "Ray.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "Rectangle.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "RectangleManager.h": {
     "status": "pending"
@@ -1518,10 +1518,10 @@
     "status": "pending"
   },
   "Segment.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "SegmentMesh.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "SeparatePoints2.h": {
     "status": "pending"
@@ -1629,7 +1629,7 @@
     "status": "pending"
   },
   "Triangle.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "TriangleKey.h": {
     "status": "pending"
