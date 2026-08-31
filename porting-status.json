@@ -1652,13 +1652,16 @@
     "notes": "Compile-time traits ported as runtime predicates isArbitraryPrecision(x)/hasDivisionOperator(x) plus the ArbitraryPrecisionNumber marker interface that BSNumber/BSRational/QFNumber will implement; SFINAE helper aliases (TraitSelector, IsFPType, IsAPType, IsDivisionType, IsNotDivisionType) omitted as compile-time-only machinery."
   },
   "UIntegerALU32.h": {
-    "status": "pending"
+    "status": "omitted",
+    "note": "C++ 32-bit UInteger storage backend; superseded by bigint-backed BSNumber precedent (B34, PR #94) — no consumers in the TS port"
   },
   "UIntegerAP32.h": {
-    "status": "pending"
+    "status": "omitted",
+    "note": "C++ 32-bit UInteger storage backend; superseded by bigint-backed BSNumber precedent (B34, PR #94) — no consumers in the TS port"
   },
   "UIntegerFP32.h": {
-    "status": "pending"
+    "status": "omitted",
+    "note": "C++ 32-bit UInteger storage backend; superseded by bigint-backed BSNumber precedent (B34, PR #94) — no consumers in the TS port"
   },
   "UniqueVerticesSimplices.h": {
     "status": "ported"
