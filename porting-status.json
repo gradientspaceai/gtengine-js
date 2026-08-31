@@ -343,10 +343,10 @@
     "status": "ported"
   },
   "CurveExtractorSquares.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "CurveExtractorTriangles.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "Cylinder3.h": {
     "status": "pending"
@@ -749,7 +749,7 @@
     "notes": "Template collapsed to concrete IEEEBinary32 (uint32 encoding as number) and IEEEBinary64 (bigint encoding); union ported as encoding field + number accessor; ambiguous C++ constructor overloads replaced by fromEncoding/fromNumber/fromParts factories; nested Classification enum exported as IEEEClassification."
   },
   "IEEEBinary16.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "Image.h": {
     "status": "ported"
@@ -1246,7 +1246,7 @@
     "status": "pending"
   },
   "MeshSmoother.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "MeshStaticManifold2.h": {
     "status": "ported"
@@ -1395,10 +1395,10 @@
     "status": "pending"
   },
   "PolygonTree.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "PolygonWindingOrder.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "PolyhedralMassProperties.h": {
     "status": "pending"
