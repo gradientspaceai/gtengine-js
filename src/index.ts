@@ -50,6 +50,8 @@ export * from './Image3';
 export * from './IndexAttribute';
 export * from './IntpAkima1';
 export * from './IntpAkimaUniform2';
+export * from './IntpTricubic3';
+export * from './IntpTrilinear3';
 export * from './IntrIntervals';
 export * from './InvSqrtEstimate';
 export * from './IsPlanarGraph';

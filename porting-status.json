@@ -827,10 +827,10 @@
     "status": "pending"
   },
   "IntpTricubic3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntpTrilinear3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntpVectorField2.h": {
     "status": "pending"
