@@ -33,7 +33,7 @@
     "status": "pending"
   },
   "ApprCircle2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ApprCone3.h": {
     "status": "pending"
@@ -57,28 +57,28 @@
     "status": "pending"
   },
   "ApprGaussian2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ApprGaussian3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ApprGreatCircle3.h": {
     "status": "pending"
   },
   "ApprHeightLine2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ApprHeightPlane3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ApprOrthogonalLine2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ApprOrthogonalLine3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ApprOrthogonalPlane3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ApprParabola2.h": {
     "status": "pending"
@@ -87,7 +87,7 @@
     "status": "pending"
   },
   "ApprParallelLines2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ApprPolynomial2.h": {
     "status": "pending"
@@ -117,7 +117,7 @@
     "status": "ported"
   },
   "ApprSphere3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ApprTorus3.h": {
     "status": "pending"
