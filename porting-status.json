@@ -659,7 +659,7 @@
     "status": "pending"
   },
   "FeatureKey.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "FIQuery.h": {
     "status": "ported",
@@ -1274,7 +1274,7 @@
     "status": "pending"
   },
   "MinimumSpanningTree.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "MinimumVolumeBox3.h": {
     "status": "ported"
@@ -1555,10 +1555,10 @@
     "status": "ported"
   },
   "StaticVETManifoldMesh2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "StaticVTSManifoldMesh3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "STLBinaryFile.h": {
     "status": "ported"
@@ -1660,7 +1660,7 @@
     "status": "pending"
   },
   "UniqueVerticesSimplices.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "UniqueVerticesTriangles.h": {
     "status": "ported"
@@ -1682,7 +1682,7 @@
     "status": "pending"
   },
   "VEManifoldMesh.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "VertexAttribute.h": {
     "status": "ported"
