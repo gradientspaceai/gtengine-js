@@ -72,6 +72,12 @@ Upstream baseline: `davideberly/GeometricTools` commit
   container type - `getContainerAlignedBox`, `inContainerCircle2`,
   `mergeContainersSphere3`, ... (set by B38). Vestigial always-`true` bool
   returns are dropped in favor of returning the container.
+- **Dist\* shape** (set by B41): one class per file, named after the file,
+  `implements DCPQuery<Type0, Type1, Result>` with `compute()`; nested Result
+  structs become exported `<ClassName>Result` interfaces; private static
+  helpers become module-private functions; `friend`-granted protected helpers
+  export as `<fileNameCamel>DoQuery`; dimension aliases (`DCPPointLine`, ...)
+  are dropped since runtime-dimension `Vector` serves every N.
 - **Query bases are interfaces**: `DCPQuery<Type0, Type1, Result>` with
   `compute()`, `TIQuery` with `test()`, `FIQuery` with `find()`. Upstream Intr*
   headers containing both TI and FI specializations become two classes with
