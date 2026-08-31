@@ -232,10 +232,10 @@
     "status": "pending"
   },
   "CircleThroughPointSpecifiedTangentAndRadius.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "CircleThroughTwoPointsSpecifiedRadius.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "CLODPolyline.h": {
     "status": "pending"
@@ -319,7 +319,7 @@
     "status": "pending"
   },
   "ConvexHullSimplePolygon.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ConvexMesh3.h": {
     "status": "pending"
@@ -779,7 +779,7 @@
     "status": "ported"
   },
   "InscribedFixedAspectRectInQuad.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "Integration.h": {
     "status": "ported"
@@ -1418,10 +1418,10 @@
     "status": "pending"
   },
   "PrimalQuery2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "PrimalQuery3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "Projection.h": {
     "status": "pending"
