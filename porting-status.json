@@ -160,7 +160,8 @@
     "status": "ported"
   },
   "BezierCurve.h": {
-    "status": "pending"
+    "status": "pending",
+    "note": "porter: ParametricCurve.getTime is numerically weak across knot discontinuities (upstream design limitation, see upstream-bug issue from B40) — decide arc-length test strategy accordingly"
   },
   "BitHacks.h": {
     "status": "ported"
@@ -172,7 +173,8 @@
     "status": "ported"
   },
   "BSplineCurve.h": {
-    "status": "pending"
+    "status": "pending",
+    "note": "porter: ParametricCurve.getTime is numerically weak across knot discontinuities (upstream design limitation, see upstream-bug issue from B40) — decide arc-length test strategy accordingly"
   },
   "BSplineCurveFit.h": {
     "status": "ported"
@@ -1219,7 +1221,7 @@
     "status": "pending"
   },
   "MassSpringCurve.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "MassSpringSurface.h": {
     "status": "pending"
@@ -1307,7 +1309,8 @@
     "status": "pending"
   },
   "NURBSCurve.h": {
-    "status": "pending"
+    "status": "pending",
+    "note": "porter: ParametricCurve.getTime is numerically weak across knot discontinuities (upstream design limitation, see upstream-bug issue from B40) — decide arc-length test strategy accordingly"
   },
   "NURBSSphere.h": {
     "status": "pending"
@@ -1368,7 +1371,7 @@
     "status": "pending"
   },
   "ParametricCurve.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ParametricSurface.h": {
     "status": "ported"
@@ -1407,7 +1410,7 @@
     "status": "pending"
   },
   "PolylineOffset.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "Polynomial1.h": {
     "status": "ported"
