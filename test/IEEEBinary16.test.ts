@@ -171,18 +171,22 @@ describe('IEEEBinary16 special values', () => {
     });
 
     it('answers the predicate queries consistently with the classification', () => {
-        for (let e = 0; e <= 0xFFFF; e += 7) {
+        const bad: number[] = [];
+        for (let e = 0; e <= 0xFFFF; ++e) {
             const h = IEEEBinary16.fromEncoding(e);
             const biased = h.getBiased();
             const trailing = h.getTrailing();
-            expect(h.isZero()).toBe(biased === 0 && trailing === 0);
-            expect(h.isSubnormal()).toBe(biased === 0 && trailing > 0);
-            expect(h.isNormal()).toBe(biased > 0 && biased < 31);
-            expect(h.isFinite()).toBe(biased < 31);
-            expect(h.isInfinite()).toBe(biased === 31 && trailing === 0);
-            expect(h.isNaN()).toBe(biased === 31 && trailing !== 0);
-            expect(h.isSignMinus()).toBe((e & 0x8000) !== 0);
+            if (h.isZero() !== (biased === 0 && trailing === 0)
+                || h.isSubnormal() !== (biased === 0 && trailing > 0)
+                || h.isNormal() !== (biased > 0 && biased < 31)
+                || h.isFinite() !== (biased < 31)
+                || h.isInfinite() !== (biased === 31 && trailing === 0)
+                || h.isNaN() !== (biased === 31 && trailing !== 0)
+                || h.isSignMinus() !== ((e & 0x8000) !== 0)) {
+                bad.push(e);
+            }
         }
+        expect(bad.slice(0, 5)).toEqual([]);
     });
 
     it('converts NaNs to NaN values and preserves the payload round-trip', () => {
@@ -206,51 +210,61 @@ describe('IEEEBinary16 special values', () => {
 
 describe('IEEEBinary16 encode/decode fields', () => {
     it('splits and reassembles the sign, biased exponent and trailing bits', () => {
-        for (let e = 0; e <= 0xFFFF; e += 13) {
-            const h = IEEEBinary16.fromEncoding(e);
-            const parts = h.getEncoding();
-            expect(parts.sign).toBe((e & 0x8000) >>> 15);
-            expect(parts.biased).toBe((e & 0x7C00) >>> 10);
-            expect(parts.trailing).toBe(e & 0x03FF);
-            expect(IEEEBinary16.fromParts(parts.sign, parts.biased, parts.trailing).encoding)
-                .toBe(e);
+        const bad: number[] = [];
+        for (let e = 0; e <= 0xFFFF; ++e) {
+            const parts = IEEEBinary16.fromEncoding(e).getEncoding();
+            if (parts.sign !== ((e & 0x8000) >>> 15)
+                || parts.biased !== ((e & 0x7C00) >>> 10)
+                || parts.trailing !== (e & 0x03FF)
+                || IEEEBinary16.fromParts(parts.sign, parts.biased, parts.trailing)
+                    .encoding !== e) {
+                bad.push(e);
+            }
         }
+        expect(bad.slice(0, 5)).toEqual([]);
     });
 });
 
 describe('IEEEBinary16 conversions', () => {
     it('round-trips every 16-bit encoding through binary32', () => {
+        const bad: number[] = [];
         for (let e = 0; e <= 0xFFFF; ++e) {
             const bits32 = IEEEBinary16.convert16To32(e);
-            expect(IEEEBinary16.convert32To16(bits32)).toBe(e);
+            if (IEEEBinary16.convert32To16(bits32) !== e) {
+                bad.push(e);
+            }
         }
+        expect(bad.slice(0, 5)).toEqual([]);
     });
 
     it('decodes every finite encoding to the reference value', () => {
+        const bad: number[] = [];
         for (let e = 0; e <= 0xFFFF; ++e) {
-            const h = IEEEBinary16.fromEncoding(e);
+            const value = IEEEBinary16.fromEncoding(e).number;
             const expected = decodeHalf(e);
             if (Number.isNaN(expected)) {
-                expect(Number.isNaN(h.number)).toBe(true);
-            } else {
-                expect(h.number).toBe(expected);
-                if (expected === 0) {
-                    expect(Object.is(h.number, expected)).toBe(
-                        Object.is(decodeHalf(e), expected));
+                if (!Number.isNaN(value)) {
+                    bad.push(e);
                 }
+            } else if (value !== expected) {
+                bad.push(e);
             }
         }
+        expect(bad.slice(0, 5)).toEqual([]);
     });
 
     it('rounds every representable binary16 value back to itself', () => {
+        const bad: number[] = [];
         for (let e = 0; e <= 0xFFFF; ++e) {
             const biased = (e & 0x7C00) >>> 10;
             if (biased === 31 && (e & 0x03FF) !== 0) {
                 continue;  // NaN, tested separately
             }
-            const value = decodeHalf(e);
-            expect(IEEEBinary16.fromNumber(value).encoding).toBe(e);
+            if (IEEEBinary16.fromNumber(decodeHalf(e)).encoding !== e) {
+                bad.push(e);
+            }
         }
+        expect(bad.slice(0, 5)).toEqual([]);
     });
 
     it('rounds midpoints between adjacent binary16 values to even', () => {
@@ -298,16 +312,30 @@ describe('IEEEBinary16 conversions', () => {
 
     it('matches the reference encoder on a dense sweep of binary32 values', () => {
         // Sweep the 32-bit encodings that cover the whole binary16 range,
-        // including the subnormal and overflow boundaries.
+        // including the subnormal and overflow boundaries. The mismatches
+        // are collected and asserted once so the loop stays fast.
+        const scratch = new ArrayBuffer(4);
+        const u = new Uint32Array(scratch);
+        const v = new Float32Array(scratch);
+        const mismatches: string[] = [];
+        let tested = 0;
         for (let bits = 0x33000000; bits <= 0x47800000; bits += 0x00000401) {
-            const scratch = new ArrayBuffer(4);
-            const u = new Uint32Array(scratch);
-            const v = new Float32Array(scratch);
             u[0] = bits;
             const value = v[0];
-            expect(IEEEBinary16.fromNumber(value).encoding).toBe(encodeHalf(value));
-            expect(IEEEBinary16.fromNumber(-value).encoding).toBe(encodeHalf(-value));
+            ++tested;
+            const got = IEEEBinary16.fromNumber(value).encoding;
+            const want = encodeHalf(value);
+            if (got !== want) {
+                mismatches.push(`+${value}: got 0x${got.toString(16)}, want 0x${want.toString(16)}`);
+            }
+            const gotNeg = IEEEBinary16.fromNumber(-value).encoding;
+            const wantNeg = encodeHalf(-value);
+            if (gotNeg !== wantNeg) {
+                mismatches.push(`-${value}: got 0x${gotNeg.toString(16)}, want 0x${wantNeg.toString(16)}`);
+            }
         }
+        expect(tested).toBeGreaterThan(50000);
+        expect(mismatches.slice(0, 5)).toEqual([]);
     });
 
     it('matches the reference encoder on pseudo-random values', () => {
@@ -316,13 +344,19 @@ describe('IEEEBinary16 conversions', () => {
             seed = (seed * 1103515245 + 12345) & 0x7FFFFFFF;
             return seed / 0x7FFFFFFF;
         };
+        const mismatches: string[] = [];
         for (let i = 0; i < 5000; ++i) {
             // Cover magnitudes from far below the subnormal range to far
             // above the overflow threshold.
             const exponent = -30 + next() * 50;
             const value = f32((next() * 2 - 1) * Math.pow(2, exponent));
-            expect(IEEEBinary16.fromNumber(value).encoding).toBe(encodeHalf(value));
+            const got = IEEEBinary16.fromNumber(value).encoding;
+            const want = encodeHalf(value);
+            if (got !== want) {
+                mismatches.push(`${value}: got 0x${got.toString(16)}, want 0x${want.toString(16)}`);
+            }
         }
+        expect(mismatches.slice(0, 5)).toEqual([]);
     });
 });
 
@@ -349,32 +383,35 @@ describe('IEEEBinary16 neighbors', () => {
     });
 
     it('makes next-up and next-down inverse on the finite encodings', () => {
+        const bad: number[] = [];
         for (let e = 0; e <= 0xFFFF; ++e) {
             const h = IEEEBinary16.fromEncoding(e);
             if (!h.isFinite()) {
                 continue;
             }
-            const up = h.getNextUp();
-            const back = IEEEBinary16.fromEncoding(up).getNextDown();
+            const back = IEEEBinary16.fromEncoding(h.getNextUp()).getNextDown();
             // The zeros collapse: next-up of -0 and +0 are both
             // MIN_SUBNORMAL, whose next-down is +0.
-            if (h.isZero()) {
-                expect(back).toBe(0x0000);
-            } else {
-                expect(back).toBe(e);
+            const want = h.isZero() ? 0x0000 : e;
+            if (back !== want) {
+                bad.push(e);
             }
         }
+        expect(bad.slice(0, 5)).toEqual([]);
     });
 
     it('orders next-up strictly above the number', () => {
-        for (let e = 0; e <= 0xFFFF; e += 3) {
+        const bad: number[] = [];
+        for (let e = 0; e <= 0xFFFF; ++e) {
             const h = IEEEBinary16.fromEncoding(e);
             if (!h.isFinite()) {
                 continue;
             }
-            const up = IEEEBinary16.fromEncoding(h.getNextUp());
-            expect(up.number).toBeGreaterThan(h.number);
+            if (!(IEEEBinary16.fromEncoding(h.getNextUp()).number > h.number)) {
+                bad.push(e);
+            }
         }
+        expect(bad.slice(0, 5)).toEqual([]);
     });
 });
 
