@@ -1409,7 +1409,7 @@
     "status": "pending"
   },
   "Polynomial1.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "PolynomialCurve.h": {
     "status": "pending"
@@ -1433,7 +1433,7 @@
     "status": "pending"
   },
   "QuarticRootsQR.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "Quaternion.h": {
     "status": "pending"
@@ -1476,7 +1476,8 @@
     "status": "ported"
   },
   "RootsBisection1.h": {
-    "status": "pending"
+    "status": "ported",
+    "note": "floating-point instantiation only; arbitrary-precision path deferred until BSNumber exists"
   },
   "RootsBisection2.h": {
     "status": "pending"
