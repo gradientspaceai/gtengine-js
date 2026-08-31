@@ -67,6 +67,11 @@ Upstream baseline: `davideberly/GeometricTools` commit
   overloads inside the file that owns the name only if you are porting that
   file; (3) prefix with the type context (`IEEEClassification`, not
   `Classification`).
+- **Cont\* naming**: upstream overloads `GetContainer`/`InContainer`/
+  `MergeContainers` per bounding volume; the port suffixes each with the
+  container type - `getContainerAlignedBox`, `inContainerCircle2`,
+  `mergeContainersSphere3`, ... (set by B38). Vestigial always-`true` bool
+  returns are dropped in favor of returning the container.
 - **Query bases are interfaces**: `DCPQuery<Type0, Type1, Result>` with
   `compute()`, `TIQuery` with `test()`, `FIQuery` with `find()`. Upstream Intr*
   headers containing both TI and FI specializations become two classes with
