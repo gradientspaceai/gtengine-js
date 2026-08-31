@@ -141,7 +141,7 @@
     "notes": "Ported to a flat-storage class; C++ a[i3][i2][i1][i0] becomes a.get(i0,i1,i2,i3); see Array2.h notes."
   },
   "ASinEstimate.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ATanEstimate.h": {
     "status": "ported"
@@ -1205,7 +1205,7 @@
     "status": "ported"
   },
   "LogEstimate.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "Logger.h": {
     "status": "ported",
@@ -1545,10 +1545,10 @@
     "status": "ported"
   },
   "Slerp.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "SlerpEstimate.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "SortPointsOnCircle.h": {
     "status": "ported"
