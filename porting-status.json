@@ -797,13 +797,13 @@
     "status": "ported"
   },
   "IntpAkimaUniform3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntpBicubic2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntpBilinear2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntpBSplineUniform.h": {
     "status": "pending"
