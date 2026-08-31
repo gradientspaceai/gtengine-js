@@ -693,7 +693,7 @@
     "status": "pending"
   },
   "GMatrix.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "GradientAnisotropic2.h": {
     "status": "pending"
@@ -1228,7 +1228,7 @@
     "status": "pending"
   },
   "Matrix.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "Matrix2x2.h": {
     "status": "pending"
@@ -1680,7 +1680,7 @@
     "status": "ported"
   },
   "Vector4.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "VEManifoldMesh.h": {
     "status": "ported"
