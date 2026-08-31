@@ -163,7 +163,7 @@
     "status": "pending"
   },
   "BitHacks.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "BoxManager.h": {
     "status": "pending"
@@ -340,7 +340,7 @@
     "status": "pending"
   },
   "CurveExtractor.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "CurveExtractorSquares.h": {
     "status": "pending"
@@ -675,7 +675,7 @@
     "status": "pending"
   },
   "Functions.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "GaussianBlur2.h": {
     "status": "pending"
@@ -1249,10 +1249,10 @@
     "status": "pending"
   },
   "MeshStaticManifold2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "MeshStaticManifold3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "MinHeap.h": {
     "status": "ported",
@@ -1663,7 +1663,7 @@
     "status": "pending"
   },
   "UniqueVerticesTriangles.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "UnsymmetricEigenvalues.h": {
     "status": "ported"
