@@ -1262,7 +1262,7 @@
     "status": "pending"
   },
   "Minimize1.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "MinimizeN.h": {
     "status": "pending"
@@ -1331,16 +1331,16 @@
     "status": "pending"
   },
   "OdeEuler.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "OdeImplicitEuler.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "OdeMidpoint.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "OdeRungeKutta4.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "OdeSolver.h": {
     "status": "ported"
@@ -1537,7 +1537,7 @@
     "status": "ported"
   },
   "SingularValueDecomposition.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "Slerp.h": {
     "status": "pending"
@@ -1583,7 +1583,7 @@
     "status": "ported"
   },
   "SymmetricEigensolver.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "SymmetricEigensolver2x2.h": {
     "status": "ported"
