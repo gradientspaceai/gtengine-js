@@ -154,7 +154,7 @@
     "status": "ported"
   },
   "BandedMatrix.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "BasisFunction.h": {
     "status": "ported"
@@ -666,7 +666,7 @@
     "notes": "Empty primary template ported as interface FIQuery<Type0,Type1,Result> with find(); concrete Intr* classes use an FI suffix (e.g. IntrRay3Sphere3FI) since TI and FI specializations share one upstream file."
   },
   "FPInterval.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "FrenetFrame.h": {
     "status": "pending"
@@ -684,7 +684,7 @@
     "status": "pending"
   },
   "GaussianElimination.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "GaussNewtonMinimizer.h": {
     "status": "pending"
@@ -782,7 +782,7 @@
     "status": "pending"
   },
   "Integration.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntpAkima1.h": {
     "status": "ported"
@@ -1178,7 +1178,7 @@
     "status": "ported"
   },
   "LCPSolver.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "LDLTDecomposition.h": {
     "status": "pending"
