@@ -45,10 +45,10 @@
   "status": "ported"
  },
  "ApprCylinder3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ApprEllipse2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ApprEllipseByArcs.h": {
   "status": "pending"
@@ -63,7 +63,7 @@
   "status": "ported"
  },
  "ApprGreatCircle3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ApprHeightLine2.h": {
   "status": "ported"
