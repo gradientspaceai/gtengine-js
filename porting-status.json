@@ -312,7 +312,7 @@
     "status": "pending"
   },
   "ConvertCoordinates.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ConvexHull2.h": {
     "status": "pending"
@@ -1233,13 +1233,13 @@
     "status": "ported"
   },
   "Matrix2x2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "Matrix3x3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "Matrix4x4.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "Mesh.h": {
     "status": "pending"
@@ -1440,7 +1440,7 @@
     "status": "ported"
   },
   "Quaternion.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "RangeIteration.h": {
     "status": "omitted",

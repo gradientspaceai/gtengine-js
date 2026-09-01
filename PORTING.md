@@ -78,6 +78,15 @@ Upstream baseline: `davideberly/GeometricTools` commit
   helpers become module-private functions; `friend`-granted protected helpers
   export as `<fileNameCamel>DoQuery`; dimension aliases (`DCPPointLine`, ...)
   are dropped since runtime-dimension `Vector` serves every N.
+- **Fixed-size matrix naming** (set by B56): every free function of a
+  fixed-size matrix header is suffixed with its size, uniformly even without
+  a collision - `inverse2x2/3x3/4x4`, `adjoint*`, `determinant*`, `trace*`,
+  `doTransform*`, `setBasis*`/`getBasis*`, `makeRotation2x2`,
+  `makeObliqueProjection4x4`, ... Files export a doc-only
+  `export type Matrix2x2 = Matrix` alias, assert dimensions at runtime, and
+  `inverse*` returns `{ inverse, invertible }`. Only the `GTE_USE_MAT_VEC`
+  branches are ported. Quaternion extends Vector (base free functions
+  apply); type-preserving operators use the `*Quaternion` suffix.
 - **Query bases are interfaces**: `DCPQuery<Type0, Type1, Result>` with
   `compute()`, `TIQuery` with `test()`, `FIQuery` with `find()`. Upstream Intr*
   headers containing both TI and FI specializations become two classes with
