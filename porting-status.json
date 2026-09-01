@@ -160,7 +160,7 @@
   "status": "ported"
  },
  "BezierCurve.h": {
-  "status": "pending",
+  "status": "ported",
   "note": "porter: ParametricCurve.getTime is numerically weak across knot discontinuities (upstream design limitation, see upstream-bug issue from B40) — decide arc-length test strategy accordingly"
  },
  "BitHacks.h": {
@@ -240,7 +240,7 @@
   "status": "ported"
  },
  "CLODPolyline.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "Cone.h": {
   "status": "pending"
@@ -671,7 +671,7 @@
   "status": "ported"
  },
  "FrenetFrame.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "Frustum3.h": {
   "status": "ported"
@@ -1309,11 +1309,11 @@
   "status": "pending"
  },
  "NURBSCurve.h": {
-  "status": "pending",
+  "status": "ported",
   "note": "porter: ParametricCurve.getTime is numerically weak across knot discontinuities (upstream design limitation, see upstream-bug issue from B40) — decide arc-length test strategy accordingly"
  },
  "NURBSSphere.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "NURBSSurface.h": {
   "status": "ported"
@@ -1465,7 +1465,7 @@
   "status": "ported"
  },
  "ReparameterizeByArclength.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "RevolutionMesh.h": {
   "status": "pending"
@@ -1518,7 +1518,7 @@
   "status": "pending"
  },
  "SampleCircularArc.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "Sector2.h": {
   "status": "ported"
@@ -1601,7 +1601,7 @@
   "status": "ported"
  },
  "TCBSplineCurve.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "TetrahedraRasterizer.h": {
   "status": "ported"
