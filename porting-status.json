@@ -580,13 +580,13 @@
   "status": "pending"
  },
  "DistSegment3OrientedBox3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistSegment3Rectangle3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistSegment3Triangle3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistSegmentSegment.h": {
   "status": "ported"
@@ -1120,13 +1120,13 @@
   "status": "pending"
  },
  "IntrSegment3Cylinder3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrSegment3Ellipsoid3.h": {
   "status": "pending"
  },
  "IntrSegment3OrientedBox3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrSegment3Plane3.h": {
   "status": "pending"
@@ -1144,7 +1144,7 @@
   "status": "pending"
  },
  "IntrSphere3Frustum3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrSphere3Sphere3.h": {
   "status": "ported"
