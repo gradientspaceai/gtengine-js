@@ -790,10 +790,10 @@
     "status": "ported"
   },
   "IntpAkimaNonuniform1.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntpAkimaUniform1.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntpAkimaUniform2.h": {
     "status": "ported"
@@ -808,13 +808,13 @@
     "status": "ported"
   },
   "IntpBSplineUniform.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntpLinearNonuniform2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntpLinearNonuniform3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntpQuadraticNonuniform2.h": {
     "status": "pending"
