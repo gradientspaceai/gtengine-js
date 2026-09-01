@@ -324,7 +324,7 @@
     "status": "ported"
   },
   "ConvexMesh3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ConvexPolyhedron3.h": {
     "status": "pending"
@@ -610,7 +610,7 @@
     "status": "pending"
   },
   "EdgeKey.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "Ellipse3.h": {
     "status": "pending"
@@ -1609,7 +1609,7 @@
     "status": "pending"
   },
   "TetrahedronKey.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ThreadSafeMap.h": {
     "status": "omitted",
@@ -1637,7 +1637,7 @@
     "status": "ported"
   },
   "TriangleKey.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "TriangulateCDT.h": {
     "status": "pending"
