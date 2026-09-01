@@ -502,7 +502,7 @@
     "status": "ported"
   },
   "DistPointTriangle.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "DistRay2AlignedBox2.h": {
     "status": "pending"
@@ -538,10 +538,10 @@
     "status": "pending"
   },
   "DistRayRay.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "DistRaySegment.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "DistRectangle3AlignedBox3.h": {
     "status": "pending"
@@ -589,7 +589,7 @@
     "status": "pending"
   },
   "DistSegmentSegment.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "DistTetrahedron3Tetrahedron3.h": {
     "status": "pending"
