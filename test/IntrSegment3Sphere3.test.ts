@@ -59,7 +59,7 @@ describe('IntrSegment3Sphere3', () => {
         expect(result.point[1].values[0]).toBeCloseTo(1, 12);
     });
 
-    it('reports the whole segment when it lies inside the sphere (FI), with the upstream TI quirk', () => {
+    it('reports the whole segment when it lies inside the sphere', () => {
         const s = segment([-0.25, 0, 0], [0.25, 0, 0]);
         const result = fi.find(s, unit);
         expect(result.intersect).toBe(true);
@@ -67,14 +67,12 @@ describe('IntrSegment3Sphere3', () => {
         expect(result.parameter[0]).toBeCloseTo(-0.25, 12);
         expect(result.parameter[1]).toBeCloseTo(0.25, 12);
 
-        // Upstream bug (preserved): when the whole segment is strictly inside
-        // the solid sphere, Q(-e) < 0 and Q(e) < 0, and the TI query's final
-        // test 'qm > 0 && |a1| < e' returns false. The comment above that
-        // test asserts the segment does not intersect the sphere, but the
-        // sphere is documented as a solid, so it does. Compare
-        // IntrRay3Sphere3TI, which explicitly returns true when the ray
-        // origin is inside the sphere.
-        expect(ti.test(s, unit).intersect).toBe(false);
+        // Upstream bug (FIXED; see upstream-bug issue (B71)): when the whole
+        // segment is strictly inside the solid sphere, Q(-e) < 0 and Q(e) < 0
+        // and upstream's final test 'qm > 0 && |a1| < e' returned false,
+        // disagreeing with the FI query above. The port tests the endpoints
+        // for containment first, as IntrRay3Sphere3TI does.
+        expect(ti.test(s, unit).intersect).toBe(true);
     });
 
     it('reports a single point for a tangent segment', () => {
@@ -114,9 +112,9 @@ describe('IntrSegment3Sphere3', () => {
 
     it('handles a degenerate (zero-length) segment', () => {
         const inside = segment([0.25, 0, 0], [0.25, 0, 0]);
-        // The extent is 0, so Q(-e) = Q(e) = a0 < 0 and the TI query hits
-        // the same "entirely inside the solid sphere" quirk described above.
-        expect(ti.test(inside, unit).intersect).toBe(false);
+        // The extent is 0, so Q(-e) = Q(e) = a0 < 0: the single point is
+        // inside the solid sphere and both queries report an intersection.
+        expect(ti.test(inside, unit).intersect).toBe(true);
         expect(fi.find(inside, unit).intersect).toBe(true);
         const outside = segment([5, 0, 0], [5, 0, 0]);
         expect(ti.test(outside, unit).intersect).toBe(false);
@@ -150,6 +148,67 @@ describe('IntrSegment3Sphere3', () => {
         expect(direct.parameter[1]).toBeCloseTo(viaClass.parameter[1], 12);
     });
 
+    it('TI and FI agree on random segments versus a sphere, including contained ones', () => {
+        const rnd = makeRandom(20260901);
+        let mismatch = 0;
+        let containedCases = 0;
+        let crossingCases = 0;
+        let missCases = 0;
+
+        for (let trial = 0; trial < 600; ++trial) {
+            const s = sphere([2 * rnd() - 1, 2 * rnd() - 1, 2 * rnd() - 1],
+                0.5 + 1.5 * rnd());
+            let p0: Vector;
+            let p1: Vector;
+            const mode = trial % 3;
+            if (mode === 0) {
+                // Force both endpoints strictly inside the sphere: this is
+                // the case the upstream TI query got wrong.
+                const r = 0.9 * s.radius;
+                p0 = add(s.center, vec(2 * rnd() - 1, 2 * rnd() - 1,
+                    2 * rnd() - 1));
+                p1 = add(s.center, vec(2 * rnd() - 1, 2 * rnd() - 1,
+                    2 * rnd() - 1));
+                const scale = (p: Vector): Vector => {
+                    const d = sub(p, s.center);
+                    const len = Math.sqrt(dot(d, d));
+                    return len > r
+                        ? add(s.center, mul(r / len, d))
+                        : p;
+                };
+                p0 = scale(p0);
+                p1 = scale(p1);
+                ++containedCases;
+            }
+            else if (mode === 1) {
+                // A segment aimed through the sphere.
+                p0 = vec(6 * rnd() - 3, 6 * rnd() - 3, 6 * rnd() - 3);
+                p1 = add(p0, mul(2, sub(s.center, p0)));
+                ++crossingCases;
+            }
+            else {
+                // A mostly-random segment; many of these miss.
+                p0 = vec(8 * rnd() - 4, 8 * rnd() - 4, 8 * rnd() - 4);
+                p1 = vec(8 * rnd() - 4, 8 * rnd() - 4, 8 * rnd() - 4);
+                ++missCases;
+            }
+
+            const d = sub(p1, p0);
+            if (dot(d, d) < 1e-8) {
+                continue;
+            }
+            const seg = Segment.fromEndpoints(p0, p1);
+            if (ti.test(seg, s).intersect !== fi.find(seg, s).intersect) {
+                ++mismatch;
+            }
+        }
+
+        expect(containedCases).toBeGreaterThan(50);
+        expect(crossingCases).toBeGreaterThan(50);
+        expect(missCases).toBeGreaterThan(50);
+        expect(mismatch).toBe(0);
+    });
+
     it('agrees with a dense sampling of the segment on random configurations', () => {
         const rnd = makeRandom(987654321);
         let tiFiMismatch = 0;
@@ -173,13 +232,7 @@ describe('IntrSegment3Sphere3', () => {
 
             const tiResult = ti.test(seg, s);
             const fiResult = fi.find(seg, s);
-            // The TI and FI queries agree except for the preserved upstream
-            // quirk where the whole segment is strictly inside the sphere.
-            const d0 = sub(p0, s.center);
-            const d1 = sub(p1, s.center);
-            const rsqr = s.radius * s.radius;
-            const contained = dot(d0, d0) < rsqr && dot(d1, d1) < rsqr;
-            if (tiResult.intersect !== fiResult.intersect && !contained) {
+            if (tiResult.intersect !== fiResult.intersect) {
                 ++tiFiMismatch;
             }
 

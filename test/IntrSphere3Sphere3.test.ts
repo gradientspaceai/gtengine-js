@@ -87,12 +87,19 @@ describe('IntrSphere3Sphere3', () => {
         const result = fi.find(s0, s1);
         expect(result.intersect).toBe(true);
         expect(result.type).toBe(T.sphere0InsideTouching);
-        // Upstream bug (preserved): for this case upstream computes
-        // point = C1 + r1 * normalize(C1 - C0), which is the antipode of the
-        // true contact point (3,0,0). The sign of the direction should be
-        // flipped (or equivalently the point is C0 + r0 * normalize(C0 - C1)).
-        // The sibling branch (sphere1 inside sphere0) is correct.
-        expect(result.point.values[0]).toBeCloseTo(-3, 12);
+        // Upstream bug (FIXED; see upstream-bug issue (B71)): upstream
+        // computes C1 + r1 * normalize(C1 - C0), the antipode (-3,0,0) of the
+        // true contact point. The port uses C1 - r1 * normalize(C1 - C0),
+        // matching the sign used by the sibling (sphere1 inside sphere0)
+        // branch.
+        expect(result.point.values[0]).toBeCloseTo(3, 12);
+        expect(result.point.values[1]).toBeCloseTo(0, 12);
+        expect(result.point.values[2]).toBeCloseTo(0, 12);
+        // The contact point lies on both sphere surfaces.
+        const e0 = sub(result.point, s0.center);
+        const e1 = sub(result.point, s1.center);
+        expect(Math.sqrt(dot(e0, e0))).toBeCloseTo(s0.radius, 12);
+        expect(Math.sqrt(dot(e1, e1))).toBeCloseTo(s1.radius, 12);
     });
 
     it('reports internal tangency with sphere1 inside sphere0', () => {
@@ -102,6 +109,10 @@ describe('IntrSphere3Sphere3', () => {
         expect(result.intersect).toBe(true);
         expect(result.type).toBe(T.sphere1InsideTouching);
         expect(result.point.values[0]).toBeCloseTo(3, 12);
+        const e0 = sub(result.point, s0.center);
+        const e1 = sub(result.point, s1.center);
+        expect(Math.sqrt(dot(e0, e0))).toBeCloseTo(s0.radius, 12);
+        expect(Math.sqrt(dot(e1, e1))).toBeCloseTo(s1.radius, 12);
     });
 
     it('reports concentric equal spheres as a strict containment', () => {
@@ -125,6 +136,49 @@ describe('IntrSphere3Sphere3', () => {
         const far = sphere([9, 0, 0], 0);
         expect(ti.test(far, big).intersect).toBe(false);
         expect(fi.find(far, big).type).toBe(T.separated);
+    });
+
+    it('internal-tangency contact points lie on both spheres (random)', () => {
+        const rnd = makeRandom(778899);
+        let contactMismatch = 0;
+        let cases = 0;
+
+        for (let trial = 0; trial < 300; ++trial) {
+            // Build an exact internal tangency: |C1 - C0| == |r0 - r1|.
+            const rBig = 1 + 2 * rnd();
+            const rSmall = 0.25 + (rBig - 0.5) * rnd();
+            const dir = vec(2 * rnd() - 1, 2 * rnd() - 1, 2 * rnd() - 1);
+            const len = Math.sqrt(dot(dir, dir));
+            if (len < 1e-3) {
+                continue;
+            }
+            const unitDir = mul(1 / len, dir);
+            const cBig = vec(2 * rnd() - 1, 2 * rnd() - 1, 2 * rnd() - 1);
+            const cSmall = add(cBig, mul(rBig - rSmall, unitDir));
+            const big = Hypersphere.fromCenterRadius(cBig, rBig);
+            const small = Hypersphere.fromCenterRadius(cSmall, rSmall);
+
+            // Both orders: sphere0 inside sphere1, and sphere1 inside sphere0.
+            for (const [a, b, expectedType] of [
+                [small, big, T.sphere0InsideTouching],
+                [big, small, T.sphere1InsideTouching]
+            ] as [Hypersphere, Hypersphere, number][]) {
+                const result = fi.find(a, b);
+                if (result.type !== expectedType) {
+                    continue;  // rounding pushed it off the exact tangency
+                }
+                ++cases;
+                const da = sub(result.point, a.center);
+                const db = sub(result.point, b.center);
+                if (Math.abs(Math.sqrt(dot(da, da)) - a.radius) > 1e-9 ||
+                    Math.abs(Math.sqrt(dot(db, db)) - b.radius) > 1e-9) {
+                    ++contactMismatch;
+                }
+            }
+        }
+
+        expect(cases).toBeGreaterThan(20);
+        expect(contactMismatch).toBe(0);
     });
 
     it('the circle of intersection lies on both spheres (random)', () => {

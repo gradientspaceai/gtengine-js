@@ -144,13 +144,16 @@ export class IntrSphere3Sphere3FI implements
             normalize(C1mC0);
             result.intersect = true;
             if (rDif <= 0) {
-                // Upstream bug (preserved): the contact point should be
-                // C1 - r1 * C1mC0 (equivalently C0 + r0 * (C0-C1)/|C0-C1|).
-                // As written, the reported point is the antipode of the true
-                // contact point on sphere1. The 'else' branch below, which
-                // handles sphere1 inside sphere0, uses the correct sign.
+                // Upstream bug (FIXED; see upstream-bug issue (B71)):
+                // upstream computes 'sphere1.center + r1 * C1mC0', which is
+                // the antipode of the true contact point on sphere1. With
+                // sphere0 = ((2,0,0),1) and sphere1 = ((0,0,0),3), the spheres
+                // touch at (3,0,0) but upstream reports (-3,0,0). The correct
+                // point is C1 - r1 * C1mC0, equivalently
+                // C0 + r0 * (C0-C1)/|C0-C1|; the 'else' branch below, which
+                // handles sphere1 inside sphere0, already uses this sign.
                 result.type = IntrSphere3Sphere3FIResultType.sphere0InsideTouching;
-                result.point = add(sphere1.center, mul(r1, C1mC0));
+                result.point = sub(sphere1.center, mul(r1, C1mC0));
             }
             else {
                 result.type = IntrSphere3Sphere3FIResultType.sphere1InsideTouching;

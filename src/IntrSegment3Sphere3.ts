@@ -109,29 +109,34 @@ export class IntrSegment3Sphere3TI implements
         const tmp1 = 2 * a1 * segExtent;  // 2*a1*e
         const qm = tmp0 - tmp1;  // Q(-e)
         const qp = tmp0 + tmp1;  // Q(e)
-        if (qm * qp <= 0) {
-            // Q(t) has a root on the interval [-e,e]. The segment intersects
-            // the sphere.
+        // Q(-e) <= 0 or Q(e) <= 0 means that endpoint is inside or on the
+        // solid sphere, so the segment intersects the sphere.
+        //
+        // Upstream bug (FIXED; see upstream-bug issue (B71)): upstream tests
+        // 'qm * qp <= 0' here, which catches only the case where the two
+        // endpoint values have opposite signs (one endpoint inside, one
+        // outside). It then concludes, in the comment below, that "When Q at
+        // the endpoints is negative, Q(t) < 0 for all t in [-e,e] and the
+        // segment does not intersect the sphere", and its final test
+        // 'qm > 0 && |a1| < e' returns false for that case. That is wrong for
+        // a solid sphere: Q(t) < 0 means the segment point is strictly inside
+        // the sphere, so a segment contained in the sphere does intersect it.
+        // As written, the TI query disagreed with the FI query below, which
+        // reports the whole segment. The fix follows IntrRay3Sphere3TI, which
+        // explicitly returns true when the ray origin is inside the sphere:
+        // test the endpoints for containment first, then fall through to the
+        // upstream test for the remaining case.
+        if (qm <= 0 || qp <= 0) {
             result.intersect = true;
             return result;
         }
 
-        // Either (Q(-e) > 0 and Q(e) > 0) or (Q(-e) < 0 and Q(e) < 0). When
-        // Q at the endpoints is negative, Q(t) < 0 for all t in [-e,e] and
-        // the segment does not intersect the sphere. Otherwise, Q(-e) > 0
-        // [and Q(e) > 0]. The minimum of Q(t) occurs at t = -a1. We know that
-        // discr >= 0, so Q(t) has a root on (-e,e) when -a1 is in (-e,e). The
-        // combined test for intersection is (Q(-e) > 0 and |a1| < e).
-        //
-        // Upstream bug (preserved): "When Q at the endpoints is negative,
-        // Q(t) < 0 for all t in [-e,e] and the segment does not intersect the
-        // sphere" is wrong for a solid sphere -- Q(t) < 0 means the segment
-        // point is strictly inside the sphere, so the segment does intersect.
-        // The TI query therefore reports 'false' for a segment strictly
-        // contained in the sphere, while the FI query below reports the whole
-        // segment. Compare IntrRay3Sphere3TI, which explicitly returns true
-        // when the ray origin is inside the sphere.
-        result.intersect = (qm > 0 && Math.abs(a1) < segExtent);
+        // Both Q(-e) > 0 and Q(e) > 0, so both endpoints are strictly outside
+        // the sphere. The minimum of Q(t) occurs at t = -a1. We know that
+        // discr >= 0, so Q(t) has a root on (-e,e) when -a1 is in (-e,e).
+        // (This is upstream's 'qm > 0 && |a1| < e' with the qm > 0 conjunct
+        // already established.)
+        result.intersect = (Math.abs(a1) < segExtent);
         return result;
     }
 }
