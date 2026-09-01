@@ -110,6 +110,8 @@ export * from './IEEEBinary16';
 export * from './Image';
 export * from './Image2';
 export * from './Image3';
+export * from './ImageUtility2';
+export * from './ImageUtility3';
 export * from './IndexAttribute';
 export * from './InscribedFixedAspectRectInQuad';
 export * from './Integration';
