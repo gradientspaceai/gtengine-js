@@ -1267,7 +1267,7 @@
     "status": "ported"
   },
   "MinimizeN.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "MinimumAreaBox2.h": {
     "status": "pending"
@@ -1462,7 +1462,7 @@
     "status": "pending"
   },
   "RemezAlgorithm.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ReparameterizeByArclength.h": {
     "status": "pending"
