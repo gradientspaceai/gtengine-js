@@ -955,19 +955,19 @@
   "status": "ported"
  },
  "IntrLine3Capsule3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrLine3Cone3.h": {
   "status": "pending"
  },
  "IntrLine3Cylinder3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrLine3Ellipsoid3.h": {
   "status": "pending"
  },
  "IntrLine3OrientedBox3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrLine3Plane3.h": {
   "status": "pending"
@@ -979,7 +979,7 @@
   "status": "ported"
  },
  "IntrLine3Torus3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrLine3Triangle3.h": {
   "status": "ported"
@@ -994,7 +994,7 @@
   "status": "ported"
  },
  "IntrOrientedBox2Sector2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrOrientedBox3Cone3.h": {
   "status": "pending"
@@ -1003,7 +1003,7 @@
   "status": "pending"
  },
  "IntrOrientedBox3Frustum3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrOrientedBox3OrientedBox3.h": {
   "status": "ported"
@@ -1036,7 +1036,7 @@
   "status": "pending"
  },
  "IntrRay2AlignedBox2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrRay2Arc2.h": {
   "status": "pending"
@@ -1048,19 +1048,19 @@
   "status": "pending"
  },
  "IntrRay2Ray2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrRay2Segment2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrRay2SegmentMesh2.h": {
   "status": "pending"
  },
  "IntrRay2Triangle2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrRay3AlignedBox3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrRay3Capsule3.h": {
   "status": "pending"
@@ -1081,7 +1081,7 @@
   "status": "pending"
  },
  "IntrRay3Rectangle3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrRay3Sphere3.h": {
   "status": "pending"
