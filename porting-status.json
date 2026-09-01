@@ -336,10 +336,10 @@
     "status": "ported"
   },
   "CurvatureFlow2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "CurvatureFlow3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "CurveExtractor.h": {
     "status": "ported"
@@ -655,10 +655,10 @@
     "status": "ported"
   },
   "FastMarch2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "FastMarch3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "FeatureKey.h": {
     "status": "ported"
@@ -680,10 +680,10 @@
     "status": "ported"
   },
   "GaussianBlur2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "GaussianBlur3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "GaussianElimination.h": {
     "status": "ported"
@@ -698,10 +698,10 @@
     "status": "ported"
   },
   "GradientAnisotropic2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "GradientAnisotropic3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "GVector.h": {
     "status": "ported"
