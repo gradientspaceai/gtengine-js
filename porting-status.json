@@ -394,34 +394,34 @@
   "status": "ported"
  },
  "DistLine2Arc2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistLine2Circle2.h": {
   "status": "ported"
  },
  "DistLine2OrientedBox2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistLine2Triangle2.h": {
   "status": "ported"
  },
  "DistLine3AlignedBox3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistLine3CanonicalBox3.h": {
   "status": "ported"
  },
  "DistLine3Circle3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistLine3OrientedBox3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistLine3Rectangle3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistLine3Triangle3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistLineLine.h": {
   "status": "ported"
@@ -448,7 +448,7 @@
   "status": "pending"
  },
  "DistPoint2Arc2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistPoint2Circle2.h": {
   "status": "ported"
@@ -457,16 +457,16 @@
   "status": "pending"
  },
  "DistPoint3Circle3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistPoint3ConvexPolyhedron3.h": {
   "status": "pending"
  },
  "DistPoint3Cylinder3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistPoint3Frustum3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistPoint3Parallelepiped3.h": {
   "status": "pending"
@@ -475,7 +475,7 @@
   "status": "pending"
  },
  "DistPointAlignedBox.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistPointCanonicalBox.h": {
   "status": "ported"
@@ -490,7 +490,7 @@
   "status": "ported"
  },
  "DistPointOrientedBox.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistPointRay.h": {
   "status": "ported"
@@ -511,19 +511,19 @@
   "status": "pending"
  },
  "DistRay2Circle2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistRay2OrientedBox2.h": {
   "status": "pending"
  },
  "DistRay2Triangle2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistRay3AlignedBox3.h": {
   "status": "pending"
  },
  "DistRay3CanonicalBox3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistRay3Circle3.h": {
   "status": "pending"
@@ -562,7 +562,7 @@
   "status": "pending"
  },
  "DistSegment2Circle2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistSegment2OrientedBox2.h": {
   "status": "pending"
