@@ -299,6 +299,7 @@ export * from './PolygonWindingOrder';
 export * from './Polyhedron3';
 export * from './PolylineOffset';
 export * from './Polynomial1';
+export * from './PolynomialCurve';
 export * from './PrimalQuery2';
 export * from './PrimalQuery3';
 export * from './QFNumber';
