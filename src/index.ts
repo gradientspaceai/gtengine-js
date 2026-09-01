@@ -200,6 +200,7 @@ export * from './Rectangle';
 export * from './RemezAlgorithm';
 export * from './RootsBisection';
 export * from './RootsBisection1';
+export * from './RootsBisection2';
 export * from './RootsBrentsMethod';
 export * from './RootsPolynomial';
 export * from './Segment';

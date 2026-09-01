@@ -1484,7 +1484,8 @@
     "note": "floating-point instantiation only; arbitrary-precision path deferred until BSNumber exists"
   },
   "RootsBisection2.h": {
-    "status": "pending"
+    "status": "ported",
+    "note": "floating-point instantiation only; arbitrary-precision path deferred until BSNumber-based numeric support"
   },
   "RootsBrentsMethod.h": {
     "status": "ported"
