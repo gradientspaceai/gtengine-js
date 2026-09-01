@@ -354,7 +354,7 @@
   "status": "ported"
  },
  "DarbouxFrame.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DCPQuery.h": {
   "status": "ported",
@@ -769,7 +769,7 @@
   "status": "ported"
  },
  "ImplicitCurve2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ImplicitSurface3.h": {
   "status": "pending"
@@ -1294,10 +1294,10 @@
   "status": "pending"
  },
  "NaturalCubicSpline.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "NaturalQuinticSpline.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "NaturalSplineCurve.h": {
   "status": "pending"
@@ -1306,7 +1306,7 @@
   "status": "ported"
  },
  "NURBSCircle.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "NURBSCurve.h": {
   "status": "ported",
