@@ -1165,7 +1165,7 @@
   "status": "pending"
  },
  "IntrTriangle3Cylinder3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrTriangle3OrientedBox3.h": {
   "status": "pending"

@@ -241,6 +241,7 @@ export * from './IntrSegment3Sphere3';
 export * from './IntrSegment3Triangle3';
 export * from './IntrSphere3Sphere3';
 export * from './IntrSphere3Triangle3';
+export * from './IntrTriangle3Cylinder3';
 export * from './InvSqrtEstimate';
 export * from './IsPlanarGraph';
 export * from './LCPSolver';
