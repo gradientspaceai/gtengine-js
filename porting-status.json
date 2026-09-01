@@ -167,7 +167,7 @@
   "status": "ported"
  },
  "BoxManager.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "BSNumber.h": {
   "status": "ported"
@@ -258,10 +258,10 @@
   "status": "ported"
  },
  "ContAlignedBox2Arc2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ContCapsule3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ContCircle2.h": {
   "status": "ported"
@@ -270,7 +270,7 @@
   "status": "pending"
  },
  "ContCylinder3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ContEllipse2.h": {
   "status": "pending"
@@ -285,10 +285,10 @@
   "status": "pending"
  },
  "ContLozenge3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ContOrientedBox2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ContOrientedBox3.h": {
   "status": "pending"
@@ -327,7 +327,7 @@
   "status": "ported"
  },
  "ConvexPolyhedron3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "CosEstimate.h": {
   "status": "ported"
@@ -634,7 +634,7 @@
   "status": "ported"
  },
  "ExtremalQuery3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ExtremalQuery3BSP.h": {
   "status": "pending"
@@ -1644,7 +1644,7 @@
   "status": "pending"
  },
  "TriangulateEC.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "TSManifoldMesh.h": {
   "status": "pending"

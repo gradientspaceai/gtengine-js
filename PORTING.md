@@ -71,7 +71,11 @@ Upstream baseline: `davideberly/GeometricTools` commit
   `MergeContainers` per bounding volume; the port suffixes each with the
   container type - `getContainerAlignedBox`, `inContainerCircle2`,
   `mergeContainersSphere3`, ... (set by B38). Vestigial always-`true` bool
-  returns are dropped in favor of returning the container.
+  returns are dropped in favor of returning the container. When a header
+  overloads `InContainer` on the *contained* type as well, insert that type
+  before the container suffix: `inContainerSphereCapsule3`,
+  `inContainerCapsuleCapsule3` (set by B62). Empty-input `Fit` paths get an
+  explicit `logAssert(points.length > 0, ...)` guard (see upstream #106).
 - **Dist\* shape** (set by B41): one class per file, named after the file,
   `implements DCPQuery<Type0, Type1, Result>` with `compute()`; nested Result
   structs become exported `<ClassName>Result` interfaces; private static
