@@ -310,15 +310,16 @@ describe('RevolutionMesh', () => {
         }
     });
 
-    it('inherits the reversed second pole fan of Mesh.computeIndices', () => {
-        // Mesh.h assigns the same winding to both pole fans of a SPHERE
-        // mesh, but the two fans lie on opposite sides of their rings, so
-        // the second (north) fan is wound opposite to the body quads. The
-        // symptom is that the numCols directed edges of the last ring are
-        // each traversed twice in the same direction, and the north-pole
-        // normal points inward. This is an upstream Mesh.h issue, not a
-        // RevolutionMesh one; the test pins the current behavior so that a
-        // future fix in Mesh.ts is noticed here.
+    it('winds the second pole fan consistently with the body quads', () => {
+        // Upstream Mesh.h assigns the same winding to both pole fans of a
+        // SPHERE mesh, but the two fans lie on opposite sides of their
+        // rings, so the second (north) fan was wound opposite to the body
+        // quads: the numCols directed edges of the last ring were each
+        // traversed twice in the same direction and the north-pole normal
+        // pointed inward. The port fixes the winding in Mesh.computeIndices
+        // (see the upstream-bug issue for B84); this test asserts the
+        // consistent result: every directed edge appears once and the
+        // north-pole normal is outward.
         const numRows = 6, numCols = 8, r = 2;
         const storage = makeStorage(MeshTopology.SPHERE, numRows, numCols);
         const d = storage.description;
@@ -339,11 +340,11 @@ describe('RevolutionMesh', () => {
                 ++numDuplicated;
             }
         }
-        expect(numDuplicated).toBe(numCols);
+        expect(numDuplicated).toBe(0);
 
-        // The north pole normal is inward as a consequence.
+        // The north pole normal is outward.
         const [, , nz] = N(storage, d.numVertices - 1);
-        expect(nz).toBeCloseTo(-1, 10);
+        expect(nz).toBeCloseTo(1, 10);
     });
 
     it('produces a torus with the expected counts and tube radius', () => {

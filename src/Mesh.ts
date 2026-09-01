@@ -603,12 +603,20 @@ export class Mesh {
             v0 = this.mDescription.rMax * this.mDescription.rIncrement;
             v1 = v0 + 1;
             v2 = this.mDescription.numVertices - 1;
+            // Upstream winds this second fan as (v0, v2, v1), the same as the
+            // first fan. The first pole sits before row 0 (it plays the role
+            // of the grid triangle (v1, v3, v2) with r = -1), but the second
+            // pole sits after the last row (the role of (v0, v1, v2) with
+            // r = rMax), so its consistent winding is (v0, v1, v2). With the
+            // upstream order the last-ring edges are traversed twice in the
+            // same direction and the second pole's normal points inward. The
+            // port fixes the winding (see the upstream-bug issue for B84).
             for (let c = 0; c < this.mDescription.numCols; ++c, ++v0, ++v1) {
                 if (this.mDescription.wantCCW) {
-                    this.mDescription.indexAttribute.setTriangle(t++, v0, v2, v1);
+                    this.mDescription.indexAttribute.setTriangle(t++, v0, v1, v2);
                 }
                 else {
-                    this.mDescription.indexAttribute.setTriangle(t++, v0, v1, v2);
+                    this.mDescription.indexAttribute.setTriangle(t++, v0, v2, v1);
                 }
             }
         }

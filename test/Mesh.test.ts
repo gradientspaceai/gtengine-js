@@ -490,11 +490,14 @@ describe('Mesh.computeIndices', () => {
 
         // The second fan joins the last row to the pole numVertices - 1.
         // Upstream computes the first vertex of the last row as
-        // (numRows - 1) * numCols; the port uses rMax * rIncrement.
+        // (numRows - 1) * numCols; the port uses rMax * rIncrement. Upstream
+        // also winds this fan as (v0, pole, v1), opposite to the body quads;
+        // the port winds it (v0, v1, pole) so that the mesh is consistently
+        // oriented (see upstream-bug issue #240).
         const lastRow = (rows - 1) * rIncrement;
         for (let c = 0; c < cols; ++c) {
             expect(triangles[first + cols + c]).toEqual(
-                [lastRow + c, numVertices - 1, lastRow + c + 1]);
+                [lastRow + c, lastRow + c + 1, numVertices - 1]);
         }
     });
 
@@ -509,7 +512,7 @@ describe('Mesh.computeIndices', () => {
         const triangles = getTriangles(storage);
         for (let c = 0; c < cols; ++c) {
             expect(triangles[c]).toEqual([c, numVertices - 2, c + 1]);
-            expect(triangles[cols + c]).toEqual([c, numVertices - 1, c + 1]);
+            expect(triangles[cols + c]).toEqual([c, c + 1, numVertices - 1]);
         }
     });
 });
