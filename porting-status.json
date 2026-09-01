@@ -126,7 +126,7 @@
     "status": "pending"
   },
   "Arc2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "Array2.h": {
     "status": "ported",
@@ -219,7 +219,7 @@
     "status": "ported"
   },
   "Capsule.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ChebyshevRatio.h": {
     "status": "ported"
@@ -231,7 +231,7 @@
     "status": "pending"
   },
   "Circle3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "CircleThroughPointSpecifiedTangentAndRadius.h": {
     "status": "ported"
@@ -351,7 +351,7 @@
     "status": "ported"
   },
   "Cylinder3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "DarbouxFrame.h": {
     "status": "pending"
@@ -613,7 +613,7 @@
     "status": "ported"
   },
   "Ellipse3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "EllipsoidGeodesic.h": {
     "status": "pending"
@@ -674,7 +674,7 @@
     "status": "pending"
   },
   "Frustum3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "Functions.h": {
     "status": "ported"
@@ -1212,7 +1212,7 @@
     "notes": "Macros ported as logAssert/logError throwing Error with the caller message; the C++ file(function,line) prefix is omitted because JS Error stack traces carry source locations."
   },
   "Lozenge3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "MarchingCubes.h": {
     "status": "ported"
@@ -1365,10 +1365,10 @@
     "status": "pending"
   },
   "Parallelepiped3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "Parallelogram2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ParametricCurve.h": {
     "status": "ported"
@@ -1407,7 +1407,7 @@
     "status": "pending"
   },
   "Polyhedron3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "PolylineOffset.h": {
     "status": "ported"
@@ -1521,7 +1521,7 @@
     "status": "pending"
   },
   "Sector2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "Segment.h": {
     "status": "ported"
@@ -1629,7 +1629,7 @@
     "notes": "Empty primary template ported as interface TIQuery<Type0,Type1,Result> with test(); concrete Intr* classes use a TI suffix (e.g. IntrRay3Sphere3TI)."
   },
   "Torus3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "Transform.h": {
     "status": "pending"
