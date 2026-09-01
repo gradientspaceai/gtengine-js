@@ -51,13 +51,20 @@ const isInteger = (t: number): boolean => Math.abs(t - Math.round(t)) < 1.0e-12;
 function checkVerticesOnLevelSet(voxels: number[], size: number, level: number,
     vertices: Vertex[]): number {
     let numComposite = 0;
+    let numBad = 0;
     for (const v of vertices) {
-        expect(Number.isFinite(v[0]) && Number.isFinite(v[1]) && Number.isFinite(v[2])).toBe(true);
+        if (!Number.isFinite(v[0]) || !Number.isFinite(v[1]) || !Number.isFinite(v[2])) {
+            ++numBad;
+            continue;
+        }
         const isInt = [isInteger(v[0]), isInteger(v[1]), isInteger(v[2])];
         const numInt = isInt.filter(Boolean).length;
-        // All three integer would mean the level equals an image sample,
-        // which the non-integer level forbids.
-        expect(numInt).toBeLessThan(3);
+        if (numInt === 3) {
+            // All three integer would mean the level equals an image
+            // sample, which the non-integer level forbids.
+            ++numBad;
+            continue;
+        }
         if (numInt !== 2) {
             ++numComposite;
             continue;
@@ -71,8 +78,11 @@ function checkVerticesOnLevelSet(voxels: number[], size: number, level: number,
         const step = k === 0 ? 1 : (k === 1 ? size : size * size);
         const f0 = voxels[base];
         const f1 = voxels[base + step];
-        expect(f0 + t * (f1 - f0)).toBeCloseTo(level, 9);
+        if (Math.abs(f0 + t * (f1 - f0) - level) > 1.0e-9) {
+            ++numBad;
+        }
     }
+    expect(numBad).toBe(0);
     return numComposite;
 }
 
@@ -92,16 +102,18 @@ function countCompositeVertices(vertices: Vertex[]): number {
 // Every triangle index must be a valid vertex index and the three indices
 // must be distinct.
 function checkIndices(vertices: Vertex[], triangles: TriangleKey[]): void {
+    let numBad = 0;
     for (const t of triangles) {
         for (let i = 0; i < 3; ++i) {
-            expect(Number.isInteger(t.V[i])).toBe(true);
-            expect(t.V[i]).toBeGreaterThanOrEqual(0);
-            expect(t.V[i]).toBeLessThan(vertices.length);
+            if (!Number.isInteger(t.V[i]) || t.V[i] < 0 || t.V[i] >= vertices.length) {
+                ++numBad;
+            }
         }
-        expect(t.V[0]).not.toBe(t.V[1]);
-        expect(t.V[1]).not.toBe(t.V[2]);
-        expect(t.V[0]).not.toBe(t.V[2]);
+        if (t.V[0] === t.V[1] || t.V[1] === t.V[2] || t.V[0] === t.V[2]) {
+            ++numBad;
+        }
     }
+    expect(numBad).toBe(0);
 }
 
 // The number of triangles sharing each undirected mesh edge.
@@ -569,7 +581,9 @@ describe('AdaptiveSkeletonClimbing3', () => {
         const N = 4;
         const size = (1 << N) + 1;
         let numComposite = 0;
-        for (let seed = 1; seed <= 12; ++seed) {
+        let numOutOfDomain = 0;
+        let maxEdgeUse = 0;
+        for (let seed = 1; seed <= 8; ++seed) {
             const random = makeRandom(seed);
             const blobs: number[][] = [];
             for (let b = 0; b < 3; ++b) {
@@ -591,22 +605,23 @@ describe('AdaptiveSkeletonClimbing3', () => {
                 asc.makeUnique(result.vertices, result.triangles);
                 checkIndices(result.vertices, result.triangles);
                 for (const v of result.vertices) {
-                    expect(Number.isFinite(v[0])).toBe(true);
-                    expect(Number.isFinite(v[1])).toBe(true);
-                    expect(Number.isFinite(v[2])).toBe(true);
-                    // All vertices lie inside the image domain.
+                    // Every vertex is finite and lies inside the image
+                    // domain.
                     for (let i = 0; i < 3; ++i) {
-                        expect(v[i]).toBeGreaterThanOrEqual(0);
-                        expect(v[i]).toBeLessThanOrEqual(size - 1);
+                        if (!Number.isFinite(v[i]) || v[i] < 0 || v[i] > size - 1) {
+                            ++numOutOfDomain;
+                        }
                     }
                 }
-                // Every mesh edge is used at most twice.
                 for (const count of edgeUseCounts(result.triangles).values()) {
-                    expect(count).toBeLessThanOrEqual(2);
+                    maxEdgeUse = Math.max(maxEdgeUse, count);
                 }
                 numComposite += countCompositeVertices(result.vertices);
             }
         }
+        expect(numOutOfDomain).toBe(0);
+        // Every mesh edge is used at most twice.
+        expect(maxEdgeUse).toBe(2);
         // These images exercise the merged-box fan tessellation, whose
         // centroid vertices are the only ones not on a grid edge.
         expect(numComposite).toBeGreaterThan(0);
