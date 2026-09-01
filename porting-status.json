@@ -1,1715 +1,1715 @@
 {
-  "AABBBVTreeOfTriangles.h": {
-    "status": "pending"
-  },
-  "ACosEstimate.h": {
-    "status": "ported"
-  },
-  "AdaptiveSkeletonClimbing2.h": {
-    "status": "ported"
-  },
-  "AdaptiveSkeletonClimbing3.h": {
-    "status": "pending"
-  },
-  "AlignedBox.h": {
-    "status": "ported"
-  },
-  "AlignedBoxBV.h": {
-    "status": "pending"
-  },
-  "AlignedBoxTreeOfPoints.h": {
-    "status": "pending"
-  },
-  "AlignedBoxTreeOfSegments.h": {
-    "status": "pending"
-  },
-  "AlignedBoxTreeOfTriangles.h": {
-    "status": "pending"
-  },
-  "APConversion.h": {
-    "status": "pending"
-  },
-  "APInterval.h": {
-    "status": "pending"
-  },
-  "ApprCircle2.h": {
-    "status": "ported"
-  },
-  "ApprCone3.h": {
-    "status": "pending"
-  },
-  "ApprCone3EllipseAndPoints.h": {
-    "status": "pending"
-  },
-  "ApprCurveByArcs.h": {
-    "status": "ported"
-  },
-  "ApprCylinder3.h": {
-    "status": "pending"
-  },
-  "ApprEllipse2.h": {
-    "status": "pending"
-  },
-  "ApprEllipseByArcs.h": {
-    "status": "pending"
-  },
-  "ApprEllipsoid3.h": {
-    "status": "pending"
-  },
-  "ApprGaussian2.h": {
-    "status": "ported"
-  },
-  "ApprGaussian3.h": {
-    "status": "ported"
-  },
-  "ApprGreatCircle3.h": {
-    "status": "pending"
-  },
-  "ApprHeightLine2.h": {
-    "status": "ported"
-  },
-  "ApprHeightPlane3.h": {
-    "status": "ported"
-  },
-  "ApprOrthogonalLine2.h": {
-    "status": "ported"
-  },
-  "ApprOrthogonalLine3.h": {
-    "status": "ported"
-  },
-  "ApprOrthogonalPlane3.h": {
-    "status": "ported"
-  },
-  "ApprParabola2.h": {
-    "status": "pending"
-  },
-  "ApprParaboloid3.h": {
-    "status": "pending"
-  },
-  "ApprParallelLines2.h": {
-    "status": "ported"
-  },
-  "ApprPolynomial2.h": {
-    "status": "ported"
-  },
-  "ApprPolynomial3.h": {
-    "status": "ported"
-  },
-  "ApprPolynomial4.h": {
-    "status": "ported"
-  },
-  "ApprPolynomialSpecial2.h": {
-    "status": "ported"
-  },
-  "ApprPolynomialSpecial3.h": {
-    "status": "ported"
-  },
-  "ApprPolynomialSpecial4.h": {
-    "status": "ported"
-  },
-  "ApprQuadratic2.h": {
-    "status": "ported"
-  },
-  "ApprQuadratic3.h": {
-    "status": "ported"
-  },
-  "ApprQuery.h": {
-    "status": "ported"
-  },
-  "ApprSphere3.h": {
-    "status": "ported"
-  },
-  "ApprTorus3.h": {
-    "status": "pending"
-  },
-  "ArbitraryPrecision.h": {
-    "status": "pending"
-  },
-  "Arc2.h": {
-    "status": "ported"
-  },
-  "Array2.h": {
-    "status": "ported",
-    "notes": "Ported to a flat-storage class; C++ pointer indirection a[i1][i0] becomes a.get(i0,i1)/a.set(i0,i1,v); copy/move machinery not ported; storage may alias a caller-owned flat array."
-  },
-  "Array3.h": {
-    "status": "ported",
-    "notes": "Ported to a flat-storage class; C++ a[i2][i1][i0] becomes a.get(i0,i1,i2); see Array2.h notes."
-  },
-  "Array4.h": {
-    "status": "ported",
-    "notes": "Ported to a flat-storage class; C++ a[i3][i2][i1][i0] becomes a.get(i0,i1,i2,i3); see Array2.h notes."
-  },
-  "ASinEstimate.h": {
-    "status": "ported"
-  },
-  "ATanEstimate.h": {
-    "status": "ported"
-  },
-  "AtomicMinMax.h": {
-    "status": "omitted",
-    "notes": "C++ std::atomic utility, no mathematical content"
-  },
-  "AxisAngle.h": {
-    "status": "ported"
-  },
-  "BandedMatrix.h": {
-    "status": "ported"
-  },
-  "BasisFunction.h": {
-    "status": "ported"
-  },
-  "BezierCurve.h": {
-    "status": "pending",
-    "note": "porter: ParametricCurve.getTime is numerically weak across knot discontinuities (upstream design limitation, see upstream-bug issue from B40) — decide arc-length test strategy accordingly"
-  },
-  "BitHacks.h": {
-    "status": "ported"
-  },
-  "BoxManager.h": {
-    "status": "pending"
-  },
-  "BSNumber.h": {
-    "status": "ported"
-  },
-  "BSplineCurve.h": {
-    "status": "pending",
-    "note": "porter: ParametricCurve.getTime is numerically weak across knot discontinuities (upstream design limitation, see upstream-bug issue from B40) — decide arc-length test strategy accordingly"
-  },
-  "BSplineCurveFit.h": {
-    "status": "ported"
-  },
-  "BSplineGeodesic.h": {
-    "status": "pending"
-  },
-  "BSplineReduction.h": {
-    "status": "pending"
-  },
-  "BSplineSurface.h": {
-    "status": "ported"
-  },
-  "BSplineSurfaceFit.h": {
-    "status": "ported"
-  },
-  "BSplineVolume.h": {
-    "status": "ported"
-  },
-  "BSPPolygon2.h": {
-    "status": "pending"
-  },
-  "BSPrecision.h": {
-    "status": "ported"
-  },
-  "BSRational.h": {
-    "status": "pending"
-  },
-  "BVTree.h": {
-    "status": "ported"
-  },
-  "BVTreeOfPoints.h": {
-    "status": "pending"
-  },
-  "BVTreeOfSegments.h": {
-    "status": "pending"
-  },
-  "BVTreeOfTriangles.h": {
-    "status": "pending"
-  },
-  "CanonicalBox.h": {
-    "status": "ported"
-  },
-  "Capsule.h": {
-    "status": "ported"
-  },
-  "ChebyshevRatio.h": {
-    "status": "ported"
-  },
-  "ChebyshevRatioEstimate.h": {
-    "status": "ported"
-  },
-  "CholeskyDecomposition.h": {
-    "status": "pending"
-  },
-  "Circle3.h": {
-    "status": "ported"
-  },
-  "CircleThroughPointSpecifiedTangentAndRadius.h": {
-    "status": "ported"
-  },
-  "CircleThroughTwoPointsSpecifiedRadius.h": {
-    "status": "ported"
-  },
-  "CLODPolyline.h": {
-    "status": "pending"
-  },
-  "Cone.h": {
-    "status": "pending"
-  },
-  "ConformalMapGenus0.h": {
-    "status": "pending"
-  },
-  "Constants.h": {
-    "status": "ported"
-  },
-  "ConstrainedDelaunay2.h": {
-    "status": "pending"
-  },
-  "ContAlignedBox.h": {
-    "status": "ported"
-  },
-  "ContAlignedBox2Arc2.h": {
-    "status": "pending"
-  },
-  "ContCapsule3.h": {
-    "status": "pending"
-  },
-  "ContCircle2.h": {
-    "status": "ported"
-  },
-  "ContCone.h": {
-    "status": "pending"
-  },
-  "ContCylinder3.h": {
-    "status": "pending"
-  },
-  "ContEllipse2.h": {
-    "status": "pending"
-  },
-  "ContEllipse2MinCR.h": {
-    "status": "pending"
-  },
-  "ContEllipsoid3.h": {
-    "status": "pending"
-  },
-  "ContEllipsoid3MinCR.h": {
-    "status": "pending"
-  },
-  "ContLozenge3.h": {
-    "status": "pending"
-  },
-  "ContOrientedBox2.h": {
-    "status": "pending"
-  },
-  "ContOrientedBox3.h": {
-    "status": "pending"
-  },
-  "ContPointInPolygon2.h": {
-    "status": "ported"
-  },
-  "ContPointInPolyhedron3.h": {
-    "status": "pending"
-  },
-  "ContScribeCircle2.h": {
-    "status": "pending"
-  },
-  "ContScribeCircle3Sphere3.h": {
-    "status": "pending"
-  },
-  "ContSphere3.h": {
-    "status": "ported"
-  },
-  "ContTetrahedron3.h": {
-    "status": "pending"
-  },
-  "ConvertCoordinates.h": {
-    "status": "ported"
-  },
-  "ConvexHull2.h": {
-    "status": "pending"
-  },
-  "ConvexHull3.h": {
-    "status": "pending"
-  },
-  "ConvexHullSimplePolygon.h": {
-    "status": "ported"
-  },
-  "ConvexMesh3.h": {
-    "status": "ported"
-  },
-  "ConvexPolyhedron3.h": {
-    "status": "pending"
-  },
-  "CosEstimate.h": {
-    "status": "ported"
-  },
-  "CubicRootsQR.h": {
-    "status": "ported"
-  },
-  "CurvatureFlow2.h": {
-    "status": "ported"
-  },
-  "CurvatureFlow3.h": {
-    "status": "ported"
-  },
-  "CurveExtractor.h": {
-    "status": "ported"
-  },
-  "CurveExtractorSquares.h": {
-    "status": "ported"
-  },
-  "CurveExtractorTriangles.h": {
-    "status": "ported"
-  },
-  "Cylinder3.h": {
-    "status": "ported"
-  },
-  "DarbouxFrame.h": {
-    "status": "pending"
-  },
-  "DCPQuery.h": {
-    "status": "ported",
-    "notes": "Empty primary template ported as interface DCPQuery<Type0,Type1,Result> with compute(); Real template parameter dropped (always number); each Dist* file exports a concrete implementing class named after its file."
-  },
-  "Delaunay2.h": {
-    "status": "pending"
-  },
-  "Delaunay2Mesh.h": {
-    "status": "pending"
-  },
-  "Delaunay3.h": {
-    "status": "pending"
-  },
-  "Delaunay3Mesh.h": {
-    "status": "pending"
-  },
-  "DisjointIntervals.h": {
-    "status": "ported"
-  },
-  "DisjointRectangles.h": {
-    "status": "ported"
-  },
-  "DistAlignedBox3OrientedBox3.h": {
-    "status": "pending"
-  },
-  "DistAlignedBoxAlignedBox.h": {
-    "status": "ported"
-  },
-  "DistCircle2Circle2.h": {
-    "status": "ported"
-  },
-  "DistCircle3Circle3.h": {
-    "status": "pending"
-  },
-  "DistLine2AlignedBox2.h": {
-    "status": "ported"
-  },
-  "DistLine2Arc2.h": {
-    "status": "pending"
-  },
-  "DistLine2Circle2.h": {
-    "status": "ported"
-  },
-  "DistLine2OrientedBox2.h": {
-    "status": "pending"
-  },
-  "DistLine2Triangle2.h": {
-    "status": "ported"
-  },
-  "DistLine3AlignedBox3.h": {
-    "status": "pending"
-  },
-  "DistLine3CanonicalBox3.h": {
-    "status": "ported"
-  },
-  "DistLine3Circle3.h": {
-    "status": "pending"
-  },
-  "DistLine3OrientedBox3.h": {
-    "status": "pending"
-  },
-  "DistLine3Rectangle3.h": {
-    "status": "pending"
-  },
-  "DistLine3Triangle3.h": {
-    "status": "pending"
-  },
-  "DistLineLine.h": {
-    "status": "ported"
-  },
-  "DistLineRay.h": {
-    "status": "ported"
-  },
-  "DistLineSegment.h": {
-    "status": "ported"
-  },
-  "DistOrientedBox3Cone3.h": {
-    "status": "pending"
-  },
-  "DistOrientedBox3OrientedBox3.h": {
-    "status": "pending"
-  },
-  "DistPlane3AlignedBox3.h": {
-    "status": "pending"
-  },
-  "DistPlane3CanonicalBox3.h": {
-    "status": "pending"
-  },
-  "DistPlane3OrientedBox3.h": {
-    "status": "pending"
-  },
-  "DistPoint2Arc2.h": {
-    "status": "pending"
-  },
-  "DistPoint2Circle2.h": {
-    "status": "ported"
-  },
-  "DistPoint2Parallelogram2.h": {
-    "status": "pending"
-  },
-  "DistPoint3Circle3.h": {
-    "status": "pending"
-  },
-  "DistPoint3ConvexPolyhedron3.h": {
-    "status": "pending"
-  },
-  "DistPoint3Cylinder3.h": {
-    "status": "pending"
-  },
-  "DistPoint3Frustum3.h": {
-    "status": "pending"
-  },
-  "DistPoint3Parallelepiped3.h": {
-    "status": "pending"
-  },
-  "DistPoint3Tetrahedron3.h": {
-    "status": "pending"
-  },
-  "DistPointAlignedBox.h": {
-    "status": "pending"
-  },
-  "DistPointCanonicalBox.h": {
-    "status": "ported"
-  },
-  "DistPointHyperellipsoid.h": {
-    "status": "pending"
-  },
-  "DistPointHyperplane.h": {
-    "status": "pending"
-  },
-  "DistPointLine.h": {
-    "status": "ported"
-  },
-  "DistPointOrientedBox.h": {
-    "status": "pending"
-  },
-  "DistPointRay.h": {
-    "status": "ported"
-  },
-  "DistPointRectangle.h": {
-    "status": "ported"
-  },
-  "DistPointSegment.h": {
-    "status": "ported"
-  },
-  "DistPointTriangle.h": {
-    "status": "ported"
-  },
-  "DistRay2AlignedBox2.h": {
-    "status": "pending"
-  },
-  "DistRay2Arc2.h": {
-    "status": "pending"
-  },
-  "DistRay2Circle2.h": {
-    "status": "pending"
-  },
-  "DistRay2OrientedBox2.h": {
-    "status": "pending"
-  },
-  "DistRay2Triangle2.h": {
-    "status": "pending"
-  },
-  "DistRay3AlignedBox3.h": {
-    "status": "pending"
-  },
-  "DistRay3CanonicalBox3.h": {
-    "status": "pending"
-  },
-  "DistRay3Circle3.h": {
-    "status": "pending"
-  },
-  "DistRay3OrientedBox3.h": {
-    "status": "pending"
-  },
-  "DistRay3Rectangle3.h": {
-    "status": "pending"
-  },
-  "DistRay3Triangle3.h": {
-    "status": "pending"
-  },
-  "DistRayRay.h": {
-    "status": "ported"
-  },
-  "DistRaySegment.h": {
-    "status": "ported"
-  },
-  "DistRectangle3AlignedBox3.h": {
-    "status": "pending"
-  },
-  "DistRectangle3CanonicalBox3.h": {
-    "status": "pending"
-  },
-  "DistRectangle3OrientedBox3.h": {
-    "status": "pending"
-  },
-  "DistRectangle3Rectangle3.h": {
-    "status": "pending"
-  },
-  "DistSegment2AlignedBox2.h": {
-    "status": "pending"
-  },
-  "DistSegment2Arc2.h": {
-    "status": "pending"
-  },
-  "DistSegment2Circle2.h": {
-    "status": "pending"
-  },
-  "DistSegment2OrientedBox2.h": {
-    "status": "pending"
-  },
-  "DistSegment2Triangle2.h": {
-    "status": "pending"
-  },
-  "DistSegment3AlignedBox3.h": {
-    "status": "pending"
-  },
-  "DistSegment3CanonicalBox3.h": {
-    "status": "pending"
-  },
-  "DistSegment3Circle3.h": {
-    "status": "pending"
-  },
-  "DistSegment3OrientedBox3.h": {
-    "status": "pending"
-  },
-  "DistSegment3Rectangle3.h": {
-    "status": "pending"
-  },
-  "DistSegment3Triangle3.h": {
-    "status": "pending"
-  },
-  "DistSegmentSegment.h": {
-    "status": "ported"
-  },
-  "DistTetrahedron3Tetrahedron3.h": {
-    "status": "pending"
-  },
-  "DistTriangle3AlignedBox3.h": {
-    "status": "pending"
-  },
-  "DistTriangle3CanonicalBox3.h": {
-    "status": "pending"
-  },
-  "DistTriangle3OrientedBox3.h": {
-    "status": "pending"
-  },
-  "DistTriangle3Rectangle3.h": {
-    "status": "pending"
-  },
-  "DistTriangle3Triangle3.h": {
-    "status": "pending"
-  },
-  "EdgeKey.h": {
-    "status": "ported"
-  },
-  "Ellipse3.h": {
-    "status": "ported"
-  },
-  "EllipsoidGeodesic.h": {
-    "status": "pending"
-  },
-  "ETManifoldMesh.h": {
-    "status": "pending"
-  },
-  "ETNonmanifoldMesh.h": {
-    "status": "pending"
-  },
-  "EulerAngles.h": {
-    "status": "ported"
-  },
-  "Exp2Estimate.h": {
-    "status": "ported"
-  },
-  "ExpEstimate.h": {
-    "status": "ported"
-  },
-  "ExtremalQuery3.h": {
-    "status": "pending"
-  },
-  "ExtremalQuery3BSP.h": {
-    "status": "pending"
-  },
-  "ExtremalQuery3PRJ.h": {
-    "status": "pending"
-  },
-  "FastGaussianBlur1.h": {
-    "status": "ported"
-  },
-  "FastGaussianBlur2.h": {
-    "status": "ported"
-  },
-  "FastGaussianBlur3.h": {
-    "status": "ported"
-  },
-  "FastMarch.h": {
-    "status": "ported"
-  },
-  "FastMarch2.h": {
-    "status": "ported"
-  },
-  "FastMarch3.h": {
-    "status": "ported"
-  },
-  "FeatureKey.h": {
-    "status": "ported"
-  },
-  "FIQuery.h": {
-    "status": "ported",
-    "notes": "Empty primary template ported as interface FIQuery<Type0,Type1,Result> with find(); concrete Intr* classes use an FI suffix (e.g. IntrRay3Sphere3FI) since TI and FI specializations share one upstream file."
-  },
-  "FPInterval.h": {
-    "status": "ported"
-  },
-  "FrenetFrame.h": {
-    "status": "pending"
-  },
-  "Frustum3.h": {
-    "status": "ported"
-  },
-  "Functions.h": {
-    "status": "ported"
-  },
-  "GaussianBlur2.h": {
-    "status": "ported"
-  },
-  "GaussianBlur3.h": {
-    "status": "ported"
-  },
-  "GaussianElimination.h": {
-    "status": "ported"
-  },
-  "GaussNewtonMinimizer.h": {
-    "status": "pending"
-  },
-  "GenerateMeshUV.h": {
-    "status": "pending"
-  },
-  "GMatrix.h": {
-    "status": "ported"
-  },
-  "GradientAnisotropic2.h": {
-    "status": "ported"
-  },
-  "GradientAnisotropic3.h": {
-    "status": "ported"
-  },
-  "GVector.h": {
-    "status": "ported"
-  },
-  "Halfspace.h": {
-    "status": "ported"
-  },
-  "HashCombine.h": {
-    "status": "ported",
-    "notes": "Restricted to number values; 32-bit unsigned seeds (C++ size_t hashes are implementation-defined); returns the new seed instead of mutating an out-parameter; std::hash<double> replaced by folding the IEEE binary64 bits."
-  },
-  "HelmertTransformation7.h": {
-    "status": "pending"
-  },
-  "HermiteBicubic.h": {
-    "status": "ported"
-  },
-  "HermiteBiquintic.h": {
-    "status": "ported"
-  },
-  "HermiteCubic.h": {
-    "status": "ported"
-  },
-  "HermiteQuintic.h": {
-    "status": "ported"
-  },
-  "HermiteTricubic.h": {
-    "status": "ported"
-  },
-  "HermiteTriquintic.h": {
-    "status": "ported"
-  },
-  "Histogram.h": {
-    "status": "ported"
-  },
-  "Hyperellipsoid.h": {
-    "status": "pending"
-  },
-  "Hyperplane.h": {
-    "status": "pending"
-  },
-  "Hypersphere.h": {
-    "status": "ported"
-  },
-  "IEEEBinary.h": {
-    "status": "ported",
-    "notes": "Template collapsed to concrete IEEEBinary32 (uint32 encoding as number) and IEEEBinary64 (bigint encoding); union ported as encoding field + number accessor; ambiguous C++ constructor overloads replaced by fromEncoding/fromNumber/fromParts factories; nested Classification enum exported as IEEEClassification."
-  },
-  "IEEEBinary16.h": {
-    "status": "ported"
-  },
-  "Image.h": {
-    "status": "ported"
-  },
-  "Image2.h": {
-    "status": "ported"
-  },
-  "Image3.h": {
-    "status": "ported"
-  },
-  "ImageUtility2.h": {
-    "status": "ported"
-  },
-  "ImageUtility3.h": {
-    "status": "ported"
-  },
-  "ImplicitCurve2.h": {
-    "status": "pending"
-  },
-  "ImplicitSurface3.h": {
-    "status": "pending"
-  },
-  "IncrementalDelaunay2.h": {
-    "status": "pending"
-  },
-  "IndexAttribute.h": {
-    "status": "ported"
-  },
-  "InscribedFixedAspectRectInQuad.h": {
-    "status": "ported"
-  },
-  "Integration.h": {
-    "status": "ported"
-  },
-  "IntpAkima1.h": {
-    "status": "ported"
-  },
-  "IntpAkimaNonuniform1.h": {
-    "status": "ported"
-  },
-  "IntpAkimaUniform1.h": {
-    "status": "ported"
-  },
-  "IntpAkimaUniform2.h": {
-    "status": "ported"
-  },
-  "IntpAkimaUniform3.h": {
-    "status": "ported"
-  },
-  "IntpBicubic2.h": {
-    "status": "ported"
-  },
-  "IntpBilinear2.h": {
-    "status": "ported"
-  },
-  "IntpBSplineUniform.h": {
-    "status": "ported"
-  },
-  "IntpLinearNonuniform2.h": {
-    "status": "ported"
-  },
-  "IntpLinearNonuniform3.h": {
-    "status": "ported"
-  },
-  "IntpQuadraticNonuniform2.h": {
-    "status": "pending"
-  },
-  "IntpSphere2.h": {
-    "status": "pending"
-  },
-  "IntpThinPlateSpline2.h": {
-    "status": "pending"
-  },
-  "IntpThinPlateSpline3.h": {
-    "status": "pending"
-  },
-  "IntpTricubic3.h": {
-    "status": "ported"
-  },
-  "IntpTrilinear3.h": {
-    "status": "ported"
-  },
-  "IntpVectorField2.h": {
-    "status": "pending"
-  },
-  "IntrAlignedBox2AlignedBox2.h": {
-    "status": "ported"
-  },
-  "IntrAlignedBox2Circle2.h": {
-    "status": "pending"
-  },
-  "IntrAlignedBox2OrientedBox2.h": {
-    "status": "ported"
-  },
-  "IntrAlignedBox3AlignedBox3.h": {
-    "status": "ported"
-  },
-  "IntrAlignedBox3Cone3.h": {
-    "status": "pending"
-  },
-  "IntrAlignedBox3Cylinder3.h": {
-    "status": "pending"
-  },
-  "IntrAlignedBox3OrientedBox3.h": {
-    "status": "ported"
-  },
-  "IntrAlignedBox3Sphere3.h": {
-    "status": "pending"
-  },
-  "IntrArc2Arc2.h": {
-    "status": "pending"
-  },
-  "IntrAreaEllipse2Ellipse2.h": {
-    "status": "pending"
-  },
-  "IntrCanonicalBox3Cylinder3.h": {
-    "status": "pending"
-  },
-  "IntrCapsule3Capsule3.h": {
-    "status": "pending"
-  },
-  "IntrCircle2Arc2.h": {
-    "status": "pending"
-  },
-  "IntrCircle2Circle2.h": {
-    "status": "ported"
-  },
-  "IntrConvexMesh3Plane3.h": {
-    "status": "pending"
-  },
-  "IntrConvexPolygonHyperplane.h": {
-    "status": "pending"
-  },
-  "IntrCylinder3Cylinder3.h": {
-    "status": "pending"
-  },
-  "IntrDisk2Sector2.h": {
-    "status": "pending"
-  },
-  "IntrEllipse2Ellipse2.h": {
-    "status": "pending"
-  },
-  "IntrEllipsoid3Ellipsoid3.h": {
-    "status": "pending"
-  },
-  "IntrHalfspace2Polygon2.h": {
-    "status": "ported"
-  },
-  "IntrHalfspace3Capsule3.h": {
-    "status": "pending"
-  },
-  "IntrHalfspace3Cylinder3.h": {
-    "status": "pending"
-  },
-  "IntrHalfspace3Ellipsoid3.h": {
-    "status": "pending"
-  },
-  "IntrHalfspace3OrientedBox3.h": {
-    "status": "ported"
-  },
-  "IntrHalfspace3Segment3.h": {
-    "status": "ported"
-  },
-  "IntrHalfspace3Sphere3.h": {
-    "status": "ported"
-  },
-  "IntrHalfspace3Triangle3.h": {
-    "status": "ported"
-  },
-  "IntrIntervals.h": {
-    "status": "ported"
-  },
-  "IntrLine2AlignedBox2.h": {
-    "status": "ported"
-  },
-  "IntrLine2Arc2.h": {
-    "status": "pending"
-  },
-  "IntrLine2Circle2.h": {
-    "status": "pending"
-  },
-  "IntrLine2Line2.h": {
-    "status": "ported"
-  },
-  "IntrLine2OrientedBox2.h": {
-    "status": "pending"
-  },
-  "IntrLine2Ray2.h": {
-    "status": "pending"
-  },
-  "IntrLine2Segment2.h": {
-    "status": "pending"
-  },
-  "IntrLine2SegmentMesh2.h": {
-    "status": "pending"
-  },
-  "IntrLine2Triangle2.h": {
-    "status": "ported"
-  },
-  "IntrLine3AlignedBox3.h": {
-    "status": "ported"
-  },
-  "IntrLine3Capsule3.h": {
-    "status": "pending"
-  },
-  "IntrLine3Cone3.h": {
-    "status": "pending"
-  },
-  "IntrLine3Cylinder3.h": {
-    "status": "pending"
-  },
-  "IntrLine3Ellipsoid3.h": {
-    "status": "pending"
-  },
-  "IntrLine3OrientedBox3.h": {
-    "status": "pending"
-  },
-  "IntrLine3Plane3.h": {
-    "status": "pending"
-  },
-  "IntrLine3Rectangle3.h": {
-    "status": "ported"
-  },
-  "IntrLine3Sphere3.h": {
-    "status": "ported"
-  },
-  "IntrLine3Torus3.h": {
-    "status": "pending"
-  },
-  "IntrLine3Triangle3.h": {
-    "status": "ported"
-  },
-  "IntrOrientedBox2Circle2.h": {
-    "status": "pending"
-  },
-  "IntrOrientedBox2Cone2.h": {
-    "status": "pending"
-  },
-  "IntrOrientedBox2OrientedBox2.h": {
-    "status": "ported"
-  },
-  "IntrOrientedBox2Sector2.h": {
-    "status": "pending"
-  },
-  "IntrOrientedBox3Cone3.h": {
-    "status": "pending"
-  },
-  "IntrOrientedBox3Cylinder3.h": {
-    "status": "pending"
-  },
-  "IntrOrientedBox3Frustum3.h": {
-    "status": "pending"
-  },
-  "IntrOrientedBox3OrientedBox3.h": {
-    "status": "ported"
-  },
-  "IntrOrientedBox3Sphere3.h": {
-    "status": "pending"
-  },
-  "IntrPlane3Capsule3.h": {
-    "status": "pending"
-  },
-  "IntrPlane3Circle3.h": {
-    "status": "pending"
-  },
-  "IntrPlane3Cylinder3.h": {
-    "status": "pending"
-  },
-  "IntrPlane3Ellipsoid3.h": {
-    "status": "pending"
-  },
-  "IntrPlane3OrientedBox3.h": {
-    "status": "pending"
-  },
-  "IntrPlane3Plane3.h": {
-    "status": "pending"
-  },
-  "IntrPlane3Sphere3.h": {
-    "status": "pending"
-  },
-  "IntrPlane3Triangle3.h": {
-    "status": "pending"
-  },
-  "IntrRay2AlignedBox2.h": {
-    "status": "pending"
-  },
-  "IntrRay2Arc2.h": {
-    "status": "pending"
-  },
-  "IntrRay2Circle2.h": {
-    "status": "pending"
-  },
-  "IntrRay2OrientedBox2.h": {
-    "status": "pending"
-  },
-  "IntrRay2Ray2.h": {
-    "status": "pending"
-  },
-  "IntrRay2Segment2.h": {
-    "status": "pending"
-  },
-  "IntrRay2SegmentMesh2.h": {
-    "status": "pending"
-  },
-  "IntrRay2Triangle2.h": {
-    "status": "pending"
-  },
-  "IntrRay3AlignedBox3.h": {
-    "status": "pending"
-  },
-  "IntrRay3Capsule3.h": {
-    "status": "pending"
-  },
-  "IntrRay3Cone3.h": {
-    "status": "pending"
-  },
-  "IntrRay3Cylinder3.h": {
-    "status": "pending"
-  },
-  "IntrRay3Ellipsoid3.h": {
-    "status": "pending"
-  },
-  "IntrRay3OrientedBox3.h": {
-    "status": "pending"
-  },
-  "IntrRay3Plane3.h": {
-    "status": "pending"
-  },
-  "IntrRay3Rectangle3.h": {
-    "status": "pending"
-  },
-  "IntrRay3Sphere3.h": {
-    "status": "pending"
-  },
-  "IntrRay3Triangle3.h": {
-    "status": "ported"
-  },
-  "IntrSegment2AlignedBox2.h": {
-    "status": "pending"
-  },
-  "IntrSegment2Arc2.h": {
-    "status": "pending"
-  },
-  "IntrSegment2Circle2.h": {
-    "status": "pending"
-  },
-  "IntrSegment2OrientedBox2.h": {
-    "status": "pending"
-  },
-  "IntrSegment2Segment2.h": {
-    "status": "pending"
-  },
-  "IntrSegment2SegmentMesh2.h": {
-    "status": "pending"
-  },
-  "IntrSegment2Triangle2.h": {
-    "status": "pending"
-  },
-  "IntrSegment3AlignedBox3.h": {
-    "status": "pending"
-  },
-  "IntrSegment3Capsule3.h": {
-    "status": "pending"
-  },
-  "IntrSegment3Cone3.h": {
-    "status": "pending"
-  },
-  "IntrSegment3Cylinder3.h": {
-    "status": "pending"
-  },
-  "IntrSegment3Ellipsoid3.h": {
-    "status": "pending"
-  },
-  "IntrSegment3OrientedBox3.h": {
-    "status": "pending"
-  },
-  "IntrSegment3Plane3.h": {
-    "status": "pending"
-  },
-  "IntrSegment3Rectangle3.h": {
-    "status": "pending"
-  },
-  "IntrSegment3Sphere3.h": {
-    "status": "pending"
-  },
-  "IntrSegment3Triangle3.h": {
-    "status": "ported"
-  },
-  "IntrSphere3Cone3.h": {
-    "status": "pending"
-  },
-  "IntrSphere3Frustum3.h": {
-    "status": "pending"
-  },
-  "IntrSphere3Sphere3.h": {
-    "status": "pending"
-  },
-  "IntrSphere3Triangle3.h": {
-    "status": "pending"
-  },
-  "IntrTetrahedron3Tetrahedron3.h": {
-    "status": "pending"
-  },
-  "IntrTriangle2Triangle2.h": {
-    "status": "pending"
-  },
-  "IntrTriangle3AlignedBox3.h": {
-    "status": "pending"
-  },
-  "IntrTriangle3CanonicalBox3.h": {
-    "status": "pending"
-  },
-  "IntrTriangle3Cylinder3.h": {
-    "status": "pending"
-  },
-  "IntrTriangle3OrientedBox3.h": {
-    "status": "pending"
-  },
-  "IntrTriangle3Triangle3.h": {
-    "status": "pending"
-  },
-  "InvSqrtEstimate.h": {
-    "status": "ported"
-  },
-  "IsPlanarGraph.h": {
-    "status": "ported"
-  },
-  "LCPSolver.h": {
-    "status": "ported"
-  },
-  "LDLTDecomposition.h": {
-    "status": "pending"
-  },
-  "LevenbergMarquardtMinimizer.h": {
-    "status": "pending"
-  },
-  "LexicoArray2.h": {
-    "status": "ported",
-    "notes": "Four template specializations collapsed to one class with a runtime rowMajor flag and runtime dimensions; operator() ported as get/set."
-  },
-  "LieGroupsAlgebras.h": {
-    "status": "pending"
-  },
-  "Line.h": {
-    "status": "ported"
-  },
-  "LinearSystem.h": {
-    "status": "pending"
-  },
-  "Log2Estimate.h": {
-    "status": "ported"
-  },
-  "LogEstimate.h": {
-    "status": "ported"
-  },
-  "Logger.h": {
-    "status": "ported",
-    "notes": "Macros ported as logAssert/logError throwing Error with the caller message; the C++ file(function,line) prefix is omitted because JS Error stack traces carry source locations."
-  },
-  "Lozenge3.h": {
-    "status": "ported"
-  },
-  "MarchingCubes.h": {
-    "status": "ported"
-  },
-  "MassSpringArbitrary.h": {
-    "status": "ported"
-  },
-  "MassSpringCurve.h": {
-    "status": "ported"
-  },
-  "MassSpringSurface.h": {
-    "status": "ported"
-  },
-  "MassSpringVolume.h": {
-    "status": "ported"
-  },
-  "Matrix.h": {
-    "status": "ported"
-  },
-  "Matrix2x2.h": {
-    "status": "ported"
-  },
-  "Matrix3x3.h": {
-    "status": "ported"
-  },
-  "Matrix4x4.h": {
-    "status": "ported"
-  },
-  "Mesh.h": {
-    "status": "pending"
-  },
-  "MeshCurvature.h": {
-    "status": "pending"
-  },
-  "MeshSmoother.h": {
-    "status": "ported"
-  },
-  "MeshStaticManifold2.h": {
-    "status": "ported"
-  },
-  "MeshStaticManifold3.h": {
-    "status": "ported"
-  },
-  "MinHeap.h": {
-    "status": "ported",
-    "notes": "Faithful port including update/remove-by-record; out-parameters replaced by {key,value}|null returns and insert returning the record or null; ValueType defaults to number with an optional lessThan comparator (a<=b derived as !(b<a)); record key/value are undefined until first insert (upstream leaves them uninitialized)."
-  },
-  "MinimalCycleBasis.h": {
-    "status": "pending"
-  },
-  "Minimize1.h": {
-    "status": "ported"
-  },
-  "MinimizeN.h": {
-    "status": "ported"
-  },
-  "MinimumAreaBox2.h": {
-    "status": "pending"
-  },
-  "MinimumAreaCircle2.h": {
-    "status": "pending"
-  },
-  "MinimumSpanningTree.h": {
-    "status": "ported"
-  },
-  "MinimumVolumeBox3.h": {
-    "status": "ported"
-  },
-  "MinimumVolumeBox3FloatingPoint.h": {
-    "status": "pending"
-  },
-  "MinimumVolumeBox3Rational.h": {
-    "status": "pending"
-  },
-  "MinimumVolumeSphere3.h": {
-    "status": "pending"
-  },
-  "MinimumWidthPoints2.h": {
-    "status": "pending"
-  },
-  "NaturalCubicSpline.h": {
-    "status": "pending"
-  },
-  "NaturalQuinticSpline.h": {
-    "status": "pending"
-  },
-  "NaturalSplineCurve.h": {
-    "status": "pending"
-  },
-  "NearestNeighborQuery.h": {
-    "status": "ported"
-  },
-  "NURBSCircle.h": {
-    "status": "pending"
-  },
-  "NURBSCurve.h": {
-    "status": "pending",
-    "note": "porter: ParametricCurve.getTime is numerically weak across knot discontinuities (upstream design limitation, see upstream-bug issue from B40) — decide arc-length test strategy accordingly"
-  },
-  "NURBSSphere.h": {
-    "status": "pending"
-  },
-  "NURBSSurface.h": {
-    "status": "ported"
-  },
-  "NURBSVolume.h": {
-    "status": "ported"
-  },
-  "OBBTree.h": {
-    "status": "ported"
-  },
-  "OBBTreeOfPoints.h": {
-    "status": "pending"
-  },
-  "OBBTreeOfSegments.h": {
-    "status": "pending"
-  },
-  "OBBTreeOfTriangles.h": {
-    "status": "pending",
-    "note": "porter: check ComputeInteriorBox pmin/pmax zero-init suspect flagged during B36 — see upstream-bug issue"
-  },
-  "OdeEuler.h": {
-    "status": "ported"
-  },
-  "OdeImplicitEuler.h": {
-    "status": "ported"
-  },
-  "OdeMidpoint.h": {
-    "status": "ported"
-  },
-  "OdeRungeKutta4.h": {
-    "status": "ported"
-  },
-  "OdeSolver.h": {
-    "status": "ported"
-  },
-  "OrientedBox.h": {
-    "status": "ported"
-  },
-  "OrientedBoxBV.h": {
-    "status": "pending"
-  },
-  "OrientedBoxTreeOfPoints.h": {
-    "status": "pending"
-  },
-  "OrientedBoxTreeOfSegments.h": {
-    "status": "pending"
-  },
-  "OrientedBoxTreeOfTriangles.h": {
-    "status": "pending"
-  },
-  "Parallelepiped3.h": {
-    "status": "ported"
-  },
-  "Parallelogram2.h": {
-    "status": "ported"
-  },
-  "ParametricCurve.h": {
-    "status": "ported"
-  },
-  "ParametricSurface.h": {
-    "status": "ported"
-  },
-  "ParticleSystem.h": {
-    "status": "ported"
-  },
-  "PdeFilter.h": {
-    "status": "ported"
-  },
-  "PdeFilter1.h": {
-    "status": "ported"
-  },
-  "PdeFilter2.h": {
-    "status": "ported"
-  },
-  "PdeFilter3.h": {
-    "status": "ported"
-  },
-  "PlanarMesh.h": {
-    "status": "pending"
-  },
-  "Polygon2.h": {
-    "status": "pending"
-  },
-  "PolygonTree.h": {
-    "status": "ported"
-  },
-  "PolygonWindingOrder.h": {
-    "status": "ported"
-  },
-  "PolyhedralMassProperties.h": {
-    "status": "pending"
-  },
-  "Polyhedron3.h": {
-    "status": "ported"
-  },
-  "PolylineOffset.h": {
-    "status": "ported"
-  },
-  "Polynomial1.h": {
-    "status": "ported"
-  },
-  "PolynomialCurve.h": {
-    "status": "pending"
-  },
-  "PolynomialRoot.h": {
-    "status": "pending"
-  },
-  "PrimalQuery2.h": {
-    "status": "ported"
-  },
-  "PrimalQuery3.h": {
-    "status": "ported"
-  },
-  "Projection.h": {
-    "status": "pending"
-  },
-  "QFNumber.h": {
-    "status": "ported"
-  },
-  "QuadricSurface.h": {
-    "status": "pending"
-  },
-  "QuarticRootsQR.h": {
-    "status": "ported"
-  },
-  "Quaternion.h": {
-    "status": "ported"
-  },
-  "RangeIteration.h": {
-    "status": "omitted",
-    "notes": "C++ reverse-iterator adapter, not applicable in TS"
-  },
-  "Ray.h": {
-    "status": "ported"
-  },
-  "Rectangle.h": {
-    "status": "ported"
-  },
-  "RectangleManager.h": {
-    "status": "pending"
-  },
-  "RectangleMesh.h": {
-    "status": "pending"
-  },
-  "RectanglePatchMesh.h": {
-    "status": "pending"
-  },
-  "RemezAlgorithm.h": {
-    "status": "ported"
-  },
-  "ReparameterizeByArclength.h": {
-    "status": "pending"
-  },
-  "RevolutionMesh.h": {
-    "status": "pending"
-  },
-  "RiemannianGeodesic.h": {
-    "status": "pending"
-  },
-  "RigidBody.h": {
-    "status": "pending"
-  },
-  "RootsBisection.h": {
-    "status": "ported"
-  },
-  "RootsBisection1.h": {
-    "status": "ported",
-    "note": "floating-point instantiation only; arbitrary-precision path deferred until BSNumber exists"
-  },
-  "RootsBisection2.h": {
-    "status": "ported",
-    "note": "floating-point instantiation only; arbitrary-precision path deferred until BSNumber-based numeric support"
-  },
-  "RootsBrentsMethod.h": {
-    "status": "ported"
-  },
-  "RootsCubic.h": {
-    "status": "pending"
-  },
-  "RootsGeneralPolynomial.h": {
-    "status": "pending"
-  },
-  "RootsLinear.h": {
-    "status": "pending"
-  },
-  "RootsPolynomial.h": {
-    "status": "ported"
-  },
-  "RootsQuadratic.h": {
-    "status": "pending"
-  },
-  "RootsQuartic.h": {
-    "status": "pending"
-  },
-  "RotatingCalipers.h": {
-    "status": "pending"
-  },
-  "Rotation.h": {
-    "status": "pending"
-  },
-  "RotationEstimate.h": {
-    "status": "pending"
-  },
-  "SampleCircularArc.h": {
-    "status": "pending"
-  },
-  "Sector2.h": {
-    "status": "ported"
-  },
-  "Segment.h": {
-    "status": "ported"
-  },
-  "SegmentMesh.h": {
-    "status": "ported"
-  },
-  "SeparatePoints2.h": {
-    "status": "pending"
-  },
-  "SeparatePoints3.h": {
-    "status": "pending"
-  },
-  "SharedPtrCompare.h": {
-    "status": "omitted",
-    "notes": "C++ smart-pointer comparator, not applicable in TS"
-  },
-  "SinEstimate.h": {
-    "status": "ported"
-  },
-  "SingularValueDecomposition.h": {
-    "status": "ported"
-  },
-  "Slerp.h": {
-    "status": "ported"
-  },
-  "SlerpEstimate.h": {
-    "status": "ported"
-  },
-  "SortPointsOnCircle.h": {
-    "status": "ported"
-  },
-  "SplitMeshByPlane.h": {
-    "status": "pending"
-  },
-  "SqrtEstimate.h": {
-    "status": "ported"
-  },
-  "StaticVETManifoldMesh2.h": {
-    "status": "ported"
-  },
-  "StaticVTSManifoldMesh3.h": {
-    "status": "ported"
-  },
-  "STLBinaryFile.h": {
-    "status": "ported"
-  },
-  "StringUtility.h": {
-    "status": "omitted",
-    "notes": "C++ narrow/wide string conversions, not applicable in TS"
-  },
-  "SurfaceExtractor.h": {
-    "status": "ported"
-  },
-  "SurfaceExtractorCubes.h": {
-    "status": "ported"
-  },
-  "SurfaceExtractorMC.h": {
-    "status": "ported"
-  },
-  "SurfaceExtractorTetrahedra.h": {
-    "status": "ported"
-  },
-  "SWInterval.h": {
-    "status": "ported"
-  },
-  "SymmetricEigensolver.h": {
-    "status": "ported"
-  },
-  "SymmetricEigensolver2x2.h": {
-    "status": "ported"
-  },
-  "SymmetricEigensolver3x3.h": {
-    "status": "ported"
-  },
-  "TanEstimate.h": {
-    "status": "ported"
-  },
-  "TCBSplineCurve.h": {
-    "status": "pending"
-  },
-  "TetrahedraRasterizer.h": {
-    "status": "ported"
-  },
-  "Tetrahedron3.h": {
-    "status": "pending"
-  },
-  "TetrahedronKey.h": {
-    "status": "ported"
-  },
-  "ThreadSafeMap.h": {
-    "status": "omitted",
-    "notes": "C++ thread/mutex wrapper, no mathematical content"
-  },
-  "ThreadSafeQueue.h": {
-    "status": "omitted",
-    "notes": "C++ thread/mutex wrapper, no mathematical content"
-  },
-  "Timer.h": {
-    "status": "omitted",
-    "notes": "C++ chrono wrapper; use performance.now() directly in TS"
-  },
-  "TIQuery.h": {
-    "status": "ported",
-    "notes": "Empty primary template ported as interface TIQuery<Type0,Type1,Result> with test(); concrete Intr* classes use a TI suffix (e.g. IntrRay3Sphere3TI)."
-  },
-  "Torus3.h": {
-    "status": "ported"
-  },
-  "Transform.h": {
-    "status": "pending"
-  },
-  "Triangle.h": {
-    "status": "ported"
-  },
-  "TriangleKey.h": {
-    "status": "ported"
-  },
-  "TriangulateCDT.h": {
-    "status": "pending"
-  },
-  "TriangulateEC.h": {
-    "status": "pending"
-  },
-  "TSManifoldMesh.h": {
-    "status": "pending"
-  },
-  "TubeMesh.h": {
-    "status": "pending"
-  },
-  "TypeTraits.h": {
-    "status": "ported",
-    "notes": "Compile-time traits ported as runtime predicates isArbitraryPrecision(x)/hasDivisionOperator(x) plus the ArbitraryPrecisionNumber marker interface that BSNumber/BSRational/QFNumber will implement; SFINAE helper aliases (TraitSelector, IsFPType, IsAPType, IsDivisionType, IsNotDivisionType) omitted as compile-time-only machinery."
-  },
-  "UIntegerALU32.h": {
-    "status": "omitted",
-    "note": "C++ 32-bit UInteger storage backend; superseded by bigint-backed BSNumber precedent (B34, PR #94) — no consumers in the TS port"
-  },
-  "UIntegerAP32.h": {
-    "status": "omitted",
-    "note": "C++ 32-bit UInteger storage backend; superseded by bigint-backed BSNumber precedent (B34, PR #94) — no consumers in the TS port"
-  },
-  "UIntegerFP32.h": {
-    "status": "omitted",
-    "note": "C++ 32-bit UInteger storage backend; superseded by bigint-backed BSNumber precedent (B34, PR #94) — no consumers in the TS port"
-  },
-  "UniqueVerticesSimplices.h": {
-    "status": "ported"
-  },
-  "UniqueVerticesTriangles.h": {
-    "status": "ported"
-  },
-  "UnsymmetricEigenvalues.h": {
-    "status": "ported"
-  },
-  "Vector.h": {
-    "status": "ported",
-    "notes": "Template Vector<N,Real> ported as runtime-dimension class over number[]; operators ported as module functions (negate/add/sub/mul/div, componentwise compMul/compDiv); normalize/orthonormalize mutate in place and return length as upstream; Vector(int d) unit constructor is Vector.unit(size,d); default constructor zero-fills instead of leaving the tuple uninitialized; unary operator+ not ported; out-parameter ComputeExtremes returns {vmin,vmax}|null."
-  },
-  "Vector2.h": {
-    "status": "ported"
-  },
-  "Vector3.h": {
-    "status": "ported"
-  },
-  "Vector4.h": {
-    "status": "ported"
-  },
-  "VEManifoldMesh.h": {
-    "status": "ported"
-  },
-  "VertexAttribute.h": {
-    "status": "ported"
-  },
-  "VertexCollapseMesh.h": {
-    "status": "pending"
-  },
-  "VETManifoldMesh.h": {
-    "status": "pending"
-  },
-  "VETNonmanifoldMesh.h": {
-    "status": "pending"
-  },
-  "VTSManifoldMesh.h": {
-    "status": "pending"
-  },
-  "WeakPtrCompare.h": {
-    "status": "omitted",
-    "notes": "C++ smart-pointer comparator, not applicable in TS"
-  }
+ "AABBBVTreeOfTriangles.h": {
+  "status": "pending"
+ },
+ "ACosEstimate.h": {
+  "status": "ported"
+ },
+ "AdaptiveSkeletonClimbing2.h": {
+  "status": "ported"
+ },
+ "AdaptiveSkeletonClimbing3.h": {
+  "status": "pending"
+ },
+ "AlignedBox.h": {
+  "status": "ported"
+ },
+ "AlignedBoxBV.h": {
+  "status": "pending"
+ },
+ "AlignedBoxTreeOfPoints.h": {
+  "status": "pending"
+ },
+ "AlignedBoxTreeOfSegments.h": {
+  "status": "pending"
+ },
+ "AlignedBoxTreeOfTriangles.h": {
+  "status": "pending"
+ },
+ "APConversion.h": {
+  "status": "pending"
+ },
+ "APInterval.h": {
+  "status": "pending"
+ },
+ "ApprCircle2.h": {
+  "status": "ported"
+ },
+ "ApprCone3.h": {
+  "status": "pending"
+ },
+ "ApprCone3EllipseAndPoints.h": {
+  "status": "pending"
+ },
+ "ApprCurveByArcs.h": {
+  "status": "ported"
+ },
+ "ApprCylinder3.h": {
+  "status": "pending"
+ },
+ "ApprEllipse2.h": {
+  "status": "pending"
+ },
+ "ApprEllipseByArcs.h": {
+  "status": "pending"
+ },
+ "ApprEllipsoid3.h": {
+  "status": "pending"
+ },
+ "ApprGaussian2.h": {
+  "status": "ported"
+ },
+ "ApprGaussian3.h": {
+  "status": "ported"
+ },
+ "ApprGreatCircle3.h": {
+  "status": "pending"
+ },
+ "ApprHeightLine2.h": {
+  "status": "ported"
+ },
+ "ApprHeightPlane3.h": {
+  "status": "ported"
+ },
+ "ApprOrthogonalLine2.h": {
+  "status": "ported"
+ },
+ "ApprOrthogonalLine3.h": {
+  "status": "ported"
+ },
+ "ApprOrthogonalPlane3.h": {
+  "status": "ported"
+ },
+ "ApprParabola2.h": {
+  "status": "pending"
+ },
+ "ApprParaboloid3.h": {
+  "status": "pending"
+ },
+ "ApprParallelLines2.h": {
+  "status": "ported"
+ },
+ "ApprPolynomial2.h": {
+  "status": "ported"
+ },
+ "ApprPolynomial3.h": {
+  "status": "ported"
+ },
+ "ApprPolynomial4.h": {
+  "status": "ported"
+ },
+ "ApprPolynomialSpecial2.h": {
+  "status": "ported"
+ },
+ "ApprPolynomialSpecial3.h": {
+  "status": "ported"
+ },
+ "ApprPolynomialSpecial4.h": {
+  "status": "ported"
+ },
+ "ApprQuadratic2.h": {
+  "status": "ported"
+ },
+ "ApprQuadratic3.h": {
+  "status": "ported"
+ },
+ "ApprQuery.h": {
+  "status": "ported"
+ },
+ "ApprSphere3.h": {
+  "status": "ported"
+ },
+ "ApprTorus3.h": {
+  "status": "pending"
+ },
+ "ArbitraryPrecision.h": {
+  "status": "pending"
+ },
+ "Arc2.h": {
+  "status": "ported"
+ },
+ "Array2.h": {
+  "status": "ported",
+  "notes": "Ported to a flat-storage class; C++ pointer indirection a[i1][i0] becomes a.get(i0,i1)/a.set(i0,i1,v); copy/move machinery not ported; storage may alias a caller-owned flat array."
+ },
+ "Array3.h": {
+  "status": "ported",
+  "notes": "Ported to a flat-storage class; C++ a[i2][i1][i0] becomes a.get(i0,i1,i2); see Array2.h notes."
+ },
+ "Array4.h": {
+  "status": "ported",
+  "notes": "Ported to a flat-storage class; C++ a[i3][i2][i1][i0] becomes a.get(i0,i1,i2,i3); see Array2.h notes."
+ },
+ "ASinEstimate.h": {
+  "status": "ported"
+ },
+ "ATanEstimate.h": {
+  "status": "ported"
+ },
+ "AtomicMinMax.h": {
+  "status": "omitted",
+  "notes": "C++ std::atomic utility, no mathematical content"
+ },
+ "AxisAngle.h": {
+  "status": "ported"
+ },
+ "BandedMatrix.h": {
+  "status": "ported"
+ },
+ "BasisFunction.h": {
+  "status": "ported"
+ },
+ "BezierCurve.h": {
+  "status": "pending",
+  "note": "porter: ParametricCurve.getTime is numerically weak across knot discontinuities (upstream design limitation, see upstream-bug issue from B40) — decide arc-length test strategy accordingly"
+ },
+ "BitHacks.h": {
+  "status": "ported"
+ },
+ "BoxManager.h": {
+  "status": "pending"
+ },
+ "BSNumber.h": {
+  "status": "ported"
+ },
+ "BSplineCurve.h": {
+  "status": "ported",
+  "note": "porter: ParametricCurve.getTime is numerically weak across knot discontinuities (upstream design limitation, see upstream-bug issue from B40) — decide arc-length test strategy accordingly"
+ },
+ "BSplineCurveFit.h": {
+  "status": "ported"
+ },
+ "BSplineGeodesic.h": {
+  "status": "pending"
+ },
+ "BSplineReduction.h": {
+  "status": "ported"
+ },
+ "BSplineSurface.h": {
+  "status": "ported"
+ },
+ "BSplineSurfaceFit.h": {
+  "status": "ported"
+ },
+ "BSplineVolume.h": {
+  "status": "ported"
+ },
+ "BSPPolygon2.h": {
+  "status": "ported"
+ },
+ "BSPrecision.h": {
+  "status": "ported"
+ },
+ "BSRational.h": {
+  "status": "ported"
+ },
+ "BVTree.h": {
+  "status": "ported"
+ },
+ "BVTreeOfPoints.h": {
+  "status": "ported"
+ },
+ "BVTreeOfSegments.h": {
+  "status": "ported"
+ },
+ "BVTreeOfTriangles.h": {
+  "status": "ported"
+ },
+ "CanonicalBox.h": {
+  "status": "ported"
+ },
+ "Capsule.h": {
+  "status": "ported"
+ },
+ "ChebyshevRatio.h": {
+  "status": "ported"
+ },
+ "ChebyshevRatioEstimate.h": {
+  "status": "ported"
+ },
+ "CholeskyDecomposition.h": {
+  "status": "pending"
+ },
+ "Circle3.h": {
+  "status": "ported"
+ },
+ "CircleThroughPointSpecifiedTangentAndRadius.h": {
+  "status": "ported"
+ },
+ "CircleThroughTwoPointsSpecifiedRadius.h": {
+  "status": "ported"
+ },
+ "CLODPolyline.h": {
+  "status": "pending"
+ },
+ "Cone.h": {
+  "status": "pending"
+ },
+ "ConformalMapGenus0.h": {
+  "status": "pending"
+ },
+ "Constants.h": {
+  "status": "ported"
+ },
+ "ConstrainedDelaunay2.h": {
+  "status": "pending"
+ },
+ "ContAlignedBox.h": {
+  "status": "ported"
+ },
+ "ContAlignedBox2Arc2.h": {
+  "status": "pending"
+ },
+ "ContCapsule3.h": {
+  "status": "pending"
+ },
+ "ContCircle2.h": {
+  "status": "ported"
+ },
+ "ContCone.h": {
+  "status": "pending"
+ },
+ "ContCylinder3.h": {
+  "status": "pending"
+ },
+ "ContEllipse2.h": {
+  "status": "pending"
+ },
+ "ContEllipse2MinCR.h": {
+  "status": "pending"
+ },
+ "ContEllipsoid3.h": {
+  "status": "pending"
+ },
+ "ContEllipsoid3MinCR.h": {
+  "status": "pending"
+ },
+ "ContLozenge3.h": {
+  "status": "pending"
+ },
+ "ContOrientedBox2.h": {
+  "status": "pending"
+ },
+ "ContOrientedBox3.h": {
+  "status": "pending"
+ },
+ "ContPointInPolygon2.h": {
+  "status": "ported"
+ },
+ "ContPointInPolyhedron3.h": {
+  "status": "pending"
+ },
+ "ContScribeCircle2.h": {
+  "status": "pending"
+ },
+ "ContScribeCircle3Sphere3.h": {
+  "status": "pending"
+ },
+ "ContSphere3.h": {
+  "status": "ported"
+ },
+ "ContTetrahedron3.h": {
+  "status": "pending"
+ },
+ "ConvertCoordinates.h": {
+  "status": "ported"
+ },
+ "ConvexHull2.h": {
+  "status": "pending"
+ },
+ "ConvexHull3.h": {
+  "status": "pending"
+ },
+ "ConvexHullSimplePolygon.h": {
+  "status": "ported"
+ },
+ "ConvexMesh3.h": {
+  "status": "ported"
+ },
+ "ConvexPolyhedron3.h": {
+  "status": "pending"
+ },
+ "CosEstimate.h": {
+  "status": "ported"
+ },
+ "CubicRootsQR.h": {
+  "status": "ported"
+ },
+ "CurvatureFlow2.h": {
+  "status": "ported"
+ },
+ "CurvatureFlow3.h": {
+  "status": "ported"
+ },
+ "CurveExtractor.h": {
+  "status": "ported"
+ },
+ "CurveExtractorSquares.h": {
+  "status": "ported"
+ },
+ "CurveExtractorTriangles.h": {
+  "status": "ported"
+ },
+ "Cylinder3.h": {
+  "status": "ported"
+ },
+ "DarbouxFrame.h": {
+  "status": "pending"
+ },
+ "DCPQuery.h": {
+  "status": "ported",
+  "notes": "Empty primary template ported as interface DCPQuery<Type0,Type1,Result> with compute(); Real template parameter dropped (always number); each Dist* file exports a concrete implementing class named after its file."
+ },
+ "Delaunay2.h": {
+  "status": "pending"
+ },
+ "Delaunay2Mesh.h": {
+  "status": "pending"
+ },
+ "Delaunay3.h": {
+  "status": "pending"
+ },
+ "Delaunay3Mesh.h": {
+  "status": "pending"
+ },
+ "DisjointIntervals.h": {
+  "status": "ported"
+ },
+ "DisjointRectangles.h": {
+  "status": "ported"
+ },
+ "DistAlignedBox3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "DistAlignedBoxAlignedBox.h": {
+  "status": "ported"
+ },
+ "DistCircle2Circle2.h": {
+  "status": "ported"
+ },
+ "DistCircle3Circle3.h": {
+  "status": "pending"
+ },
+ "DistLine2AlignedBox2.h": {
+  "status": "ported"
+ },
+ "DistLine2Arc2.h": {
+  "status": "pending"
+ },
+ "DistLine2Circle2.h": {
+  "status": "ported"
+ },
+ "DistLine2OrientedBox2.h": {
+  "status": "pending"
+ },
+ "DistLine2Triangle2.h": {
+  "status": "ported"
+ },
+ "DistLine3AlignedBox3.h": {
+  "status": "pending"
+ },
+ "DistLine3CanonicalBox3.h": {
+  "status": "ported"
+ },
+ "DistLine3Circle3.h": {
+  "status": "pending"
+ },
+ "DistLine3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "DistLine3Rectangle3.h": {
+  "status": "pending"
+ },
+ "DistLine3Triangle3.h": {
+  "status": "pending"
+ },
+ "DistLineLine.h": {
+  "status": "ported"
+ },
+ "DistLineRay.h": {
+  "status": "ported"
+ },
+ "DistLineSegment.h": {
+  "status": "ported"
+ },
+ "DistOrientedBox3Cone3.h": {
+  "status": "pending"
+ },
+ "DistOrientedBox3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "DistPlane3AlignedBox3.h": {
+  "status": "pending"
+ },
+ "DistPlane3CanonicalBox3.h": {
+  "status": "pending"
+ },
+ "DistPlane3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "DistPoint2Arc2.h": {
+  "status": "pending"
+ },
+ "DistPoint2Circle2.h": {
+  "status": "ported"
+ },
+ "DistPoint2Parallelogram2.h": {
+  "status": "pending"
+ },
+ "DistPoint3Circle3.h": {
+  "status": "pending"
+ },
+ "DistPoint3ConvexPolyhedron3.h": {
+  "status": "pending"
+ },
+ "DistPoint3Cylinder3.h": {
+  "status": "pending"
+ },
+ "DistPoint3Frustum3.h": {
+  "status": "pending"
+ },
+ "DistPoint3Parallelepiped3.h": {
+  "status": "pending"
+ },
+ "DistPoint3Tetrahedron3.h": {
+  "status": "pending"
+ },
+ "DistPointAlignedBox.h": {
+  "status": "pending"
+ },
+ "DistPointCanonicalBox.h": {
+  "status": "ported"
+ },
+ "DistPointHyperellipsoid.h": {
+  "status": "pending"
+ },
+ "DistPointHyperplane.h": {
+  "status": "pending"
+ },
+ "DistPointLine.h": {
+  "status": "ported"
+ },
+ "DistPointOrientedBox.h": {
+  "status": "pending"
+ },
+ "DistPointRay.h": {
+  "status": "ported"
+ },
+ "DistPointRectangle.h": {
+  "status": "ported"
+ },
+ "DistPointSegment.h": {
+  "status": "ported"
+ },
+ "DistPointTriangle.h": {
+  "status": "ported"
+ },
+ "DistRay2AlignedBox2.h": {
+  "status": "pending"
+ },
+ "DistRay2Arc2.h": {
+  "status": "pending"
+ },
+ "DistRay2Circle2.h": {
+  "status": "pending"
+ },
+ "DistRay2OrientedBox2.h": {
+  "status": "pending"
+ },
+ "DistRay2Triangle2.h": {
+  "status": "pending"
+ },
+ "DistRay3AlignedBox3.h": {
+  "status": "pending"
+ },
+ "DistRay3CanonicalBox3.h": {
+  "status": "pending"
+ },
+ "DistRay3Circle3.h": {
+  "status": "pending"
+ },
+ "DistRay3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "DistRay3Rectangle3.h": {
+  "status": "pending"
+ },
+ "DistRay3Triangle3.h": {
+  "status": "pending"
+ },
+ "DistRayRay.h": {
+  "status": "ported"
+ },
+ "DistRaySegment.h": {
+  "status": "ported"
+ },
+ "DistRectangle3AlignedBox3.h": {
+  "status": "pending"
+ },
+ "DistRectangle3CanonicalBox3.h": {
+  "status": "pending"
+ },
+ "DistRectangle3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "DistRectangle3Rectangle3.h": {
+  "status": "pending"
+ },
+ "DistSegment2AlignedBox2.h": {
+  "status": "pending"
+ },
+ "DistSegment2Arc2.h": {
+  "status": "pending"
+ },
+ "DistSegment2Circle2.h": {
+  "status": "pending"
+ },
+ "DistSegment2OrientedBox2.h": {
+  "status": "pending"
+ },
+ "DistSegment2Triangle2.h": {
+  "status": "pending"
+ },
+ "DistSegment3AlignedBox3.h": {
+  "status": "pending"
+ },
+ "DistSegment3CanonicalBox3.h": {
+  "status": "pending"
+ },
+ "DistSegment3Circle3.h": {
+  "status": "pending"
+ },
+ "DistSegment3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "DistSegment3Rectangle3.h": {
+  "status": "pending"
+ },
+ "DistSegment3Triangle3.h": {
+  "status": "pending"
+ },
+ "DistSegmentSegment.h": {
+  "status": "ported"
+ },
+ "DistTetrahedron3Tetrahedron3.h": {
+  "status": "pending"
+ },
+ "DistTriangle3AlignedBox3.h": {
+  "status": "pending"
+ },
+ "DistTriangle3CanonicalBox3.h": {
+  "status": "pending"
+ },
+ "DistTriangle3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "DistTriangle3Rectangle3.h": {
+  "status": "pending"
+ },
+ "DistTriangle3Triangle3.h": {
+  "status": "pending"
+ },
+ "EdgeKey.h": {
+  "status": "ported"
+ },
+ "Ellipse3.h": {
+  "status": "ported"
+ },
+ "EllipsoidGeodesic.h": {
+  "status": "pending"
+ },
+ "ETManifoldMesh.h": {
+  "status": "pending"
+ },
+ "ETNonmanifoldMesh.h": {
+  "status": "pending"
+ },
+ "EulerAngles.h": {
+  "status": "ported"
+ },
+ "Exp2Estimate.h": {
+  "status": "ported"
+ },
+ "ExpEstimate.h": {
+  "status": "ported"
+ },
+ "ExtremalQuery3.h": {
+  "status": "pending"
+ },
+ "ExtremalQuery3BSP.h": {
+  "status": "pending"
+ },
+ "ExtremalQuery3PRJ.h": {
+  "status": "pending"
+ },
+ "FastGaussianBlur1.h": {
+  "status": "ported"
+ },
+ "FastGaussianBlur2.h": {
+  "status": "ported"
+ },
+ "FastGaussianBlur3.h": {
+  "status": "ported"
+ },
+ "FastMarch.h": {
+  "status": "ported"
+ },
+ "FastMarch2.h": {
+  "status": "ported"
+ },
+ "FastMarch3.h": {
+  "status": "ported"
+ },
+ "FeatureKey.h": {
+  "status": "ported"
+ },
+ "FIQuery.h": {
+  "status": "ported",
+  "notes": "Empty primary template ported as interface FIQuery<Type0,Type1,Result> with find(); concrete Intr* classes use an FI suffix (e.g. IntrRay3Sphere3FI) since TI and FI specializations share one upstream file."
+ },
+ "FPInterval.h": {
+  "status": "ported"
+ },
+ "FrenetFrame.h": {
+  "status": "pending"
+ },
+ "Frustum3.h": {
+  "status": "ported"
+ },
+ "Functions.h": {
+  "status": "ported"
+ },
+ "GaussianBlur2.h": {
+  "status": "ported"
+ },
+ "GaussianBlur3.h": {
+  "status": "ported"
+ },
+ "GaussianElimination.h": {
+  "status": "ported"
+ },
+ "GaussNewtonMinimizer.h": {
+  "status": "pending"
+ },
+ "GenerateMeshUV.h": {
+  "status": "pending"
+ },
+ "GMatrix.h": {
+  "status": "ported"
+ },
+ "GradientAnisotropic2.h": {
+  "status": "ported"
+ },
+ "GradientAnisotropic3.h": {
+  "status": "ported"
+ },
+ "GVector.h": {
+  "status": "ported"
+ },
+ "Halfspace.h": {
+  "status": "ported"
+ },
+ "HashCombine.h": {
+  "status": "ported",
+  "notes": "Restricted to number values; 32-bit unsigned seeds (C++ size_t hashes are implementation-defined); returns the new seed instead of mutating an out-parameter; std::hash<double> replaced by folding the IEEE binary64 bits."
+ },
+ "HelmertTransformation7.h": {
+  "status": "pending"
+ },
+ "HermiteBicubic.h": {
+  "status": "ported"
+ },
+ "HermiteBiquintic.h": {
+  "status": "ported"
+ },
+ "HermiteCubic.h": {
+  "status": "ported"
+ },
+ "HermiteQuintic.h": {
+  "status": "ported"
+ },
+ "HermiteTricubic.h": {
+  "status": "ported"
+ },
+ "HermiteTriquintic.h": {
+  "status": "ported"
+ },
+ "Histogram.h": {
+  "status": "ported"
+ },
+ "Hyperellipsoid.h": {
+  "status": "pending"
+ },
+ "Hyperplane.h": {
+  "status": "pending"
+ },
+ "Hypersphere.h": {
+  "status": "ported"
+ },
+ "IEEEBinary.h": {
+  "status": "ported",
+  "notes": "Template collapsed to concrete IEEEBinary32 (uint32 encoding as number) and IEEEBinary64 (bigint encoding); union ported as encoding field + number accessor; ambiguous C++ constructor overloads replaced by fromEncoding/fromNumber/fromParts factories; nested Classification enum exported as IEEEClassification."
+ },
+ "IEEEBinary16.h": {
+  "status": "ported"
+ },
+ "Image.h": {
+  "status": "ported"
+ },
+ "Image2.h": {
+  "status": "ported"
+ },
+ "Image3.h": {
+  "status": "ported"
+ },
+ "ImageUtility2.h": {
+  "status": "ported"
+ },
+ "ImageUtility3.h": {
+  "status": "ported"
+ },
+ "ImplicitCurve2.h": {
+  "status": "pending"
+ },
+ "ImplicitSurface3.h": {
+  "status": "pending"
+ },
+ "IncrementalDelaunay2.h": {
+  "status": "pending"
+ },
+ "IndexAttribute.h": {
+  "status": "ported"
+ },
+ "InscribedFixedAspectRectInQuad.h": {
+  "status": "ported"
+ },
+ "Integration.h": {
+  "status": "ported"
+ },
+ "IntpAkima1.h": {
+  "status": "ported"
+ },
+ "IntpAkimaNonuniform1.h": {
+  "status": "ported"
+ },
+ "IntpAkimaUniform1.h": {
+  "status": "ported"
+ },
+ "IntpAkimaUniform2.h": {
+  "status": "ported"
+ },
+ "IntpAkimaUniform3.h": {
+  "status": "ported"
+ },
+ "IntpBicubic2.h": {
+  "status": "ported"
+ },
+ "IntpBilinear2.h": {
+  "status": "ported"
+ },
+ "IntpBSplineUniform.h": {
+  "status": "ported"
+ },
+ "IntpLinearNonuniform2.h": {
+  "status": "ported"
+ },
+ "IntpLinearNonuniform3.h": {
+  "status": "ported"
+ },
+ "IntpQuadraticNonuniform2.h": {
+  "status": "pending"
+ },
+ "IntpSphere2.h": {
+  "status": "pending"
+ },
+ "IntpThinPlateSpline2.h": {
+  "status": "pending"
+ },
+ "IntpThinPlateSpline3.h": {
+  "status": "pending"
+ },
+ "IntpTricubic3.h": {
+  "status": "ported"
+ },
+ "IntpTrilinear3.h": {
+  "status": "ported"
+ },
+ "IntpVectorField2.h": {
+  "status": "pending"
+ },
+ "IntrAlignedBox2AlignedBox2.h": {
+  "status": "ported"
+ },
+ "IntrAlignedBox2Circle2.h": {
+  "status": "pending"
+ },
+ "IntrAlignedBox2OrientedBox2.h": {
+  "status": "ported"
+ },
+ "IntrAlignedBox3AlignedBox3.h": {
+  "status": "ported"
+ },
+ "IntrAlignedBox3Cone3.h": {
+  "status": "pending"
+ },
+ "IntrAlignedBox3Cylinder3.h": {
+  "status": "pending"
+ },
+ "IntrAlignedBox3OrientedBox3.h": {
+  "status": "ported"
+ },
+ "IntrAlignedBox3Sphere3.h": {
+  "status": "pending"
+ },
+ "IntrArc2Arc2.h": {
+  "status": "pending"
+ },
+ "IntrAreaEllipse2Ellipse2.h": {
+  "status": "pending"
+ },
+ "IntrCanonicalBox3Cylinder3.h": {
+  "status": "pending"
+ },
+ "IntrCapsule3Capsule3.h": {
+  "status": "pending"
+ },
+ "IntrCircle2Arc2.h": {
+  "status": "pending"
+ },
+ "IntrCircle2Circle2.h": {
+  "status": "ported"
+ },
+ "IntrConvexMesh3Plane3.h": {
+  "status": "pending"
+ },
+ "IntrConvexPolygonHyperplane.h": {
+  "status": "pending"
+ },
+ "IntrCylinder3Cylinder3.h": {
+  "status": "pending"
+ },
+ "IntrDisk2Sector2.h": {
+  "status": "pending"
+ },
+ "IntrEllipse2Ellipse2.h": {
+  "status": "pending"
+ },
+ "IntrEllipsoid3Ellipsoid3.h": {
+  "status": "pending"
+ },
+ "IntrHalfspace2Polygon2.h": {
+  "status": "ported"
+ },
+ "IntrHalfspace3Capsule3.h": {
+  "status": "pending"
+ },
+ "IntrHalfspace3Cylinder3.h": {
+  "status": "pending"
+ },
+ "IntrHalfspace3Ellipsoid3.h": {
+  "status": "pending"
+ },
+ "IntrHalfspace3OrientedBox3.h": {
+  "status": "ported"
+ },
+ "IntrHalfspace3Segment3.h": {
+  "status": "ported"
+ },
+ "IntrHalfspace3Sphere3.h": {
+  "status": "ported"
+ },
+ "IntrHalfspace3Triangle3.h": {
+  "status": "ported"
+ },
+ "IntrIntervals.h": {
+  "status": "ported"
+ },
+ "IntrLine2AlignedBox2.h": {
+  "status": "ported"
+ },
+ "IntrLine2Arc2.h": {
+  "status": "pending"
+ },
+ "IntrLine2Circle2.h": {
+  "status": "pending"
+ },
+ "IntrLine2Line2.h": {
+  "status": "ported"
+ },
+ "IntrLine2OrientedBox2.h": {
+  "status": "pending"
+ },
+ "IntrLine2Ray2.h": {
+  "status": "pending"
+ },
+ "IntrLine2Segment2.h": {
+  "status": "pending"
+ },
+ "IntrLine2SegmentMesh2.h": {
+  "status": "pending"
+ },
+ "IntrLine2Triangle2.h": {
+  "status": "ported"
+ },
+ "IntrLine3AlignedBox3.h": {
+  "status": "ported"
+ },
+ "IntrLine3Capsule3.h": {
+  "status": "pending"
+ },
+ "IntrLine3Cone3.h": {
+  "status": "pending"
+ },
+ "IntrLine3Cylinder3.h": {
+  "status": "pending"
+ },
+ "IntrLine3Ellipsoid3.h": {
+  "status": "pending"
+ },
+ "IntrLine3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "IntrLine3Plane3.h": {
+  "status": "pending"
+ },
+ "IntrLine3Rectangle3.h": {
+  "status": "ported"
+ },
+ "IntrLine3Sphere3.h": {
+  "status": "ported"
+ },
+ "IntrLine3Torus3.h": {
+  "status": "pending"
+ },
+ "IntrLine3Triangle3.h": {
+  "status": "ported"
+ },
+ "IntrOrientedBox2Circle2.h": {
+  "status": "pending"
+ },
+ "IntrOrientedBox2Cone2.h": {
+  "status": "pending"
+ },
+ "IntrOrientedBox2OrientedBox2.h": {
+  "status": "ported"
+ },
+ "IntrOrientedBox2Sector2.h": {
+  "status": "pending"
+ },
+ "IntrOrientedBox3Cone3.h": {
+  "status": "pending"
+ },
+ "IntrOrientedBox3Cylinder3.h": {
+  "status": "pending"
+ },
+ "IntrOrientedBox3Frustum3.h": {
+  "status": "pending"
+ },
+ "IntrOrientedBox3OrientedBox3.h": {
+  "status": "ported"
+ },
+ "IntrOrientedBox3Sphere3.h": {
+  "status": "pending"
+ },
+ "IntrPlane3Capsule3.h": {
+  "status": "pending"
+ },
+ "IntrPlane3Circle3.h": {
+  "status": "pending"
+ },
+ "IntrPlane3Cylinder3.h": {
+  "status": "pending"
+ },
+ "IntrPlane3Ellipsoid3.h": {
+  "status": "pending"
+ },
+ "IntrPlane3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "IntrPlane3Plane3.h": {
+  "status": "pending"
+ },
+ "IntrPlane3Sphere3.h": {
+  "status": "pending"
+ },
+ "IntrPlane3Triangle3.h": {
+  "status": "pending"
+ },
+ "IntrRay2AlignedBox2.h": {
+  "status": "pending"
+ },
+ "IntrRay2Arc2.h": {
+  "status": "pending"
+ },
+ "IntrRay2Circle2.h": {
+  "status": "pending"
+ },
+ "IntrRay2OrientedBox2.h": {
+  "status": "pending"
+ },
+ "IntrRay2Ray2.h": {
+  "status": "pending"
+ },
+ "IntrRay2Segment2.h": {
+  "status": "pending"
+ },
+ "IntrRay2SegmentMesh2.h": {
+  "status": "pending"
+ },
+ "IntrRay2Triangle2.h": {
+  "status": "pending"
+ },
+ "IntrRay3AlignedBox3.h": {
+  "status": "pending"
+ },
+ "IntrRay3Capsule3.h": {
+  "status": "pending"
+ },
+ "IntrRay3Cone3.h": {
+  "status": "pending"
+ },
+ "IntrRay3Cylinder3.h": {
+  "status": "pending"
+ },
+ "IntrRay3Ellipsoid3.h": {
+  "status": "pending"
+ },
+ "IntrRay3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "IntrRay3Plane3.h": {
+  "status": "pending"
+ },
+ "IntrRay3Rectangle3.h": {
+  "status": "pending"
+ },
+ "IntrRay3Sphere3.h": {
+  "status": "pending"
+ },
+ "IntrRay3Triangle3.h": {
+  "status": "ported"
+ },
+ "IntrSegment2AlignedBox2.h": {
+  "status": "pending"
+ },
+ "IntrSegment2Arc2.h": {
+  "status": "pending"
+ },
+ "IntrSegment2Circle2.h": {
+  "status": "pending"
+ },
+ "IntrSegment2OrientedBox2.h": {
+  "status": "pending"
+ },
+ "IntrSegment2Segment2.h": {
+  "status": "pending"
+ },
+ "IntrSegment2SegmentMesh2.h": {
+  "status": "pending"
+ },
+ "IntrSegment2Triangle2.h": {
+  "status": "pending"
+ },
+ "IntrSegment3AlignedBox3.h": {
+  "status": "pending"
+ },
+ "IntrSegment3Capsule3.h": {
+  "status": "pending"
+ },
+ "IntrSegment3Cone3.h": {
+  "status": "pending"
+ },
+ "IntrSegment3Cylinder3.h": {
+  "status": "pending"
+ },
+ "IntrSegment3Ellipsoid3.h": {
+  "status": "pending"
+ },
+ "IntrSegment3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "IntrSegment3Plane3.h": {
+  "status": "pending"
+ },
+ "IntrSegment3Rectangle3.h": {
+  "status": "pending"
+ },
+ "IntrSegment3Sphere3.h": {
+  "status": "pending"
+ },
+ "IntrSegment3Triangle3.h": {
+  "status": "ported"
+ },
+ "IntrSphere3Cone3.h": {
+  "status": "pending"
+ },
+ "IntrSphere3Frustum3.h": {
+  "status": "pending"
+ },
+ "IntrSphere3Sphere3.h": {
+  "status": "pending"
+ },
+ "IntrSphere3Triangle3.h": {
+  "status": "pending"
+ },
+ "IntrTetrahedron3Tetrahedron3.h": {
+  "status": "pending"
+ },
+ "IntrTriangle2Triangle2.h": {
+  "status": "pending"
+ },
+ "IntrTriangle3AlignedBox3.h": {
+  "status": "pending"
+ },
+ "IntrTriangle3CanonicalBox3.h": {
+  "status": "pending"
+ },
+ "IntrTriangle3Cylinder3.h": {
+  "status": "pending"
+ },
+ "IntrTriangle3OrientedBox3.h": {
+  "status": "pending"
+ },
+ "IntrTriangle3Triangle3.h": {
+  "status": "pending"
+ },
+ "InvSqrtEstimate.h": {
+  "status": "ported"
+ },
+ "IsPlanarGraph.h": {
+  "status": "ported"
+ },
+ "LCPSolver.h": {
+  "status": "ported"
+ },
+ "LDLTDecomposition.h": {
+  "status": "pending"
+ },
+ "LevenbergMarquardtMinimizer.h": {
+  "status": "pending"
+ },
+ "LexicoArray2.h": {
+  "status": "ported",
+  "notes": "Four template specializations collapsed to one class with a runtime rowMajor flag and runtime dimensions; operator() ported as get/set."
+ },
+ "LieGroupsAlgebras.h": {
+  "status": "pending"
+ },
+ "Line.h": {
+  "status": "ported"
+ },
+ "LinearSystem.h": {
+  "status": "pending"
+ },
+ "Log2Estimate.h": {
+  "status": "ported"
+ },
+ "LogEstimate.h": {
+  "status": "ported"
+ },
+ "Logger.h": {
+  "status": "ported",
+  "notes": "Macros ported as logAssert/logError throwing Error with the caller message; the C++ file(function,line) prefix is omitted because JS Error stack traces carry source locations."
+ },
+ "Lozenge3.h": {
+  "status": "ported"
+ },
+ "MarchingCubes.h": {
+  "status": "ported"
+ },
+ "MassSpringArbitrary.h": {
+  "status": "ported"
+ },
+ "MassSpringCurve.h": {
+  "status": "ported"
+ },
+ "MassSpringSurface.h": {
+  "status": "ported"
+ },
+ "MassSpringVolume.h": {
+  "status": "ported"
+ },
+ "Matrix.h": {
+  "status": "ported"
+ },
+ "Matrix2x2.h": {
+  "status": "ported"
+ },
+ "Matrix3x3.h": {
+  "status": "ported"
+ },
+ "Matrix4x4.h": {
+  "status": "ported"
+ },
+ "Mesh.h": {
+  "status": "pending"
+ },
+ "MeshCurvature.h": {
+  "status": "pending"
+ },
+ "MeshSmoother.h": {
+  "status": "ported"
+ },
+ "MeshStaticManifold2.h": {
+  "status": "ported"
+ },
+ "MeshStaticManifold3.h": {
+  "status": "ported"
+ },
+ "MinHeap.h": {
+  "status": "ported",
+  "notes": "Faithful port including update/remove-by-record; out-parameters replaced by {key,value}|null returns and insert returning the record or null; ValueType defaults to number with an optional lessThan comparator (a<=b derived as !(b<a)); record key/value are undefined until first insert (upstream leaves them uninitialized)."
+ },
+ "MinimalCycleBasis.h": {
+  "status": "pending"
+ },
+ "Minimize1.h": {
+  "status": "ported"
+ },
+ "MinimizeN.h": {
+  "status": "ported"
+ },
+ "MinimumAreaBox2.h": {
+  "status": "pending"
+ },
+ "MinimumAreaCircle2.h": {
+  "status": "pending"
+ },
+ "MinimumSpanningTree.h": {
+  "status": "ported"
+ },
+ "MinimumVolumeBox3.h": {
+  "status": "ported"
+ },
+ "MinimumVolumeBox3FloatingPoint.h": {
+  "status": "pending"
+ },
+ "MinimumVolumeBox3Rational.h": {
+  "status": "pending"
+ },
+ "MinimumVolumeSphere3.h": {
+  "status": "pending"
+ },
+ "MinimumWidthPoints2.h": {
+  "status": "pending"
+ },
+ "NaturalCubicSpline.h": {
+  "status": "pending"
+ },
+ "NaturalQuinticSpline.h": {
+  "status": "pending"
+ },
+ "NaturalSplineCurve.h": {
+  "status": "pending"
+ },
+ "NearestNeighborQuery.h": {
+  "status": "ported"
+ },
+ "NURBSCircle.h": {
+  "status": "pending"
+ },
+ "NURBSCurve.h": {
+  "status": "pending",
+  "note": "porter: ParametricCurve.getTime is numerically weak across knot discontinuities (upstream design limitation, see upstream-bug issue from B40) — decide arc-length test strategy accordingly"
+ },
+ "NURBSSphere.h": {
+  "status": "pending"
+ },
+ "NURBSSurface.h": {
+  "status": "ported"
+ },
+ "NURBSVolume.h": {
+  "status": "ported"
+ },
+ "OBBTree.h": {
+  "status": "ported"
+ },
+ "OBBTreeOfPoints.h": {
+  "status": "ported"
+ },
+ "OBBTreeOfSegments.h": {
+  "status": "ported"
+ },
+ "OBBTreeOfTriangles.h": {
+  "status": "pending",
+  "note": "porter: check ComputeInteriorBox pmin/pmax zero-init suspect flagged during B36 — see upstream-bug issue"
+ },
+ "OdeEuler.h": {
+  "status": "ported"
+ },
+ "OdeImplicitEuler.h": {
+  "status": "ported"
+ },
+ "OdeMidpoint.h": {
+  "status": "ported"
+ },
+ "OdeRungeKutta4.h": {
+  "status": "ported"
+ },
+ "OdeSolver.h": {
+  "status": "ported"
+ },
+ "OrientedBox.h": {
+  "status": "ported"
+ },
+ "OrientedBoxBV.h": {
+  "status": "pending"
+ },
+ "OrientedBoxTreeOfPoints.h": {
+  "status": "pending"
+ },
+ "OrientedBoxTreeOfSegments.h": {
+  "status": "pending"
+ },
+ "OrientedBoxTreeOfTriangles.h": {
+  "status": "pending"
+ },
+ "Parallelepiped3.h": {
+  "status": "ported"
+ },
+ "Parallelogram2.h": {
+  "status": "ported"
+ },
+ "ParametricCurve.h": {
+  "status": "ported"
+ },
+ "ParametricSurface.h": {
+  "status": "ported"
+ },
+ "ParticleSystem.h": {
+  "status": "ported"
+ },
+ "PdeFilter.h": {
+  "status": "ported"
+ },
+ "PdeFilter1.h": {
+  "status": "ported"
+ },
+ "PdeFilter2.h": {
+  "status": "ported"
+ },
+ "PdeFilter3.h": {
+  "status": "ported"
+ },
+ "PlanarMesh.h": {
+  "status": "pending"
+ },
+ "Polygon2.h": {
+  "status": "pending"
+ },
+ "PolygonTree.h": {
+  "status": "ported"
+ },
+ "PolygonWindingOrder.h": {
+  "status": "ported"
+ },
+ "PolyhedralMassProperties.h": {
+  "status": "pending"
+ },
+ "Polyhedron3.h": {
+  "status": "ported"
+ },
+ "PolylineOffset.h": {
+  "status": "ported"
+ },
+ "Polynomial1.h": {
+  "status": "ported"
+ },
+ "PolynomialCurve.h": {
+  "status": "pending"
+ },
+ "PolynomialRoot.h": {
+  "status": "pending"
+ },
+ "PrimalQuery2.h": {
+  "status": "ported"
+ },
+ "PrimalQuery3.h": {
+  "status": "ported"
+ },
+ "Projection.h": {
+  "status": "pending"
+ },
+ "QFNumber.h": {
+  "status": "ported"
+ },
+ "QuadricSurface.h": {
+  "status": "pending"
+ },
+ "QuarticRootsQR.h": {
+  "status": "ported"
+ },
+ "Quaternion.h": {
+  "status": "ported"
+ },
+ "RangeIteration.h": {
+  "status": "omitted",
+  "notes": "C++ reverse-iterator adapter, not applicable in TS"
+ },
+ "Ray.h": {
+  "status": "ported"
+ },
+ "Rectangle.h": {
+  "status": "ported"
+ },
+ "RectangleManager.h": {
+  "status": "pending"
+ },
+ "RectangleMesh.h": {
+  "status": "pending"
+ },
+ "RectanglePatchMesh.h": {
+  "status": "pending"
+ },
+ "RemezAlgorithm.h": {
+  "status": "ported"
+ },
+ "ReparameterizeByArclength.h": {
+  "status": "pending"
+ },
+ "RevolutionMesh.h": {
+  "status": "pending"
+ },
+ "RiemannianGeodesic.h": {
+  "status": "pending"
+ },
+ "RigidBody.h": {
+  "status": "pending"
+ },
+ "RootsBisection.h": {
+  "status": "ported"
+ },
+ "RootsBisection1.h": {
+  "status": "ported",
+  "note": "floating-point instantiation only; arbitrary-precision path deferred until BSNumber exists"
+ },
+ "RootsBisection2.h": {
+  "status": "ported",
+  "note": "floating-point instantiation only; arbitrary-precision path deferred until BSNumber-based numeric support"
+ },
+ "RootsBrentsMethod.h": {
+  "status": "ported"
+ },
+ "RootsCubic.h": {
+  "status": "pending"
+ },
+ "RootsGeneralPolynomial.h": {
+  "status": "pending"
+ },
+ "RootsLinear.h": {
+  "status": "pending"
+ },
+ "RootsPolynomial.h": {
+  "status": "ported"
+ },
+ "RootsQuadratic.h": {
+  "status": "pending"
+ },
+ "RootsQuartic.h": {
+  "status": "pending"
+ },
+ "RotatingCalipers.h": {
+  "status": "pending"
+ },
+ "Rotation.h": {
+  "status": "pending"
+ },
+ "RotationEstimate.h": {
+  "status": "pending"
+ },
+ "SampleCircularArc.h": {
+  "status": "pending"
+ },
+ "Sector2.h": {
+  "status": "ported"
+ },
+ "Segment.h": {
+  "status": "ported"
+ },
+ "SegmentMesh.h": {
+  "status": "ported"
+ },
+ "SeparatePoints2.h": {
+  "status": "pending"
+ },
+ "SeparatePoints3.h": {
+  "status": "pending"
+ },
+ "SharedPtrCompare.h": {
+  "status": "omitted",
+  "notes": "C++ smart-pointer comparator, not applicable in TS"
+ },
+ "SinEstimate.h": {
+  "status": "ported"
+ },
+ "SingularValueDecomposition.h": {
+  "status": "ported"
+ },
+ "Slerp.h": {
+  "status": "ported"
+ },
+ "SlerpEstimate.h": {
+  "status": "ported"
+ },
+ "SortPointsOnCircle.h": {
+  "status": "ported"
+ },
+ "SplitMeshByPlane.h": {
+  "status": "pending"
+ },
+ "SqrtEstimate.h": {
+  "status": "ported"
+ },
+ "StaticVETManifoldMesh2.h": {
+  "status": "ported"
+ },
+ "StaticVTSManifoldMesh3.h": {
+  "status": "ported"
+ },
+ "STLBinaryFile.h": {
+  "status": "ported"
+ },
+ "StringUtility.h": {
+  "status": "omitted",
+  "notes": "C++ narrow/wide string conversions, not applicable in TS"
+ },
+ "SurfaceExtractor.h": {
+  "status": "ported"
+ },
+ "SurfaceExtractorCubes.h": {
+  "status": "ported"
+ },
+ "SurfaceExtractorMC.h": {
+  "status": "ported"
+ },
+ "SurfaceExtractorTetrahedra.h": {
+  "status": "ported"
+ },
+ "SWInterval.h": {
+  "status": "ported"
+ },
+ "SymmetricEigensolver.h": {
+  "status": "ported"
+ },
+ "SymmetricEigensolver2x2.h": {
+  "status": "ported"
+ },
+ "SymmetricEigensolver3x3.h": {
+  "status": "ported"
+ },
+ "TanEstimate.h": {
+  "status": "ported"
+ },
+ "TCBSplineCurve.h": {
+  "status": "pending"
+ },
+ "TetrahedraRasterizer.h": {
+  "status": "ported"
+ },
+ "Tetrahedron3.h": {
+  "status": "pending"
+ },
+ "TetrahedronKey.h": {
+  "status": "ported"
+ },
+ "ThreadSafeMap.h": {
+  "status": "omitted",
+  "notes": "C++ thread/mutex wrapper, no mathematical content"
+ },
+ "ThreadSafeQueue.h": {
+  "status": "omitted",
+  "notes": "C++ thread/mutex wrapper, no mathematical content"
+ },
+ "Timer.h": {
+  "status": "omitted",
+  "notes": "C++ chrono wrapper; use performance.now() directly in TS"
+ },
+ "TIQuery.h": {
+  "status": "ported",
+  "notes": "Empty primary template ported as interface TIQuery<Type0,Type1,Result> with test(); concrete Intr* classes use a TI suffix (e.g. IntrRay3Sphere3TI)."
+ },
+ "Torus3.h": {
+  "status": "ported"
+ },
+ "Transform.h": {
+  "status": "pending"
+ },
+ "Triangle.h": {
+  "status": "ported"
+ },
+ "TriangleKey.h": {
+  "status": "ported"
+ },
+ "TriangulateCDT.h": {
+  "status": "pending"
+ },
+ "TriangulateEC.h": {
+  "status": "pending"
+ },
+ "TSManifoldMesh.h": {
+  "status": "pending"
+ },
+ "TubeMesh.h": {
+  "status": "pending"
+ },
+ "TypeTraits.h": {
+  "status": "ported",
+  "notes": "Compile-time traits ported as runtime predicates isArbitraryPrecision(x)/hasDivisionOperator(x) plus the ArbitraryPrecisionNumber marker interface that BSNumber/BSRational/QFNumber will implement; SFINAE helper aliases (TraitSelector, IsFPType, IsAPType, IsDivisionType, IsNotDivisionType) omitted as compile-time-only machinery."
+ },
+ "UIntegerALU32.h": {
+  "status": "omitted",
+  "note": "C++ 32-bit UInteger storage backend; superseded by bigint-backed BSNumber precedent (B34, PR #94) — no consumers in the TS port"
+ },
+ "UIntegerAP32.h": {
+  "status": "omitted",
+  "note": "C++ 32-bit UInteger storage backend; superseded by bigint-backed BSNumber precedent (B34, PR #94) — no consumers in the TS port"
+ },
+ "UIntegerFP32.h": {
+  "status": "omitted",
+  "note": "C++ 32-bit UInteger storage backend; superseded by bigint-backed BSNumber precedent (B34, PR #94) — no consumers in the TS port"
+ },
+ "UniqueVerticesSimplices.h": {
+  "status": "ported"
+ },
+ "UniqueVerticesTriangles.h": {
+  "status": "ported"
+ },
+ "UnsymmetricEigenvalues.h": {
+  "status": "ported"
+ },
+ "Vector.h": {
+  "status": "ported",
+  "notes": "Template Vector<N,Real> ported as runtime-dimension class over number[]; operators ported as module functions (negate/add/sub/mul/div, componentwise compMul/compDiv); normalize/orthonormalize mutate in place and return length as upstream; Vector(int d) unit constructor is Vector.unit(size,d); default constructor zero-fills instead of leaving the tuple uninitialized; unary operator+ not ported; out-parameter ComputeExtremes returns {vmin,vmax}|null."
+ },
+ "Vector2.h": {
+  "status": "ported"
+ },
+ "Vector3.h": {
+  "status": "ported"
+ },
+ "Vector4.h": {
+  "status": "ported"
+ },
+ "VEManifoldMesh.h": {
+  "status": "ported"
+ },
+ "VertexAttribute.h": {
+  "status": "ported"
+ },
+ "VertexCollapseMesh.h": {
+  "status": "pending"
+ },
+ "VETManifoldMesh.h": {
+  "status": "pending"
+ },
+ "VETNonmanifoldMesh.h": {
+  "status": "pending"
+ },
+ "VTSManifoldMesh.h": {
+  "status": "pending"
+ },
+ "WeakPtrCompare.h": {
+  "status": "omitted",
+  "notes": "C++ smart-pointer comparator, not applicable in TS"
+ }
 }
