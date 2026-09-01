@@ -1,6 +1,6 @@
 {
  "AABBBVTreeOfTriangles.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ACosEstimate.h": {
   "status": "ported"
@@ -123,7 +123,7 @@
   "status": "pending"
  },
  "ArbitraryPrecision.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "Arc2.h": {
   "status": "ported"
@@ -640,7 +640,7 @@
   "status": "pending"
  },
  "ExtremalQuery3PRJ.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "FastGaussianBlur1.h": {
   "status": "ported"

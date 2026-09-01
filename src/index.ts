@@ -5,6 +5,7 @@
 // https://www.boost.org/LICENSE_1_0.txt
 // GENERATED FILE - run 'npm run gen:index' to regenerate. Do not edit by hand.
 
+export * from './AABBBVTreeOfTriangles';
 export * from './ACosEstimate';
 export * from './AdaptiveSkeletonClimbing2';
 export * from './AdaptiveSkeletonClimbing3';
@@ -32,6 +33,7 @@ export * from './ApprQuadratic2';
 export * from './ApprQuadratic3';
 export * from './ApprQuery';
 export * from './ApprSphere3';
+export * from './ArbitraryPrecision';
 export * from './Arc2';
 export * from './Array2';
 export * from './Array3';
@@ -140,6 +142,7 @@ export * from './EulerAngles';
 export * from './Exp2Estimate';
 export * from './ExpEstimate';
 export * from './ExtremalQuery3';
+export * from './ExtremalQuery3PRJ';
 export * from './FastGaussianBlur1';
 export * from './FastGaussianBlur2';
 export * from './FastGaussianBlur3';
