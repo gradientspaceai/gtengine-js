@@ -738,10 +738,10 @@
   "status": "ported"
  },
  "Hyperellipsoid.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "Hyperplane.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "Hypersphere.h": {
   "status": "ported"
@@ -1453,7 +1453,7 @@
   "status": "ported"
  },
  "RectangleManager.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "RectangleMesh.h": {
   "status": "pending"
