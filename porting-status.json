@@ -973,16 +973,16 @@
     "status": "pending"
   },
   "IntrLine3Rectangle3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntrLine3Sphere3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntrLine3Torus3.h": {
     "status": "pending"
   },
   "IntrLine3Triangle3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntrOrientedBox2Circle2.h": {
     "status": "pending"
@@ -991,7 +991,7 @@
     "status": "pending"
   },
   "IntrOrientedBox2OrientedBox2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntrOrientedBox2Sector2.h": {
     "status": "pending"
@@ -1006,7 +1006,7 @@
     "status": "pending"
   },
   "IntrOrientedBox3OrientedBox3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntrOrientedBox3Sphere3.h": {
     "status": "pending"
@@ -1087,7 +1087,7 @@
     "status": "pending"
   },
   "IntrRay3Triangle3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntrSegment2AlignedBox2.h": {
     "status": "pending"
@@ -1138,7 +1138,7 @@
     "status": "pending"
   },
   "IntrSegment3Triangle3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntrSphere3Cone3.h": {
     "status": "pending"
