@@ -73,6 +73,8 @@ export * from './ContAlignedBox2Arc2';
 export * from './ContCapsule3';
 export * from './ContCircle2';
 export * from './ContCylinder3';
+export * from './ContEllipse2MinCR';
+export * from './ContEllipsoid3MinCR';
 export * from './ContLozenge3';
 export * from './ContOrientedBox2';
 export * from './ContPointInPolygon2';

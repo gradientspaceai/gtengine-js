@@ -276,13 +276,13 @@
   "status": "pending"
  },
  "ContEllipse2MinCR.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ContEllipsoid3.h": {
   "status": "pending"
  },
  "ContEllipsoid3MinCR.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ContLozenge3.h": {
   "status": "ported"
