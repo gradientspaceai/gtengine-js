@@ -838,16 +838,16 @@
     "status": "pending"
   },
   "IntrAlignedBox2AlignedBox2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntrAlignedBox2Circle2.h": {
     "status": "pending"
   },
   "IntrAlignedBox2OrientedBox2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntrAlignedBox3AlignedBox3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntrAlignedBox3Cone3.h": {
     "status": "pending"
@@ -856,7 +856,7 @@
     "status": "pending"
   },
   "IntrAlignedBox3OrientedBox3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntrAlignedBox3Sphere3.h": {
     "status": "pending"
@@ -877,7 +877,7 @@
     "status": "pending"
   },
   "IntrCircle2Circle2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntrConvexMesh3Plane3.h": {
     "status": "pending"
@@ -898,7 +898,7 @@
     "status": "pending"
   },
   "IntrHalfspace2Polygon2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntrHalfspace3Capsule3.h": {
     "status": "pending"
@@ -910,22 +910,22 @@
     "status": "pending"
   },
   "IntrHalfspace3OrientedBox3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntrHalfspace3Segment3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntrHalfspace3Sphere3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntrHalfspace3Triangle3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntrIntervals.h": {
     "status": "ported"
   },
   "IntrLine2AlignedBox2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntrLine2Arc2.h": {
     "status": "pending"
@@ -934,7 +934,7 @@
     "status": "pending"
   },
   "IntrLine2Line2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntrLine2OrientedBox2.h": {
     "status": "pending"
@@ -949,10 +949,10 @@
     "status": "pending"
   },
   "IntrLine2Triangle2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntrLine3AlignedBox3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "IntrLine3Capsule3.h": {
     "status": "pending"
