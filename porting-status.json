@@ -823,10 +823,10 @@
   "status": "pending"
  },
  "IntpThinPlateSpline2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntpThinPlateSpline3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntpTricubic3.h": {
   "status": "ported"

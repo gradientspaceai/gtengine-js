@@ -181,6 +181,8 @@ export * from './IntpBilinear2';
 export * from './IntpBSplineUniform';
 export * from './IntpLinearNonuniform2';
 export * from './IntpLinearNonuniform3';
+export * from './IntpThinPlateSpline2';
+export * from './IntpThinPlateSpline3';
 export * from './IntpTricubic3';
 export * from './IntpTrilinear3';
 export * from './IntrAlignedBox2AlignedBox2';
