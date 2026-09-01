@@ -1576,13 +1576,13 @@
     "status": "ported"
   },
   "SurfaceExtractorCubes.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "SurfaceExtractorMC.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "SurfaceExtractorTetrahedra.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "SWInterval.h": {
     "status": "ported"
