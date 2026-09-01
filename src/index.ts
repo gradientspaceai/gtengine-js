@@ -7,6 +7,7 @@
 
 export * from './ACosEstimate';
 export * from './AdaptiveSkeletonClimbing2';
+export * from './AdaptiveSkeletonClimbing3';
 export * from './AlignedBox';
 export * from './ApprCircle2';
 export * from './ApprCurveByArcs';
