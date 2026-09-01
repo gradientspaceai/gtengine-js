@@ -1224,7 +1224,7 @@
     "status": "ported"
   },
   "MassSpringSurface.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "MassSpringVolume.h": {
     "status": "ported"
@@ -1316,10 +1316,10 @@
     "status": "pending"
   },
   "NURBSSurface.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "NURBSVolume.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "OBBTree.h": {
     "status": "ported"
