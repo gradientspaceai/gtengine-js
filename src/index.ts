@@ -106,6 +106,7 @@ export * from './DistRaySegment';
 export * from './DistSegmentSegment';
 export * from './EdgeKey';
 export * from './Ellipse3';
+export * from './ETNonmanifoldMesh';
 export * from './EulerAngles';
 export * from './Exp2Estimate';
 export * from './ExpEstimate';
