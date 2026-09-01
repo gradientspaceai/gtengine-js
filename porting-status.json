@@ -1218,7 +1218,7 @@
     "status": "ported"
   },
   "MassSpringArbitrary.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "MassSpringCurve.h": {
     "status": "ported"
@@ -1227,7 +1227,7 @@
     "status": "pending"
   },
   "MassSpringVolume.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "Matrix.h": {
     "status": "ported"
