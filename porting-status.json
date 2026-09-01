@@ -772,7 +772,7 @@
   "status": "ported"
  },
  "ImplicitSurface3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IncrementalDelaunay2.h": {
   "status": "pending"
@@ -1245,7 +1245,7 @@
   "status": "ported"
  },
  "MeshCurvature.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "MeshSmoother.h": {
   "status": "ported"
@@ -1468,7 +1468,7 @@
   "status": "ported"
  },
  "RevolutionMesh.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "RiemannianGeodesic.h": {
   "status": "pending"
@@ -1650,7 +1650,7 @@
   "status": "ported"
  },
  "TubeMesh.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "TypeTraits.h": {
   "status": "ported",
@@ -1703,7 +1703,7 @@
   "status": "pending"
  },
  "VETNonmanifoldMesh.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "VTSManifoldMesh.h": {
   "status": "pending"
