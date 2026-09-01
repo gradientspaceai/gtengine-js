@@ -42,7 +42,7 @@
     "status": "pending"
   },
   "ApprCurveByArcs.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ApprCylinder3.h": {
     "status": "pending"
@@ -90,28 +90,28 @@
     "status": "ported"
   },
   "ApprPolynomial2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ApprPolynomial3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ApprPolynomial4.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ApprPolynomialSpecial2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ApprPolynomialSpecial3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ApprPolynomialSpecial4.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ApprQuadratic2.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ApprQuadratic3.h": {
-    "status": "pending"
+    "status": "ported"
   },
   "ApprQuery.h": {
     "status": "ported"
