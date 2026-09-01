@@ -122,6 +122,8 @@ export * from './DistRay3CanonicalBox3';
 export * from './DistRayRay';
 export * from './DistRaySegment';
 export * from './DistSegment2Circle2';
+export * from './DistSegment2Triangle2';
+export * from './DistSegment3CanonicalBox3';
 export * from './DistSegmentSegment';
 export * from './EdgeKey';
 export * from './Ellipse3';

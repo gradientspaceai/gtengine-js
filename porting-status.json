@@ -568,13 +568,13 @@
   "status": "pending"
  },
  "DistSegment2Triangle2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistSegment3AlignedBox3.h": {
   "status": "pending"
  },
  "DistSegment3CanonicalBox3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistSegment3Circle3.h": {
   "status": "pending"
