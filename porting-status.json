@@ -228,7 +228,7 @@
   "status": "ported"
  },
  "CholeskyDecomposition.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "Circle3.h": {
   "status": "ported"
@@ -1183,7 +1183,7 @@
   "status": "ported"
  },
  "LDLTDecomposition.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "LevenbergMarquardtMinimizer.h": {
   "status": "pending"
