@@ -619,7 +619,7 @@
   "status": "pending"
  },
  "ETManifoldMesh.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ETNonmanifoldMesh.h": {
   "status": "ported"
@@ -1647,7 +1647,7 @@
   "status": "ported"
  },
  "TSManifoldMesh.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "TubeMesh.h": {
   "status": "pending"
