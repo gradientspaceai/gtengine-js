@@ -1270,7 +1270,7 @@
   "status": "ported"
  },
  "MinimumAreaBox2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "MinimumAreaCircle2.h": {
   "status": "ported"
@@ -1291,7 +1291,7 @@
   "status": "ported"
  },
  "MinimumWidthPoints2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "NaturalCubicSpline.h": {
   "status": "ported"
@@ -1530,7 +1530,7 @@
   "status": "ported"
  },
  "SeparatePoints2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "SeparatePoints3.h": {
   "status": "pending"
