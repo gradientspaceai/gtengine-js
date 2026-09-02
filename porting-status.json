@@ -27,10 +27,10 @@
   "status": "pending"
  },
  "APConversion.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "APInterval.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ApprCircle2.h": {
   "status": "ported"
