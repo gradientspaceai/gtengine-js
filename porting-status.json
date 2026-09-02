@@ -267,19 +267,19 @@
   "status": "ported"
  },
  "ContCone.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ContCylinder3.h": {
   "status": "ported"
  },
  "ContEllipse2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ContEllipse2MinCR.h": {
   "status": "ported"
  },
  "ContEllipsoid3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ContEllipsoid3MinCR.h": {
   "status": "ported"
@@ -291,7 +291,7 @@
   "status": "ported"
  },
  "ContOrientedBox3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ContPointInPolygon2.h": {
   "status": "ported"
@@ -300,16 +300,16 @@
   "status": "pending"
  },
  "ContScribeCircle2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ContScribeCircle3Sphere3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ContSphere3.h": {
   "status": "ported"
  },
  "ContTetrahedron3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ConvertCoordinates.h": {
   "status": "ported"
