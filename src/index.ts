@@ -105,6 +105,7 @@ export * from './Cylinder3';
 export * from './DarbouxFrame';
 export * from './DCPQuery';
 export * from './Delaunay2';
+export * from './Delaunay3';
 export * from './DisjointIntervals';
 export * from './DisjointRectangles';
 export * from './DistAlignedBoxAlignedBox';
