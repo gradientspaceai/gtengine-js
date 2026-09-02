@@ -353,6 +353,7 @@ export * from './NURBSVolume';
 export * from './OBBTree';
 export * from './OBBTreeOfPoints';
 export * from './OBBTreeOfSegments';
+export * from './OBBTreeOfTriangles';
 export * from './OdeEuler';
 export * from './OdeImplicitEuler';
 export * from './OdeMidpoint';

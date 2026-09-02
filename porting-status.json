@@ -1331,7 +1331,7 @@
   "status": "ported"
  },
  "OBBTreeOfTriangles.h": {
-  "status": "pending",
+  "status": "ported",
   "note": "porter: check ComputeInteriorBox pmin/pmax zero-init suspect flagged during B36 — see upstream-bug issue"
  },
  "OdeEuler.h": {

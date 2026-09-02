@@ -153,9 +153,9 @@ function makeBox(): {
     return { vertices: vertices, triangles: triangles };
 }
 
-// A brute-force replacement for execute() that visits every triangle. The
-// insertion semantics match the upstream std::set<Intersection>, whose
-// ordering compares parameters only.
+// A brute-force replacement for execute() that visits every triangle and
+// keeps every hit, ordered by (parameter, triangleIndex) -- the port's
+// corrected container semantics (upstream #167 is fixed in the port).
 function bruteForce(queryType: number, P: Vector, Q: Vector,
     vertices: Vector[], triangles: [number, number, number][]):
     BVTreeOfTrianglesIntersection[] {
@@ -168,14 +168,12 @@ function bruteForce(queryType: number, P: Vector, Q: Vector,
             vertices[tri[2]]);
         const output = query(P, Q, triangle);
         if (output.intersect) {
-            if (intersections.some((item) => item.parameter === output.parameter)) {
-                continue;
-            }
             intersections.push(new BVTreeOfTrianglesIntersection(t, output.point,
                 output.parameter));
         }
     }
-    intersections.sort((a, b) => a.parameter - b.parameter);
+    intersections.sort((a, b) => a.parameter - b.parameter ||
+        a.triangleIndex - b.triangleIndex);
     return intersections;
 }
 
@@ -316,11 +314,12 @@ describe('BVTreeOfTriangles', () => {
         }
     });
 
-    it('is sorted by parameter and drops equal-parameter intersections', () => {
+    it('is sorted by (parameter, triangleIndex) and keeps equal-parameter intersections', () => {
         // Upstream stores the intersections in a std::set ordered by the
-        // parameter alone, so two triangles hit at the same parameter produce
-        // a single entry. The ray hits the shared diagonal of the two z = 0
-        // triangles.
+        // parameter alone, so two triangles hit at the same parameter keep
+        // only a single entry (upstream #167). The port fixes this: ties are
+        // broken by triangleIndex and every hit is kept. The ray runs along
+        // the shared diagonals of both the z = 0 and z = 5 faces.
         const tree = new AABBTreeOfTriangles();
         const { vertices, triangles } = makeBox();
         tree.createFromTriangles(vertices, triangles);
@@ -329,17 +328,21 @@ describe('BVTreeOfTriangles', () => {
         const Q = Vector.fromArray([0, 0, 1]);
         const result = tree.execute(BVTree.RAY_QUERY, P, Q);
 
-        // Triangles 0 and 1 are both hit at parameter 1, but only one entry
-        // survives; the z = 5 face contributes the second entry.
-        expect(result.intersections.length).toBe(2);
+        // Triangles 0 and 1 are both hit at parameter 1 and triangles 2 and
+        // 3 at parameter 6; all four hits are kept, ties ordered by
+        // triangleIndex.
+        expect(result.intersections.length).toBe(4);
+        expect(result.intersections.map((x) => x.triangleIndex))
+            .toEqual([0, 1, 2, 3]);
         expect(result.intersections[0].parameter).toBeCloseTo(1, 12);
-        expect(result.intersections[1].parameter).toBeCloseTo(6, 12);
-        expect([0, 1]).toContain(result.intersections[0].triangleIndex);
+        expect(result.intersections[1].parameter).toBeCloseTo(1, 12);
+        expect(result.intersections[2].parameter).toBeCloseTo(6, 12);
+        expect(result.intersections[3].parameter).toBeCloseTo(6, 12);
 
-        // The parameters are strictly increasing.
+        // The parameters are non-decreasing.
         for (let i = 1; i < result.intersections.length; ++i) {
             expect(result.intersections[i - 1].parameter)
-                .toBeLessThan(result.intersections[i].parameter);
+                .toBeLessThanOrEqual(result.intersections[i].parameter);
         }
     });
 
