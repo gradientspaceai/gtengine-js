@@ -637,7 +637,7 @@
   "status": "ported"
  },
  "ExtremalQuery3BSP.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ExtremalQuery3PRJ.h": {
   "status": "ported"
@@ -775,7 +775,7 @@
   "status": "ported"
  },
  "IncrementalDelaunay2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IndexAttribute.h": {
   "status": "ported"
