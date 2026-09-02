@@ -1273,7 +1273,7 @@
   "status": "pending"
  },
  "MinimumAreaCircle2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "MinimumSpanningTree.h": {
   "status": "ported"
@@ -1288,7 +1288,7 @@
   "status": "pending"
  },
  "MinimumVolumeSphere3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "MinimumWidthPoints2.h": {
   "status": "pending"
@@ -1509,7 +1509,7 @@
   "status": "pending"
  },
  "RotatingCalipers.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "Rotation.h": {
   "status": "ported"
