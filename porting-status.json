@@ -18,13 +18,13 @@
   "status": "ported"
  },
  "AlignedBoxTreeOfPoints.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "AlignedBoxTreeOfSegments.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "AlignedBoxTreeOfTriangles.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "APConversion.h": {
   "status": "ported"
@@ -246,7 +246,7 @@
   "status": "ported"
  },
  "ConformalMapGenus0.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "Constants.h": {
   "status": "ported"
@@ -1353,7 +1353,7 @@
   "status": "ported"
  },
  "OrientedBoxBV.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "OrientedBoxTreeOfPoints.h": {
   "status": "pending"
@@ -1419,7 +1419,7 @@
   "status": "ported"
  },
  "PolynomialRoot.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "PrimalQuery2.h": {
   "status": "ported"
@@ -1434,7 +1434,7 @@
   "status": "ported"
  },
  "QuadricSurface.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "QuarticRootsQR.h": {
   "status": "ported"
@@ -1494,7 +1494,7 @@
   "status": "pending"
  },
  "RootsGeneralPolynomial.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "RootsLinear.h": {
   "status": "pending"
