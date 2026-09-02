@@ -689,10 +689,10 @@
   "status": "ported"
  },
  "GaussNewtonMinimizer.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "GenerateMeshUV.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "GMatrix.h": {
   "status": "ported"
@@ -714,7 +714,7 @@
   "notes": "Restricted to number values; 32-bit unsigned seeds (C++ size_t hashes are implementation-defined); returns the new seed instead of mutating an out-parameter; std::hash<double> replaced by folding the IEEE binary64 bits."
  },
  "HelmertTransformation7.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "HermiteBicubic.h": {
   "status": "ported"
@@ -1186,7 +1186,7 @@
   "status": "ported"
  },
  "LevenbergMarquardtMinimizer.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "LexicoArray2.h": {
   "status": "ported",
@@ -1199,7 +1199,7 @@
   "status": "ported"
  },
  "LinearSystem.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "Log2Estimate.h": {
   "status": "ported"
@@ -1404,7 +1404,7 @@
   "status": "ported"
  },
  "PolyhedralMassProperties.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "Polyhedron3.h": {
   "status": "ported"
