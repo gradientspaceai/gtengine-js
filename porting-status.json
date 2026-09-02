@@ -36,7 +36,7 @@
   "status": "ported"
  },
  "ApprCone3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ApprCone3EllipseAndPoints.h": {
   "status": "pending"
@@ -81,10 +81,10 @@
   "status": "ported"
  },
  "ApprParabola2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ApprParaboloid3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ApprParallelLines2.h": {
   "status": "ported"
@@ -120,7 +120,7 @@
   "status": "ported"
  },
  "ApprTorus3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ArbitraryPrecision.h": {
   "status": "ported"
