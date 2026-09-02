@@ -100,11 +100,22 @@ export class RectangleMesh extends Mesh {
     }
 
     protected initializeFrame(): void {
-        const normal = unitCross(this.mRectangle.axis[0], this.mRectangle.axis[1]);
-        const tangent = Vector.fromArray([1, 0, 0]);
-        const bitangent = Vector.fromArray([0, 1, 0]);
-        // bitangent = Cross(normal,tangent)
-        // TODO (upstream): Are tangent and bitangent correct?
+        // Port fix for an upstream bug. Upstream hardcodes
+        //   tangent = (1,0,0), bitangent = (0,1,0)
+        // for every vertex, independent of the rectangle, under its own
+        // "TODO: Are tangent and bitangent correct?" and a stale comment
+        // "bitangent = Cross(normal,tangent)" that the code does not
+        // implement. For any rectangle whose axes are not the standard frame,
+        // those vectors are not in the tangent plane and are not orthogonal to
+        // the normal, so the tangent/bitangent/dpdu/dpdv channels are
+        // corrupted. The rectangle's own axes are orthonormal and span its
+        // plane, so they are the frame the stale comment intends: the tangent
+        // is axis[0], the bitangent is axis[1], and the normal is their cross
+        // product (the same value upstream already writes to the normal
+        // channel).
+        const tangent = this.mRectangle.axis[0];
+        const bitangent = this.mRectangle.axis[1];
+        const normal = unitCross(tangent, bitangent);
         for (let i = 0; i < this.mDescription.numVertices; ++i) {
             if (this.mNormals) {
                 this.setNormal(i, normal);

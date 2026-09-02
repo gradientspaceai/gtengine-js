@@ -25,6 +25,8 @@ interface Storage {
     tcoords: Float64Array | null;
     tangents: Float64Array | null;
     bitangents: Float64Array | null;
+    dpdus: Float64Array | null;
+    dpdvs: Float64Array | null;
 }
 
 function makeStorage(numRows: number, numCols: number, options: {
@@ -55,6 +57,8 @@ function makeStorage(numRows: number, numCols: number, options: {
 
     let tangents: Float64Array | null = null;
     let bitangents: Float64Array | null = null;
+    let dpdus: Float64Array | null = null;
+    let dpdvs: Float64Array | null = null;
     if (options.frame) {
         tangents = new Float64Array(3 * description.numVertices);
         description.vertexAttributes.push(
@@ -62,11 +66,21 @@ function makeStorage(numRows: number, numCols: number, options: {
         bitangents = new Float64Array(3 * description.numVertices);
         description.vertexAttributes.push(
             new VertexAttribute('bitangent', bitangents, 24));
+        dpdus = new Float64Array(3 * description.numVertices);
+        description.vertexAttributes.push(
+            new VertexAttribute('dpdu', dpdus, 24));
+        dpdvs = new Float64Array(3 * description.numVertices);
+        description.vertexAttributes.push(
+            new VertexAttribute('dpdv', dpdvs, 24));
         description.wantDynamicTangentSpaceUpdate = true;
     }
 
     return { description, indices, positions, normals, tcoords, tangents,
-        bitangents };
+        bitangents, dpdus, dpdvs };
+}
+
+function getVec(buffer: Float64Array, i: number): Vector {
+    return V(buffer[3 * i], buffer[3 * i + 1], buffer[3 * i + 2]);
 }
 
 function P(storage: Storage, i: number): Vector {
@@ -207,6 +221,8 @@ describe('RectangleMesh', () => {
         const mesh = new RectangleMesh(storage.description, rectangle);
         expect(mesh.getDescription().allowUpdateFrame).toBe(true);
 
+        // Port fix: upstream hardcodes tangent = (1,0,0) and
+        // bitangent = (0,1,0); the port uses the rectangle's own axes.
         const normal = unitCross(rectangle.axis[0], rectangle.axis[1]);
         for (let i = 0; i < mesh.getDescription().numVertices; ++i) {
             const n = N(storage, i);
@@ -215,9 +231,62 @@ describe('RectangleMesh', () => {
             }
             const t = storage.tangents as Float64Array;
             const b = storage.bitangents as Float64Array;
-            // Upstream hardcodes tangent = (1,0,0), bitangent = (0,1,0).
-            expect([t[3 * i], t[3 * i + 1], t[3 * i + 2]]).toEqual([1, 0, 0]);
-            expect([b[3 * i], b[3 * i + 1], b[3 * i + 2]]).toEqual([0, 1, 0]);
+            expect([t[3 * i], t[3 * i + 1], t[3 * i + 2]]).toEqual([0, 1, 0]);
+            expect([b[3 * i], b[3 * i + 1], b[3 * i + 2]]).toEqual([0, 0, 1]);
+        }
+    });
+
+    it('builds an orthonormal frame for a rectangle rotated out of z = 0', () => {
+        // Regression test for the upstream hardcoded tangent/bitangent. The
+        // rectangle's plane contains neither (1,0,0) nor (0,1,0), so the
+        // upstream values would produce a frame that is neither orthonormal
+        // nor tangent to the rectangle.
+        const axis0 = unit(1, 1, 1);
+        // A second axis orthogonal to axis0 and not axis aligned.
+        const axis1 = unit(1, -2, 1);
+        expect(dot(axis0, axis1)).toBeCloseTo(0, 15);
+        const rectangle = Rectangle.fromCenterAxisExtent(V(-2, 3, 5),
+            [axis0, axis1], Vector.fromArray([1.5, 0.75]));
+        const storage = makeStorage(4, 3, { frame: true });
+        const mesh = new RectangleMesh(storage.description, rectangle);
+        expect(mesh.getDescription().allowUpdateFrame).toBe(true);
+
+        const expectedNormal = unitCross(axis0, axis1);
+        const tangents = storage.tangents as Float64Array;
+        const bitangents = storage.bitangents as Float64Array;
+        const dpdus = storage.dpdus as Float64Array;
+        const dpdvs = storage.dpdvs as Float64Array;
+        for (let i = 0; i < mesh.getDescription().numVertices; ++i) {
+            const T = getVec(tangents, i);
+            const B = getVec(bitangents, i);
+            const Nv = N(storage, i);
+
+            // The frame is orthonormal and right-handed.
+            expect(length(T)).toBeCloseTo(1, 12);
+            expect(length(B)).toBeCloseTo(1, 12);
+            expect(length(Nv)).toBeCloseTo(1, 12);
+            expect(dot(T, B)).toBeCloseTo(0, 12);
+            expect(dot(T, Nv)).toBeCloseTo(0, 12);
+            expect(dot(B, Nv)).toBeCloseTo(0, 12);
+            const rightHanded = cross(T, B);
+            for (let k = 0; k < 3; ++k) {
+                expect(rightHanded.values[k]).toBeCloseTo(Nv.values[k], 12);
+            }
+
+            // The frame is the rectangle's own frame.
+            for (let k = 0; k < 3; ++k) {
+                expect(T.values[k]).toBeCloseTo(axis0.values[k], 12);
+                expect(B.values[k]).toBeCloseTo(axis1.values[k], 12);
+                expect(Nv.values[k]).toBeCloseTo(expectedNormal.values[k], 12);
+                // dpdu/dpdv carry the same tangent and bitangent.
+                expect(getVec(dpdus, i).values[k]).toBeCloseTo(axis0.values[k], 12);
+                expect(getVec(dpdvs, i).values[k]).toBeCloseTo(axis1.values[k], 12);
+            }
+
+            // The vertex lies in the rectangle's plane, so the frame is
+            // tangent to the surface it describes.
+            const delta = sub(P(storage, i), rectangle.center);
+            expect(dot(delta, Nv)).toBeCloseTo(0, 12);
         }
     });
 
