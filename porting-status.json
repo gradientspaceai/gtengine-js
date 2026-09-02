@@ -1261,7 +1261,7 @@
   "notes": "Faithful port including update/remove-by-record; out-parameters replaced by {key,value}|null returns and insert returning the record or null; ValueType defaults to number with an optional lessThan comparator (a<=b derived as !(b<a)); record key/value are undefined until first insert (upstream leaves them uninitialized)."
  },
  "MinimalCycleBasis.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "Minimize1.h": {
   "status": "ported"
@@ -1555,7 +1555,7 @@
   "status": "ported"
  },
  "SplitMeshByPlane.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "SqrtEstimate.h": {
   "status": "ported"
