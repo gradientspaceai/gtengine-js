@@ -1300,7 +1300,7 @@
   "status": "ported"
  },
  "NaturalSplineCurve.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "NearestNeighborQuery.h": {
   "status": "ported"
@@ -1471,7 +1471,7 @@
   "status": "ported"
  },
  "RiemannianGeodesic.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "RigidBody.h": {
   "status": "pending"
@@ -1697,7 +1697,7 @@
   "status": "ported"
  },
  "VertexCollapseMesh.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "VETManifoldMesh.h": {
   "status": "ported"
