@@ -416,6 +416,7 @@ export * from './TetrahedraRasterizer';
 export * from './TetrahedronKey';
 export * from './TIQuery';
 export * from './Torus3';
+export * from './Transform';
 export * from './Triangle';
 export * from './TriangleKey';
 export * from './TriangulateEC';
