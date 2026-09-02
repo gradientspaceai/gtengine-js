@@ -1193,7 +1193,7 @@
   "notes": "Four template specializations collapsed to one class with a runtime rowMajor flag and runtime dimensions; operator() ported as get/set."
  },
  "LieGroupsAlgebras.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "Line.h": {
   "status": "ported"
@@ -1474,7 +1474,7 @@
   "status": "ported"
  },
  "RigidBody.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "RootsBisection.h": {
   "status": "ported"
