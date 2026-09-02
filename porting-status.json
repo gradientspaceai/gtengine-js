@@ -315,7 +315,7 @@
   "status": "ported"
  },
  "ConvexHull2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ConvexHull3.h": {
   "status": "pending"
@@ -361,7 +361,7 @@
   "notes": "Empty primary template ported as interface DCPQuery<Type0,Type1,Result> with compute(); Real template parameter dropped (always number); each Dist* file exports a concrete implementing class named after its file."
  },
  "Delaunay2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "Delaunay2Mesh.h": {
   "status": "pending"
