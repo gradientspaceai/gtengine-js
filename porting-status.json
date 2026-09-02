@@ -252,7 +252,7 @@
   "status": "ported"
  },
  "ConstrainedDelaunay2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ContAlignedBox.h": {
   "status": "ported"
@@ -318,7 +318,7 @@
   "status": "ported"
  },
  "ConvexHull3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ConvexHullSimplePolygon.h": {
   "status": "ported"
@@ -364,13 +364,13 @@
   "status": "ported"
  },
  "Delaunay2Mesh.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "Delaunay3.h": {
   "status": "ported"
  },
  "Delaunay3Mesh.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DisjointIntervals.h": {
   "status": "ported"
