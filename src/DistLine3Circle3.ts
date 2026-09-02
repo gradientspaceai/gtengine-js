@@ -236,7 +236,7 @@ function pdfSection422(line: Line3, circle: Circle3, D: Vector, NxM: Vector,
 
     // Phi(t) = (t + a0) - a1 * t / (a2 * t^2 + a3)^{1/2}
     // G(t) = a1 * t / (a2 * t^2 + a3)^{1/2}
-    // G'(t) = a1 * a2 / (a2 * t^2 + a3)^{3/2}
+    // G'(t) = a1 * a3 / (a2 * t^2 + a3)^{3/2}  [upstream comment says a1*a2; a1*a3 is correct]
     // G"(t) = -3 * a1 * a2^2 * t / (a2 * t^2 + a3)^{5/2}
     const MdM = dot(M, M);
     const NxE = cross(N, E);
@@ -251,7 +251,7 @@ function pdfSection422(line: Line3, circle: Circle3, D: Vector, NxM: Vector,
         // causing the argument of Math.sqrt to be negative.
         const twoThirds = 2 / 3;
         const tauHat = Math.sqrt(
-            Math.abs(Math.pow(a1 * a3, twoThirds) - a3));
+            Math.abs(Math.pow(a1 * a3, twoThirds) - a3) / a2);
         const gTauHat = a1 * tauHat / Math.sqrt(a2 * tauHat * tauHat + a3);
         const intercept = gTauHat - tauHat;  // Theoretically positive.
         if (a0 <= -intercept) {

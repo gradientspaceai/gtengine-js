@@ -43,12 +43,9 @@ function verifyPair(c: Circle3, linear: Vector, circular: Vector,
 // The ray/segment queries delegate to DistLine3Circle3 for the critical
 // points of the line-circle distance. Upstream's PDFSection422 computes
 // tauHat = sqrt(|(a1*a3)^(2/3) - a3|) where the derivation requires
-// tauHat = sqrt(|(a1*a3)^(2/3) - a3| / a2), so for a small set of
-// configurations the line solver reports a single spurious critical point and
-// misses the global minimum. Those configurations are detected here (the line
-// query disagrees with a brute-force minimum over the whole line) and skipped
-// for the distance comparison, since the clamping logic under test cannot
-// recover from a wrong line solution. See the PR's upstream bug suspects.
+// tauHat = sqrt(|(a1*a3)^(2/3) - a3| / a2). The port fixes this (issue filed
+// upstream), so every trial checks the line solver against a brute-force
+// minimum over the whole line instead of skipping unreliable configurations.
 function lineSolverIsReliable(line: Line3, c: Circle3): boolean {
     const lineDistance = new DistLine3Circle3().compute(line, c).distance;
     const at = (t: number): number =>
@@ -164,7 +161,6 @@ describe('DistRay3Circle3', () => {
             return seed / 2147483648;
         };
         let compared = 0;
-        let skipped = 0;
         for (let trial = 0; trial < 60; ++trial) {
             const c = circle([2 * rand() - 1, 2 * rand() - 1, 2 * rand() - 1],
                 [2 * rand() - 1, 2 * rand() - 1, 0.2 + rand()],
@@ -181,15 +177,11 @@ describe('DistRay3Circle3', () => {
                     result.circularClosest[j], result.distance);
             }
             const line = Line.fromOriginDirection(r.origin, r.direction);
-            if (!lineSolverIsReliable(line, c)) {
-                ++skipped;
-                continue;
-            }
+            expect(lineSolverIsReliable(line, c)).toBe(true);
             const brute = bruteForce(r, c, 60);
             expect(result.distance).toBeCloseTo(brute, 6);
             ++compared;
         }
-        expect(compared).toBeGreaterThan(40);
-        expect(compared + skipped).toBeGreaterThan(50);
+        expect(compared).toBeGreaterThan(50);
     });
 });
