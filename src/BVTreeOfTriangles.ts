@@ -24,9 +24,11 @@
 //   - 'Execute' becomes 'execute' and returns { nodeIndices, intersections }
 //     rather than filling output containers. The upstream output container is
 //     std::set<Intersection>, whose ordering is by the linear-component
-//     parameter alone; the port reproduces those container semantics with a
-//     parameter-sorted array that rejects an insertion whose parameter equals
-//     that of an element already present.
+//     parameter alone, so upstream silently drops all but one of the hits
+//     that share a parameter (a line through a shared edge or vertex) -- the
+//     result-corrupting bug tracked as upstream issue #167. The port instead
+//     orders lexicographically by (parameter, triangleIndex) and keeps every
+//     hit, matching the OBBTreeOfTriangles port.
 
 import { BVTree } from './BVTree';
 import type { BVTreeBoundingVolume, BVTreeVolumeOps } from './BVTree';
@@ -107,9 +109,14 @@ export class BVTreeOfTrianglesIntersection {
         this.parameter = parameter;
     }
 
-    // The port of 'operator<', which compares only the parameters.
+    // Upstream 'operator<' compares only the parameters, which makes two
+    // hits at the same parameter set-equivalent and drops one (upstream
+    // issue #167). The port breaks ties by triangleIndex so every hit is
+    // kept.
     lessThan(other: BVTreeOfTrianglesIntersection): boolean {
-        return this.parameter < other.parameter;
+        return this.parameter < other.parameter ||
+            (this.parameter === other.parameter &&
+                this.triangleIndex < other.triangleIndex);
     }
 }
 
@@ -120,24 +127,24 @@ export interface BVTreeOfTrianglesExecuteResult {
     intersections: BVTreeOfTrianglesIntersection[];
 }
 
-// The port of std::set<Intersection>::insert, where the strict weak ordering
-// is Intersection::operator< (a comparison of parameters only). An insertion
-// is rejected when an element with an equivalent parameter is already
-// present.
+// The port of std::set<Intersection>::insert with the corrected strict weak
+// ordering (parameter, then triangleIndex) -- see the header comment and
+// upstream issue #167. Only an exact duplicate (same parameter and same
+// triangle) is rejected, which cannot occur in execute() since each triangle
+// is tested once.
 function insertIntersection(intersections: BVTreeOfTrianglesIntersection[],
     item: BVTreeOfTrianglesIntersection): void {
     let lo = 0;
     let hi = intersections.length;
     while (lo < hi) {
         const mid = lo + Math.floor((hi - lo) / 2);
-        if (intersections[mid].parameter < item.parameter) {
+        if (intersections[mid].lessThan(item)) {
             lo = mid + 1;
         } else {
             hi = mid;
         }
     }
-    if (lo < intersections.length &&
-        !(item.parameter < intersections[lo].parameter)) {
+    if (lo < intersections.length && !item.lessThan(intersections[lo])) {
         // An equivalent element is already a member of the set.
         return;
     }

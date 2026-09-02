@@ -121,9 +121,9 @@ interface Hit {
     parameter: number;
 }
 
-// The brute-force reference for execute(): test every triangle and collect the
-// hits with the same std::set-ordered-by-parameter-only container semantics
-// that the port reproduces (upstream #167). Insertion order is triangle order.
+// The brute-force reference for execute(): test every triangle and collect
+// every hit ordered by (parameter, triangleIndex) -- the port's corrected
+// container semantics (upstream #167 is fixed in the port).
 function bruteForceExecute(mesh: Mesh, queryType: number, P: Vector, Q: Vector): Hit[] {
     const query = queryFns[queryType];
     const out: Hit[] = [];
@@ -135,24 +135,12 @@ function bruteForceExecute(mesh: Mesh, queryType: number, P: Vector, Q: Vector):
         if (!result.intersect) {
             continue;
         }
-        let lo = 0;
-        let hi = out.length;
-        while (lo < hi) {
-            const mid = lo + Math.floor((hi - lo) / 2);
-            if (out[mid].parameter < result.parameter) {
-                lo = mid + 1;
-            } else {
-                hi = mid;
-            }
-        }
-        if (lo < out.length && !(result.parameter < out[lo].parameter)) {
-            // An equivalent element is already a member of the set.
-            continue;
-        }
-        out.splice(lo, 0, {
+        out.push({
             triangleIndex: t, point: result.point, parameter: result.parameter
         });
     }
+    out.sort((a, b) => a.parameter - b.parameter ||
+        a.triangleIndex - b.triangleIndex);
     return out;
 }
 
@@ -588,7 +576,7 @@ describe('AABBBVTreeOfTriangles queries', () => {
         expect(result.intersections.length).toBe(0);
     });
 
-    it('drops coincident-parameter hits (upstream #167)', () => {
+    it('keeps coincident-parameter hits (upstream #167, fixed in port)', () => {
         // The quad diagonals of makeBoxMesh(1) run from the (0,0) corner to
         // the (1,1) corner in face coordinates, so a line along +z at
         // (x, y) = (0.5, 0.5) passes through the shared diagonal of both
@@ -611,11 +599,18 @@ describe('AABBBVTreeOfTriangles queries', () => {
         expect(rawHits).toBe(4);
 
         const result = tree.execute(BVTree.LINE_QUERY, P, Q);
-        expect(result.intersections.length).toBe(2);
+        expect(result.intersections.length).toBe(4);
         const parameters = result.intersections.map(x => x.parameter);
         expect(new Set(parameters).size).toBe(2);
         expect(parameters[0]).toBeCloseTo(3, 12);
-        expect(parameters[1]).toBeCloseTo(4, 12);
+        expect(parameters[1]).toBeCloseTo(3, 12);
+        expect(parameters[2]).toBeCloseTo(4, 12);
+        expect(parameters[3]).toBeCloseTo(4, 12);
+        // All four triangles are distinct, ties ordered by triangleIndex.
+        const tris = result.intersections.map(x => x.triangleIndex);
+        expect(new Set(tris).size).toBe(4);
+        expect(tris[0]).toBeLessThan(tris[1]);
+        expect(tris[2]).toBeLessThan(tris[3]);
     });
 
     it('agrees with brute force on a tetrahedron over many random rays', () => {
