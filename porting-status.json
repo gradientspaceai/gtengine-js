@@ -850,7 +850,7 @@
   "status": "ported"
  },
  "IntrAlignedBox3Cone3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrAlignedBox3Cylinder3.h": {
   "status": "ported"
@@ -865,7 +865,7 @@
   "status": "ported"
  },
  "IntrAreaEllipse2Ellipse2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrCanonicalBox3Cylinder3.h": {
   "status": "ported"
@@ -880,7 +880,7 @@
   "status": "ported"
  },
  "IntrConvexMesh3Plane3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrConvexPolygonHyperplane.h": {
   "status": "ported"
