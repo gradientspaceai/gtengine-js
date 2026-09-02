@@ -51,10 +51,10 @@
   "status": "ported"
  },
  "ApprEllipseByArcs.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ApprEllipsoid3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ApprGaussian2.h": {
   "status": "ported"
@@ -180,7 +180,7 @@
   "status": "ported"
  },
  "BSplineGeodesic.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "BSplineReduction.h": {
   "status": "ported"
@@ -616,7 +616,7 @@
   "status": "ported"
  },
  "EllipsoidGeodesic.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ETManifoldMesh.h": {
   "status": "ported"
