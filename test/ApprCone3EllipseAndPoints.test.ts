@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
     ApprCone3EllipseAndPoints,
-    ApprCone3EllipseAndPointsControl
+    ApprCone3EllipseAndPointsControl,
+    ApprCone3ExtractEllipses
 } from '../src/ApprCone3EllipseAndPoints';
 import { Ellipse3 } from '../src/Ellipse3';
 import { GTE_C_HALF_PI } from '../src/Constants';
@@ -336,5 +337,174 @@ describe('ApprCone3EllipseAndPoints.fit', () => {
         expect(fitErrors(tight, V, D, theta).angle)
             .toBeLessThanOrEqual(fitErrors(loose, V, D, theta).angle + 1e-6);
         expect(fitErrors(tight, V, D, theta).angle).toBeLessThan(1e-4);
+    });
+});
+
+describe('ApprCone3ExtractEllipses', () => {
+    // Circular cross sections of a narrow cone, widely separated along the
+    // axis so that the OBB tree splits along the axis first and isolates each
+    // section in a flat box.
+    function circularSections(theta: number, heights: readonly number[],
+        numAngles: number): Vector[] {
+        return conePoints(v3(0, 0, 0), v3(0, 0, 1), theta, heights, numAngles);
+    }
+
+    it('extracts the circular cross sections of a cone', () => {
+        const theta = 0.4;
+        const heights = [30, 90, 150];
+        const points = circularSections(theta, heights, 32);
+
+        const extractor = new ApprCone3ExtractEllipses();
+        const ellipses = extractor.extract(points, 1e-6, 1e-3);
+
+        expect(ellipses.length).toBe(3);
+        expect(extractor.getPlanes().length).toBe(3);
+        expect(extractor.getEllipses()).toEqual(ellipses);
+        expect(extractor.getBoxes().length).toBeGreaterThan(0);
+        expect(extractor.getOBBTree().length).toBeGreaterThan(0);
+
+        // Every point is assigned to exactly one plane.
+        const indices = extractor.getIndices();
+        expect(indices.length).toBe(3);
+        const assigned = indices.flat().sort((a, b) => a - b);
+        expect(assigned).toEqual(points.map((_, i) => i));
+
+        // Each plane is z = h for one of the sample heights, with the normal
+        // along the axis up to sign.
+        const planeHeights = extractor.getPlanes().map((plane) => {
+            expect(Math.abs(Math.abs(plane.normal.get(2)) - 1))
+                .toBeLessThan(1e-9);
+            return Math.abs(plane.constant);
+        }).sort((a, b) => a - b);
+        for (let i = 0; i < 3; ++i) {
+            expect(planeHeights[i]).toBeCloseTo(heights[i], 8);
+        }
+
+        // Each ellipse is the circle of radius h*tan(theta) centered on the
+        // cone axis.
+        const byHeight = [...ellipses].sort(
+            (e0, e1) => e0.center.get(2) - e1.center.get(2));
+        for (let i = 0; i < 3; ++i) {
+            const ellipse = byHeight[i];
+            const h = heights[i];
+            expect(ellipse.center.get(0)).toBeCloseTo(0, 8);
+            expect(ellipse.center.get(1)).toBeCloseTo(0, 8);
+            expect(ellipse.center.get(2)).toBeCloseTo(h, 8);
+            expect(Math.abs(Math.abs(ellipse.normal.get(2)) - 1))
+                .toBeLessThan(1e-9);
+            expect(ellipse.extent.get(0)).toBeCloseTo(h * Math.tan(theta), 6);
+            expect(ellipse.extent.get(1)).toBeCloseTo(h * Math.tan(theta), 6);
+        }
+    });
+
+    it('feeds an extracted ellipse to ApprCone3EllipseAndPoints.fit', () => {
+        const V = v3(0, 0, 0);
+        const D = v3(0, 0, 1);
+        const theta = 0.4;
+        const points = circularSections(theta, [30, 90, 150], 32);
+
+        const extractor = new ApprCone3ExtractEllipses();
+        const ellipses = extractor.extract(points, 1e-6, 1e-3);
+        expect(ellipses.length).toBe(3);
+
+        for (const ellipse of ellipses) {
+            const cone = ApprCone3EllipseAndPoints.fit(ellipse, points);
+            const err = fitErrors(cone, V, D, theta);
+            expect(err.angle).toBeLessThan(1e-3);
+            expect(err.axis).toBeLessThan(1e-3);
+            expect(err.vertex).toBeLessThan(1e-1);
+        }
+    });
+
+    it('extracts tilted elliptical cross sections', () => {
+        // Sample the exact plane sections of a cone cut by two tilted planes.
+        const V = v3(0, 0, 0);
+        const D = v3(0, 0, 1);
+        const theta = 0.4;
+        const specs = [
+            { N: unit(0.1, 0, 1), h: 35 },
+            { N: unit(0, -0.12, 1), h: 130 }
+        ];
+        const truth = specs.map(({ N, h }) =>
+            exactSection(V, D, theta, N, dot(N, add(V, mul(h, D)))));
+
+        const points: Vector[] = [];
+        for (const ellipse of truth) {
+            for (let i = 0; i < 48; ++i) {
+                const t = (2 * Math.PI * i) / 48;
+                points.push(add(add(ellipse.center,
+                    mul(ellipse.extent.get(0) * Math.cos(t), ellipse.axis[0])),
+                    mul(ellipse.extent.get(1) * Math.sin(t), ellipse.axis[1])));
+            }
+        }
+
+        const extractor = new ApprCone3ExtractEllipses();
+        const ellipses = extractor.extract(points, 1e-6, 1e-3);
+        expect(ellipses.length).toBe(2);
+
+        const byHeight = [...ellipses].sort(
+            (e0, e1) => e0.center.get(2) - e1.center.get(2));
+        for (let i = 0; i < 2; ++i) {
+            const got = byHeight[i];
+            const want = truth[i];
+            expect(Math.hypot(...sub(got.center, want.center).values))
+                .toBeLessThan(1e-4);
+            expect(Math.abs(Math.abs(dot(got.normal, want.normal)) - 1))
+                .toBeLessThan(1e-8);
+            expect(got.extent.get(0)).toBeCloseTo(want.extent.get(0), 4);
+            expect(got.extent.get(1)).toBeCloseTo(want.extent.get(1), 4);
+            // The fitted 3D axes span the same plane and are orthonormal.
+            expect(dot(got.axis[0], got.axis[1])).toBeCloseTo(0, 8);
+            expect(dot(got.axis[0], got.normal)).toBeCloseTo(0, 8);
+        }
+    });
+
+    it('merges nearby planes as the cosAngleEpsilon grows', () => {
+        const points = circularSections(0.4, [30, 90, 150], 32);
+        const extractor = new ApprCone3ExtractEllipses();
+
+        extractor.extract(points, 1e-6, 1e-3);
+        expect(extractor.getPlanes().length).toBe(3);
+
+        // The same epsilon is compared against |constant difference|, so a
+        // large value collapses the parallel sections into one plane.
+        extractor.extract(points, 1e-6, 100);
+        expect(extractor.getPlanes().length).toBe(1);
+        expect(extractor.getIndices()[0].length).toBe(points.length);
+    });
+
+    it('produces nothing when no flat box supports a plane', () => {
+        // With fewer than three points no node satisfies
+        // maxIndex >= minIndex + 2, so no planes are located. Upstream then
+        // indexes mIndices with size_t(-1); the port returns no ellipses.
+        const extractor = new ApprCone3ExtractEllipses();
+        for (const points of [[v3(0, 0, 0)], [v3(0, 0, 0), v3(1, 2, 3)]]) {
+            const ellipses = extractor.extract(points, 1e-6, 1e-3);
+            expect(ellipses).toEqual([]);
+            expect(extractor.getPlanes()).toEqual([]);
+            expect(extractor.getIndices()).toEqual([]);
+            expect(extractor.getEllipses()).toEqual([]);
+        }
+    });
+
+    it('clears its state between extractions', () => {
+        const extractor = new ApprCone3ExtractEllipses();
+        const points = circularSections(0.4, [30, 90, 150], 32);
+        extractor.extract(points, 1e-6, 1e-3);
+        expect(extractor.getPlanes().length).toBe(3);
+
+        const second = extractor.extract(points, 1e-6, 1e-3);
+        expect(second.length).toBe(3);
+        expect(extractor.getPlanes().length).toBe(3);
+        expect(extractor.getBoxes().length).toBeGreaterThan(0);
+    });
+
+    it('clamps negative epsilons to zero', () => {
+        // Negative epsilons behave as zero: no box is deemed flat (the OBB
+        // extents of a nondegenerate node are positive), so nothing is
+        // extracted, and the call must not throw.
+        const extractor = new ApprCone3ExtractEllipses();
+        const points = circularSections(0.4, [30, 90, 150], 8);
+        expect(() => extractor.extract(points, -1, -1)).not.toThrow();
     });
 });
