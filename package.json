@@ -23,7 +23,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "prepack": "npm run build",
-    "test:fast": "vitest run --reporter=dot"
+    "test:fast": "vitest run --reporter=dot",
+    "update:verification": "node scripts/update-verification.mjs",
+    "gen:verify-groups": "node scripts/gen-verify-groups.mjs"
   },
   "keywords": [
     "geometry",

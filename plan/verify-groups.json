@@ -1,0 +1,3077 @@
+{
+ "description": "Verification wave work queue (see VERIFYING.md): every ported file grouped by category, <=5000 upstream lines and <=24 files per group. One verify-batch issue and one PR per group.",
+ "groups": [
+  {
+   "id": 1,
+   "category": "algebra",
+   "lines": 3541,
+   "files": [
+    {
+     "file": "Vector.h",
+     "lines": 612,
+     "batch": 1
+    },
+    {
+     "file": "AxisAngle.h",
+     "lines": 45,
+     "batch": 12
+    },
+    {
+     "file": "EulerAngles.h",
+     "lines": 75,
+     "batch": 12
+    },
+    {
+     "file": "GVector.h",
+     "lines": 523,
+     "batch": 12
+    },
+    {
+     "file": "Vector2.h",
+     "lines": 259,
+     "batch": 12
+    },
+    {
+     "file": "Vector3.h",
+     "lines": 392,
+     "batch": 12
+    },
+    {
+     "file": "GMatrix.h",
+     "lines": 708,
+     "batch": 32
+    },
+    {
+     "file": "Matrix.h",
+     "lines": 755,
+     "batch": 32
+    },
+    {
+     "file": "Vector4.h",
+     "lines": 172,
+     "batch": 32
+    }
+   ]
+  },
+  {
+   "id": 2,
+   "category": "algebra",
+   "lines": 4114,
+   "files": [
+    {
+     "file": "ConvertCoordinates.h",
+     "lines": 360,
+     "batch": 56
+    },
+    {
+     "file": "Matrix2x2.h",
+     "lines": 164,
+     "batch": 56
+    },
+    {
+     "file": "Matrix3x3.h",
+     "lines": 146,
+     "batch": 56
+    },
+    {
+     "file": "Matrix4x4.h",
+     "lines": 373,
+     "batch": 56
+    },
+    {
+     "file": "Quaternion.h",
+     "lines": 494,
+     "batch": 56
+    },
+    {
+     "file": "Projection.h",
+     "lines": 167,
+     "batch": 78
+    },
+    {
+     "file": "Rotation.h",
+     "lines": 847,
+     "batch": 78
+    },
+    {
+     "file": "RotationEstimate.h",
+     "lines": 717,
+     "batch": 78
+    },
+    {
+     "file": "Transform.h",
+     "lines": 846,
+     "batch": 96
+    }
+   ]
+  },
+  {
+   "id": 3,
+   "category": "approximation",
+   "lines": 4213,
+   "files": [
+    {
+     "file": "ApprQuery.h",
+     "lines": 221,
+     "batch": 2
+    },
+    {
+     "file": "ApprCircle2.h",
+     "lines": 162,
+     "batch": 33
+    },
+    {
+     "file": "ApprGaussian2.h",
+     "lines": 132,
+     "batch": 33
+    },
+    {
+     "file": "ApprGaussian3.h",
+     "lines": 143,
+     "batch": 33
+    },
+    {
+     "file": "ApprHeightLine2.h",
+     "lines": 112,
+     "batch": 33
+    },
+    {
+     "file": "ApprHeightPlane3.h",
+     "lines": 120,
+     "batch": 33
+    },
+    {
+     "file": "ApprOrthogonalLine2.h",
+     "lines": 121,
+     "batch": 33
+    },
+    {
+     "file": "ApprOrthogonalLine3.h",
+     "lines": 133,
+     "batch": 33
+    },
+    {
+     "file": "ApprOrthogonalPlane3.h",
+     "lines": 130,
+     "batch": 33
+    },
+    {
+     "file": "ApprParallelLines2.h",
+     "lines": 341,
+     "batch": 33
+    },
+    {
+     "file": "ApprSphere3.h",
+     "lines": 175,
+     "batch": 33
+    },
+    {
+     "file": "ApprCurveByArcs.h",
+     "lines": 177,
+     "batch": 57
+    },
+    {
+     "file": "ApprPolynomial2.h",
+     "lines": 187,
+     "batch": 57
+    },
+    {
+     "file": "ApprPolynomial3.h",
+     "lines": 244,
+     "batch": 57
+    },
+    {
+     "file": "ApprPolynomial4.h",
+     "lines": 289,
+     "batch": 57
+    },
+    {
+     "file": "ApprPolynomialSpecial2.h",
+     "lines": 279,
+     "batch": 57
+    },
+    {
+     "file": "ApprPolynomialSpecial3.h",
+     "lines": 326,
+     "batch": 57
+    },
+    {
+     "file": "ApprPolynomialSpecial4.h",
+     "lines": 365,
+     "batch": 57
+    },
+    {
+     "file": "ApprQuadratic2.h",
+     "lines": 236,
+     "batch": 57
+    },
+    {
+     "file": "ApprQuadratic3.h",
+     "lines": 320,
+     "batch": 57
+    }
+   ]
+  },
+  {
+   "id": 4,
+   "category": "approximation",
+   "lines": 3393,
+   "files": [
+    {
+     "file": "ApprCylinder3.h",
+     "lines": 772,
+     "batch": 79
+    },
+    {
+     "file": "ApprEllipse2.h",
+     "lines": 322,
+     "batch": 79
+    },
+    {
+     "file": "ApprGreatCircle3.h",
+     "lines": 138,
+     "batch": 79
+    },
+    {
+     "file": "ApprCone3.h",
+     "lines": 302,
+     "batch": 97
+    },
+    {
+     "file": "ApprParabola2.h",
+     "lines": 206,
+     "batch": 97
+    },
+    {
+     "file": "ApprParaboloid3.h",
+     "lines": 324,
+     "batch": 97
+    },
+    {
+     "file": "ApprTorus3.h",
+     "lines": 411,
+     "batch": 97
+    },
+    {
+     "file": "ApprEllipseByArcs.h",
+     "lines": 125,
+     "batch": 116
+    },
+    {
+     "file": "ApprEllipsoid3.h",
+     "lines": 335,
+     "batch": 116
+    },
+    {
+     "file": "ApprCone3EllipseAndPoints.h",
+     "lines": 458,
+     "batch": 126
+    }
+   ]
+  },
+  {
+   "id": 5,
+   "category": "arbitrary-precision",
+   "lines": 3565,
+   "files": [
+    {
+     "file": "BSPrecision.h",
+     "lines": 247,
+     "batch": 3
+    },
+    {
+     "file": "QFNumber.h",
+     "lines": 413,
+     "batch": 13
+    },
+    {
+     "file": "SWInterval.h",
+     "lines": 477,
+     "batch": 13
+    },
+    {
+     "file": "BSNumber.h",
+     "lines": 1530,
+     "batch": 34
+    },
+    {
+     "file": "BSplineCurveFit.h",
+     "lines": 245,
+     "batch": 34
+    },
+    {
+     "file": "BSplineSurface.h",
+     "lines": 191,
+     "batch": 34
+    },
+    {
+     "file": "BSplineSurfaceFit.h",
+     "lines": 250,
+     "batch": 34
+    },
+    {
+     "file": "BSplineVolume.h",
+     "lines": 212,
+     "batch": 34
+    }
+   ]
+  },
+  {
+   "id": 6,
+   "category": "arbitrary-precision",
+   "lines": 3507,
+   "files": [
+    {
+     "file": "BSplineCurve.h",
+     "lines": 161,
+     "batch": 58
+    },
+    {
+     "file": "BSplineReduction.h",
+     "lines": 247,
+     "batch": 58
+    },
+    {
+     "file": "BSPPolygon2.h",
+     "lines": 881,
+     "batch": 58
+    },
+    {
+     "file": "BSRational.h",
+     "lines": 1114,
+     "batch": 58
+    },
+    {
+     "file": "ArbitraryPrecision.h",
+     "lines": 18,
+     "batch": 80
+    },
+    {
+     "file": "APConversion.h",
+     "lines": 508,
+     "batch": 98
+    },
+    {
+     "file": "APInterval.h",
+     "lines": 497,
+     "batch": 98
+    },
+    {
+     "file": "BSplineGeodesic.h",
+     "lines": 81,
+     "batch": 117
+    }
+   ]
+  },
+  {
+   "id": 7,
+   "category": "bounding-trees",
+   "lines": 1813,
+   "files": [
+    {
+     "file": "BVTree.h",
+     "lines": 399,
+     "batch": 36
+    },
+    {
+     "file": "OBBTree.h",
+     "lines": 315,
+     "batch": 36
+    },
+    {
+     "file": "BVTreeOfPoints.h",
+     "lines": 81,
+     "batch": 60
+    },
+    {
+     "file": "BVTreeOfSegments.h",
+     "lines": 96,
+     "batch": 60
+    },
+    {
+     "file": "BVTreeOfTriangles.h",
+     "lines": 190,
+     "batch": 60
+    },
+    {
+     "file": "OBBTreeOfPoints.h",
+     "lines": 101,
+     "batch": 60
+    },
+    {
+     "file": "OBBTreeOfSegments.h",
+     "lines": 134,
+     "batch": 60
+    },
+    {
+     "file": "AABBBVTreeOfTriangles.h",
+     "lines": 149,
+     "batch": 81
+    },
+    {
+     "file": "OBBTreeOfTriangles.h",
+     "lines": 348,
+     "batch": 99
+    }
+   ]
+  },
+  {
+   "id": 8,
+   "category": "computational-geometry",
+   "lines": 4520,
+   "files": [
+    {
+     "file": "DisjointIntervals.h",
+     "lines": 408,
+     "batch": 4
+    },
+    {
+     "file": "MinimumVolumeBox3.h",
+     "lines": 105,
+     "batch": 4
+    },
+    {
+     "file": "SortPointsOnCircle.h",
+     "lines": 168,
+     "batch": 4
+    },
+    {
+     "file": "DisjointRectangles.h",
+     "lines": 457,
+     "batch": 14
+    },
+    {
+     "file": "NearestNeighborQuery.h",
+     "lines": 360,
+     "batch": 14
+    },
+    {
+     "file": "CircleThroughPointSpecifiedTangentAndRadius.h",
+     "lines": 159,
+     "batch": 37
+    },
+    {
+     "file": "CircleThroughTwoPointsSpecifiedRadius.h",
+     "lines": 95,
+     "batch": 37
+    },
+    {
+     "file": "ConvexHullSimplePolygon.h",
+     "lines": 158,
+     "batch": 37
+    },
+    {
+     "file": "InscribedFixedAspectRectInQuad.h",
+     "lines": 252,
+     "batch": 37
+    },
+    {
+     "file": "PrimalQuery2.h",
+     "lines": 404,
+     "batch": 37
+    },
+    {
+     "file": "PrimalQuery3.h",
+     "lines": 297,
+     "batch": 37
+    },
+    {
+     "file": "BoxManager.h",
+     "lines": 286,
+     "batch": 61
+    },
+    {
+     "file": "ConvexPolyhedron3.h",
+     "lines": 102,
+     "batch": 61
+    },
+    {
+     "file": "ExtremalQuery3.h",
+     "lines": 77,
+     "batch": 61
+    },
+    {
+     "file": "TriangulateEC.h",
+     "lines": 1124,
+     "batch": 61
+    },
+    {
+     "file": "ExtremalQuery3PRJ.h",
+     "lines": 68,
+     "batch": 82
+    }
+   ]
+  },
+  {
+   "id": 9,
+   "category": "computational-geometry",
+   "lines": 4664,
+   "files": [
+    {
+     "file": "ConvexHull2.h",
+     "lines": 568,
+     "batch": 100
+    },
+    {
+     "file": "Delaunay2.h",
+     "lines": 1852,
+     "batch": 100
+    },
+    {
+     "file": "Delaunay3.h",
+     "lines": 2244,
+     "batch": 101
+    }
+   ]
+  },
+  {
+   "id": 10,
+   "category": "computational-geometry",
+   "lines": 3784,
+   "files": [
+    {
+     "file": "ExtremalQuery3BSP.h",
+     "lines": 439,
+     "batch": 102
+    },
+    {
+     "file": "IncrementalDelaunay2.h",
+     "lines": 1897,
+     "batch": 102
+    },
+    {
+     "file": "MinimumAreaCircle2.h",
+     "lines": 463,
+     "batch": 103
+    },
+    {
+     "file": "MinimumVolumeSphere3.h",
+     "lines": 713,
+     "batch": 103
+    },
+    {
+     "file": "RotatingCalipers.h",
+     "lines": 272,
+     "batch": 103
+    }
+   ]
+  },
+  {
+   "id": 11,
+   "category": "computational-geometry",
+   "lines": 3651,
+   "files": [
+    {
+     "file": "ConstrainedDelaunay2.h",
+     "lines": 1157,
+     "batch": 118
+    },
+    {
+     "file": "ConvexHull3.h",
+     "lines": 666,
+     "batch": 118
+    },
+    {
+     "file": "Delaunay2Mesh.h",
+     "lines": 298,
+     "batch": 118
+    },
+    {
+     "file": "Delaunay3Mesh.h",
+     "lines": 283,
+     "batch": 118
+    },
+    {
+     "file": "MinimumAreaBox2.h",
+     "lines": 703,
+     "batch": 119
+    },
+    {
+     "file": "MinimumWidthPoints2.h",
+     "lines": 336,
+     "batch": 119
+    },
+    {
+     "file": "SeparatePoints2.h",
+     "lines": 208,
+     "batch": 119
+    }
+   ]
+  },
+  {
+   "id": 12,
+   "category": "computational-geometry",
+   "lines": 4849,
+   "files": [
+    {
+     "file": "MinimumVolumeBox3FloatingPoint.h",
+     "lines": 2436,
+     "batch": 127
+    },
+    {
+     "file": "MinimumVolumeBox3Rational.h",
+     "lines": 2413,
+     "batch": 128
+    }
+   ]
+  },
+  {
+   "id": 13,
+   "category": "computational-geometry",
+   "lines": 1343,
+   "files": [
+    {
+     "file": "SeparatePoints3.h",
+     "lines": 229,
+     "batch": 129
+    },
+    {
+     "file": "TriangulateCDT.h",
+     "lines": 1114,
+     "batch": 129
+    }
+   ]
+  },
+  {
+   "id": 14,
+   "category": "containment",
+   "lines": 3177,
+   "files": [
+    {
+     "file": "ContAlignedBox.h",
+     "lines": 55,
+     "batch": 38
+    },
+    {
+     "file": "ContCircle2.h",
+     "lines": 93,
+     "batch": 38
+    },
+    {
+     "file": "ContPointInPolygon2.h",
+     "lines": 206,
+     "batch": 38
+    },
+    {
+     "file": "ContSphere3.h",
+     "lines": 93,
+     "batch": 38
+    },
+    {
+     "file": "ContAlignedBox2Arc2.h",
+     "lines": 69,
+     "batch": 62
+    },
+    {
+     "file": "ContCapsule3.h",
+     "lines": 280,
+     "batch": 62
+    },
+    {
+     "file": "ContCylinder3.h",
+     "lines": 81,
+     "batch": 62
+    },
+    {
+     "file": "ContLozenge3.h",
+     "lines": 221,
+     "batch": 62
+    },
+    {
+     "file": "ContOrientedBox2.h",
+     "lines": 183,
+     "batch": 62
+    },
+    {
+     "file": "ContEllipse2MinCR.h",
+     "lines": 231,
+     "batch": 83
+    },
+    {
+     "file": "ContEllipsoid3MinCR.h",
+     "lines": 306,
+     "batch": 83
+    },
+    {
+     "file": "ContCone.h",
+     "lines": 26,
+     "batch": 104
+    },
+    {
+     "file": "ContEllipse2.h",
+     "lines": 154,
+     "batch": 104
+    },
+    {
+     "file": "ContEllipsoid3.h",
+     "lines": 169,
+     "batch": 104
+    },
+    {
+     "file": "ContOrientedBox3.h",
+     "lines": 205,
+     "batch": 104
+    },
+    {
+     "file": "ContScribeCircle2.h",
+     "lines": 65,
+     "batch": 104
+    },
+    {
+     "file": "ContScribeCircle3Sphere3.h",
+     "lines": 173,
+     "batch": 104
+    },
+    {
+     "file": "ContTetrahedron3.h",
+     "lines": 67,
+     "batch": 104
+    },
+    {
+     "file": "ContPointInPolyhedron3.h",
+     "lines": 500,
+     "batch": 130
+    }
+   ]
+  },
+  {
+   "id": 15,
+   "category": "core",
+   "lines": 3977,
+   "files": [
+    {
+     "file": "Array2.h",
+     "lines": 149,
+     "batch": 5
+    },
+    {
+     "file": "Array3.h",
+     "lines": 170,
+     "batch": 5
+    },
+    {
+     "file": "Array4.h",
+     "lines": 191,
+     "batch": 5
+    },
+    {
+     "file": "Constants.h",
+     "lines": 32,
+     "batch": 5
+    },
+    {
+     "file": "DCPQuery.h",
+     "lines": 18,
+     "batch": 5
+    },
+    {
+     "file": "FIQuery.h",
+     "lines": 18,
+     "batch": 5
+    },
+    {
+     "file": "HashCombine.h",
+     "lines": 61,
+     "batch": 5
+    },
+    {
+     "file": "IEEEBinary.h",
+     "lines": 455,
+     "batch": 5
+    },
+    {
+     "file": "LexicoArray2.h",
+     "lines": 165,
+     "batch": 5
+    },
+    {
+     "file": "Logger.h",
+     "lines": 49,
+     "batch": 5
+    },
+    {
+     "file": "MinHeap.h",
+     "lines": 424,
+     "batch": 5
+    },
+    {
+     "file": "TIQuery.h",
+     "lines": 18,
+     "batch": 5
+    },
+    {
+     "file": "TypeTraits.h",
+     "lines": 99,
+     "batch": 5
+    },
+    {
+     "file": "BitHacks.h",
+     "lines": 212,
+     "batch": 15
+    },
+    {
+     "file": "CurveExtractor.h",
+     "lines": 288,
+     "batch": 15
+    },
+    {
+     "file": "Functions.h",
+     "lines": 227,
+     "batch": 15
+    },
+    {
+     "file": "MeshStaticManifold2.h",
+     "lines": 617,
+     "batch": 15
+    },
+    {
+     "file": "MeshStaticManifold3.h",
+     "lines": 438,
+     "batch": 15
+    },
+    {
+     "file": "UniqueVerticesTriangles.h",
+     "lines": 346,
+     "batch": 15
+    }
+   ]
+  },
+  {
+   "id": 16,
+   "category": "core",
+   "lines": 4093,
+   "files": [
+    {
+     "file": "CurveExtractorSquares.h",
+     "lines": 476,
+     "batch": 39
+    },
+    {
+     "file": "CurveExtractorTriangles.h",
+     "lines": 233,
+     "batch": 39
+    },
+    {
+     "file": "IEEEBinary16.h",
+     "lines": 680,
+     "batch": 39
+    },
+    {
+     "file": "MeshSmoother.h",
+     "lines": 196,
+     "batch": 39
+    },
+    {
+     "file": "PolygonTree.h",
+     "lines": 294,
+     "batch": 39
+    },
+    {
+     "file": "PolygonWindingOrder.h",
+     "lines": 65,
+     "batch": 39
+    },
+    {
+     "file": "ETNonmanifoldMesh.h",
+     "lines": 389,
+     "batch": 63
+    },
+    {
+     "file": "ImplicitSurface3.h",
+     "lines": 145,
+     "batch": 84
+    },
+    {
+     "file": "MeshCurvature.h",
+     "lines": 293,
+     "batch": 84
+    },
+    {
+     "file": "RevolutionMesh.h",
+     "lines": 327,
+     "batch": 84
+    },
+    {
+     "file": "TubeMesh.h",
+     "lines": 239,
+     "batch": 84
+    },
+    {
+     "file": "VETNonmanifoldMesh.h",
+     "lines": 220,
+     "batch": 84
+    },
+    {
+     "file": "VertexCollapseMesh.h",
+     "lines": 536,
+     "batch": 105
+    }
+   ]
+  },
+  {
+   "id": 17,
+   "category": "curves",
+   "lines": 4640,
+   "files": [
+    {
+     "file": "BasisFunction.h",
+     "lines": 489,
+     "batch": 16
+    },
+    {
+     "file": "MassSpringCurve.h",
+     "lines": 119,
+     "batch": 40
+    },
+    {
+     "file": "ParametricCurve.h",
+     "lines": 318,
+     "batch": 40
+    },
+    {
+     "file": "PolylineOffset.h",
+     "lines": 247,
+     "batch": 40
+    },
+    {
+     "file": "BezierCurve.h",
+     "lines": 186,
+     "batch": 64
+    },
+    {
+     "file": "CLODPolyline.h",
+     "lines": 342,
+     "batch": 64
+    },
+    {
+     "file": "FrenetFrame.h",
+     "lines": 137,
+     "batch": 64
+    },
+    {
+     "file": "NURBSCurve.h",
+     "lines": 222,
+     "batch": 64
+    },
+    {
+     "file": "NURBSSphere.h",
+     "lines": 462,
+     "batch": 64
+    },
+    {
+     "file": "ReparameterizeByArclength.h",
+     "lines": 310,
+     "batch": 64
+    },
+    {
+     "file": "SampleCircularArc.h",
+     "lines": 183,
+     "batch": 64
+    },
+    {
+     "file": "TCBSplineCurve.h",
+     "lines": 311,
+     "batch": 64
+    },
+    {
+     "file": "DarbouxFrame.h",
+     "lines": 154,
+     "batch": 85
+    },
+    {
+     "file": "ImplicitCurve2.h",
+     "lines": 119,
+     "batch": 85
+    },
+    {
+     "file": "NaturalCubicSpline.h",
+     "lines": 386,
+     "batch": 85
+    },
+    {
+     "file": "NaturalQuinticSpline.h",
+     "lines": 457,
+     "batch": 85
+    },
+    {
+     "file": "NURBSCircle.h",
+     "lines": 198,
+     "batch": 85
+    }
+   ]
+  },
+  {
+   "id": 18,
+   "category": "curves",
+   "lines": 1037,
+   "files": [
+    {
+     "file": "NaturalSplineCurve.h",
+     "lines": 424,
+     "batch": 106
+    },
+    {
+     "file": "RiemannianGeodesic.h",
+     "lines": 460,
+     "batch": 106
+    },
+    {
+     "file": "EllipsoidGeodesic.h",
+     "lines": 153,
+     "batch": 120
+    }
+   ]
+  },
+  {
+   "id": 19,
+   "category": "distance",
+   "lines": 4039,
+   "files": [
+    {
+     "file": "DistAlignedBoxAlignedBox.h",
+     "lines": 95,
+     "batch": 41
+    },
+    {
+     "file": "DistCircle2Circle2.h",
+     "lines": 188,
+     "batch": 41
+    },
+    {
+     "file": "DistLine2AlignedBox2.h",
+     "lines": 256,
+     "batch": 41
+    },
+    {
+     "file": "DistLine2Circle2.h",
+     "lines": 170,
+     "batch": 41
+    },
+    {
+     "file": "DistLine2Triangle2.h",
+     "lines": 389,
+     "batch": 41
+    },
+    {
+     "file": "DistLine3CanonicalBox3.h",
+     "lines": 503,
+     "batch": 41
+    },
+    {
+     "file": "DistLineLine.h",
+     "lines": 99,
+     "batch": 41
+    },
+    {
+     "file": "DistLineRay.h",
+     "lines": 114,
+     "batch": 41
+    },
+    {
+     "file": "DistLineSegment.h",
+     "lines": 131,
+     "batch": 41
+    },
+    {
+     "file": "DistPoint2Circle2.h",
+     "lines": 76,
+     "batch": 41
+    },
+    {
+     "file": "DistPointCanonicalBox.h",
+     "lines": 86,
+     "batch": 41
+    },
+    {
+     "file": "DistPointLine.h",
+     "lines": 72,
+     "batch": 41
+    },
+    {
+     "file": "DistPointRay.h",
+     "lines": 82,
+     "batch": 41
+    },
+    {
+     "file": "DistPointRectangle.h",
+     "lines": 81,
+     "batch": 41
+    },
+    {
+     "file": "DistPointSegment.h",
+     "lines": 110,
+     "batch": 41
+    },
+    {
+     "file": "DistPointTriangle.h",
+     "lines": 499,
+     "batch": 42
+    },
+    {
+     "file": "DistRayRay.h",
+     "lines": 183,
+     "batch": 42
+    },
+    {
+     "file": "DistRaySegment.h",
+     "lines": 215,
+     "batch": 42
+    },
+    {
+     "file": "DistSegmentSegment.h",
+     "lines": 690,
+     "batch": 42
+    }
+   ]
+  },
+  {
+   "id": 20,
+   "category": "distance",
+   "lines": 2616,
+   "files": [
+    {
+     "file": "DistLine2Arc2.h",
+     "lines": 115,
+     "batch": 65
+    },
+    {
+     "file": "DistLine2OrientedBox2.h",
+     "lines": 73,
+     "batch": 65
+    },
+    {
+     "file": "DistLine3AlignedBox3.h",
+     "lines": 67,
+     "batch": 65
+    },
+    {
+     "file": "DistLine3Circle3.h",
+     "lines": 409,
+     "batch": 65
+    },
+    {
+     "file": "DistLine3OrientedBox3.h",
+     "lines": 79,
+     "batch": 65
+    },
+    {
+     "file": "DistLine3Rectangle3.h",
+     "lines": 163,
+     "batch": 65
+    },
+    {
+     "file": "DistLine3Triangle3.h",
+     "lines": 162,
+     "batch": 65
+    },
+    {
+     "file": "DistPoint2Arc2.h",
+     "lines": 101,
+     "batch": 65
+    },
+    {
+     "file": "DistPoint3Circle3.h",
+     "lines": 150,
+     "batch": 65
+    },
+    {
+     "file": "DistPoint3Cylinder3.h",
+     "lines": 141,
+     "batch": 65
+    },
+    {
+     "file": "DistPoint3Frustum3.h",
+     "lines": 442,
+     "batch": 65
+    },
+    {
+     "file": "DistPointAlignedBox.h",
+     "lines": 70,
+     "batch": 65
+    },
+    {
+     "file": "DistPointOrientedBox.h",
+     "lines": 79,
+     "batch": 65
+    },
+    {
+     "file": "DistRay2Circle2.h",
+     "lines": 124,
+     "batch": 65
+    },
+    {
+     "file": "DistRay2Triangle2.h",
+     "lines": 65,
+     "batch": 65
+    },
+    {
+     "file": "DistRay3CanonicalBox3.h",
+     "lines": 63,
+     "batch": 65
+    },
+    {
+     "file": "DistSegment2Circle2.h",
+     "lines": 151,
+     "batch": 65
+    },
+    {
+     "file": "DistSegment2Triangle2.h",
+     "lines": 82,
+     "batch": 66
+    },
+    {
+     "file": "DistSegment3CanonicalBox3.h",
+     "lines": 80,
+     "batch": 66
+    }
+   ]
+  },
+  {
+   "id": 21,
+   "category": "distance",
+   "lines": 2673,
+   "files": [
+    {
+     "file": "DistPlane3CanonicalBox3.h",
+     "lines": 261,
+     "batch": 86
+    },
+    {
+     "file": "DistPoint2Parallelogram2.h",
+     "lines": 173,
+     "batch": 86
+    },
+    {
+     "file": "DistPoint3ConvexPolyhedron3.h",
+     "lines": 205,
+     "batch": 86
+    },
+    {
+     "file": "DistPointHyperellipsoid.h",
+     "lines": 378,
+     "batch": 86
+    },
+    {
+     "file": "DistPointHyperplane.h",
+     "lines": 60,
+     "batch": 86
+    },
+    {
+     "file": "DistRay2AlignedBox2.h",
+     "lines": 63,
+     "batch": 86
+    },
+    {
+     "file": "DistRay2Arc2.h",
+     "lines": 155,
+     "batch": 86
+    },
+    {
+     "file": "DistRay2OrientedBox2.h",
+     "lines": 64,
+     "batch": 86
+    },
+    {
+     "file": "DistRay3AlignedBox3.h",
+     "lines": 62,
+     "batch": 86
+    },
+    {
+     "file": "DistRay3Circle3.h",
+     "lines": 173,
+     "batch": 86
+    },
+    {
+     "file": "DistRay3OrientedBox3.h",
+     "lines": 63,
+     "batch": 86
+    },
+    {
+     "file": "DistRay3Rectangle3.h",
+     "lines": 67,
+     "batch": 86
+    },
+    {
+     "file": "DistRay3Triangle3.h",
+     "lines": 65,
+     "batch": 86
+    },
+    {
+     "file": "DistSegment2AlignedBox2.h",
+     "lines": 80,
+     "batch": 86
+    },
+    {
+     "file": "DistSegment2Arc2.h",
+     "lines": 161,
+     "batch": 86
+    },
+    {
+     "file": "DistSegment2OrientedBox2.h",
+     "lines": 81,
+     "batch": 86
+    },
+    {
+     "file": "DistSegment3AlignedBox3.h",
+     "lines": 79,
+     "batch": 86
+    },
+    {
+     "file": "DistSegment3Circle3.h",
+     "lines": 237,
+     "batch": 86
+    },
+    {
+     "file": "DistSegment3OrientedBox3.h",
+     "lines": 80,
+     "batch": 87
+    },
+    {
+     "file": "DistSegment3Rectangle3.h",
+     "lines": 84,
+     "batch": 87
+    },
+    {
+     "file": "DistSegment3Triangle3.h",
+     "lines": 82,
+     "batch": 87
+    }
+   ]
+  },
+  {
+   "id": 22,
+   "category": "distance",
+   "lines": 2960,
+   "files": [
+    {
+     "file": "DistOrientedBox3Cone3.h",
+     "lines": 264,
+     "batch": 107
+    },
+    {
+     "file": "DistPlane3AlignedBox3.h",
+     "lines": 66,
+     "batch": 107
+    },
+    {
+     "file": "DistPlane3OrientedBox3.h",
+     "lines": 79,
+     "batch": 107
+    },
+    {
+     "file": "DistPoint3Parallelepiped3.h",
+     "lines": 608,
+     "batch": 107
+    },
+    {
+     "file": "DistPoint3Tetrahedron3.h",
+     "lines": 113,
+     "batch": 107
+    },
+    {
+     "file": "DistRectangle3CanonicalBox3.h",
+     "lines": 135,
+     "batch": 107
+    },
+    {
+     "file": "DistRectangle3Rectangle3.h",
+     "lines": 131,
+     "batch": 107
+    },
+    {
+     "file": "DistTriangle3CanonicalBox3.h",
+     "lines": 131,
+     "batch": 107
+    },
+    {
+     "file": "DistTriangle3Rectangle3.h",
+     "lines": 136,
+     "batch": 107
+    },
+    {
+     "file": "DistTriangle3Triangle3.h",
+     "lines": 110,
+     "batch": 107
+    },
+    {
+     "file": "DistCircle3Circle3.h",
+     "lines": 539,
+     "batch": 121
+    },
+    {
+     "file": "DistRectangle3AlignedBox3.h",
+     "lines": 66,
+     "batch": 121
+    },
+    {
+     "file": "DistRectangle3OrientedBox3.h",
+     "lines": 85,
+     "batch": 121
+    },
+    {
+     "file": "DistTetrahedron3Tetrahedron3.h",
+     "lines": 165,
+     "batch": 121
+    },
+    {
+     "file": "DistTriangle3AlignedBox3.h",
+     "lines": 67,
+     "batch": 121
+    },
+    {
+     "file": "DistTriangle3OrientedBox3.h",
+     "lines": 82,
+     "batch": 121
+    },
+    {
+     "file": "DistOrientedBox3OrientedBox3.h",
+     "lines": 125,
+     "batch": 131
+    },
+    {
+     "file": "DistAlignedBox3OrientedBox3.h",
+     "lines": 58,
+     "batch": 134
+    }
+   ]
+  },
+  {
+   "id": 23,
+   "category": "estimates",
+   "lines": 2289,
+   "files": [
+    {
+     "file": "Exp2Estimate.h",
+     "lines": 142,
+     "batch": 6
+    },
+    {
+     "file": "ACosEstimate.h",
+     "lines": 135,
+     "batch": 17
+    },
+    {
+     "file": "ATanEstimate.h",
+     "lines": 141,
+     "batch": 17
+    },
+    {
+     "file": "ChebyshevRatio.h",
+     "lines": 155,
+     "batch": 17
+    },
+    {
+     "file": "ChebyshevRatioEstimate.h",
+     "lines": 290,
+     "batch": 17
+    },
+    {
+     "file": "CosEstimate.h",
+     "lines": 138,
+     "batch": 17
+    },
+    {
+     "file": "ExpEstimate.h",
+     "lines": 79,
+     "batch": 17
+    },
+    {
+     "file": "InvSqrtEstimate.h",
+     "lines": 165,
+     "batch": 17
+    },
+    {
+     "file": "Log2Estimate.h",
+     "lines": 167,
+     "batch": 17
+    },
+    {
+     "file": "SinEstimate.h",
+     "lines": 139,
+     "batch": 17
+    },
+    {
+     "file": "SqrtEstimate.h",
+     "lines": 165,
+     "batch": 17
+    },
+    {
+     "file": "TanEstimate.h",
+     "lines": 170,
+     "batch": 17
+    },
+    {
+     "file": "ASinEstimate.h",
+     "lines": 62,
+     "batch": 43
+    },
+    {
+     "file": "LogEstimate.h",
+     "lines": 63,
+     "batch": 43
+    },
+    {
+     "file": "Slerp.h",
+     "lines": 156,
+     "batch": 43
+    },
+    {
+     "file": "SlerpEstimate.h",
+     "lines": 122,
+     "batch": 43
+    }
+   ]
+  },
+  {
+   "id": 24,
+   "category": "imaging",
+   "lines": 4088,
+   "files": [
+    {
+     "file": "FastGaussianBlur1.h",
+     "lines": 104,
+     "batch": 7
+    },
+    {
+     "file": "FastGaussianBlur2.h",
+     "lines": 164,
+     "batch": 7
+    },
+    {
+     "file": "FastGaussianBlur3.h",
+     "lines": 193,
+     "batch": 7
+    },
+    {
+     "file": "Image.h",
+     "lines": 198,
+     "batch": 7
+    },
+    {
+     "file": "MarchingCubes.h",
+     "lines": 1251,
+     "batch": 7
+    },
+    {
+     "file": "PdeFilter.h",
+     "lines": 172,
+     "batch": 7
+    },
+    {
+     "file": "AdaptiveSkeletonClimbing2.h",
+     "lines": 942,
+     "batch": 18
+    },
+    {
+     "file": "FastMarch.h",
+     "lines": 199,
+     "batch": 18
+    },
+    {
+     "file": "Histogram.h",
+     "lines": 342,
+     "batch": 18
+    },
+    {
+     "file": "Image2.h",
+     "lines": 523,
+     "batch": 18
+    }
+   ]
+  },
+  {
+   "id": 25,
+   "category": "imaging",
+   "lines": 4841,
+   "files": [
+    {
+     "file": "Image3.h",
+     "lines": 760,
+     "batch": 19
+    },
+    {
+     "file": "PdeFilter1.h",
+     "lines": 296,
+     "batch": 19
+    },
+    {
+     "file": "PdeFilter2.h",
+     "lines": 501,
+     "batch": 19
+    },
+    {
+     "file": "PdeFilter3.h",
+     "lines": 957,
+     "batch": 20
+    },
+    {
+     "file": "SurfaceExtractor.h",
+     "lines": 469,
+     "batch": 20
+    },
+    {
+     "file": "TetrahedraRasterizer.h",
+     "lines": 384,
+     "batch": 20
+    },
+    {
+     "file": "CurvatureFlow2.h",
+     "lines": 60,
+     "batch": 44
+    },
+    {
+     "file": "CurvatureFlow3.h",
+     "lines": 65,
+     "batch": 44
+    },
+    {
+     "file": "FastMarch2.h",
+     "lines": 357,
+     "batch": 44
+    },
+    {
+     "file": "FastMarch3.h",
+     "lines": 615,
+     "batch": 44
+    },
+    {
+     "file": "GaussianBlur2.h",
+     "lines": 55,
+     "batch": 44
+    },
+    {
+     "file": "GaussianBlur3.h",
+     "lines": 55,
+     "batch": 44
+    },
+    {
+     "file": "GradientAnisotropic2.h",
+     "lines": 116,
+     "batch": 44
+    },
+    {
+     "file": "GradientAnisotropic3.h",
+     "lines": 151,
+     "batch": 44
+    }
+   ]
+  },
+  {
+   "id": 26,
+   "category": "imaging",
+   "lines": 4771,
+   "files": [
+    {
+     "file": "ImageUtility2.h",
+     "lines": 1548,
+     "batch": 45
+    },
+    {
+     "file": "ImageUtility3.h",
+     "lines": 734,
+     "batch": 45
+    },
+    {
+     "file": "SurfaceExtractorCubes.h",
+     "lines": 1050,
+     "batch": 46
+    },
+    {
+     "file": "SurfaceExtractorMC.h",
+     "lines": 430,
+     "batch": 46
+    },
+    {
+     "file": "SurfaceExtractorTetrahedra.h",
+     "lines": 1009,
+     "batch": 46
+    }
+   ]
+  },
+  {
+   "id": 27,
+   "category": "imaging",
+   "lines": 2906,
+   "files": [
+    {
+     "file": "AdaptiveSkeletonClimbing3.h",
+     "lines": 2906,
+     "batch": 67
+    }
+   ]
+  },
+  {
+   "id": 28,
+   "category": "interpolation",
+   "lines": 4348,
+   "files": [
+    {
+     "file": "HermiteCubic.h",
+     "lines": 236,
+     "batch": 8
+    },
+    {
+     "file": "HermiteQuintic.h",
+     "lines": 376,
+     "batch": 8
+    },
+    {
+     "file": "HermiteBicubic.h",
+     "lines": 160,
+     "batch": 21
+    },
+    {
+     "file": "HermiteBiquintic.h",
+     "lines": 194,
+     "batch": 21
+    },
+    {
+     "file": "HermiteTricubic.h",
+     "lines": 202,
+     "batch": 21
+    },
+    {
+     "file": "HermiteTriquintic.h",
+     "lines": 324,
+     "batch": 21
+    },
+    {
+     "file": "IntpAkima1.h",
+     "lines": 162,
+     "batch": 21
+    },
+    {
+     "file": "IntpAkimaUniform2.h",
+     "lines": 571,
+     "batch": 21
+    },
+    {
+     "file": "IntpAkimaUniform3.h",
+     "lines": 1424,
+     "batch": 22
+    },
+    {
+     "file": "IntpBicubic2.h",
+     "lines": 399,
+     "batch": 22
+    },
+    {
+     "file": "IntpBilinear2.h",
+     "lines": 300,
+     "batch": 22
+    }
+   ]
+  },
+  {
+   "id": 29,
+   "category": "interpolation",
+   "lines": 4271,
+   "files": [
+    {
+     "file": "IntpTricubic3.h",
+     "lines": 532,
+     "batch": 23
+    },
+    {
+     "file": "IntpTrilinear3.h",
+     "lines": 402,
+     "batch": 23
+    },
+    {
+     "file": "IntpAkimaNonuniform1.h",
+     "lines": 121,
+     "batch": 47
+    },
+    {
+     "file": "IntpAkimaUniform1.h",
+     "lines": 118,
+     "batch": 47
+    },
+    {
+     "file": "IntpBSplineUniform.h",
+     "lines": 1451,
+     "batch": 47
+    },
+    {
+     "file": "IntpLinearNonuniform2.h",
+     "lines": 77,
+     "batch": 47
+    },
+    {
+     "file": "IntpLinearNonuniform3.h",
+     "lines": 77,
+     "batch": 47
+    },
+    {
+     "file": "IntpThinPlateSpline2.h",
+     "lines": 282,
+     "batch": 68
+    },
+    {
+     "file": "IntpThinPlateSpline3.h",
+     "lines": 298,
+     "batch": 68
+    },
+    {
+     "file": "IntpQuadraticNonuniform2.h",
+     "lines": 507,
+     "batch": 122
+    },
+    {
+     "file": "IntpSphere2.h",
+     "lines": 246,
+     "batch": 132
+    },
+    {
+     "file": "IntpVectorField2.h",
+     "lines": 160,
+     "batch": 132
+    }
+   ]
+  },
+  {
+   "id": 30,
+   "category": "intersection",
+   "lines": 4466,
+   "files": [
+    {
+     "file": "IntrIntervals.h",
+     "lines": 564,
+     "batch": 24
+    },
+    {
+     "file": "IntrAlignedBox2AlignedBox2.h",
+     "lines": 110,
+     "batch": 48
+    },
+    {
+     "file": "IntrAlignedBox2OrientedBox2.h",
+     "lines": 116,
+     "batch": 48
+    },
+    {
+     "file": "IntrAlignedBox3AlignedBox3.h",
+     "lines": 110,
+     "batch": 48
+    },
+    {
+     "file": "IntrAlignedBox3OrientedBox3.h",
+     "lines": 340,
+     "batch": 48
+    },
+    {
+     "file": "IntrCircle2Circle2.h",
+     "lines": 178,
+     "batch": 48
+    },
+    {
+     "file": "IntrHalfspace2Polygon2.h",
+     "lines": 170,
+     "batch": 48
+    },
+    {
+     "file": "IntrHalfspace3OrientedBox3.h",
+     "lines": 58,
+     "batch": 48
+    },
+    {
+     "file": "IntrHalfspace3Segment3.h",
+     "lines": 158,
+     "batch": 48
+    },
+    {
+     "file": "IntrHalfspace3Sphere3.h",
+     "lines": 51,
+     "batch": 48
+    },
+    {
+     "file": "IntrHalfspace3Triangle3.h",
+     "lines": 245,
+     "batch": 48
+    },
+    {
+     "file": "IntrLine2AlignedBox2.h",
+     "lines": 190,
+     "batch": 48
+    },
+    {
+     "file": "IntrLine2Line2.h",
+     "lines": 197,
+     "batch": 48
+    },
+    {
+     "file": "IntrLine2Triangle2.h",
+     "lines": 255,
+     "batch": 48
+    },
+    {
+     "file": "IntrLine3AlignedBox3.h",
+     "lines": 216,
+     "batch": 48
+    },
+    {
+     "file": "IntrLine3Rectangle3.h",
+     "lines": 163,
+     "batch": 49
+    },
+    {
+     "file": "IntrLine3Sphere3.h",
+     "lines": 134,
+     "batch": 49
+    },
+    {
+     "file": "IntrLine3Triangle3.h",
+     "lines": 182,
+     "batch": 49
+    },
+    {
+     "file": "IntrOrientedBox2OrientedBox2.h",
+     "lines": 299,
+     "batch": 49
+    },
+    {
+     "file": "IntrOrientedBox3OrientedBox3.h",
+     "lines": 340,
+     "batch": 49
+    },
+    {
+     "file": "IntrRay3Triangle3.h",
+     "lines": 189,
+     "batch": 49
+    },
+    {
+     "file": "IntrSegment3Triangle3.h",
+     "lines": 201,
+     "batch": 49
+    }
+   ]
+  },
+  {
+   "id": 31,
+   "category": "intersection",
+   "lines": 4729,
+   "files": [
+    {
+     "file": "IntrArc2Arc2.h",
+     "lines": 232,
+     "batch": 69
+    },
+    {
+     "file": "IntrCanonicalBox3Cylinder3.h",
+     "lines": 702,
+     "batch": 69
+    },
+    {
+     "file": "IntrCapsule3Capsule3.h",
+     "lines": 44,
+     "batch": 69
+    },
+    {
+     "file": "IntrCircle2Arc2.h",
+     "lines": 105,
+     "batch": 69
+    },
+    {
+     "file": "IntrCylinder3Cylinder3.h",
+     "lines": 333,
+     "batch": 69
+    },
+    {
+     "file": "IntrDisk2Sector2.h",
+     "lines": 194,
+     "batch": 69
+    },
+    {
+     "file": "IntrHalfspace3Capsule3.h",
+     "lines": 52,
+     "batch": 69
+    },
+    {
+     "file": "IntrHalfspace3Cylinder3.h",
+     "lines": 58,
+     "batch": 69
+    },
+    {
+     "file": "IntrLine2Circle2.h",
+     "lines": 130,
+     "batch": 69
+    },
+    {
+     "file": "IntrLine2OrientedBox2.h",
+     "lines": 109,
+     "batch": 69
+    },
+    {
+     "file": "IntrLine2Ray2.h",
+     "lines": 169,
+     "batch": 69
+    },
+    {
+     "file": "IntrLine2Segment2.h",
+     "lines": 177,
+     "batch": 69
+    },
+    {
+     "file": "IntrLine3Capsule3.h",
+     "lines": 353,
+     "batch": 70
+    },
+    {
+     "file": "IntrLine3Cylinder3.h",
+     "lines": 265,
+     "batch": 70
+    },
+    {
+     "file": "IntrLine3OrientedBox3.h",
+     "lines": 107,
+     "batch": 70
+    },
+    {
+     "file": "IntrLine3Torus3.h",
+     "lines": 169,
+     "batch": 70
+    },
+    {
+     "file": "IntrOrientedBox2Sector2.h",
+     "lines": 143,
+     "batch": 70
+    },
+    {
+     "file": "IntrOrientedBox3Frustum3.h",
+     "lines": 376,
+     "batch": 70
+    },
+    {
+     "file": "IntrRay2AlignedBox2.h",
+     "lines": 146,
+     "batch": 70
+    },
+    {
+     "file": "IntrRay2Ray2.h",
+     "lines": 248,
+     "batch": 70
+    },
+    {
+     "file": "IntrRay2Segment2.h",
+     "lines": 219,
+     "batch": 70
+    },
+    {
+     "file": "IntrRay2Triangle2.h",
+     "lines": 118,
+     "batch": 70
+    },
+    {
+     "file": "IntrRay3AlignedBox3.h",
+     "lines": 159,
+     "batch": 70
+    },
+    {
+     "file": "IntrRay3Rectangle3.h",
+     "lines": 121,
+     "batch": 70
+    }
+   ]
+  },
+  {
+   "id": 32,
+   "category": "intersection",
+   "lines": 4922,
+   "files": [
+    {
+     "file": "IntrRay3Sphere3.h",
+     "lines": 138,
+     "batch": 71
+    },
+    {
+     "file": "IntrSegment2AlignedBox2.h",
+     "lines": 202,
+     "batch": 71
+    },
+    {
+     "file": "IntrSegment2Segment2.h",
+     "lines": 419,
+     "batch": 71
+    },
+    {
+     "file": "IntrSegment2Triangle2.h",
+     "lines": 117,
+     "batch": 71
+    },
+    {
+     "file": "IntrSegment3AlignedBox3.h",
+     "lines": 172,
+     "batch": 71
+    },
+    {
+     "file": "IntrSegment3Rectangle3.h",
+     "lines": 124,
+     "batch": 71
+    },
+    {
+     "file": "IntrSegment3Sphere3.h",
+     "lines": 165,
+     "batch": 71
+    },
+    {
+     "file": "IntrSphere3Sphere3.h",
+     "lines": 158,
+     "batch": 71
+    },
+    {
+     "file": "IntrSphere3Triangle3.h",
+     "lines": 633,
+     "batch": 71
+    },
+    {
+     "file": "IntrTriangle3Cylinder3.h",
+     "lines": 492,
+     "batch": 72
+    },
+    {
+     "file": "IntrAlignedBox2Circle2.h",
+     "lines": 368,
+     "batch": 88
+    },
+    {
+     "file": "IntrAlignedBox3Cylinder3.h",
+     "lines": 64,
+     "batch": 88
+    },
+    {
+     "file": "IntrAlignedBox3Sphere3.h",
+     "lines": 617,
+     "batch": 88
+    },
+    {
+     "file": "IntrConvexPolygonHyperplane.h",
+     "lines": 424,
+     "batch": 88
+    },
+    {
+     "file": "IntrEllipse2Ellipse2.h",
+     "lines": 829,
+     "batch": 88
+    }
+   ]
+  },
+  {
+   "id": 33,
+   "category": "intersection",
+   "lines": 2682,
+   "files": [
+    {
+     "file": "IntrEllipsoid3Ellipsoid3.h",
+     "lines": 544,
+     "batch": 89
+    },
+    {
+     "file": "IntrHalfspace3Ellipsoid3.h",
+     "lines": 58,
+     "batch": 89
+    },
+    {
+     "file": "IntrLine2Arc2.h",
+     "lines": 99,
+     "batch": 89
+    },
+    {
+     "file": "IntrLine2SegmentMesh2.h",
+     "lines": 134,
+     "batch": 89
+    },
+    {
+     "file": "IntrLine3Ellipsoid3.h",
+     "lines": 145,
+     "batch": 89
+    },
+    {
+     "file": "IntrOrientedBox3Cylinder3.h",
+     "lines": 71,
+     "batch": 89
+    },
+    {
+     "file": "IntrPlane3Plane3.h",
+     "lines": 160,
+     "batch": 89
+    },
+    {
+     "file": "IntrPlane3Triangle3.h",
+     "lines": 295,
+     "batch": 89
+    },
+    {
+     "file": "IntrRay2Circle2.h",
+     "lines": 100,
+     "batch": 89
+    },
+    {
+     "file": "IntrRay2OrientedBox2.h",
+     "lines": 109,
+     "batch": 89
+    },
+    {
+     "file": "IntrRay3Capsule3.h",
+     "lines": 115,
+     "batch": 89
+    },
+    {
+     "file": "IntrRay3Cylinder3.h",
+     "lines": 88,
+     "batch": 89
+    },
+    {
+     "file": "IntrRay3OrientedBox3.h",
+     "lines": 117,
+     "batch": 89
+    },
+    {
+     "file": "IntrSegment2Circle2.h",
+     "lines": 104,
+     "batch": 89
+    },
+    {
+     "file": "IntrSegment2OrientedBox2.h",
+     "lines": 151,
+     "batch": 89
+    },
+    {
+     "file": "IntrSegment3Capsule3.h",
+     "lines": 121,
+     "batch": 89
+    },
+    {
+     "file": "IntrSegment3Cylinder3.h",
+     "lines": 94,
+     "batch": 90
+    },
+    {
+     "file": "IntrSegment3OrientedBox3.h",
+     "lines": 134,
+     "batch": 90
+    },
+    {
+     "file": "IntrSphere3Frustum3.h",
+     "lines": 43,
+     "batch": 90
+    }
+   ]
+  },
+  {
+   "id": 34,
+   "category": "intersection",
+   "lines": 4788,
+   "files": [
+    {
+     "file": "IntrAlignedBox3Cone3.h",
+     "lines": 1024,
+     "batch": 108
+    },
+    {
+     "file": "IntrAreaEllipse2Ellipse2.h",
+     "lines": 376,
+     "batch": 108
+    },
+    {
+     "file": "IntrConvexMesh3Plane3.h",
+     "lines": 922,
+     "batch": 108
+    },
+    {
+     "file": "IntrLine3Cone3.h",
+     "lines": 487,
+     "batch": 109
+    },
+    {
+     "file": "IntrLine3Plane3.h",
+     "lines": 135,
+     "batch": 109
+    },
+    {
+     "file": "IntrOrientedBox2Circle2.h",
+     "lines": 107,
+     "batch": 109
+    },
+    {
+     "file": "IntrOrientedBox2Cone2.h",
+     "lines": 115,
+     "batch": 109
+    },
+    {
+     "file": "IntrOrientedBox3Sphere3.h",
+     "lines": 109,
+     "batch": 109
+    },
+    {
+     "file": "IntrPlane3Capsule3.h",
+     "lines": 58,
+     "batch": 109
+    },
+    {
+     "file": "IntrPlane3Circle3.h",
+     "lines": 195,
+     "batch": 109
+    },
+    {
+     "file": "IntrPlane3Cylinder3.h",
+     "lines": 328,
+     "batch": 109
+    },
+    {
+     "file": "IntrPlane3Ellipsoid3.h",
+     "lines": 50,
+     "batch": 109
+    },
+    {
+     "file": "IntrPlane3OrientedBox3.h",
+     "lines": 50,
+     "batch": 109
+    },
+    {
+     "file": "IntrPlane3Sphere3.h",
+     "lines": 108,
+     "batch": 109
+    },
+    {
+     "file": "IntrRay2Arc2.h",
+     "lines": 99,
+     "batch": 109
+    },
+    {
+     "file": "IntrRay2SegmentMesh2.h",
+     "lines": 104,
+     "batch": 109
+    },
+    {
+     "file": "IntrRay3Ellipsoid3.h",
+     "lines": 148,
+     "batch": 109
+    },
+    {
+     "file": "IntrSegment2Arc2.h",
+     "lines": 99,
+     "batch": 109
+    },
+    {
+     "file": "IntrSegment2SegmentMesh2.h",
+     "lines": 102,
+     "batch": 109
+    },
+    {
+     "file": "IntrSegment3Ellipsoid3.h",
+     "lines": 172,
+     "batch": 109
+    }
+   ]
+  },
+  {
+   "id": 35,
+   "category": "intersection",
+   "lines": 3257,
+   "files": [
+    {
+     "file": "IntrSphere3Cone3.h",
+     "lines": 363,
+     "batch": 110
+    },
+    {
+     "file": "IntrTetrahedron3Tetrahedron3.h",
+     "lines": 204,
+     "batch": 110
+    },
+    {
+     "file": "IntrTriangle2Triangle2.h",
+     "lines": 168,
+     "batch": 110
+    },
+    {
+     "file": "IntrTriangle3CanonicalBox3.h",
+     "lines": 276,
+     "batch": 110
+    },
+    {
+     "file": "IntrOrientedBox3Cone3.h",
+     "lines": 96,
+     "batch": 123
+    },
+    {
+     "file": "IntrRay3Cone3.h",
+     "lines": 117,
+     "batch": 123
+    },
+    {
+     "file": "IntrRay3Plane3.h",
+     "lines": 114,
+     "batch": 123
+    },
+    {
+     "file": "IntrSegment3Cone3.h",
+     "lines": 138,
+     "batch": 123
+    },
+    {
+     "file": "IntrSegment3Plane3.h",
+     "lines": 117,
+     "batch": 123
+    },
+    {
+     "file": "IntrTriangle3AlignedBox3.h",
+     "lines": 151,
+     "batch": 123
+    },
+    {
+     "file": "IntrTriangle3OrientedBox3.h",
+     "lines": 158,
+     "batch": 123
+    },
+    {
+     "file": "IntrTriangle3Triangle3.h",
+     "lines": 1355,
+     "batch": 123
+    }
+   ]
+  },
+  {
+   "id": 36,
+   "category": "meshes-graphs",
+   "lines": 4790,
+   "files": [
+    {
+     "file": "IndexAttribute.h",
+     "lines": 88,
+     "batch": 9
+    },
+    {
+     "file": "IsPlanarGraph.h",
+     "lines": 498,
+     "batch": 9
+    },
+    {
+     "file": "STLBinaryFile.h",
+     "lines": 143,
+     "batch": 9
+    },
+    {
+     "file": "VertexAttribute.h",
+     "lines": 46,
+     "batch": 9
+    },
+    {
+     "file": "FeatureKey.h",
+     "lines": 110,
+     "batch": 25
+    },
+    {
+     "file": "MinimumSpanningTree.h",
+     "lines": 323,
+     "batch": 25
+    },
+    {
+     "file": "StaticVETManifoldMesh2.h",
+     "lines": 655,
+     "batch": 25
+    },
+    {
+     "file": "StaticVTSManifoldMesh3.h",
+     "lines": 545,
+     "batch": 25
+    },
+    {
+     "file": "UniqueVerticesSimplices.h",
+     "lines": 376,
+     "batch": 25
+    },
+    {
+     "file": "VEManifoldMesh.h",
+     "lines": 276,
+     "batch": 25
+    },
+    {
+     "file": "ConvexMesh3.h",
+     "lines": 71,
+     "batch": 50
+    },
+    {
+     "file": "EdgeKey.h",
+     "lines": 65,
+     "batch": 50
+    },
+    {
+     "file": "TetrahedronKey.h",
+     "lines": 167,
+     "batch": 50
+    },
+    {
+     "file": "TriangleKey.h",
+     "lines": 128,
+     "batch": 50
+    },
+    {
+     "file": "ETManifoldMesh.h",
+     "lines": 947,
+     "batch": 73
+    },
+    {
+     "file": "TSManifoldMesh.h",
+     "lines": 352,
+     "batch": 73
+    }
+   ]
+  },
+  {
+   "id": 37,
+   "category": "meshes-graphs",
+   "lines": 2144,
+   "files": [
+    {
+     "file": "PlanarMesh.h",
+     "lines": 460,
+     "batch": 91
+    },
+    {
+     "file": "VETManifoldMesh.h",
+     "lines": 219,
+     "batch": 91
+    },
+    {
+     "file": "VTSManifoldMesh.h",
+     "lines": 235,
+     "batch": 91
+    },
+    {
+     "file": "MinimalCycleBasis.h",
+     "lines": 824,
+     "batch": 111
+    },
+    {
+     "file": "SplitMeshByPlane.h",
+     "lines": 406,
+     "batch": 111
+    }
+   ]
+  },
+  {
+   "id": 38,
+   "category": "numerical",
+   "lines": 3577,
+   "files": [
+    {
+     "file": "OdeSolver.h",
+     "lines": 58,
+     "batch": 10
+    },
+    {
+     "file": "SymmetricEigensolver2x2.h",
+     "lines": 90,
+     "batch": 10
+    },
+    {
+     "file": "SymmetricEigensolver3x3.h",
+     "lines": 731,
+     "batch": 10
+    },
+    {
+     "file": "UnsymmetricEigenvalues.h",
+     "lines": 386,
+     "batch": 10
+    },
+    {
+     "file": "BandedMatrix.h",
+     "lines": 528,
+     "batch": 26
+    },
+    {
+     "file": "FPInterval.h",
+     "lines": 639,
+     "batch": 26
+    },
+    {
+     "file": "GaussianElimination.h",
+     "lines": 279,
+     "batch": 26
+    },
+    {
+     "file": "Integration.h",
+     "lines": 223,
+     "batch": 26
+    },
+    {
+     "file": "LCPSolver.h",
+     "lines": 643,
+     "batch": 26
+    }
+   ]
+  },
+  {
+   "id": 39,
+   "category": "numerical",
+   "lines": 4389,
+   "files": [
+    {
+     "file": "Minimize1.h",
+     "lines": 347,
+     "batch": 27
+    },
+    {
+     "file": "OdeEuler.h",
+     "lines": 46,
+     "batch": 27
+    },
+    {
+     "file": "OdeImplicitEuler.h",
+     "lines": 62,
+     "batch": 27
+    },
+    {
+     "file": "OdeMidpoint.h",
+     "lines": 53,
+     "batch": 27
+    },
+    {
+     "file": "OdeRungeKutta4.h",
+     "lines": 62,
+     "batch": 27
+    },
+    {
+     "file": "SingularValueDecomposition.h",
+     "lines": 932,
+     "batch": 27
+    },
+    {
+     "file": "SymmetricEigensolver.h",
+     "lines": 835,
+     "batch": 27
+    },
+    {
+     "file": "MinimizeN.h",
+     "lines": 210,
+     "batch": 51
+    },
+    {
+     "file": "RemezAlgorithm.h",
+     "lines": 436,
+     "batch": 51
+    },
+    {
+     "file": "CholeskyDecomposition.h",
+     "lines": 558,
+     "batch": 74
+    },
+    {
+     "file": "LDLTDecomposition.h",
+     "lines": 848,
+     "batch": 74
+    }
+   ]
+  },
+  {
+   "id": 40,
+   "category": "numerical",
+   "lines": 887,
+   "files": [
+    {
+     "file": "GaussNewtonMinimizer.h",
+     "lines": 239,
+     "batch": 92
+    },
+    {
+     "file": "LevenbergMarquardtMinimizer.h",
+     "lines": 298,
+     "batch": 92
+    },
+    {
+     "file": "LinearSystem.h",
+     "lines": 350,
+     "batch": 92
+    }
+   ]
+  },
+  {
+   "id": 41,
+   "category": "physics",
+   "lines": 2506,
+   "files": [
+    {
+     "file": "ParticleSystem.h",
+     "lines": 232,
+     "batch": 28
+    },
+    {
+     "file": "MassSpringArbitrary.h",
+     "lines": 126,
+     "batch": 52
+    },
+    {
+     "file": "MassSpringVolume.h",
+     "lines": 289,
+     "batch": 52
+    },
+    {
+     "file": "HelmertTransformation7.h",
+     "lines": 312,
+     "batch": 93
+    },
+    {
+     "file": "PolyhedralMassProperties.h",
+     "lines": 150,
+     "batch": 93
+    },
+    {
+     "file": "LieGroupsAlgebras.h",
+     "lines": 728,
+     "batch": 112
+    },
+    {
+     "file": "RigidBody.h",
+     "lines": 669,
+     "batch": 112
+    }
+   ]
+  },
+  {
+   "id": 42,
+   "category": "primitives",
+   "lines": 3013,
+   "files": [
+    {
+     "file": "AlignedBox.h",
+     "lines": 138,
+     "batch": 29
+    },
+    {
+     "file": "CanonicalBox.h",
+     "lines": 104,
+     "batch": 29
+    },
+    {
+     "file": "Halfspace.h",
+     "lines": 94,
+     "batch": 29
+    },
+    {
+     "file": "Hypersphere.h",
+     "lines": 95,
+     "batch": 29
+    },
+    {
+     "file": "Line.h",
+     "lines": 93,
+     "batch": 29
+    },
+    {
+     "file": "OrientedBox.h",
+     "lines": 148,
+     "batch": 29
+    },
+    {
+     "file": "Ray.h",
+     "lines": 93,
+     "batch": 29
+    },
+    {
+     "file": "Rectangle.h",
+     "lines": 152,
+     "batch": 29
+    },
+    {
+     "file": "Segment.h",
+     "lines": 117,
+     "batch": 29
+    },
+    {
+     "file": "SegmentMesh.h",
+     "lines": 185,
+     "batch": 29
+    },
+    {
+     "file": "Triangle.h",
+     "lines": 89,
+     "batch": 29
+    },
+    {
+     "file": "Arc2.h",
+     "lines": 159,
+     "batch": 53
+    },
+    {
+     "file": "Capsule.h",
+     "lines": 91,
+     "batch": 53
+    },
+    {
+     "file": "Circle3.h",
+     "lines": 102,
+     "batch": 53
+    },
+    {
+     "file": "Cylinder3.h",
+     "lines": 133,
+     "batch": 53
+    },
+    {
+     "file": "Ellipse3.h",
+     "lines": 133,
+     "batch": 53
+    },
+    {
+     "file": "Frustum3.h",
+     "lines": 225,
+     "batch": 53
+    },
+    {
+     "file": "Lozenge3.h",
+     "lines": 86,
+     "batch": 53
+    },
+    {
+     "file": "Parallelepiped3.h",
+     "lines": 113,
+     "batch": 53
+    },
+    {
+     "file": "Parallelogram2.h",
+     "lines": 109,
+     "batch": 53
+    },
+    {
+     "file": "Polyhedron3.h",
+     "lines": 177,
+     "batch": 53
+    },
+    {
+     "file": "Sector2.h",
+     "lines": 142,
+     "batch": 53
+    },
+    {
+     "file": "Torus3.h",
+     "lines": 235,
+     "batch": 53
+    }
+   ]
+  },
+  {
+   "id": 43,
+   "category": "primitives",
+   "lines": 2890,
+   "files": [
+    {
+     "file": "Hyperellipsoid.h",
+     "lines": 335,
+     "batch": 75
+    },
+    {
+     "file": "Hyperplane.h",
+     "lines": 182,
+     "batch": 75
+    },
+    {
+     "file": "RectangleManager.h",
+     "lines": 270,
+     "batch": 75
+    },
+    {
+     "file": "AlignedBoxBV.h",
+     "lines": 87,
+     "batch": 94
+    },
+    {
+     "file": "Cone.h",
+     "lines": 510,
+     "batch": 94
+    },
+    {
+     "file": "Polygon2.h",
+     "lines": 277,
+     "batch": 94
+    },
+    {
+     "file": "RectangleMesh.h",
+     "lines": 158,
+     "batch": 94
+    },
+    {
+     "file": "RectanglePatchMesh.h",
+     "lines": 201,
+     "batch": 94
+    },
+    {
+     "file": "Tetrahedron3.h",
+     "lines": 267,
+     "batch": 94
+    },
+    {
+     "file": "AlignedBoxTreeOfPoints.h",
+     "lines": 73,
+     "batch": 113
+    },
+    {
+     "file": "AlignedBoxTreeOfSegments.h",
+     "lines": 92,
+     "batch": 113
+    },
+    {
+     "file": "AlignedBoxTreeOfTriangles.h",
+     "lines": 91,
+     "batch": 113
+    },
+    {
+     "file": "OrientedBoxBV.h",
+     "lines": 84,
+     "batch": 113
+    },
+    {
+     "file": "OrientedBoxTreeOfPoints.h",
+     "lines": 75,
+     "batch": 124
+    },
+    {
+     "file": "OrientedBoxTreeOfSegments.h",
+     "lines": 94,
+     "batch": 124
+    },
+    {
+     "file": "OrientedBoxTreeOfTriangles.h",
+     "lines": 94,
+     "batch": 124
+    }
+   ]
+  },
+  {
+   "id": 44,
+   "category": "roots-polynomials",
+   "lines": 4089,
+   "files": [
+    {
+     "file": "CubicRootsQR.h",
+     "lines": 220,
+     "batch": 11
+    },
+    {
+     "file": "RootsBisection.h",
+     "lines": 176,
+     "batch": 11
+    },
+    {
+     "file": "RootsBrentsMethod.h",
+     "lines": 230,
+     "batch": 11
+    },
+    {
+     "file": "RootsPolynomial.h",
+     "lines": 1111,
+     "batch": 11
+    },
+    {
+     "file": "Polynomial1.h",
+     "lines": 608,
+     "batch": 30
+    },
+    {
+     "file": "QuarticRootsQR.h",
+     "lines": 291,
+     "batch": 30
+    },
+    {
+     "file": "RootsBisection1.h",
+     "lines": 217,
+     "batch": 30
+    },
+    {
+     "file": "RootsBisection2.h",
+     "lines": 117,
+     "batch": 54
+    },
+    {
+     "file": "PolynomialCurve.h",
+     "lines": 123,
+     "batch": 76
+    },
+    {
+     "file": "PolynomialRoot.h",
+     "lines": 136,
+     "batch": 114
+    },
+    {
+     "file": "RootsGeneralPolynomial.h",
+     "lines": 501,
+     "batch": 114
+    },
+    {
+     "file": "RootsLinear.h",
+     "lines": 76,
+     "batch": 125
+    },
+    {
+     "file": "RootsQuadratic.h",
+     "lines": 283,
+     "batch": 133
+    }
+   ]
+  },
+  {
+   "id": 45,
+   "category": "roots-polynomials",
+   "lines": 1235,
+   "files": [
+    {
+     "file": "RootsCubic.h",
+     "lines": 517,
+     "batch": 135
+    },
+    {
+     "file": "RootsQuartic.h",
+     "lines": 718,
+     "batch": 135
+    }
+   ]
+  },
+  {
+   "id": 46,
+   "category": "surfaces-volumes",
+   "lines": 3218,
+   "files": [
+    {
+     "file": "ParametricSurface.h",
+     "lines": 121,
+     "batch": 31
+    },
+    {
+     "file": "MassSpringSurface.h",
+     "lines": 233,
+     "batch": 55
+    },
+    {
+     "file": "NURBSSurface.h",
+     "lines": 252,
+     "batch": 55
+    },
+    {
+     "file": "NURBSVolume.h",
+     "lines": 253,
+     "batch": 55
+    },
+    {
+     "file": "Mesh.h",
+     "lines": 698,
+     "batch": 77
+    },
+    {
+     "file": "GenerateMeshUV.h",
+     "lines": 670,
+     "batch": 95
+    },
+    {
+     "file": "ConformalMapGenus0.h",
+     "lines": 430,
+     "batch": 115
+    },
+    {
+     "file": "QuadricSurface.h",
+     "lines": 561,
+     "batch": 115
+    }
+   ]
+  }
+ ]
+}
