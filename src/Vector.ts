@@ -132,12 +132,24 @@ export class Vector {
         return 0;
     }
 
+    // Equality is element-by-element, as std::array's operator==, not the
+    // "compare() === 0" of the ordering operators. The two differ only for
+    // NaN components: 'NaN == NaN' is false, so a tuple with a NaN component
+    // is not equal to itself, while the lexicographic compare treats NaN as
+    // equivalent (neither < nor >).
     equals(vec: Vector): boolean {
-        return this.compare(vec) === 0;
+        logAssert(this.values.length === vec.values.length,
+            'Vector: mismatched sizes.');
+        for (let i = 0; i < this.values.length; ++i) {
+            if (!(this.values[i] === vec.values[i])) {
+                return false;
+            }
+        }
+        return true;
     }
 
     notEquals(vec: Vector): boolean {
-        return this.compare(vec) !== 0;
+        return !this.equals(vec);
     }
 
     lessThan(vec: Vector): boolean {
