@@ -817,10 +817,10 @@
   "status": "ported"
  },
  "IntpQuadraticNonuniform2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntpSphere2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntpThinPlateSpline2.h": {
   "status": "ported"
@@ -835,7 +835,7 @@
   "status": "ported"
  },
  "IntpVectorField2.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrAlignedBox2AlignedBox2.h": {
   "status": "ported"
