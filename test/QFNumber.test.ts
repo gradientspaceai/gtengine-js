@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { check, fc } from './helpers/arbitraries.js';
 import { QFNumber, type QFCoefficient } from '../src/QFNumber.js';
 
 // Numeric evaluation of a quadratic field number (recursively for nested
@@ -300,5 +301,273 @@ describe('QFNumber mismatched-d trapping', () => {
         } finally {
             QFNumber.assertOnMismatchedD = false;
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (V05). Quadratic field elements with integer coefficients
+// are compared against exact bigint symbolic arithmetic on a + b*sqrt(d).
+// ---------------------------------------------------------------------------
+describe('QFNumber verification', () => {
+    // Small integer coefficients keep every product exact in binary64.
+    const coeff = fc.integer({ min: -12, max: 12 });
+    // d = 0 exercises the degenerate branch, 4 and 9 are perfect squares (so
+    // sqrt(d) is rational and distinct coefficient pairs can be equal), the
+    // rest are squarefree.
+    const dValue = fc.constantFrom(0, 2, 3, 4, 5, 6, 7, 9);
+
+    interface Sym { a: bigint; b: bigint; d: bigint; }
+
+    // C++ operator== on double treats -0 and +0 as equal; the coefficient
+    // arithmetic legitimately produces -0 (for example -x with x = 0), so
+    // coefficients are compared with === rather than Object.is.
+    const expectCoeffs = (q: QFNumber, a: number, b: number): void => {
+        expect(q.x[0] === a).toBe(true);
+        expect(q.x[1] === b).toBe(true);
+    };
+
+    const expectSameX = (p0: QFNumber, p1: QFNumber): void => {
+        expect(p0.x[0] === p1.x[0]).toBe(true);
+        expect(p0.x[1] === p1.x[1]).toBe(true);
+    };
+
+    const symOf = (q: QFNumber): Sym => ({
+        a: BigInt(q.x[0] as number), b: BigInt(q.x[1] as number), d: BigInt(q.d)
+    });
+
+    /** Exact sign of a + b*sqrt(d) for integer a, b and d >= 0. */
+    function exactSign(a: bigint, b: bigint, d: bigint): number {
+        if (d === 0n || b === 0n) {
+            return a < 0n ? -1 : (a > 0n ? 1 : 0);
+        }
+        if (a === 0n) {
+            return b < 0n ? -1 : 1;
+        }
+        if (a > 0n && b > 0n) { return 1; }
+        if (a < 0n && b < 0n) { return -1; }
+        // Opposite signs: compare the squares of the two terms.
+        const lhs = a * a;
+        const rhs = b * b * d;
+        if (lhs === rhs) { return 0; }
+        return (lhs > rhs) === (a > 0n) ? 1 : -1;
+    }
+
+    const qfArb = fc.tuple(coeff, coeff, dValue)
+        .map(([a, b, d]) => new QFNumber(a, b, d));
+
+    /** Two numbers of the same quadratic field. */
+    const pairArb = fc.tuple(coeff, coeff, coeff, coeff, dValue)
+        .map(([a0, b0, a1, b1, d]) =>
+            [new QFNumber(a0, b0, d), new QFNumber(a1, b1, d)] as const);
+
+    // ---- exact arithmetic --------------------------------------------------
+
+    it('add, sub, negate and mul match exact bigint symbolic arithmetic', () => {
+        check(pairArb, ([q0, q1]) => {
+            const s0 = symOf(q0);
+            const s1 = symOf(q1);
+
+            const sum = q0.add(q1);
+            expectCoeffs(sum, Number(s0.a + s1.a), Number(s0.b + s1.b));
+            expect(sum.d).toBe(q0.d);
+
+            const diff = q0.sub(q1);
+            expectCoeffs(diff, Number(s0.a - s1.a), Number(s0.b - s1.b));
+
+            const prod = q0.mul(q1);
+            expectCoeffs(prod, Number(s0.a * s1.a + s0.b * s1.b * s0.d),
+                Number(s0.a * s1.b + s0.b * s1.a));
+            expect(prod.d).toBe(q0.d);
+
+            const neg = q0.negate();
+            expectCoeffs(neg, Number(-s0.a), Number(-s0.b));
+            expect(neg.d).toBe(q0.d);
+            return true;
+        });
+    });
+
+    it('the scalar overloads match the upstream formulas', () => {
+        check(fc.tuple(qfArb, coeff), ([q, s]) => {
+            const sym = symOf(q);
+            const bs = BigInt(s);
+
+            expectCoeffs(q.add(s), Number(sym.a + bs), Number(sym.b));
+            expectCoeffs(q.sub(s), Number(sym.a - bs), Number(sym.b));
+            expectCoeffs(q.mul(s), Number(sym.a * bs), Number(sym.b * bs));
+            // s - q keeps the sqrt coefficient negated.
+            expectCoeffs(QFNumber.scalarSub(s, q), Number(bs - sym.a), Number(-sym.b));
+            return true;
+        });
+    });
+
+    it('multiplication is commutative, associative and distributes over addition', () => {
+        check(fc.tuple(coeff, coeff, coeff, coeff, coeff, coeff, dValue),
+            ([a0, b0, a1, b1, a2, b2, d]) => {
+                const p = new QFNumber(a0, b0, d);
+                const q = new QFNumber(a1, b1, d);
+                const r = new QFNumber(a2, b2, d);
+                expectSameX(p.mul(q), q.mul(p));
+                expectSameX(p.add(q), q.add(p));
+                expectSameX(p.mul(q).mul(r), p.mul(q.mul(r)));
+                expectSameX(p.add(q).add(r), p.add(q.add(r)));
+                expectSameX(p.mul(q.add(r)), p.mul(q).add(p.mul(r)));
+                return true;
+            });
+    });
+
+    // ---- division ----------------------------------------------------------
+
+    it('div inverts mul and scalarDiv agrees with the QFNumber division', () => {
+        check(pairArb, ([q0, q1]) => {
+            const s1 = symOf(q1);
+            // The divisor must have a nonzero norm a^2 - b^2 d.
+            const norm = s1.a * s1.a - s1.b * s1.b * s1.d;
+            if (norm === 0n) { return true; }
+
+            const quotient = q0.mul(q1).div(q1);
+            expect(quotient.x[0] as number).toBeCloseTo(q0.x[0] as number, 8);
+            expect(quotient.x[1] as number).toBeCloseTo(q0.x[1] as number, 8);
+
+            // s / q equals (s + 0*sqrt(d)) / q.
+            const viaDiv = new QFNumber(3, 0, q1.d).div(q1);
+            const viaScalar = QFNumber.scalarDiv(3, q1);
+            expect(viaScalar.x[0] as number).toBeCloseTo(viaDiv.x[0] as number, 10);
+            expect(viaScalar.x[1] as number).toBeCloseTo(viaDiv.x[1] as number, 10);
+            return true;
+        });
+    });
+
+    // Upstream uses q0.d (the dividend's d), not q1.d, in the denominator and
+    // in numer0. With mismatched d-values that choice is observable; it is
+    // pinned here because the trap is off by default.
+    it('div uses the dividend d-value, as upstream does', () => {
+        const q0 = new QFNumber(1, 1, 2);
+        const q1 = new QFNumber(3, 1, 5);
+        const result = q0.div(q1);
+        // denom = 3*3 - 1*1*2 = 7, numer0 = 1*3 - 1*1*2 = 1, numer1 = 1*3 - 1*1 = 2.
+        expect(result.x[0]).toBe(1 / 7);
+        expect(result.x[1]).toBe(2 / 7);
+        expect(result.d).toBe(2);
+    });
+
+    // ---- comparisons -------------------------------------------------------
+
+    it('the comparisons realise the exact order of a + b*sqrt(d)', () => {
+        check(pairArb, ([q0, q1]) => {
+            const s0 = symOf(q0);
+            const s1 = symOf(q1);
+            const c = exactSign(s0.a - s1.a, s0.b - s1.b, s0.d);
+
+            expect(q0.lessThan(q1)).toBe(c < 0);
+            expect(q0.greaterThan(q1)).toBe(c > 0);
+            expect(q0.equals(q1)).toBe(c === 0);
+            expect(q0.notEquals(q1)).toBe(c !== 0);
+            expect(q0.lessThanEqual(q1)).toBe(c <= 0);
+            expect(q0.greaterThanEqual(q1)).toBe(c >= 0);
+            return true;
+        });
+    });
+
+    it('the order is a strict weak ordering consistent with numeric evaluation', () => {
+        check(fc.tuple(coeff, coeff, coeff, coeff, coeff, coeff, dValue),
+            ([a0, b0, a1, b1, a2, b2, d]) => {
+                const p = new QFNumber(a0, b0, d);
+                const q = new QFNumber(a1, b1, d);
+                const r = new QFNumber(a2, b2, d);
+                // Irreflexive and antisymmetric.
+                expect(p.lessThan(p)).toBe(false);
+                expect(p.lessThan(q) && q.lessThan(p)).toBe(false);
+                // Transitive.
+                if (p.lessThan(q) && q.lessThan(r)) {
+                    expect(p.lessThan(r)).toBe(true);
+                }
+                // Consistent with the floating-point evaluation, except in the
+                // near-tie cases that the exact comparison resolves and the
+                // double evaluation cannot.
+                const vp = evalQF(p), vq = evalQF(q);
+                if (Math.abs(vp - vq) > 1e-9) {
+                    expect(p.lessThan(q)).toBe(vp < vq);
+                }
+                return true;
+            });
+    });
+
+    it('perfect-square d identifies numerically equal representations', () => {
+        // 1 + 2*sqrt(9) = 7 = 7 + 0*sqrt(9).
+        expect(new QFNumber(1, 2, 9).equals(new QFNumber(7, 0, 9))).toBe(true);
+        // 5 - 1*sqrt(4) = 3 = 1 + 1*sqrt(4).
+        expect(new QFNumber(5, -1, 4).equals(new QFNumber(1, 1, 4))).toBe(true);
+        // A squarefree d never allows that.
+        expect(new QFNumber(1, 2, 5).equals(new QFNumber(7, 0, 5))).toBe(false);
+    });
+
+    // ---- value semantics ---------------------------------------------------
+
+    // Regression: upstream stores coefficients by value, so no result may
+    // share a nested coefficient object with the operands that produced it.
+    it('results never alias the nested coefficients of their operands', () => {
+        const inner = (a: number, b: number): QFNumber => new QFNumber(a, b, 2);
+        const q0 = new QFNumber(inner(1, 2), inner(3, 4), 5);
+        const q1 = new QFNumber(inner(5, 6), inner(7, 8), 5);
+
+        const results: QFNumber[] = [
+            q0.clone(), q0.negate(), q0.add(1), q0.sub(1), q0.mul(2), q0.div(2),
+            q0.add(q1), q0.sub(q1), q0.mul(q1), QFNumber.scalarSub(1, q0)
+        ];
+        for (const r of results) {
+            for (const c of r.x) {
+                expect(c).not.toBe(q0.x[0]);
+                expect(c).not.toBe(q0.x[1]);
+                expect(c).not.toBe(q1.x[0]);
+                expect(c).not.toBe(q1.x[1]);
+            }
+        }
+
+        // Mutating a result must not disturb the operands.
+        const sum = q0.add(1);
+        (sum.x[1] as QFNumber).x[0] = 99;
+        expect((q0.x[1] as QFNumber).x[0]).toBe(3);
+
+        // The constructor copies too.
+        const c0 = inner(10, 11);
+        const held = new QFNumber(c0, inner(12, 13), 5);
+        expect(held.x[0]).not.toBe(c0);
+        c0.x[0] = -1;
+        expect((held.x[0] as QFNumber).x[0]).toBe(10);
+    });
+
+    // ---- nested fields (N = 2) ---------------------------------------------
+
+    it('nested arithmetic agrees with numeric evaluation', () => {
+        const nested = fc.tuple(coeff, coeff, coeff, coeff)
+            .map(([a, b, c, e]) =>
+                new QFNumber(new QFNumber(a, b, 2), new QFNumber(c, e, 2), 3));
+        check(fc.tuple(nested, nested), ([p, q]) => {
+            expect(evalQF(p.add(q))).toBeCloseTo(evalQF(p) + evalQF(q), 9);
+            expect(evalQF(p.sub(q))).toBeCloseTo(evalQF(p) - evalQF(q), 9);
+            expect(evalQF(p.mul(q))).toBeCloseTo(evalQF(p) * evalQF(q), 8);
+            expect(evalQF(p.negate())).toBeCloseTo(-evalQF(p), 9);
+            expect(evalQF(p.mul(3))).toBeCloseTo(3 * evalQF(p), 9);
+            return true;
+        });
+    });
+
+    it('(sqrt(2) + sqrt(3))^2 = 5 + 2 sqrt(6) in the nested field', () => {
+        // z = 0 + 1*sqrt(2) + (1 + 0*sqrt(2))*sqrt(3).
+        const z = new QFNumber(new QFNumber(0, 1, 2), new QFNumber(1, 0, 2), 3);
+        const zz = z.mul(z);
+        // x[0] = 2 + 3 = 5, x[1] = 0 + 2*sqrt(2)*... evaluate numerically.
+        expect(evalQF(zz)).toBeCloseTo(5 + 2 * Math.sqrt(6), 12);
+        expect((zz.x[0] as QFNumber).x[0]).toBe(5);
+        expect((zz.x[0] as QFNumber).x[1]).toBe(0);
+        expect((zz.x[1] as QFNumber).x[0]).toBe(0);
+        expect((zz.x[1] as QFNumber).x[1]).toBe(2);
+    });
+
+    it('mixing coefficient depths is rejected by the comparisons', () => {
+        const shallow = new QFNumber(1, 2, 3);
+        const deep = new QFNumber(new QFNumber(1, 0, 2), new QFNumber(0, 0, 2), 3);
+        expect(() => shallow.equals(deep)).toThrow(/Mismatched coefficient depth/);
+        expect(() => shallow.lessThan(deep)).toThrow(/Mismatched coefficient depth/);
     });
 });

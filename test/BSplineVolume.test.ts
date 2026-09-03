@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { check, fc, finite, expectClose, expectVectorClose } from './helpers/arbitraries.js';
 import { BSplineVolume } from '../src/BSplineVolume.js';
+import { BSplineSurface } from '../src/BSplineSurface.js';
+import { BSplineCurve } from '../src/BSplineCurve.js';
 import { BasisFunctionInput, UniqueKnot } from '../src/BasisFunction.js';
 import { Vector } from '../src/Vector.js';
 
@@ -241,5 +244,241 @@ describe('BSplineVolume evaluation', () => {
         for (let k = 0; k < 3; ++k) {
             expect(first.values[k]).toBeCloseTo(jet[0].values[k], 12);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (V05). The volume is cross-checked against the separately
+// ported BSplineSurface and BSplineCurve classes: X(u,v,w) is the B-spline
+// curve in w whose control points are the w-slices evaluated as B-spline
+// surfaces in (u,v). Those classes share no code with BSplineVolume::Compute,
+// so the check exercises the index arithmetic and the triple summation
+// independently.
+// ---------------------------------------------------------------------------
+describe('BSplineVolume verification', () => {
+    interface Config {
+        n: [number, number, number];
+        d: [number, number, number];
+        dim: number;
+        controls: Vector[];
+    }
+
+    const configArb: fc.Arbitrary<Config> = fc.tuple(
+        fc.integer({ min: 2, max: 4 }), fc.integer({ min: 1, max: 3 }),
+        fc.integer({ min: 2, max: 4 }), fc.integer({ min: 1, max: 3 }),
+        fc.integer({ min: 2, max: 4 }), fc.integer({ min: 1, max: 3 }),
+        fc.integer({ min: 1, max: 3 }),
+        fc.array(finite(-20, 20), { minLength: 4 * 4 * 4 * 3, maxLength: 4 * 4 * 4 * 3 })
+    ).filter(([n0, d0, n1, d1, n2, d2]) => d0 < n0 && d1 < n1 && d2 < n2)
+        .map(([n0, d0, n1, d1, n2, d2, dim, data]) => {
+            const controls: Vector[] = [];
+            for (let i = 0; i < n0 * n1 * n2; ++i) {
+                const c = new Vector(dim);
+                for (let k = 0; k < dim; ++k) { c.values[k] = data[i * 3 + k]; }
+                controls.push(c);
+            }
+            return { n: [n0, n1, n2] as [number, number, number],
+                d: [d0, d1, d2] as [number, number, number], dim, controls };
+        });
+
+    const inputsOf = (c: Config): BasisFunctionInput[] => [
+        new BasisFunctionInput(c.n[0], c.d[0]),
+        new BasisFunctionInput(c.n[1], c.d[1]),
+        new BasisFunctionInput(c.n[2], c.d[2])
+    ];
+
+    const makeVolume = (c: Config): BSplineVolume =>
+        new BSplineVolume(c.dim, inputsOf(c), c.controls);
+
+    function position(volume: BSplineVolume, u: number, v: number, w: number): Vector {
+        const jet = volume.createJet();
+        volume.evaluate(u, v, w, 0, jet);
+        return jet[0];
+    }
+
+    /** X(u,v,w) via a stack of BSplineSurface slices and a BSplineCurve in w. */
+    function nestedEvaluation(c: Config, u: number, v: number, w: number): Vector {
+        const [n0, n1, n2] = c.n;
+        const slicePoints: Vector[] = [];
+        for (let i2 = 0; i2 < n2; ++i2) {
+            const slice: Vector[] = [];
+            for (let i1 = 0; i1 < n1; ++i1) {
+                for (let i0 = 0; i0 < n0; ++i0) {
+                    slice.push(c.controls[i0 + n0 * (i1 + n1 * i2)]);
+                }
+            }
+            const surface = new BSplineSurface(c.dim,
+                [new BasisFunctionInput(n0, c.d[0]), new BasisFunctionInput(n1, c.d[1])],
+                slice);
+            slicePoints.push(surface.getPosition(u, v));
+        }
+        const curve = new BSplineCurve(c.dim,
+            new BasisFunctionInput(n2, c.d[2]), slicePoints);
+        return curve.getPosition(w);
+    }
+
+    it('agrees with a stack of BSplineSurface slices evaluated as a curve', () => {
+        check(fc.tuple(configArb, finite(0, 1), finite(0, 1), finite(0, 1)),
+            ([c, u, v, w]) => {
+                const volume = makeVolume(c);
+                expectVectorClose(position(volume, u, v, w),
+                    nestedEvaluation(c, u, v, w), 1e-11, 1e-11);
+                return true;
+            }, 50);
+    });
+
+    it('is invariant under affine maps of the control points', () => {
+        check(fc.tuple(configArb, finite(0, 1), finite(0, 1), finite(0, 1),
+            finite(-3, 3), finite(-5, 5)), ([c, u, v, w, scale, shift]) => {
+                const volume = makeVolume(c);
+                const moved = c.controls.map(p => {
+                    const q = new Vector(c.dim);
+                    for (let k = 0; k < c.dim; ++k) { q.values[k] = scale * p.values[k] + shift; }
+                    return q;
+                });
+                const other = makeVolume({ ...c, controls: moved });
+                const p = position(volume, u, v, w);
+                const q = position(other, u, v, w);
+                for (let k = 0; k < c.dim; ++k) {
+                    expectClose(q.values[k], scale * p.values[k] + shift, 1e-9, 1e-10);
+                }
+                return true;
+            }, 50);
+    });
+
+    it('interpolates the eight corner control points of an open spline', () => {
+        check(configArb, c => {
+            const volume = makeVolume(c);
+            const [n0, n1, n2] = c.n;
+            for (const [a0, a1, a2] of [[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0],
+                [0, 0, 1], [1, 0, 1], [0, 1, 1], [1, 1, 1]]) {
+                const i0 = a0 * (n0 - 1);
+                const i1 = a1 * (n1 - 1);
+                const i2 = a2 * (n2 - 1);
+                const p = position(volume, a0, a1, a2);
+                expectVectorClose(p, c.controls[i0 + n0 * (i1 + n1 * i2)], 1e-11, 1e-11);
+            }
+            return true;
+        }, 50);
+    });
+
+    it('first-order jet entries match central differences', () => {
+        const smooth = configArb.filter(c => c.d[0] >= 2 && c.d[1] >= 2 && c.d[2] >= 2);
+        check(fc.tuple(smooth, finite(0.25, 0.75), finite(0.25, 0.75), finite(0.25, 0.75)),
+            ([c, u, v, w]) => {
+                const volume = makeVolume(c);
+                const jet = volume.createJet();
+                volume.evaluate(u, v, w, 1, jet);
+                const h = 1e-5;
+                for (let k = 0; k < c.dim; ++k) {
+                    const du = (position(volume, u + h, v, w).values[k]
+                        - position(volume, u - h, v, w).values[k]) / (2 * h);
+                    const dv = (position(volume, u, v + h, w).values[k]
+                        - position(volume, u, v - h, w).values[k]) / (2 * h);
+                    const dw = (position(volume, u, v, w + h).values[k]
+                        - position(volume, u, v, w - h).values[k]) / (2 * h);
+                    // C^1 surfaces: the truncation error is O(h) at a knot
+                    // and the rounding error is O(eps/h).
+                    expectClose(jet[1].values[k], du, 1e-4, 1e-5);
+                    expectClose(jet[2].values[k], dv, 1e-4, 1e-5);
+                    expectClose(jet[3].values[k], dw, 1e-4, 1e-5);
+                }
+                return true;
+            }, 40);
+    });
+
+    it('setControl and getControl ignore out-of-range indices and copy inputs', () => {
+        const c: Config = {
+            n: [2, 2, 2], d: [1, 1, 1], dim: 2,
+            controls: Array.from({ length: 8 }, (_, i) => {
+                const p = new Vector(2);
+                p.values[0] = i;
+                return p;
+            })
+        };
+        const volume = makeVolume(c);
+        const replacement = new Vector(2);
+        replacement.values[0] = 42;
+        for (const [i0, i1, i2] of [[-1, 0, 0], [0, -1, 0], [0, 0, -1],
+            [2, 0, 0], [0, 2, 0], [0, 0, 2]]) {
+            volume.setControl(i0, i1, i2, replacement);
+            expect(volume.getControl(i0, i1, i2).values[0]).toBe(0);
+        }
+        for (let i = 0; i < 8; ++i) {
+            expect(volume.getControls()[i].values[0]).toBe(i);
+        }
+        volume.setControl(1, 1, 1, replacement);
+        replacement.values[0] = -99;
+        expect(volume.getControl(1, 1, 1).values[0]).toBe(42);
+    });
+
+    it('leaves the unused jet entries untouched for low orders', () => {
+        const c: Config = {
+            n: [3, 3, 3], d: [2, 2, 2], dim: 1,
+            controls: Array.from({ length: 27 }, (_, i) => {
+                const p = new Vector(1);
+                p.values[0] = i;
+                return p;
+            })
+        };
+        const volume = makeVolume(c);
+        const jet = volume.createJet();
+        for (let i = 1; i < BSplineVolume.SUP_ORDER; ++i) { jet[i].values[0] = 777; }
+        volume.evaluate(0.5, 0.5, 0.5, 0, jet);
+        for (let i = 1; i < BSplineVolume.SUP_ORDER; ++i) {
+            expect(jet[i].values[0]).toBe(777);
+        }
+        volume.evaluate(0.5, 0.5, 0.5, 1, jet);
+        for (let i = 4; i < BSplineVolume.SUP_ORDER; ++i) {
+            expect(jet[i].values[0]).toBe(777);
+        }
+        volume.evaluate(0.5, 0.5, 0.5, BSplineVolume.SUP_ORDER, jet);
+        for (let i = 0; i < BSplineVolume.SUP_ORDER; ++i) {
+            expect(jet[i].values[0]).toBe(0);
+        }
+    });
+
+    // The second-order jet slots are ordered d2X/du2, d2X/dv2, d2X/dw2,
+    // d2X/dudv, d2X/dudw, d2X/dvdw -- a different order from BSplineSurface.
+    it('places the second-order derivatives in the upstream jet order', () => {
+        const c: Config = {
+            n: [3, 3, 3], d: [2, 2, 2], dim: 1,
+            controls: Array.from({ length: 27 }, (_, i) => {
+                const p = new Vector(1);
+                // A control lattice whose spline is exactly u^2 + 2*v^2 + 3*w^2
+                // is not available in closed form, so use distinct weights per
+                // axis and compare with finite differences instead.
+                const i0 = i % 3;
+                const i1 = Math.floor(i / 3) % 3;
+                const i2 = Math.floor(i / 9);
+                p.values[0] = i0 + 10 * i1 + 100 * i2 + i0 * i1 * 0.5;
+                return p;
+            })
+        };
+        const volume = makeVolume(c);
+        const jet = volume.createJet();
+        const u = 0.4, v = 0.6, w = 0.55, h = 1e-4;
+        volume.evaluate(u, v, w, 2, jet);
+
+        const f = (a: number, b: number, cc: number): number =>
+            position(volume, a, b, cc).values[0];
+        const duu = (f(u + h, v, w) - 2 * f(u, v, w) + f(u - h, v, w)) / (h * h);
+        const dvv = (f(u, v + h, w) - 2 * f(u, v, w) + f(u, v - h, w)) / (h * h);
+        const dww = (f(u, v, w + h) - 2 * f(u, v, w) + f(u, v, w - h)) / (h * h);
+        const duv = (f(u + h, v + h, w) - f(u + h, v - h, w)
+            - f(u - h, v + h, w) + f(u - h, v - h, w)) / (4 * h * h);
+        const duw = (f(u + h, v, w + h) - f(u + h, v, w - h)
+            - f(u - h, v, w + h) + f(u - h, v, w - h)) / (4 * h * h);
+        const dvw = (f(u, v + h, w + h) - f(u, v + h, w - h)
+            - f(u, v - h, w + h) + f(u, v - h, w - h)) / (4 * h * h);
+
+        // Second differences with h = 1e-4 carry an O(eps/h^2) rounding error
+        // of about 1e-8 relative to the magnitudes here.
+        expectClose(jet[4].values[0], duu, 1e-3, 1e-5);
+        expectClose(jet[5].values[0], dvv, 1e-3, 1e-5);
+        expectClose(jet[6].values[0], dww, 1e-3, 1e-5);
+        expectClose(jet[7].values[0], duv, 1e-3, 1e-5);
+        expectClose(jet[8].values[0], duw, 1e-3, 1e-5);
+        expectClose(jet[9].values[0], dvw, 1e-3, 1e-5);
     });
 });

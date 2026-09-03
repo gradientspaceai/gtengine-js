@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { check, fc } from './helpers/arbitraries.js';
 import { SWInterval, nextDown, nextUp } from '../src/SWInterval.js';
 
 // Deterministic pseudorandom generator (LCG) for reproducible tests.
@@ -340,5 +341,299 @@ describe('SWInterval enclosure property (randomized)', () => {
         expect(z.mul(z).getEndpoints()).toEqual(
             [-Number.MIN_VALUE, Number.MIN_VALUE]);
         expectContains(z.add(z), 0);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (V05). The existing suite checks enclosure of the
+// *rounded* double result; these properties check enclosure of the *exact*
+// real result, computed with bigint rationals, which is what interval
+// arithmetic actually promises.
+// ---------------------------------------------------------------------------
+describe('SWInterval verification', () => {
+    // ---- exact rational arithmetic on doubles ------------------------------
+
+    interface Rat { n: bigint; d: bigint; }   // d > 0
+
+    /** The exact value of a finite double as a rational number. */
+    function ratOf(v: number): Rat {
+        const buffer = new DataView(new ArrayBuffer(8));
+        buffer.setFloat64(0, v);
+        const bits = buffer.getBigUint64(0);
+        const s = (bits >> 63n) === 1n ? -1n : 1n;
+        const e = Number((bits >> 52n) & 0x7FFn);
+        const t = bits & 0xFFFFFFFFFFFFFn;
+        const m = e === 0 ? t : (t | 0x10000000000000n);
+        const p = (e === 0 ? -1074 : e - 1075);
+        return p >= 0
+            ? { n: s * m * (1n << BigInt(p)), d: 1n }
+            : { n: s * m, d: 1n << BigInt(-p) };
+    }
+
+    const ratAdd = (a: Rat, b: Rat): Rat => ({ n: a.n * b.d + b.n * a.d, d: a.d * b.d });
+    const ratSub = (a: Rat, b: Rat): Rat => ({ n: a.n * b.d - b.n * a.d, d: a.d * b.d });
+    const ratMul = (a: Rat, b: Rat): Rat => ({ n: a.n * b.n, d: a.d * b.d });
+    const ratDiv = (a: Rat, b: Rat): Rat => (b.n < 0n
+        ? { n: -a.n * b.d, d: a.d * -b.n }
+        : { n: a.n * b.d, d: a.d * b.n });
+    /** sign(a - b) for two rationals with positive denominators. */
+    const ratCmp = (a: Rat, b: Rat): number => {
+        const l = a.n * b.d;
+        const r = b.n * a.d;
+        return l < r ? -1 : (l > r ? 1 : 0);
+    };
+
+    /** The exact real 'value' lies in the closed interval w. */
+    function expectContainsExact(w: SWInterval, value: Rat): void {
+        const lo = w.get(0);
+        const hi = w.get(1);
+        if (lo !== Number.NEGATIVE_INFINITY) {
+            expect(ratCmp(ratOf(lo), value)).toBeLessThanOrEqual(0);
+        }
+        if (hi !== Number.POSITIVE_INFINITY) {
+            expect(ratCmp(value, ratOf(hi))).toBeLessThanOrEqual(0);
+        }
+    }
+
+    /** Endpoint equality that treats -0 and +0 as equal, as C++ == does. */
+    function expectSameEndpoints(a: SWInterval, b: SWInterval): void {
+        expect(a.get(0) === b.get(0)).toBe(true);
+        expect(a.get(1) === b.get(1)).toBe(true);
+    }
+
+    // ---- arbitraries -------------------------------------------------------
+
+    // Moderate magnitudes so that no bound overflows to an infinity, which
+    // the nextafter widening would pull back to +/-MAX_VALUE and break
+    // enclosure (a caveat inherited from upstream).
+    const endpoint = fc.double({ min: -1e6, max: 1e6, noNaN: true, noDefaultInfinity: true });
+    const awayFromZero = endpoint.filter(v => Math.abs(v) >= 1e-3);
+
+    const intervalArb: fc.Arbitrary<SWInterval> = fc.tuple(endpoint, endpoint)
+        .map(([a, b]) => new SWInterval(Math.min(a, b), Math.max(a, b)));
+
+    // A divisor interval bounded away from zero, so the reciprocal cannot
+    // overflow.
+    const divisorArb: fc.Arbitrary<SWInterval> = fc.tuple(awayFromZero, awayFromZero)
+        .filter(([a, b]) => (a > 0 && b > 0) || (a < 0 && b < 0))
+        .map(([a, b]) => new SWInterval(Math.min(a, b), Math.max(a, b)));
+
+    /** Points of the interval whose images bound the result of a monotone op. */
+    function samplePoints(u: SWInterval): number[] {
+        const a = u.get(0);
+        const b = u.get(1);
+        return [a, b, a + (b - a) * 0.5, a + (b - a) * 0.25, a + (b - a) * 0.75];
+    }
+
+    // ---- nextDown / nextUp -------------------------------------------------
+
+    // Independent characterisation: nextUp(x) is the least double greater
+    // than x, so nothing lies strictly between; the midpoint of x and its
+    // successor must round back to one of the two.
+    it('nextUp and nextDown are the adjacent doubles', () => {
+        check(fc.double({ noNaN: true, noDefaultInfinity: true }), x => {
+            const up = nextUp(x);
+            const down = nextDown(x);
+            if (x !== Number.MAX_VALUE) {
+                expect(up).toBeGreaterThan(x);
+                const mid = x / 2 + up / 2;
+                expect(mid === x || mid === up).toBe(true);
+                expect(nextDown(up) === x).toBe(true);
+            }
+            if (x !== -Number.MAX_VALUE) {
+                expect(down).toBeLessThan(x);
+                const mid = x / 2 + down / 2;
+                expect(mid === x || mid === down).toBe(true);
+                expect(nextUp(down) === x).toBe(true);
+            }
+            // Odd symmetry, which the interval operations rely on.
+            expect(nextUp(-x) === -nextDown(x)).toBe(true);
+            return true;
+        });
+    });
+
+    // ---- enclosure of the exact real result --------------------------------
+
+    it('add and sub enclose the exact real result for every pair of points', () => {
+        check(fc.tuple(intervalArb, intervalArb), ([u, v]) => {
+            const sum = u.add(v);
+            const diff = u.sub(v);
+            expect(sum.get(0)).toBeLessThanOrEqual(sum.get(1));
+            expect(diff.get(0)).toBeLessThanOrEqual(diff.get(1));
+            for (const a of samplePoints(u)) {
+                for (const b of samplePoints(v)) {
+                    expectContainsExact(sum, ratAdd(ratOf(a), ratOf(b)));
+                    expectContainsExact(diff, ratSub(ratOf(a), ratOf(b)));
+                }
+            }
+            return true;
+        }, 100);
+    });
+
+    it('mul encloses the exact real product in every sign configuration', () => {
+        check(fc.tuple(intervalArb, intervalArb), ([u, v]) => {
+            const prod = u.mul(v);
+            expect(prod.get(0)).toBeLessThanOrEqual(prod.get(1));
+            for (const a of samplePoints(u)) {
+                for (const b of samplePoints(v)) {
+                    expectContainsExact(prod, ratMul(ratOf(a), ratOf(b)));
+                }
+            }
+            return true;
+        }, 100);
+    });
+
+    it('div encloses the exact real quotient when the divisor excludes zero', () => {
+        check(fc.tuple(intervalArb, divisorArb), ([u, v]) => {
+            const quot = u.div(v);
+            expect(quot.get(0)).toBeLessThanOrEqual(quot.get(1));
+            for (const a of samplePoints(u)) {
+                for (const b of samplePoints(v)) {
+                    expectContainsExact(quot, ratDiv(ratOf(a), ratOf(b)));
+                }
+            }
+            return true;
+        }, 100);
+    });
+
+    it('the scalar overloads enclose the exact real result', () => {
+        check(fc.tuple(intervalArb, awayFromZero), ([u, s]) => {
+            const rs = ratOf(s);
+            for (const a of samplePoints(u)) {
+                const ra = ratOf(a);
+                expectContainsExact(u.add(s), ratAdd(ra, rs));
+                expectContainsExact(u.sub(s), ratSub(ra, rs));
+                expectContainsExact(u.mul(s), ratMul(ra, rs));
+                expectContainsExact(SWInterval.scalarSub(s, u), ratSub(rs, ra));
+                expectContainsExact(u.div(s), ratDiv(ra, rs));
+            }
+            return true;
+        }, 100);
+    });
+
+    it('scalarDiv encloses the exact real quotient', () => {
+        check(fc.tuple(awayFromZero, divisorArb), ([s, v]) => {
+            const w = SWInterval.scalarDiv(s, v);
+            for (const b of samplePoints(v)) {
+                expectContainsExact(w, ratDiv(ratOf(s), ratOf(b)));
+            }
+            return true;
+        }, 100);
+    });
+
+    it('the leaf-node operations enclose the exact real result', () => {
+        check(fc.tuple(endpoint, endpoint), ([a, b]) => {
+            const ra = ratOf(a), rb = ratOf(b);
+            expectContainsExact(SWInterval.add(a, b), ratAdd(ra, rb));
+            expectContainsExact(SWInterval.sub(a, b), ratSub(ra, rb));
+            expectContainsExact(SWInterval.mul(a, b), ratMul(ra, rb));
+            if (b === 0) {
+                expect(SWInterval.div(a, b).getEndpoints())
+                    .toEqual([-Infinity, Infinity]);
+            } else if (Number.isFinite(a / b)) {
+                expectContainsExact(SWInterval.div(a, b), ratDiv(ra, rb));
+            }
+            // else the quotient overflows; nextafter pulls the infinite bound
+            // back to +/-MAX_VALUE and enclosure is lost. That is an upstream
+            // caveat of the nextafter widening, exercised below.
+            return true;
+        });
+    });
+
+    // Upstream caveat, preserved: a bound that overflows to an infinity is
+    // pulled back to +/-MAX_VALUE by nextafter(value, +/-max), so the result
+    // no longer encloses the exact quotient.
+    it('an overflowing leaf quotient loses enclosure at MAX_VALUE', () => {
+        const w = SWInterval.div(8.881784197001252e-16, -Number.MIN_VALUE);
+        expect(w.getEndpoints()).toEqual([-Number.MAX_VALUE, -Number.MAX_VALUE]);
+    });
+
+    // ---- algebraic identities of the widened operations --------------------
+
+    it('interval addition and multiplication are commutative endpoint for endpoint', () => {
+        check(fc.tuple(intervalArb, intervalArb), ([u, v]) => {
+            expectSameEndpoints(u.mul(v), v.mul(u));
+            expectSameEndpoints(u.add(v), v.add(u));
+            return true;
+        });
+    });
+
+    // nextDown(-x) = -nextUp(x), so negating one operand of a subtraction is
+    // the same as negating the mirrored result. This pins the direction of
+    // every widening in add/sub/negate at once.
+    it('negation commutes with the additive operations', () => {
+        check(fc.tuple(intervalArb, intervalArb), ([u, v]) => {
+            expectSameEndpoints(u.negate().negate(), u);
+            expectSameEndpoints(u.negate().add(v), v.sub(u));
+            expectSameEndpoints(u.sub(v).negate(), v.sub(u));
+            expectSameEndpoints(u.negate().mul(v), u.mul(v).negate());
+            return true;
+        });
+    });
+
+    it('a scalar operand behaves like the degenerate interval [s, s]', () => {
+        check(fc.tuple(intervalArb, endpoint), ([u, s]) => {
+            const deg = new SWInterval(s);
+            expectSameEndpoints(u.add(s), u.add(deg));
+            expectSameEndpoints(u.sub(s), u.sub(deg));
+            expectSameEndpoints(u.mul(s), u.mul(deg));
+            expectSameEndpoints(SWInterval.scalarSub(s, u), deg.sub(u));
+            return true;
+        });
+    });
+
+    it('a degenerate product is exactly one ulp wide on each side', () => {
+        check(fc.tuple(endpoint, endpoint), ([a, b]) => {
+            const w = new SWInterval(a).mul(new SWInterval(b));
+            expect(w.get(0) === nextDown(a * b)).toBe(true);
+            expect(w.get(1) === nextUp(a * b)).toBe(true);
+            return true;
+        });
+    });
+
+    // ---- divisor intervals containing zero ---------------------------------
+
+    it('a divisor interval straddling zero yields the whole real line', () => {
+        check(fc.tuple(intervalArb, fc.double({ min: -1e3, max: -1e-6, noNaN: true }),
+            fc.double({ min: 1e-6, max: 1e3, noNaN: true })), ([u, lo, hi]) => {
+                const v = new SWInterval(lo, hi);
+                expect(u.div(v).getEndpoints()).toEqual([-Infinity, Infinity]);
+                expect(SWInterval.scalarDiv(1, v).getEndpoints())
+                    .toEqual([-Infinity, Infinity]);
+                return true;
+            });
+    });
+
+    // Upstream quirk, preserved: the half-infinite reciprocal of [0, b] is
+    // multiplied by the dividend, and nextafter pulls the resulting infinite
+    // bound back to +/-MAX_VALUE instead of leaving it infinite.
+    it('a divisor interval with a zero endpoint yields a bound at MAX_VALUE', () => {
+        check(fc.tuple(fc.double({ min: 1, max: 100, noNaN: true }),
+            fc.double({ min: 1, max: 100, noNaN: true })), ([a, b]) => {
+                const u = new SWInterval(a, a + b);
+                const w = u.div(new SWInterval(0, b));
+                expect(w.get(1)).toBe(Number.MAX_VALUE);
+                expectContainsExact(w, ratDiv(ratOf(a), ratOf(b)));
+                const w2 = u.div(new SWInterval(-b, 0));
+                expect(w2.get(0)).toBe(-Number.MAX_VALUE);
+                expectContainsExact(w2, ratDiv(ratOf(a), ratOf(-b)));
+                return true;
+            });
+    });
+
+    // ---- value semantics ---------------------------------------------------
+
+    it('results and getEndpoints never alias the operands', () => {
+        const u = new SWInterval(1, 2);
+        const v = new SWInterval(3, 4);
+        const e = u.getEndpoints();
+        e[0] = 99;
+        expect(u.get(0)).toBe(1);
+        for (const w of [u.clone(), u.negate(), u.add(v), u.sub(v), u.mul(v),
+            u.div(v), u.add(1), SWInterval.scalarSub(1, u), SWInterval.scalarDiv(1, u)]) {
+            expect(w).not.toBe(u);
+            expect(w).not.toBe(v);
+        }
+        expect(u.getEndpoints()).not.toBe(u.getEndpoints());
     });
 });
