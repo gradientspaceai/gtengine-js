@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { check, fc } from './helpers/arbitraries.js';
 import { BSNumber, BSNumberRoundingMode, convertBSNumber } from '../src/BSNumber.js';
 import { isArbitraryPrecision, hasDivisionOperator } from '../src/TypeTraits.js';
 
@@ -555,5 +556,472 @@ describe('convertBSNumber', () => {
         expect(() => convertBSNumber(x, 0, BSNumberRoundingMode.FE_TONEAREST)).toThrow();
         expect(() => convertBSNumber(x, -1, BSNumberRoundingMode.FE_TONEAREST)).toThrow();
         expect(() => convertBSNumber(x, 1, 17 as BSNumberRoundingMode)).toThrow();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (V05). The port replaces the upstream 32-bit-block
+// UInteger with bigint, so these properties check the *semantics* -- sign,
+// biased exponent, the odd-integer invariant, round-to-nearest-ties-to-even
+// in both directions of conversion, and the rounding modes of Convert --
+// against independent bigint computations rather than the storage layout.
+// ---------------------------------------------------------------------------
+describe('BSNumber verification', () => {
+    // Any finite double, including subnormals and the extremes.
+    const anyDouble = fc.double({ noNaN: true, noDefaultInfinity: true });
+
+    // A BSNumber whose unsigned integer typically needs far more than 53
+    // bits, built by exact arithmetic on ordinary doubles.
+    const wideBSNumber: fc.Arbitrary<BSNumber> = fc.tuple(anyDouble, anyDouble, anyDouble)
+        .map(([a, b, c]) => BSNumber.fromNumber(a)
+            .mul(BSNumber.fromNumber(b))
+            .add(BSNumber.fromNumber(c)));
+
+    const anyBSNumber: fc.Arbitrary<BSNumber> =
+        fc.oneof(anyDouble.map(d => BSNumber.fromNumber(d)), wideBSNumber);
+
+    function nextUp(v: number): number {
+        if (!Number.isFinite(v)) { return v; }
+        if (v === 0) { return Number.MIN_VALUE; }
+        const buffer = new DataView(new ArrayBuffer(8));
+        buffer.setFloat64(0, v);
+        buffer.setBigUint64(0, buffer.getBigUint64(0) + (v > 0 ? 1n : -1n));
+        return buffer.getFloat64(0);
+    }
+
+    function nextDown(v: number): number {
+        return -nextUp(-v);
+    }
+
+    /** True when the significand of the double is even (the ties-to-even winner). */
+    function significandIsEven(v: number): boolean {
+        const buffer = new DataView(new ArrayBuffer(8));
+        buffer.setFloat64(0, v);
+        return (buffer.getBigUint64(0) & 1n) === 0n;
+    }
+
+    /** |a - b| as an exact BSNumber. */
+    function absDiff(a: BSNumber, b: BSNumber): BSNumber {
+        return BSNumber.fabs(a.sub(b));
+    }
+
+    // ---- representation invariants ----------------------------------------
+
+    it('every constructed and computed number satisfies the odd-integer invariant', () => {
+        check(fc.tuple(anyBSNumber, anyBSNumber), ([a, b]) => {
+            const results = [a, b, a.add(b), a.sub(b), a.mul(b), a.negated(),
+                BSNumber.fabs(a), BSNumber.frexp(a).result];
+            if (a.getSign() !== 0) {
+                // ldexp of zero is the one upstream operation that can break
+                // the invariant; see the dedicated test below.
+                results.push(BSNumber.ldexp(a, 37));
+            }
+            for (const x of results) {
+                expect(x.isValid()).toBe(true);
+            }
+            return true;
+        });
+    });
+
+    it('zero has the canonical representation and is absorbing/neutral', () => {
+        const zero = new BSNumber();
+        check(anyBSNumber, a => {
+            expect(a.add(zero).equals(a)).toBe(true);
+            expect(zero.add(a).equals(a)).toBe(true);
+            expect(a.sub(zero).equals(a)).toBe(true);
+            expect(zero.sub(a).equals(a.negated())).toBe(true);
+            const p = a.mul(zero);
+            expect(p.getSign()).toBe(0);
+            expect(p.getBiasedExponent()).toBe(0);
+            expect(p.getUInteger()).toBe(0n);
+            expect(a.sub(a).getSign()).toBe(0);
+            // Regression: the sign is an int32 upstream, so negating zero
+            // must yield +0 and not JavaScript's -0.
+            expect(Object.is(zero.negated().getSign(), 0)).toBe(true);
+            expect(Object.is(zero.sub(a).getSign(), -a.getSign() | 0)).toBe(true);
+            return true;
+        });
+    });
+
+    // ---- exact arithmetic against independent bigint rationals -------------
+
+    it('add, sub and mul agree with exact bigint arithmetic', () => {
+        check(fc.tuple(anyBSNumber, anyBSNumber), ([a, b]) => {
+            const ea = exact(a);
+            const eb = exact(b);
+            const minExp = Math.min(ea.exp, eb.exp);
+            const na = ea.num << BigInt(ea.exp - minExp);
+            const nb = eb.num << BigInt(eb.exp - minExp);
+
+            for (const [result, expectedNum] of [
+                [a.add(b), na + nb], [a.sub(b), na - nb]] as Array<[BSNumber, bigint]>) {
+                const er = exact(result);
+                if (er.num === 0n) {
+                    expect(expectedNum).toBe(0n);
+                    continue;
+                }
+                // Compare on the common exponent minExp; a nonzero result's
+                // exponent is never smaller because its bits are a subset of
+                // the operands' bits.
+                expect(er.exp).toBeGreaterThanOrEqual(minExp);
+                expect(er.num << BigInt(er.exp - minExp)).toBe(expectedNum);
+            }
+
+            const prod = exact(a.mul(b));
+            if (ea.num === 0n || eb.num === 0n) {
+                expect(prod.num).toBe(0n);
+            } else {
+                expect(prod.num).toBe(ea.num * eb.num);
+                expect(prod.exp).toBe(ea.exp + eb.exp);
+            }
+            return true;
+        });
+    });
+
+    it('is a commutative ring on the generated values', () => {
+        check(fc.tuple(anyBSNumber, anyBSNumber, anyBSNumber), ([a, b, c]) => {
+            expect(a.add(b).equals(b.add(a))).toBe(true);
+            expect(a.mul(b).equals(b.mul(a))).toBe(true);
+            expect(a.add(b).add(c).equals(a.add(b.add(c)))).toBe(true);
+            expect(a.mul(b).mul(c).equals(a.mul(b.mul(c)))).toBe(true);
+            // Distributivity is exact only because there is no rounding.
+            expect(a.add(b).mul(c).equals(a.mul(c).add(b.mul(c)))).toBe(true);
+            expect(a.sub(b).equals(a.add(b.negated()))).toBe(true);
+            return true;
+        });
+    });
+
+    it('robustSOP, robustDOP and fma are the exact expressions', () => {
+        check(fc.tuple(anyBSNumber, anyBSNumber, anyBSNumber, anyBSNumber),
+            ([u, v, w, z]) => {
+                expect(BSNumber.fma(u, v, w).equals(u.mul(v).add(w))).toBe(true);
+                expect(BSNumber.robustSOP(u, v, w, z).equals(u.mul(v).add(w.mul(z)))).toBe(true);
+                expect(BSNumber.robustDOP(u, v, w, z).equals(u.mul(v).sub(w.mul(z)))).toBe(true);
+                return true;
+            });
+    });
+
+    // ---- ordering ----------------------------------------------------------
+
+    it('the comparison operators realise the exact total order', () => {
+        check(fc.tuple(anyBSNumber, anyBSNumber), ([a, b]) => {
+            const c = exactCompare(a, b);
+            expect(a.lessThan(b)).toBe(c < 0);
+            expect(a.greaterThan(b)).toBe(c > 0);
+            expect(a.equals(b)).toBe(c === 0);
+            expect(a.notEquals(b)).toBe(c !== 0);
+            expect(a.lessThanOrEqual(b)).toBe(c <= 0);
+            expect(a.greaterThanOrEqual(b)).toBe(c >= 0);
+            // Order-reversal under negation.
+            expect(a.negated().lessThan(b.negated())).toBe(c > 0);
+            return true;
+        });
+    });
+
+    it('a - b has the sign implied by the comparison', () => {
+        check(fc.tuple(anyBSNumber, anyBSNumber), ([a, b]) => {
+            expect(a.sub(b).getSign()).toBe(exactCompare(a, b));
+            return true;
+        });
+    });
+
+    // ---- conversions to double --------------------------------------------
+
+    it('fromNumber/toNumber round trips every finite double exactly', () => {
+        check(anyDouble, d => {
+            const x = BSNumber.fromNumber(d);
+            expect(x.toNumber()).toBe(d === 0 ? 0 : d);   // -0 maps to +0
+            const e = exact(x);
+            const ed = doubleToExact(d);
+            const minExp = Math.min(e.exp, ed.exp);
+            expect(e.num << BigInt(e.exp - minExp)).toBe(ed.num << BigInt(ed.exp - minExp));
+            return true;
+        });
+    });
+
+    // toNumber must produce the double nearest the exact value, ties to even.
+    // This characterises round-to-nearest-ties-to-even without reimplementing
+    // the conversion: the returned double must be at least as close as both
+    // of its neighbours, and a tie must be broken toward the even significand.
+    it('toNumber returns the nearest double with ties to even', () => {
+        check(wideBSNumber, x => {
+            const d = x.toNumber();
+            if (!Number.isFinite(d)) { return true; }   // overflow, checked below
+            const bd = BSNumber.fromNumber(d);
+            const err = absDiff(x, bd);
+
+            for (const neighbour of [nextUp(d), nextDown(d)]) {
+                if (!Number.isFinite(neighbour)) { continue; }
+                const errN = absDiff(x, BSNumber.fromNumber(neighbour));
+                expect(err.lessThanOrEqual(errN)).toBe(true);
+                if (err.equals(errN)) {
+                    expect(significandIsEven(d)).toBe(true);
+                }
+            }
+            return true;
+        });
+    });
+
+    it('toFloat32 agrees with Math.fround on every finite double', () => {
+        // BSNumber has no signed zero (upstream too: the sign of the zero
+        // representation is 0), so a result that underflows to zero is
+        // compared with == rather than Object.is.
+        const sameDouble = (a: number, b: number): boolean =>
+            Object.is(a, b) || (a === 0 && b === 0);
+        check(anyDouble, d => {
+            expect(sameDouble(BSNumber.fromNumber(d).toFloat32(), Math.fround(d))).toBe(true);
+            if (Number.isFinite(Math.fround(d))) {
+                expect(sameDouble(BSNumber.fromFloat32(d).toNumber(), Math.fround(d))).toBe(true);
+            } else {
+                // A binary32 overflow becomes an infinity encoding, which
+                // BSNumber cannot represent; upstream's graceful exit stores
+                // (-1)^s * 2^{1 + EXPONENT_BIAS} instead.
+                expect(BSNumber.fromFloat32(d).toNumber()).toBe(Math.sign(d) * 2 ** 128);
+            }
+            return true;
+        });
+    });
+
+    it('the zero representation is unsigned', () => {
+        expect(Object.is(BSNumber.fromNumber(-0).toNumber(), 0)).toBe(true);
+        expect(BSNumber.fromNumber(-0).getSign()).toBe(0);
+        // A nonzero negative that underflows keeps its sign, as in C++.
+        expect(Object.is(BSNumber.fromNumber(-1e-50).toFloat32(), -0)).toBe(true);
+    });
+
+    it('toFloat32 of a wide exact value rounds to nearest with ties to even', () => {
+        check(wideBSNumber, x => {
+            const f = x.toFloat32();
+            if (!Number.isFinite(f)) { return true; }
+            const bf = BSNumber.fromNumber(f);
+            const err = absDiff(x, bf);
+            for (const step of [1, -1]) {
+                // Neighbouring binary32 values, obtained through the binary32
+                // bit pattern.
+                const buffer = new DataView(new ArrayBuffer(4));
+                buffer.setFloat32(0, f);
+                const bits = buffer.getUint32(0);
+                const magnitudeBits = f === 0
+                    ? (step > 0 ? 1 : 0x80000001)
+                    : ((f > 0) === (step > 0) ? bits + 1 : bits - 1);
+                buffer.setUint32(0, magnitudeBits >>> 0);
+                const neighbour = buffer.getFloat32(0);
+                if (!Number.isFinite(neighbour)) { continue; }
+                const errN = absDiff(x, BSNumber.fromNumber(neighbour));
+                expect(err.lessThanOrEqual(errN)).toBe(true);
+            }
+            return true;
+        });
+    });
+
+    it('overflow saturates to infinity and underflow rounds to zero or the min subnormal', () => {
+        // 2^1024 is the first power of two above the double range.
+        const overflow = BSNumber.fromNumber(2 ** 1023).mul(BSNumber.fromNumber(2));
+        expect(overflow.toNumber()).toBe(Infinity);
+        expect(overflow.negated().toNumber()).toBe(-Infinity);
+
+        const minSub = BSNumber.fromNumber(Number.MIN_VALUE);
+        // Exactly half the min subnormal is a tie; zero has the even
+        // significand, so it wins.
+        expect(minSub.mul(BSNumber.fromNumber(0.5)).toNumber()).toBe(0);
+        // Three quarters is above the tie, so it rounds up.
+        expect(minSub.mul(BSNumber.fromNumber(0.75)).toNumber()).toBe(Number.MIN_VALUE);
+        // A quarter is below the tie, so it rounds down to zero.
+        expect(minSub.mul(BSNumber.fromNumber(0.25)).toNumber()).toBe(0);
+        // One and a half is a tie between one and two ulps; two is even.
+        expect(minSub.mul(BSNumber.fromNumber(1.5)).toNumber()).toBe(2 * Number.MIN_VALUE);
+    });
+
+    // ---- frexp / ldexp -----------------------------------------------------
+
+    it('frexp splits into a significand in [1/2, 1) and an exponent', () => {
+        check(anyBSNumber, x => {
+            const { result, exponent } = BSNumber.frexp(x);
+            if (x.getSign() === 0) {
+                expect(exponent).toBe(0);
+                expect(result.getSign()).toBe(0);
+                return true;
+            }
+            expect(result.getExponent()).toBe(-1);
+            expect(BSNumber.ldexp(result, exponent).equals(x)).toBe(true);
+            const magnitude = BSNumber.fabs(result);
+            expect(magnitude.greaterThanOrEqual(BSNumber.fromNumber(0.5))).toBe(true);
+            expect(magnitude.lessThan(BSNumber.fromNumber(1))).toBe(true);
+            return true;
+        });
+    });
+
+    it('ldexp scales by a power of two exactly', () => {
+        check(fc.tuple(anyBSNumber, fc.integer({ min: -200, max: 200 })), ([x, k]) => {
+            const scaled = BSNumber.ldexp(x, k);
+            if (x.getSign() === 0) { return true; }
+            expect(scaled.getUInteger()).toBe(x.getUInteger());
+            expect(scaled.getBiasedExponent()).toBe(x.getBiasedExponent() + k);
+            expect(BSNumber.ldexp(scaled, -k).equals(x)).toBe(true);
+            return true;
+        });
+    });
+
+    // Upstream quirk, preserved: ldexp of zero shifts the biased exponent of
+    // a number whose sign is 0, producing a representation that violates the
+    // BSNumber invariant. The value is still zero on conversion.
+    it('ldexp of zero produces an invalid (but harmless) representation', () => {
+        const z = BSNumber.ldexp(new BSNumber(), 5);
+        expect(z.getSign()).toBe(0);
+        expect(z.getBiasedExponent()).toBe(5);
+        expect(z.isValid()).toBe(false);
+        expect(z.toNumber()).toBe(0);
+    });
+
+    // ---- strings -----------------------------------------------------------
+
+    it('fromString parses signed decimal integers exactly', () => {
+        check(fc.bigInt({ min: -(10n ** 30n), max: 10n ** 30n }), v => {
+            const s = (v >= 0n ? v.toString() : v.toString());
+            const x = BSNumber.fromString(s);
+            expect(x.equals(BSNumber.fromBigInt(v))).toBe(true);
+            if (v > 0n) {
+                expect(BSNumber.fromString('+' + s).equals(x)).toBe(true);
+            }
+            return true;
+        }, 60);
+    });
+
+    // ---- remainder ---------------------------------------------------------
+
+    // Regression: forming the quotient as a double loses exactness above
+    // 2^53. std::remainder is exact, so the port computes the quotient with
+    // integer arithmetic.
+    it('remainder is exact for quotients larger than 2^53', () => {
+        const r = BSNumber.remainder(BSNumber.fromNumber(1e17), BSNumber.fromNumber(3));
+        expect(r.toNumber()).toBe(1);
+        const r2 = BSNumber.remainder(BSNumber.fromNumber(12345678901234568),
+            BSNumber.fromNumber(7));
+        expect(r2.toNumber()).toBe(1);
+        const r3 = BSNumber.remainder(BSNumber.fromNumber(1e22), BSNumber.fromNumber(1e-3));
+        expect(r3.toNumber()).toBe(-0.00011721684699608857);
+    });
+
+    it('remainder satisfies the IEEE definition against exact bigint arithmetic', () => {
+        check(fc.tuple(anyDouble.filter(d => d !== 0), anyDouble.filter(d => d !== 0)),
+            ([dx, dy]) => {
+                const x = BSNumber.fromNumber(dx);
+                const y = BSNumber.fromNumber(dy);
+                const r = BSNumber.remainder(x, y);
+
+                // r = x - n*y for some integer n, and 2|r| <= |y| with ties
+                // resolved to the even n.
+                const ex = exact(x), ey = exact(y), er = exact(r);
+                const minExp = Math.min(ex.exp, ey.exp, er.exp);
+                const nx = ex.num << BigInt(ex.exp - minExp);
+                const ny = ey.num << BigInt(ey.exp - minExp);
+                const nr = er.num << BigInt(er.exp - minExp);
+                const diff = nx - nr;
+                expect(diff % ny).toBe(0n);          // n is an integer
+                const n = diff / ny;
+                const absY = ny < 0n ? -ny : ny;
+                const absR = nr < 0n ? -nr : nr;
+                expect(2n * absR).toBeLessThanOrEqual(absY);
+                if (2n * absR === absY) {
+                    expect(n % 2n).toBe(0n);          // ties to even
+                }
+                return true;
+            }, 100);
+    });
+
+    it('remainder degenerates gracefully like the upstream double round trip', () => {
+        // std::remainder(x, 0) is NaN and BSNumber(NaN) is zero.
+        expect(BSNumber.remainder(BSNumber.fromNumber(5), new BSNumber()).getSign()).toBe(0);
+        // std::remainder(0, y) is 0.
+        expect(BSNumber.remainder(new BSNumber(), BSNumber.fromNumber(3)).getSign()).toBe(0);
+    });
+
+    // ---- convertBSNumber ---------------------------------------------------
+
+    // Independent model of the upstream rounding: keep the leading p bits of
+    // the odd magnitude, then apply the mode to the discarded remainder.
+    function referenceConvert(input: BSNumber, precision: number,
+        mode: BSNumberRoundingMode): BSNumber {
+        if (input.getSign() === 0) { return new BSNumber(); }
+        const k = input.getNumBits() - precision;
+        if (k <= 0) { return input.clone(); }
+
+        const magnitude = input.getUInteger();
+        const hi = magnitude >> BigInt(k);
+        const rem = magnitude - (hi << BigInt(k));
+        const half = 1n << BigInt(k - 1);
+        const signValue = input.getSign();
+
+        let rounded: bigint;
+        if (mode === BSNumberRoundingMode.FE_TOWARDZERO) {
+            rounded = hi;
+        } else if (mode === BSNumberRoundingMode.FE_UPWARD) {
+            rounded = signValue > 0 ? hi + 1n : hi;
+        } else if (mode === BSNumberRoundingMode.FE_DOWNWARD) {
+            rounded = signValue < 0 ? hi + 1n : hi;
+        } else {
+            // The magnitude is odd, so rem == half can only happen for k == 1.
+            rounded = rem > half || (rem === half && (hi & 1n) === 1n) ? hi + 1n : hi;
+        }
+
+        // Normalise to the odd-integer invariant.
+        let shift = 0;
+        while (rounded > 0n && (rounded & 1n) === 0n) { rounded >>= 1n; ++shift; }
+        return BSNumber.fromParts(signValue, input.getBiasedExponent() + k + shift, rounded);
+    }
+
+    const allModes = [
+        BSNumberRoundingMode.FE_TONEAREST, BSNumberRoundingMode.FE_DOWNWARD,
+        BSNumberRoundingMode.FE_TOWARDZERO, BSNumberRoundingMode.FE_UPWARD
+    ];
+
+    it('convertBSNumber matches an independent bigint rounding model', () => {
+        check(fc.tuple(anyBSNumber, fc.integer({ min: 1, max: 80 }),
+            fc.constantFrom(...allModes)), ([x, precision, mode]) => {
+                const got = convertBSNumber(x, precision, mode);
+                const want = referenceConvert(x, precision, mode);
+                expect(got.getSign()).toBe(want.getSign());
+                expect(got.getUInteger()).toBe(want.getUInteger());
+                if (got.getSign() !== 0) {
+                    expect(got.getBiasedExponent()).toBe(want.getBiasedExponent());
+                }
+                expect(got.isValid()).toBe(true);
+                return true;
+            });
+    });
+
+    it('convertBSNumber respects the direction of each rounding mode', () => {
+        check(fc.tuple(anyBSNumber.filter(x => x.getSign() !== 0),
+            fc.integer({ min: 1, max: 60 })), ([x, precision]) => {
+                const down = convertBSNumber(x, precision, BSNumberRoundingMode.FE_DOWNWARD);
+                const up = convertBSNumber(x, precision, BSNumberRoundingMode.FE_UPWARD);
+                const zero = convertBSNumber(x, precision, BSNumberRoundingMode.FE_TOWARDZERO);
+                const near = convertBSNumber(x, precision, BSNumberRoundingMode.FE_TONEAREST);
+
+                expect(down.lessThanOrEqual(x)).toBe(true);
+                expect(up.greaterThanOrEqual(x)).toBe(true);
+                expect(BSNumber.fabs(zero).lessThanOrEqual(BSNumber.fabs(x))).toBe(true);
+                // Nearest is between the two directed roundings.
+                expect(near.greaterThanOrEqual(down)).toBe(true);
+                expect(near.lessThanOrEqual(up)).toBe(true);
+                // Nearest is at least as close as either directed rounding.
+                expect(absDiff(near, x).lessThanOrEqual(absDiff(down, x))).toBe(true);
+                expect(absDiff(near, x).lessThanOrEqual(absDiff(up, x))).toBe(true);
+                // The result never uses more than the requested precision.
+                expect(near.getNumBits()).toBeLessThanOrEqual(precision);
+                expect(down.getNumBits()).toBeLessThanOrEqual(precision);
+                expect(up.getNumBits()).toBeLessThanOrEqual(precision);
+                expect(zero.getNumBits()).toBeLessThanOrEqual(precision);
+                return true;
+            });
+    });
+
+    it('convertBSNumber is the identity when the precision is already satisfied', () => {
+        check(fc.tuple(anyBSNumber, fc.constantFrom(...allModes)), ([x, mode]) => {
+            const precision = Math.max(1, x.getNumBits());
+            const got = convertBSNumber(x, precision, mode);
+            expect(got.equals(x)).toBe(true);
+            return true;
+        });
     });
 });

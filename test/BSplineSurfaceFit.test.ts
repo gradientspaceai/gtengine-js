@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
+import { check, fc, finite, expectClose, expectVectorClose, seededRandom } from './helpers/arbitraries.js';
 import { BSplineSurfaceFit } from '../src/BSplineSurfaceFit.js';
+import { BSplineSurface } from '../src/BSplineSurface.js';
+import { BSplineCurveFit } from '../src/BSplineCurveFit.js';
+import { BasisFunctionInput } from '../src/BasisFunction.js';
 import { Vector } from '../src/Vector.js';
 
 function makeRandom(seed: number): () => number {
@@ -160,5 +164,174 @@ describe('BSplineSurfaceFit fitting', () => {
         const fit = new BSplineSurfaceFit(3, 6, 10, 3, 6, 10, data);
         expect(fit.getPosition(-2, -2).values).toEqual(fit.getPosition(0, 0).values);
         expect(fit.getPosition(3, 3).values).toEqual(fit.getPosition(1, 1).values);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (V05). The fitted surface is cross-checked against the
+// separately ported BSplineSurface class, and the tensor-product structure of
+// the fit is cross-checked against two independent BSplineCurveFit fits.
+// ---------------------------------------------------------------------------
+describe('BSplineSurfaceFit verification', () => {
+    interface Case {
+        d0: number; n0: number; s0: number;
+        d1: number; n1: number; s1: number;
+        samples: Vector[];
+    }
+
+    const caseArb: fc.Arbitrary<Case> = fc.tuple(
+        fc.integer({ min: 1, max: 2 }),   // degree0
+        fc.integer({ min: 0, max: 2 }),   // numControls0 - degree0 - 2
+        fc.integer({ min: 0, max: 4 }),   // numSamples0 - numControls0
+        fc.integer({ min: 1, max: 2 }),   // degree1
+        fc.integer({ min: 0, max: 2 }),   // numControls1 - degree1 - 2
+        fc.integer({ min: 0, max: 4 }),   // numSamples1 - numControls1
+        fc.array(finite(-10, 10), { minLength: 3 * 121, maxLength: 3 * 121 })
+    ).map(([d0, e0, x0, d1, e1, x1, data]) => {
+        const n0 = d0 + 2 + e0;
+        const n1 = d1 + 2 + e1;
+        const s0 = n0 + x0;
+        const s1 = n1 + x1;
+        const samples: Vector[] = [];
+        for (let i = 0; i < s0 * s1; ++i) {
+            const p = new Vector(3);
+            for (let k = 0; k < 3; ++k) { p.values[k] = data[(i * 3 + k) % data.length]; }
+            samples.push(p);
+        }
+        return { d0, n0, s0, d1, n1, s1, samples };
+    });
+
+    const fitOf = (c: Case): BSplineSurfaceFit =>
+        new BSplineSurfaceFit(c.d0, c.n0, c.s0, c.d1, c.n1, c.s1, c.samples);
+
+    /** The fitted surface rebuilt as a BSplineSurface over the same basis. */
+    function asSurface(fit: BSplineSurfaceFit): BSplineSurface {
+        const input = [
+            new BasisFunctionInput(fit.getNumControls(0), fit.getDegree(0)),
+            new BasisFunctionInput(fit.getNumControls(1), fit.getDegree(1))
+        ];
+        return new BSplineSurface(3, input, fit.getControlData());
+    }
+
+    it('evaluates the same surface as BSplineSurface over the fitted controls', () => {
+        check(fc.tuple(caseArb, finite(0, 1), finite(0, 1)), ([c, u, v]) => {
+            const fit = fitOf(c);
+            const surface = asSurface(fit);
+            expectVectorClose(fit.getPosition(u, v), surface.getPosition(u, v), 1e-9, 1e-10);
+            return true;
+        }, 50);
+    });
+
+    it('reports the sizes implied by its constructor arguments', () => {
+        check(caseArb, c => {
+            const fit = fitOf(c);
+            expect(fit.getDegree(0)).toBe(c.d0);
+            expect(fit.getDegree(1)).toBe(c.d1);
+            expect(fit.getNumControls(0)).toBe(c.n0);
+            expect(fit.getNumControls(1)).toBe(c.n1);
+            expect(fit.getNumSamples(0)).toBe(c.s0);
+            expect(fit.getNumSamples(1)).toBe(c.s1);
+            expect(fit.getControlData().length).toBe(c.n0 * c.n1);
+            expect(fit.getSampleData()).toBe(c.samples);
+            return true;
+        }, 50);
+    });
+
+    // Any polynomial of degree <= (degree0, degree1) in (u, v) lies in the
+    // tensor-product spline space, so the least-squares fit reproduces it.
+    it('reproduces polynomial surfaces that lie in the spline space', () => {
+        check(fc.tuple(fc.integer({ min: 1, max: 3 }), fc.integer({ min: 1, max: 3 }),
+            fc.array(finite(-3, 3), { minLength: 16, maxLength: 16 }),
+            finite(0, 1), finite(0, 1)), ([d0, d1, coeff, u, v]) => {
+                const n0 = d0 + 3;
+                const n1 = d1 + 3;
+                const s0 = n0 + 5;
+                const s1 = n1 + 5;
+                const poly = (x: number, y: number): number => {
+                    let value = 0;
+                    for (let a = 0; a <= d0; ++a) {
+                        for (let b = 0; b <= d1; ++b) {
+                            value += coeff[a * 4 + b] * Math.pow(x, a) * Math.pow(y, b);
+                        }
+                    }
+                    return value;
+                };
+                const samples: Vector[] = [];
+                for (let j1 = 0; j1 < s1; ++j1) {
+                    for (let j0 = 0; j0 < s0; ++j0) {
+                        const p = new Vector(3);
+                        p.values[0] = poly(j0 / (s0 - 1), j1 / (s1 - 1));
+                        samples.push(p);
+                    }
+                }
+                const fit = new BSplineSurfaceFit(d0, n0, s0, d1, n1, s1, samples);
+                // The two normal-equation solves are mildly ill conditioned.
+                expectClose(fit.getPosition(u, v).values[0], poly(u, v), 1e-7, 1e-7);
+                return true;
+            }, 60);
+    });
+
+    // A separable sample lattice P[j0][j1] = f(j0) * g(j1) must produce the
+    // separable control lattice Q[i0][i1] = qf[i0] * qg[i1] obtained from two
+    // independent one-dimensional least-squares solves. This checks the
+    // Q = X0*P*X1^T double summation and its index arithmetic against
+    // BSplineCurveFit, up to the end-point override that the curve fit
+    // applies and the surface fit does not.
+    it('factorises a separable sample lattice like two 1D fits', () => {
+        const d = 2, n = 6, s = 14;
+        const rand = seededRandom(0x51ab3);
+        const f: number[] = [];
+        const g: number[] = [];
+        for (let i = 0; i < s; ++i) { f.push(2 * rand() - 1); }
+        for (let i = 0; i < s; ++i) { g.push(2 * rand() - 1); }
+
+        const samples: Vector[] = [];
+        for (let j1 = 0; j1 < s; ++j1) {
+            for (let j0 = 0; j0 < s; ++j0) {
+                const p = new Vector(3);
+                p.values[0] = f[j0] * g[j1];
+                samples.push(p);
+            }
+        }
+        const fit = new BSplineSurfaceFit(d, n, s, d, n, s, samples);
+
+        // The 1D solves, with the end-point override undone by reading the
+        // interior controls only.
+        const fitF = new BSplineCurveFit(1, s, f, d, n);
+        const fitG = new BSplineCurveFit(1, s, g, d, n);
+        const qf = fitF.getControlData();
+        const qg = fitG.getControlData();
+
+        // Interior x interior: the products must agree.
+        const controls = fit.getControlData();
+        for (let i1 = 1; i1 < n - 1; ++i1) {
+            for (let i0 = 1; i0 < n - 1; ++i0) {
+                expectClose(controls[i0 + n * i1].values[0], qf[i0] * qg[i1], 1e-8, 1e-8);
+            }
+        }
+    });
+
+    it('rejects inputs that violate the documented preconditions', () => {
+        const samples = Array.from({ length: 400 }, () => new Vector(3));
+        expect(() => new BSplineSurfaceFit(0, 5, 8, 2, 5, 8, samples)).toThrow(/Invalid degree/);
+        expect(() => new BSplineSurfaceFit(2, 3, 8, 2, 5, 8, samples)).toThrow(/Invalid degree/);
+        expect(() => new BSplineSurfaceFit(2, 5, 4, 2, 5, 8, samples))
+            .toThrow(/Invalid number of controls/);
+        expect(() => new BSplineSurfaceFit(2, 5, 8, 0, 5, 8, samples)).toThrow(/Invalid degree/);
+        expect(() => new BSplineSurfaceFit(2, 5, 8, 2, 5, 4, samples))
+            .toThrow(/Invalid number of controls/);
+        expect(() => new BSplineSurfaceFit(2, 5, 8, 2, 5, 8, [new Vector(3)]))
+            .toThrow(/Invalid sample data/);
+    });
+
+    it('clamps parameters outside the unit square', () => {
+        check(fc.tuple(caseArb, finite(1, 4)), ([c, over]) => {
+            const fit = fitOf(c);
+            expectVectorClose(fit.getPosition(-over, 0.5), fit.getPosition(0, 0.5), 1e-12, 1e-12);
+            expectVectorClose(fit.getPosition(1 + over, 0.5), fit.getPosition(1, 0.5), 1e-12, 1e-12);
+            expectVectorClose(fit.getPosition(0.5, -over), fit.getPosition(0.5, 0), 1e-12, 1e-12);
+            expectVectorClose(fit.getPosition(0.5, 1 + over), fit.getPosition(0.5, 1), 1e-12, 1e-12);
+            return true;
+        }, 40);
     });
 });

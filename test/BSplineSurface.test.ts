@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { check, fc, finite, expectClose, expectVectorClose } from './helpers/arbitraries.js';
 import { BSplineSurface } from '../src/BSplineSurface.js';
+import { BSplineCurve } from '../src/BSplineCurve.js';
 import { BasisFunctionInput, UniqueKnot } from '../src/BasisFunction.js';
 import { ParametricSurface } from '../src/ParametricSurface.js';
 import { Vector } from '../src/Vector.js';
@@ -223,6 +225,202 @@ describe('BSplineSurface evaluation', () => {
             for (let k = 0; k < 3; ++k) {
                 expect(first.values[k]).toBeCloseTo(last.values[k], 12);
             }
+        }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (V05). The strongest independent check available for a
+// tensor-product surface is to rebuild it as a curve of curves using the
+// separately ported BSplineCurve class, which shares no code with
+// BSplineSurface::Compute.
+// ---------------------------------------------------------------------------
+describe('BSplineSurface verification', () => {
+    interface Config {
+        n0: number; d0: number; n1: number; d1: number; dim: number; controls: Vector[];
+    }
+
+    const configArb: fc.Arbitrary<Config> = fc.tuple(
+        fc.integer({ min: 2, max: 6 }),   // numControls0
+        fc.integer({ min: 1, max: 3 }),   // degree0
+        fc.integer({ min: 2, max: 6 }),   // numControls1
+        fc.integer({ min: 1, max: 3 }),   // degree1
+        fc.integer({ min: 1, max: 3 }),   // dimension
+        fc.array(finite(-20, 20), { minLength: 6 * 6 * 3, maxLength: 6 * 6 * 3 })
+    ).filter(([n0, d0, n1, d1]) => d0 < n0 && d1 < n1)
+        .map(([n0, d0, n1, d1, dim, data]) => {
+            const controls: Vector[] = [];
+            for (let i = 0; i < n0 * n1; ++i) {
+                const c = new Vector(dim);
+                for (let k = 0; k < dim; ++k) { c.values[k] = data[i * 3 + k]; }
+                controls.push(c);
+            }
+            return { n0, d0, n1, d1, dim, controls };
+        });
+
+    function makeSurface(c: Config): BSplineSurface {
+        const input = [new BasisFunctionInput(c.n0, c.d0), new BasisFunctionInput(c.n1, c.d1)];
+        return new BSplineSurface(c.dim, input, c.controls);
+    }
+
+    /** X(u,v) computed as a B-spline curve whose control points are the
+     *  points of the n1 u-direction B-spline curves through the control rows. */
+    function nestedCurveEvaluation(c: Config, u: number, v: number): Vector {
+        const rowPoints: Vector[] = [];
+        for (let i1 = 0; i1 < c.n1; ++i1) {
+            const row: Vector[] = [];
+            for (let i0 = 0; i0 < c.n0; ++i0) {
+                row.push(c.controls[i0 + c.n0 * i1]);
+            }
+            const curve = new BSplineCurve(c.dim, new BasisFunctionInput(c.n0, c.d0), row);
+            rowPoints.push(curve.getPosition(u));
+        }
+        const outer = new BSplineCurve(c.dim, new BasisFunctionInput(c.n1, c.d1), rowPoints);
+        return outer.getPosition(v);
+    }
+
+    it('agrees with a nested pair of BSplineCurve evaluations', () => {
+        check(fc.tuple(configArb, finite(0, 1), finite(0, 1)), ([c, u, v]) => {
+            const surface = makeSurface(c);
+            const got = surface.getPosition(u, v);
+            const want = nestedCurveEvaluation(c, u, v);
+            // Only the summation order differs, so a tight relative tolerance
+            // suffices.
+            expectVectorClose(got, want, 1e-11, 1e-11);
+            return true;
+        }, 60);
+    });
+
+    it('is invariant under affine maps of the control points', () => {
+        check(fc.tuple(configArb, finite(0, 1), finite(0, 1), finite(-3, 3), finite(-5, 5)),
+            ([c, u, v, scale, shift]) => {
+                const surface = makeSurface(c);
+                const moved = c.controls.map(p => {
+                    const q = new Vector(c.dim);
+                    for (let k = 0; k < c.dim; ++k) { q.values[k] = scale * p.values[k] + shift; }
+                    return q;
+                });
+                const other = makeSurface({ ...c, controls: moved });
+                const p = surface.getPosition(u, v);
+                const q = other.getPosition(u, v);
+                for (let k = 0; k < c.dim; ++k) {
+                    expectClose(q.values[k], scale * p.values[k] + shift, 1e-9, 1e-10);
+                }
+                return true;
+            }, 60);
+    });
+
+    it('reproduces a repeated control point (partition of unity)', () => {
+        check(fc.tuple(configArb, finite(0, 1), finite(0, 1), finite(-5, 5)),
+            ([c, u, v, value]) => {
+                const controls = c.controls.map(() => {
+                    const p = new Vector(c.dim);
+                    p.values.fill(value);
+                    return p;
+                });
+                const surface = makeSurface({ ...c, controls });
+                const p = surface.getPosition(u, v);
+                for (let k = 0; k < c.dim; ++k) {
+                    expectClose(p.values[k], value, 1e-12, 1e-12);
+                }
+                return true;
+            }, 60);
+    });
+
+    // Degrees of at least 2 make the surface C^1, so a central difference
+    // that straddles a knot is still accurate. For degree 1 the first
+    // derivative is a step function and finite differences are meaningless
+    // near a knot.
+    it('first-order jet entries match central differences', () => {
+        const smooth = configArb.filter(c => c.d0 >= 2 && c.d1 >= 2);
+        check(fc.tuple(smooth, finite(0.2, 0.8), finite(0.2, 0.8)), ([c, u, v]) => {
+            const surface = makeSurface(c);
+            const jet = surface.createJet();
+            surface.evaluate(u, v, 1, jet);
+            const h = 1e-5;
+            for (let k = 0; k < c.dim; ++k) {
+                const du = (surface.getPosition(u + h, v).values[k]
+                    - surface.getPosition(u - h, v).values[k]) / (2 * h);
+                const dv = (surface.getPosition(u, v + h).values[k]
+                    - surface.getPosition(u, v - h).values[k]) / (2 * h);
+                // Central differences of a piecewise polynomial: the O(h^2)
+                // truncation error plus the O(eps/h) rounding error dominate.
+                expectClose(jet[1].values[k], du, 1e-4, 1e-5);
+                expectClose(jet[2].values[k], dv, 1e-4, 1e-5);
+            }
+            return true;
+        }, 60);
+    });
+
+    it('interpolates the corner control points of an open spline', () => {
+        check(configArb, c => {
+            const surface = makeSurface(c);
+            const bf0 = surface.getBasisFunction(0);
+            const bf1 = surface.getBasisFunction(1);
+            const corners: Array<[number, number, number]> = [
+                [bf0.getMinDomain(), bf1.getMinDomain(), 0],
+                [bf0.getMaxDomain(), bf1.getMinDomain(), c.n0 - 1],
+                [bf0.getMinDomain(), bf1.getMaxDomain(), c.n0 * (c.n1 - 1)],
+                [bf0.getMaxDomain(), bf1.getMaxDomain(), c.n0 * c.n1 - 1]
+            ];
+            for (const [u, v, index] of corners) {
+                expectVectorClose(surface.getPosition(u, v), c.controls[index], 1e-11, 1e-11);
+            }
+            return true;
+        }, 60);
+    });
+
+    it('setControl and getControl ignore out-of-range indices', () => {
+        const c: Config = {
+            n0: 3, d0: 1, n1: 3, d1: 1, dim: 2,
+            controls: Array.from({ length: 9 }, (_, i) => {
+                const p = new Vector(2);
+                p.values[0] = i;
+                p.values[1] = -i;
+                return p;
+            })
+        };
+        const surface = makeSurface(c);
+        const replacement = new Vector(2);
+        replacement.values[0] = 42;
+        for (const [i0, i1] of [[-1, 0], [0, -1], [3, 0], [0, 3]]) {
+            surface.setControl(i0, i1, replacement);
+            // Out-of-range reads return the first control point.
+            expect(surface.getControl(i0, i1).values[0]).toBe(0);
+        }
+        // Nothing was written.
+        for (let i = 0; i < 9; ++i) {
+            expect(surface.getControls()[i].values[0]).toBe(i);
+        }
+        // setControl copies its argument, as upstream does.
+        surface.setControl(1, 1, replacement);
+        replacement.values[0] = -99;
+        expect(surface.getControl(1, 1).values[0]).toBe(42);
+    });
+
+    it('leaves the unused jet entries untouched for low orders', () => {
+        const c: Config = {
+            n0: 3, d0: 2, n1: 3, d1: 2, dim: 2,
+            controls: Array.from({ length: 9 }, (_, i) => {
+                const p = new Vector(2);
+                p.values[0] = i;
+                p.values[1] = i * i;
+                return p;
+            })
+        };
+        const surface = makeSurface(c);
+        const jet = surface.createJet();
+        for (let i = 1; i < ParametricSurface.SUP_ORDER; ++i) {
+            jet[i].values[0] = 777;
+        }
+        surface.evaluate(0.5, 0.5, 0, jet);
+        for (let i = 1; i < ParametricSurface.SUP_ORDER; ++i) {
+            expect(jet[i].values[0]).toBe(777);
+        }
+        // An order at or above SUP_ORDER zeroes the whole jet.
+        surface.evaluate(0.5, 0.5, ParametricSurface.SUP_ORDER, jet);
+        for (let i = 0; i < ParametricSurface.SUP_ORDER; ++i) {
+            expect(jet[i].values[0]).toBe(0);
         }
     });
 });
