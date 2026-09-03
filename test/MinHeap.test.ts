@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { check, finite, fc } from './helpers/arbitraries.js';
 import { MinHeap, type MinHeapRecord } from '../src/MinHeap.js';
 
 // Deterministic pseudorandom generator so failures are reproducible.
@@ -188,5 +189,234 @@ describe('MinHeap', () => {
             drained.push(r.value);
         }
         expect(drained).toEqual(expected);
+    });
+});
+
+describe('MinHeap verification', () => {
+    type Op =
+        | { kind: 'insert'; value: number }
+        | { kind: 'remove' }
+        | { kind: 'update'; which: number; value: number };
+
+    const opArb: fc.Arbitrary<Op> = fc.oneof(
+        fc.record({ kind: fc.constant('insert' as const), value: fc.integer({ min: -50, max: 50 }) }),
+        fc.record({ kind: fc.constant('remove' as const) }),
+        fc.record({
+            kind: fc.constant('update' as const),
+            which: fc.integer({ min: 0, max: 1000 }),
+            value: fc.integer({ min: -50, max: 50 })
+        }));
+
+    /** Run a script of operations against the heap and a sorted-array model. */
+    function runScript(capacity: number, ops: Op[]) {
+        const heap = new MinHeap<number>(capacity);
+        const live: { rec: MinHeapRecord<number, number>; value: number; key: number }[] = [];
+        let nextKey = 0;
+        for (const op of ops) {
+            if (op.kind === 'insert') {
+                const key = nextKey++;
+                const rec = heap.insert(key, op.value);
+                if (live.length === capacity) {
+                    expect(rec).toBeNull();
+                } else {
+                    expect(rec).not.toBeNull();
+                    live.push({ rec: rec!, value: op.value, key });
+                }
+            } else if (op.kind === 'remove') {
+                const r = heap.remove();
+                if (live.length === 0) {
+                    expect(r).toBeNull();
+                } else {
+                    const minValue = live.reduce((m, e) => Math.min(m, e.value), Infinity);
+                    expect(r!.value).toBe(minValue);
+                    const i = live.findIndex(e => e.key === r!.key);
+                    expect(i).toBeGreaterThanOrEqual(0);
+                    expect(live[i]!.value).toBe(minValue);
+                    live.splice(i, 1);
+                }
+            } else if (live.length > 0) {
+                const e = live[op.which % live.length]!;
+                heap.update(e.rec, op.value);
+                e.value = op.value;
+            }
+            expect(heap.isValid()).toBe(true);
+            expect(heap.getNumElements()).toBe(live.length);
+            if (live.length > 0) {
+                const minValue = live.reduce((m, x) => Math.min(m, x.value), Infinity);
+                expect(heap.getMinimum()!.value).toBe(minValue);
+            } else {
+                expect(heap.getMinimum()).toBeNull();
+            }
+        }
+        return { heap, live };
+    }
+
+    it('agrees with a sorted-array model under random op scripts', () => {
+        check(fc.tuple(fc.integer({ min: 0, max: 12 }),
+            fc.array(opArb, { minLength: 0, maxLength: 60 })),
+            ([capacity, ops]) => {
+                const { heap, live } = runScript(capacity, ops);
+                const expected = live.map(e => e.value).sort((a, b) => a - b);
+                const drained: number[] = [];
+                for (let r = heap.remove(); r !== null; r = heap.remove()) {
+                    drained.push(r.value);
+                    expect(heap.isValid()).toBe(true);
+                }
+                expect(drained).toEqual(expected);
+                expect(heap.getNumElements()).toBe(0);
+            }, 100);
+    });
+
+    it('the record index stays correct: any record can be pulled to the root', () => {
+        // update() navigates using record.index, so if the index bookkeeping
+        // of insert/remove/update were wrong, lowering a record's value below
+        // every other value would fail to make it the minimum.
+        check(fc.tuple(fc.integer({ min: 1, max: 10 }),
+            fc.array(opArb, { minLength: 1, maxLength: 40 })),
+            ([capacity, ops]) => {
+                const { heap, live } = runScript(capacity, ops);
+                for (const e of live) {
+                    const original = e.value;
+                    heap.update(e.rec, -1000);
+                    expect(heap.isValid()).toBe(true);
+                    expect(heap.getMinimum()!.key).toBe(e.key);
+                    heap.update(e.rec, original);
+                    e.value = original;
+                    expect(heap.isValid()).toBe(true);
+                }
+                // Pushing a record to the top of the range keeps the heap
+                // valid too (the sift-down branch of update).
+                for (const e of live) {
+                    const original = e.value;
+                    heap.update(e.rec, 1000);
+                    expect(heap.isValid()).toBe(true);
+                    heap.update(e.rec, original);
+                    expect(heap.isValid()).toBe(true);
+                }
+                return true;
+            }, 60);
+    });
+
+    it('drains in ascending order for any multiset of values', () => {
+        check(fc.array(finite(-100, 100), { minLength: 0, maxLength: 40 }), values => {
+            const heap = new MinHeap<number>(values.length);
+            values.forEach((v, i) => { heap.insert(i, v); });
+            const drained: number[] = [];
+            for (let r = heap.remove(); r !== null; r = heap.remove()) { drained.push(r.value); }
+            const expected = [...values].sort((a, b) => a - b);
+            return drained.length === expected.length
+                && drained.every((v, i) => Object.is(v, expected[i]));
+        });
+    });
+
+    it('a reversed comparator drains in descending order', () => {
+        check(fc.array(finite(-100, 100), { minLength: 1, maxLength: 30 }), values => {
+            const heap = new MinHeap<number, number>(values.length, (a, b) => b < a);
+            values.forEach((v, i) => { heap.insert(i, v); });
+            const drained: number[] = [];
+            for (let r = heap.remove(); r !== null; r = heap.remove()) { drained.push(r.value); }
+            const expected = [...values].sort((a, b) => b - a);
+            return drained.every((v, i) => Object.is(v, expected[i]));
+        });
+    });
+
+    it('a full heap rejects further inserts without disturbing its contents', () => {
+        check(fc.tuple(fc.integer({ min: 0, max: 8 }),
+            fc.array(finite(-20, 20), { minLength: 0, maxLength: 20 })),
+            ([capacity, values]) => {
+                const heap = new MinHeap<number>(capacity);
+                const accepted: number[] = [];
+                values.forEach((v, i) => {
+                    const rec = heap.insert(i, v);
+                    if (rec === null) {
+                        expect(heap.getNumElements()).toBe(capacity);
+                    } else {
+                        accepted.push(v);
+                    }
+                });
+                expect(accepted.length).toBe(Math.min(capacity, values.length));
+                const drained: number[] = [];
+                for (let r = heap.remove(); r !== null; r = heap.remove()) { drained.push(r.value); }
+                return drained.length === accepted.length
+                    && drained.every((v, i) => Object.is(v, accepted.slice().sort((a, b) => a - b)[i]));
+            });
+    });
+
+    it('update with the same value leaves the heap ordering unchanged', () => {
+        check(fc.array(finite(-50, 50), { minLength: 1, maxLength: 20 }), values => {
+            const heap = new MinHeap<number>(values.length);
+            const recs = values.map((v, i) => heap.insert(i, v)!);
+            const before = recs.map(r => r.index);
+            for (const r of recs) { heap.update(r, r.value); }
+            return heap.isValid() && recs.every((r, i) => r.index === before[i]);
+        });
+    });
+
+    it('update(null, value) is a no-op', () => {
+        check(fc.tuple(fc.array(finite(-50, 50), { minLength: 0, maxLength: 10 }), finite()),
+            ([values, v]) => {
+                const heap = new MinHeap<number>(values.length);
+                values.forEach((x, i) => { heap.insert(i, x); });
+                const n = heap.getNumElements();
+                heap.update(null, v);
+                return heap.getNumElements() === n && heap.isValid();
+            });
+    });
+
+    it('reset empties the heap and installs the new capacity', () => {
+        check(fc.tuple(fc.integer({ min: 0, max: 10 }), fc.integer({ min: 0, max: 10 })),
+            ([capacity0, capacity1]) => {
+                const heap = new MinHeap<number>(capacity0);
+                for (let i = 0; i < capacity0; ++i) { heap.insert(i, i); }
+                heap.reset(capacity1);
+                if (heap.getNumElements() !== 0 || heap.getMinimum() !== null) { return false; }
+                let accepted = 0;
+                for (let i = 0; i < capacity1 + 3; ++i) {
+                    if (heap.insert(i, -i) !== null) { ++accepted; }
+                }
+                return accepted === capacity1 && heap.isValid();
+            });
+    });
+
+    it('an empty heap answers null to every query', () => {
+        check(fc.integer({ min: -5, max: 0 }), capacity => {
+            const heap = new MinHeap<number>(capacity);
+            return heap.getNumElements() === 0 && heap.getMinimum() === null
+                && heap.remove() === null && heap.insert(0, 0) === null && heap.isValid();
+        });
+    });
+
+    it('removed keys are not corrupted by later inserts reusing the record', () => {
+        // Upstream copies the key into the caller's variable; the port
+        // returns a reference, but insert rebinds record.key rather than
+        // mutating it, so an already-returned key object stays intact.
+        check(fc.array(finite(-10, 10), { minLength: 2, maxLength: 8 }), values => {
+            const heap = new MinHeap<{ id: number }>(values.length);
+            values.forEach((v, i) => { heap.insert({ id: i }, v); });
+            const first = heap.remove()!;
+            const snapshot = first.key.id;
+            heap.insert({ id: 999 }, -1000);
+            return first.key.id === snapshot;
+        });
+    });
+
+    it('the sifted element may sit at the last slot during remove (upstream quirk)', () => {
+        // Upstream's Remove loop uses 'child <= last', so the slot holding
+        // the element being sifted down can be inspected as a child. The
+        // comparison is then against the element itself and the loop breaks,
+        // which is why the quirk is harmless. This exercises that path.
+        const heap = new MinHeap<number>(4);
+        heap.insert(0, 0);
+        heap.insert(1, 10);
+        heap.insert(2, 20);
+        heap.insert(3, 5);
+        // Heap array is [0, 5, 20, 10]; removing the root moves 10 to the
+        // root with last = 3, and the loop reaches child = 3 == last.
+        expect(heap.remove()!.value).toBe(0);
+        expect(heap.isValid()).toBe(true);
+        expect(heap.getMinimum()!.value).toBe(5);
+        const drained: number[] = [];
+        for (let r = heap.remove(); r !== null; r = heap.remove()) { drained.push(r.value); }
+        expect(drained).toEqual([5, 10, 20]);
     });
 });
