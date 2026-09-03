@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { check, fc } from './helpers/arbitraries.js';
 import { logAssert, logError } from '../src/Logger.js';
 
 describe('Logger', () => {
@@ -32,5 +33,52 @@ describe('Logger', () => {
             expect(e).toBeInstanceOf(Error);
             expect((e as Error).message).toBe('boom');
         }
+    });
+});
+
+describe('Logger verification', () => {
+    it('logAssert throws exactly when the condition is false', () => {
+        check(fc.tuple(fc.boolean(), fc.string()), ([cond, msg]) => {
+            let threw = false;
+            try {
+                logAssert(cond, msg);
+            } catch {
+                threw = true;
+            }
+            return threw === !cond;
+        });
+    });
+
+    it('the thrown message is the caller message verbatim (no file/line prefix)', () => {
+        check(fc.string(), msg => {
+            try {
+                logError(msg);
+            } catch (e) {
+                return e instanceof Error && e.message === msg;
+            }
+            return false;
+        });
+    });
+
+    it('logAssert(false, msg) and logError(msg) throw identical messages', () => {
+        check(fc.string(), msg => {
+            let m0 = '', m1 = '';
+            try { logAssert(false, msg); } catch (e) { m0 = (e as Error).message; }
+            try { logError(msg); } catch (e) { m1 = (e as Error).message; }
+            return m0 === m1 && m0 === msg;
+        });
+    });
+
+    it('logError never returns (upstream GTE_ERROR always throws)', () => {
+        check(fc.string(), msg => {
+            let returned = false;
+            try {
+                logError(msg);
+                returned = true;
+            } catch {
+                // expected
+            }
+            return !returned;
+        });
     });
 });
