@@ -379,7 +379,7 @@
   "status": "ported"
  },
  "DistAlignedBox3OrientedBox3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistAlignedBoxAlignedBox.h": {
   "status": "ported"
@@ -388,7 +388,7 @@
   "status": "ported"
  },
  "DistCircle3Circle3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistLine2AlignedBox2.h": {
   "status": "ported"
@@ -436,7 +436,7 @@
   "status": "ported"
  },
  "DistOrientedBox3OrientedBox3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistPlane3AlignedBox3.h": {
   "status": "ported"
@@ -544,13 +544,13 @@
   "status": "ported"
  },
  "DistRectangle3AlignedBox3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistRectangle3CanonicalBox3.h": {
   "status": "ported"
  },
  "DistRectangle3OrientedBox3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistRectangle3Rectangle3.h": {
   "status": "ported"
@@ -592,16 +592,16 @@
   "status": "ported"
  },
  "DistTetrahedron3Tetrahedron3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistTriangle3AlignedBox3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistTriangle3CanonicalBox3.h": {
   "status": "ported"
  },
  "DistTriangle3OrientedBox3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "DistTriangle3Rectangle3.h": {
   "status": "ported"
