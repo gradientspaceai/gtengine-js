@@ -1491,22 +1491,22 @@
   "status": "ported"
  },
  "RootsCubic.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "RootsGeneralPolynomial.h": {
   "status": "ported"
  },
  "RootsLinear.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "RootsPolynomial.h": {
   "status": "ported"
  },
  "RootsQuadratic.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "RootsQuartic.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "RotatingCalipers.h": {
   "status": "ported"
