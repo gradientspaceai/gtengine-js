@@ -55,6 +55,14 @@ export type QFCoefficient = number | QFNumber;
 // coefficients always have the same type (both T or both QFNumber<T, N-1>)
 // except for the scalar operator overloads, where the scalar is a T combined
 // with a coefficient at any depth.
+// C++ constructors and assignments copy their arguments by value; TypeScript
+// objects alias. Nested coefficients are therefore cloned on the way into a
+// QFNumber so that a result never shares state with the operands that
+// produced it (upstream 'q + s' copies q.x[1] into the result, for example).
+function cClone(a: QFCoefficient): QFCoefficient {
+    return typeof a === 'number' ? a : a.clone();
+}
+
 function cNeg(a: QFCoefficient): QFCoefficient {
     return typeof a === 'number' ? -a : a.negate();
 }
@@ -156,7 +164,9 @@ export class QFNumber implements ArbitraryPrecisionNumber {
     // z = 0 + 0 * sqrt(0). For N >= 2 numbers, pass QFNumber coefficients
     // of equal depth.
     constructor(x0: QFCoefficient = 0, x1: QFCoefficient = 0, d: number = 0) {
-        this.x = [x0, x1];
+        // Upstream stores the coefficients by value, so nested coefficients
+        // are deep-copied rather than aliased.
+        this.x = [cClone(x0), cClone(x1)];
         this.d = d;
     }
 
@@ -170,9 +180,8 @@ export class QFNumber implements ArbitraryPrecisionNumber {
     // C++ assignment copies by value; TS objects alias, so copies are made
     // explicit. The copy is deep (nested coefficients are cloned).
     clone(): QFNumber {
-        const c0 = typeof this.x[0] === 'number' ? this.x[0] : this.x[0].clone();
-        const c1 = typeof this.x[1] === 'number' ? this.x[1] : this.x[1].clone();
-        return new QFNumber(c0, c1, this.d);
+        // The constructor already deep-copies the coefficients.
+        return new QFNumber(this.x[0], this.x[1], this.d);
     }
 
     private static checkD(q0: QFNumber, q1: QFNumber): void {
