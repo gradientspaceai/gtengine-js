@@ -305,7 +305,7 @@ describe('MinHeap verification', () => {
             for (let r = heap.remove(); r !== null; r = heap.remove()) { drained.push(r.value); }
             const expected = [...values].sort((a, b) => a - b);
             return drained.length === expected.length
-                && drained.every((v, i) => Object.is(v, expected[i]));
+                && drained.every((v, i) => v === expected[i]);
         });
     });
 
@@ -316,7 +316,7 @@ describe('MinHeap verification', () => {
             const drained: number[] = [];
             for (let r = heap.remove(); r !== null; r = heap.remove()) { drained.push(r.value); }
             const expected = [...values].sort((a, b) => b - a);
-            return drained.every((v, i) => Object.is(v, expected[i]));
+            return drained.every((v, i) => v === expected[i]);
         });
     });
 

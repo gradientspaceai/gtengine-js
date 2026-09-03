@@ -154,7 +154,8 @@
   "notes": "C++ std::atomic utility, no mathematical content"
  },
  "AxisAngle.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 1
  },
  "BandedMatrix.h": {
   "status": "ported"
@@ -638,7 +639,8 @@
   "status": "ported"
  },
  "EulerAngles.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 1
  },
  "Exp2Estimate.h": {
   "status": "ported"
@@ -710,7 +712,8 @@
   "status": "ported"
  },
  "GMatrix.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 1
  },
  "GradientAnisotropic2.h": {
   "status": "ported"
@@ -719,7 +722,8 @@
   "status": "ported"
  },
  "GVector.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 1
  },
  "Halfspace.h": {
   "status": "ported"
@@ -1249,7 +1253,8 @@
   "status": "ported"
  },
  "Matrix.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 1
  },
  "Matrix2x2.h": {
   "status": "ported"
@@ -1706,16 +1711,20 @@
  },
  "Vector.h": {
   "status": "ported",
-  "notes": "Template Vector<N,Real> ported as runtime-dimension class over number[]; operators ported as module functions (negate/add/sub/mul/div, componentwise compMul/compDiv); normalize/orthonormalize mutate in place and return length as upstream; Vector(int d) unit constructor is Vector.unit(size,d); default constructor zero-fills instead of leaving the tuple uninitialized; unary operator+ not ported; out-parameter ComputeExtremes returns {vmin,vmax}|null."
+  "notes": "Template Vector<N,Real> ported as runtime-dimension class over number[]; operators ported as module functions (negate/add/sub/mul/div, componentwise compMul/compDiv); normalize/orthonormalize mutate in place and return length as upstream; Vector(int d) unit constructor is Vector.unit(size,d); default constructor zero-fills instead of leaving the tuple uninitialized; unary operator+ not ported; out-parameter ComputeExtremes returns {vmin,vmax}|null.",
+  "verified": 1
  },
  "Vector2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 1
  },
  "Vector3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 1
  },
  "Vector4.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 1
  },
  "VEManifoldMesh.h": {
   "status": "ported"
