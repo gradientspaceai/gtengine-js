@@ -25,12 +25,12 @@
 // DistPoint3Tetrahedron3Result. Tetrahedron3.getPlanes() returns the four
 // planes and Tetrahedron3.getFaceIndices(i) is a static method in the port.
 
-import type { DCPQuery } from './DCPQuery';
-import { DistPointTriangle } from './DistPointTriangle';
-import { Tetrahedron3 } from './Tetrahedron3';
-import { Triangle } from './Triangle';
-import { Vector, dot } from './Vector';
-import { computeBarycentrics3 } from './Vector3';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistPointTriangle } from './DistPointTriangle.js';
+import { Tetrahedron3 } from './Tetrahedron3.js';
+import { Triangle } from './Triangle.js';
+import { Vector, dot } from './Vector.js';
+import { computeBarycentrics3 } from './Vector3.js';
 
 export interface DistPoint3Tetrahedron3Result {
     distance: number;

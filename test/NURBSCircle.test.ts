@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { Arc2 } from '../src/Arc2';
+import { Arc2 } from '../src/Arc2.js';
 import {
     NURBSCircularArcDegree2, NURBSFullCircleDegree3, NURBSHalfCircleDegree3,
     NURBSQuarterCircleDegree2, NURBSQuarterCircleDegree4
-} from '../src/NURBSCircle';
-import { NURBSCurve } from '../src/NURBSCurve';
-import { Vector, length, sub } from '../src/Vector';
+} from '../src/NURBSCircle.js';
+import { NURBSCurve } from '../src/NURBSCurve.js';
+import { Vector, length, sub } from '../src/Vector.js';
 
 function samplePositions(curve: NURBSCurve, count: number): Vector[] {
     const jet = curve.createJet();

@@ -60,15 +60,15 @@
 // a port. Use ExtremalQuery3PRJ, the O(n) brute-force query, when exactness
 // matters.
 
-import { ExtremalQuery3 } from './ExtremalQuery3';
-import type { ExtremalQuery3Result } from './ExtremalQuery3';
-import { ETManifoldMeshTriangle } from './ETManifoldMesh';
-import { isign } from './Functions';
-import { logAssert } from './Logger';
-import { Polyhedron3 } from './Polyhedron3';
-import { Vector, dot } from './Vector';
-import { cross } from './Vector3';
-import { VETManifoldMesh } from './VETManifoldMesh';
+import { ExtremalQuery3 } from './ExtremalQuery3.js';
+import type { ExtremalQuery3Result } from './ExtremalQuery3.js';
+import { ETManifoldMeshTriangle } from './ETManifoldMesh.js';
+import { isign } from './Functions.js';
+import { logAssert } from './Logger.js';
+import { Polyhedron3 } from './Polyhedron3.js';
+import { Vector, dot } from './Vector.js';
+import { cross } from './Vector3.js';
+import { VETManifoldMesh } from './VETManifoldMesh.js';
 
 // The port of the private ExtremalQuery3BSP::SphericalArc class. The arcs are
 // the nodes of the BSP tree.

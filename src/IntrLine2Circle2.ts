@@ -16,12 +16,12 @@
 // Circle2 queries, which derive from this class) becomes the protected method
 // 'doQuery' that mutates the passed-in result, as upstream does.
 
-import type { Hypersphere } from './Hypersphere';
-import type { Line } from './Line';
-import { DistPointLine } from './DistPointLine';
-import { Vector, add, sub, mul, dot } from './Vector';
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
+import type { Hypersphere } from './Hypersphere.js';
+import type { Line } from './Line.js';
+import { DistPointLine } from './DistPointLine.js';
+import { Vector, add, sub, mul, dot } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
 
 // The result of IntrLine2Circle2TI.test.
 export interface IntrLine2Circle2TIResult {

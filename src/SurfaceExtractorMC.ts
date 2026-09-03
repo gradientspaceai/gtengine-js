@@ -16,12 +16,12 @@
 // become returned object literals. Vector3<T> is the runtime-dimension
 // Vector of size 3.
 
-import { MarchingCubes } from './MarchingCubes';
-import type { MarchingCubesTopology } from './MarchingCubes';
-import { Image3 } from './Image3';
-import { UniqueVerticesSimplices } from './UniqueVerticesSimplices';
-import { Vector } from './Vector';
-import { cross } from './Vector3';
+import { MarchingCubes } from './MarchingCubes.js';
+import type { MarchingCubesTopology } from './MarchingCubes.js';
+import { Image3 } from './Image3.js';
+import { UniqueVerticesSimplices } from './UniqueVerticesSimplices.js';
+import { Vector } from './Vector.js';
+import { cross } from './Vector3.js';
 
 // The triangle mesh generated for a single voxel. The topology is the
 // Marching Cubes table entry and the vertices are in the local coordinates

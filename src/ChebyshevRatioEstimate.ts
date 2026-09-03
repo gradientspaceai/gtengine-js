@@ -25,7 +25,7 @@
 // static_assert. This port takes the degree as a runtime argument validated
 // by logAssert.
 
-import { logAssert } from './Logger';
+import { logAssert } from './Logger.js';
 
 // Constants for chebyshevRatioEstimate.
 const C_CHBRAT_EST_U: readonly number[] = [

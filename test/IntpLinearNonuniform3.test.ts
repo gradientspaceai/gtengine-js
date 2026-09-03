@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { IntpLinearNonuniform3 } from '../src/IntpLinearNonuniform3';
-import type { IntpLinearNonuniform3TetrahedronMesh } from '../src/IntpLinearNonuniform3';
-import { Vector } from '../src/Vector';
-import { computeBarycentrics3 } from '../src/Vector3';
+import { IntpLinearNonuniform3 } from '../src/IntpLinearNonuniform3.js';
+import type { IntpLinearNonuniform3TetrahedronMesh } from '../src/IntpLinearNonuniform3.js';
+import { Vector } from '../src/Vector.js';
+import { computeBarycentrics3 } from '../src/Vector3.js';
 
 // A minimal tetrahedron mesh adapter that satisfies the interface required
 // by IntpLinearNonuniform3. The tetrahedra are index quadruples into

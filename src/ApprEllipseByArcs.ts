@@ -20,8 +20,8 @@
 // 'Circumscribe' becomes 'circumscribeCircle2' (the Cont* naming precedent),
 // which returns null instead of writing an output reference.
 
-import { circumscribeCircle2 } from './ContScribeCircle2';
-import { Vector } from './Vector';
+import { circumscribeCircle2 } from './ContScribeCircle2.js';
+import { Vector } from './Vector.js';
 
 export interface ApproximateEllipseByArcsResult {
     // The numArcs+1 points on the ellipse arc in the first quadrant, ordered

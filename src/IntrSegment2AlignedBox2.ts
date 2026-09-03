@@ -19,23 +19,23 @@
 // helpers are exported as the module functions
 // 'intrSegment2AlignedBox2TIDoQuery' and 'intrSegment2AlignedBox2FIDoQuery'.
 
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
-import type { AlignedBox } from './AlignedBox';
-import { Segment } from './Segment';
-import { Vector, add, mul, sub } from './Vector';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
+import type { AlignedBox } from './AlignedBox.js';
+import { Segment } from './Segment.js';
+import { Vector, add, mul, sub } from './Vector.js';
 import {
     IntrLine2AlignedBox2TI,
     IntrLine2AlignedBox2FI,
     defaultIntrLine2AlignedBox2TIResult,
     defaultIntrLine2AlignedBox2FIResult
-} from './IntrLine2AlignedBox2';
+} from './IntrLine2AlignedBox2.js';
 import type {
     IntrLine2AlignedBox2TIResult,
     IntrLine2AlignedBox2FIResult
-} from './IntrLine2AlignedBox2';
-import { IntrIntervalsFI } from './IntrIntervals';
-import { inContainerAlignedBox } from './ContAlignedBox';
+} from './IntrLine2AlignedBox2.js';
+import { IntrIntervalsFI } from './IntrIntervals.js';
+import { inContainerAlignedBox } from './ContAlignedBox.js';
 
 // The upstream derived TIQuery::Result adds no members.
 export type IntrSegment2AlignedBox2TIResult = IntrLine2AlignedBox2TIResult;

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { PrimalQuery2, PrimalQuery2OrderType } from '../src/PrimalQuery2';
-import { Vector } from '../src/Vector';
+import { PrimalQuery2, PrimalQuery2OrderType } from '../src/PrimalQuery2.js';
+import { Vector } from '../src/Vector.js';
 
 const v2 = (x: number, y: number): Vector => Vector.fromArray([x, y]);
 

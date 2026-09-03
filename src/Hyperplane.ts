@@ -33,12 +33,12 @@
 // comparison methods). The upstream 'Hyperplane(std::array<Vector<N,T>,N>)'
 // constructor becomes the static factory fromPoints().
 
-import { logAssert } from './Logger';
-import { Matrix } from './Matrix';
-import { SingularValueDecomposition } from './SingularValueDecomposition';
-import { Vector, dot, mul, sub } from './Vector';
-import { computeOrthogonalComplement2 } from './Vector2';
-import { unitCross } from './Vector3';
+import { logAssert } from './Logger.js';
+import { Matrix } from './Matrix.js';
+import { SingularValueDecomposition } from './SingularValueDecomposition.js';
+import { Vector, dot, mul, sub } from './Vector.js';
+import { computeOrthogonalComplement2 } from './Vector2.js';
+import { unitCross } from './Vector3.js';
 
 export class Hyperplane {
     // Public member access.

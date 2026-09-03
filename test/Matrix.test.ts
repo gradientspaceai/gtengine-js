@@ -4,8 +4,8 @@ import {
     l1Norm, l2Norm, lInfinityNorm, inverse, determinant, transpose,
     multiplyAB, multiplyABT, multiplyATB, multiplyATBT, multiplyMD,
     multiplyDM, outerProduct, makeDiagonal, hliftMatrix, hprojectMatrix
-} from '../src/Matrix';
-import { Vector } from '../src/Vector';
+} from '../src/Matrix.js';
+import { Vector } from '../src/Vector.js';
 
 function expectMatrixClose(actual: Matrix, expected: Matrix,
     tolerance: number = 1e-12): void {

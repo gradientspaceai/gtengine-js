@@ -31,19 +31,19 @@
 // the final branch of the TIQuery mentions '-a1/2' and 'a3*e' where the code
 // (correctly) uses the root -a1/a2 and the bound a2*e.
 
-import type { Ellipsoid3 } from './Hyperellipsoid';
-import type { FIQuery } from './FIQuery';
-import { IntrIntervalsFI } from './IntrIntervals';
+import type { Ellipsoid3 } from './Hyperellipsoid.js';
+import type { FIQuery } from './FIQuery.js';
+import { IntrIntervalsFI } from './IntrIntervals.js';
 import {
     intrLine3Ellipsoid3FIDoQuery,
     defaultIntrLine3Ellipsoid3FIResult
-} from './IntrLine3Ellipsoid3';
-import type { IntrLine3Ellipsoid3FIResult } from './IntrLine3Ellipsoid3';
-import { logAssert } from './Logger';
-import { mulMatrix } from './Matrix';
-import type { Segment3 } from './Segment';
-import { Vector, add, dot, mul, sub } from './Vector';
-import type { TIQuery } from './TIQuery';
+} from './IntrLine3Ellipsoid3.js';
+import type { IntrLine3Ellipsoid3FIResult } from './IntrLine3Ellipsoid3.js';
+import { logAssert } from './Logger.js';
+import { mulMatrix } from './Matrix.js';
+import type { Segment3 } from './Segment.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrSegment3Ellipsoid3TI.test.
 export interface IntrSegment3Ellipsoid3TIResult {

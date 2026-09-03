@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { AlignedBox } from '../src/AlignedBox';
-import { OrientedBox } from '../src/OrientedBox';
-import { Vector } from '../src/Vector';
-import { IntrAlignedBox3OrientedBox3TI } from '../src/IntrAlignedBox3OrientedBox3';
+import { AlignedBox } from '../src/AlignedBox.js';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Vector } from '../src/Vector.js';
+import { IntrAlignedBox3OrientedBox3TI } from '../src/IntrAlignedBox3OrientedBox3.js';
 
 function alignedBox(min: number[], max: number[]): AlignedBox {
     return AlignedBox.fromMinMax(Vector.fromArray(min), Vector.fromArray(max));

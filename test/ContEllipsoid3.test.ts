@@ -3,12 +3,12 @@ import {
     getContainerEllipsoid3,
     inContainerEllipsoid3,
     mergeContainersEllipsoid3
-} from '../src/ContEllipsoid3';
-import { Hyperellipsoid, type Ellipsoid3 } from '../src/Hyperellipsoid';
-import { Line } from '../src/Line';
-import { projectEllipsoid3 } from '../src/Projection';
-import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+} from '../src/ContEllipsoid3.js';
+import { Hyperellipsoid, type Ellipsoid3 } from '../src/Hyperellipsoid.js';
+import { Line } from '../src/Line.js';
+import { projectEllipsoid3 } from '../src/Projection.js';
+import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { Halfspace } from '../src/Halfspace';
-import { Vector, dot, normalize } from '../src/Vector';
-import { IntrHalfspace2Polygon2FI } from '../src/IntrHalfspace2Polygon2';
+import { Halfspace } from '../src/Halfspace.js';
+import { Vector, dot, normalize } from '../src/Vector.js';
+import { IntrHalfspace2Polygon2FI } from '../src/IntrHalfspace2Polygon2.js';
 
 function halfspace(nx: number, ny: number, c: number): Halfspace {
     const n = Vector.fromArray([nx, ny]);

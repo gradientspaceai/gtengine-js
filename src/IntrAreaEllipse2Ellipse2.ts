@@ -15,16 +15,16 @@
 // class becomes the exported enum AreaEllipse2Ellipse2Configuration. The
 // ellipse type Ellipse2<T> is the port's Hyperellipsoid of dimension 2.
 
-import { GTE_C_PI, GTE_C_TWO_PI } from './Constants';
-import type { Hyperellipsoid } from './Hyperellipsoid';
+import { GTE_C_PI, GTE_C_TWO_PI } from './Constants.js';
+import type { Hyperellipsoid } from './Hyperellipsoid.js';
 import {
     IntrEllipse2Ellipse2FI, defaultIntrEllipse2Ellipse2FIResult
-} from './IntrEllipse2Ellipse2';
-import type { IntrEllipse2Ellipse2FIResult } from './IntrEllipse2Ellipse2';
-import { logAssert } from './Logger';
-import { Matrix, addMatrix, divMatrix, mulMatrix, outerProduct } from './Matrix';
-import { Vector, dot, sub } from './Vector';
-import { dotPerp } from './Vector2';
+} from './IntrEllipse2Ellipse2.js';
+import type { IntrEllipse2Ellipse2FIResult } from './IntrEllipse2Ellipse2.js';
+import { logAssert } from './Logger.js';
+import { Matrix, addMatrix, divMatrix, mulMatrix, outerProduct } from './Matrix.js';
+import { Vector, dot, sub } from './Vector.js';
+import { dotPerp } from './Vector2.js';
 
 // The configuration of the two ellipses.
 export enum AreaEllipse2Ellipse2Configuration {

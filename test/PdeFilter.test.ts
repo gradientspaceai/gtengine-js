@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PdeFilter, PdeFilterScaleType } from '../src/PdeFilter';
+import { PdeFilter, PdeFilterScaleType } from '../src/PdeFilter.js';
 
 // Concrete subclass exposing the protected scaling state and recording the
 // template-method call order.

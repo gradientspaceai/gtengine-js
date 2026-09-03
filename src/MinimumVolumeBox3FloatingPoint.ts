@@ -12,16 +12,16 @@
 // decisions that must be exact -- the coplanarity and colinearity tests --
 // and exact (BSRational) arithmetic for the final box and volume.
 
-import { Vector, normalize } from './Vector';
-import { cross, computeOrthogonalComplement3 } from './Vector3';
-import { OrientedBox, type OrientedBox3 } from './OrientedBox';
-import { ConvexHull3 } from './ConvexHull3';
-import { MinimumAreaBox2 } from './MinimumAreaBox2';
-import { VETManifoldMesh } from './VETManifoldMesh';
-import { UniqueVerticesSimplices } from './UniqueVerticesSimplices';
-import { BSNumber } from './BSNumber';
-import { BSRational } from './BSRational';
-import { logAssert } from './Logger';
+import { Vector, normalize } from './Vector.js';
+import { cross, computeOrthogonalComplement3 } from './Vector3.js';
+import { OrientedBox, type OrientedBox3 } from './OrientedBox.js';
+import { ConvexHull3 } from './ConvexHull3.js';
+import { MinimumAreaBox2 } from './MinimumAreaBox2.js';
+import { VETManifoldMesh } from './VETManifoldMesh.js';
+import { UniqueVerticesSimplices } from './UniqueVerticesSimplices.js';
+import { BSNumber } from './BSNumber.js';
+import { BSRational } from './BSRational.js';
+import { logAssert } from './Logger.js';
 
 // The port of MinimumVolumeBox3::invalidIndex. Upstream uses SIZE_MAX as the
 // invalid-index marker for std::size_t members. All valid indices are

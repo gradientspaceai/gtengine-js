@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { DistPoint3Frustum3 } from '../src/DistPoint3Frustum3';
-import { Frustum3 } from '../src/Frustum3';
-import { Hypersphere } from '../src/Hypersphere';
+import { DistPoint3Frustum3 } from '../src/DistPoint3Frustum3.js';
+import { Frustum3 } from '../src/Frustum3.js';
+import { Hypersphere } from '../src/Hypersphere.js';
 import {
     IntrSphere3Frustum3TI,
     defaultIntrSphere3Frustum3TIResult
-} from '../src/IntrSphere3Frustum3';
-import { Vector, add, mul, normalize } from '../src/Vector';
+} from '../src/IntrSphere3Frustum3.js';
+import { Vector, add, mul, normalize } from '../src/Vector.js';
 
 function vec(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

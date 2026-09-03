@@ -15,8 +15,8 @@
 // angle. As upstream copies the axis into the member, the constructor clones
 // the input vector.
 
-import { logAssert } from './Logger';
-import { Vector } from './Vector';
+import { logAssert } from './Logger.js';
+import { Vector } from './Vector.js';
 
 export class AxisAngle {
     axis: Vector;

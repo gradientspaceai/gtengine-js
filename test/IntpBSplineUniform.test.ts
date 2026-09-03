@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
     IntpBSplineUniform, IntpBSplineUniform1, IntpBSplineUniform2,
     IntpBSplineUniform3, IntpBSplineUniformCacheMode, IntpBSplineUniformShared
-} from '../src/IntpBSplineUniform';
-import type { IntpBSplineUniformControls } from '../src/IntpBSplineUniform';
-import { Vector } from '../src/Vector';
-import { add as vadd, mul as vmul } from '../src/Vector';
+} from '../src/IntpBSplineUniform.js';
+import type { IntpBSplineUniformControls } from '../src/IntpBSplineUniform.js';
+import { Vector } from '../src/Vector.js';
+import { add as vadd, mul as vmul } from '../src/Vector.js';
 
 const NO_CACHING = IntpBSplineUniformCacheMode.NO_CACHING;
 const PRE_CACHING = IntpBSplineUniformCacheMode.PRE_CACHING;

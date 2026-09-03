@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BSplineCurveFit } from '../src/BSplineCurveFit';
+import { BSplineCurveFit } from '../src/BSplineCurveFit.js';
 
 function makeRandom(seed: number): () => number {
     let state = seed >>> 0;

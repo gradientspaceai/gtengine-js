@@ -23,13 +23,13 @@
 //   BSRational<UIntegerAP32>), which is bigint-backed in the port.
 // * The std::function GetVertex indirection becomes a plain closure.
 
-import { logAssert } from './Logger';
-import { BSRational } from './BSRational';
-import { ConvexHull2 } from './ConvexHull2';
-import { OrientedBox, type OrientedBox2 } from './OrientedBox';
-import { RotatingCalipers, type RotatingCalipersAntipode } from './RotatingCalipers';
-import { Vector, dot, normalize, sub } from './Vector';
-import { dotPerp } from './Vector2';
+import { logAssert } from './Logger.js';
+import { BSRational } from './BSRational.js';
+import { ConvexHull2 } from './ConvexHull2.js';
+import { OrientedBox, type OrientedBox2 } from './OrientedBox.js';
+import { RotatingCalipers, type RotatingCalipersAntipode } from './RotatingCalipers.js';
+import { Vector, dot, normalize, sub } from './Vector.js';
+import { dotPerp } from './Vector2.js';
 
 // The exact squared distance from the antipodal vertex to the line through
 // the antipodal edge.

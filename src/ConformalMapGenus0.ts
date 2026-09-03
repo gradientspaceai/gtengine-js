@@ -32,14 +32,14 @@
 // - The returned Vector2/Vector3 arrays are the port's runtime-dimension
 //   Vector of sizes 2 and 3.
 
-import { GTE_C_INV_LN_2, GTE_C_LN_10, GTE_C_PI } from './Constants';
-import { ETManifoldMesh } from './ETManifoldMesh';
-import { LinearSystem } from './LinearSystem';
-import type { LinearSystemSparseEntry } from './LinearSystem';
-import { logAssert } from './Logger';
-import { Polynomial1 } from './Polynomial1';
-import { Vector, dot, length, sub } from './Vector';
-import { cross } from './Vector3';
+import { GTE_C_INV_LN_2, GTE_C_LN_10, GTE_C_PI } from './Constants.js';
+import { ETManifoldMesh } from './ETManifoldMesh.js';
+import { LinearSystem } from './LinearSystem.js';
+import type { LinearSystemSparseEntry } from './LinearSystem.js';
+import { logAssert } from './Logger.js';
+import { Polynomial1 } from './Polynomial1.js';
+import { Vector, dot, length, sub } from './Vector.js';
+import { cross } from './Vector3.js';
 
 export class ConformalMapGenus0 {
     // Conformal mapping to a plane. The plane's (px,py) points correspond to

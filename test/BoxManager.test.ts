@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { BoxManager } from '../src/BoxManager';
-import { AlignedBox } from '../src/AlignedBox';
-import { Vector } from '../src/Vector';
+import { BoxManager } from '../src/BoxManager.js';
+import { AlignedBox } from '../src/AlignedBox.js';
+import { Vector } from '../src/Vector.js';
 
 function box(min: [number, number, number], max: [number, number, number]): AlignedBox {
     return AlignedBox.fromMinMax(Vector.fromArray(min), Vector.fromArray(max));

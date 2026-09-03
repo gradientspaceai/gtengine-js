@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { PolynomialCurve } from '../src/PolynomialCurve';
-import { Polynomial1 } from '../src/Polynomial1';
-import { Vector, length as vectorLength, sub, dot } from '../src/Vector';
+import { PolynomialCurve } from '../src/PolynomialCurve.js';
+import { Polynomial1 } from '../src/Polynomial1.js';
+import { Vector, length as vectorLength, sub, dot } from '../src/Vector.js';
 
 function makeRandom(seed: number): () => number {
     let state = seed >>> 0;

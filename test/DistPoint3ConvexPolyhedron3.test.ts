@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { ConvexPolyhedron3 } from '../src/ConvexPolyhedron3';
+import { ConvexPolyhedron3 } from '../src/ConvexPolyhedron3.js';
 import { DistPoint3ConvexPolyhedron3 }
-    from '../src/DistPoint3ConvexPolyhedron3';
-import { Vector, length, sub } from '../src/Vector';
+    from '../src/DistPoint3ConvexPolyhedron3.js';
+import { Vector, length, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

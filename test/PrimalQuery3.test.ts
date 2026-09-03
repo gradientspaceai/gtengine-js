@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { PrimalQuery3 } from '../src/PrimalQuery3';
-import { Vector } from '../src/Vector';
+import { PrimalQuery3 } from '../src/PrimalQuery3.js';
+import { Vector } from '../src/Vector.js';
 
 const v3 = (x: number, y: number, z: number): Vector => Vector.fromArray([x, y, z]);
 

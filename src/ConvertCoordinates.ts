@@ -114,10 +114,10 @@
 // - GetC/GetInverseC return the live internal matrices (upstream returns
 //   const references); do not mutate them.
 
-import { GaussianElimination } from './GaussianElimination';
-import { logAssert } from './Logger';
-import { Matrix, multiplyAB, multiplyATB, mulMatrix, transpose } from './Matrix';
-import { Vector } from './Vector';
+import { GaussianElimination } from './GaussianElimination.js';
+import { logAssert } from './Logger.js';
+import { Matrix, multiplyAB, multiplyATB, mulMatrix, transpose } from './Matrix.js';
+import { Vector } from './Vector.js';
 
 export class ConvertCoordinates {
     private mN: number;

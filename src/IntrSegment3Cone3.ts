@@ -24,17 +24,17 @@
 // [0,1], so the reported result.t values are relative to that (non-unit)
 // direction.
 
-import type { Cone3 } from './Cone';
-import type { FIQuery } from './FIQuery';
+import type { Cone3 } from './Cone.js';
+import type { FIQuery } from './FIQuery.js';
 import {
     IntrLine3Cone3FIResultType, defaultIntrLine3Cone3FIResult,
     intrLine3Cone3ComputePoints, intrLine3Cone3FIDoQuery
-} from './IntrLine3Cone3';
-import type { IntrLine3Cone3FIResult } from './IntrLine3Cone3';
-import { logAssert } from './Logger';
-import { QFNumber } from './QFNumber';
-import type { Segment3 } from './Segment';
-import { sub } from './Vector';
+} from './IntrLine3Cone3.js';
+import type { IntrLine3Cone3FIResult } from './IntrLine3Cone3.js';
+import { logAssert } from './Logger.js';
+import { QFNumber } from './QFNumber.js';
+import type { Segment3 } from './Segment.js';
+import { sub } from './Vector.js';
 
 // The result of IntrSegment3Cone3FI.find. Upstream derives its Result from
 // the line-cone Result and adds no members.

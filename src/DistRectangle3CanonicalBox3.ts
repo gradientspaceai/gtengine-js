@@ -24,15 +24,15 @@
 // becomes the class DistRectangle3CanonicalBox3 with the result type
 // DistRectangle3CanonicalBox3Result.
 
-import type { CanonicalBox3 } from './CanonicalBox';
-import type { DCPQuery } from './DCPQuery';
-import { DistPlane3CanonicalBox3 } from './DistPlane3CanonicalBox3';
-import { DistSegment3CanonicalBox3 } from './DistSegment3CanonicalBox3';
-import { Hyperplane } from './Hyperplane';
-import type { Rectangle3 } from './Rectangle';
-import { Segment } from './Segment';
-import { Vector, dot, sub } from './Vector';
-import { cross } from './Vector3';
+import type { CanonicalBox3 } from './CanonicalBox.js';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistPlane3CanonicalBox3 } from './DistPlane3CanonicalBox3.js';
+import { DistSegment3CanonicalBox3 } from './DistSegment3CanonicalBox3.js';
+import { Hyperplane } from './Hyperplane.js';
+import type { Rectangle3 } from './Rectangle.js';
+import { Segment } from './Segment.js';
+import { Vector, dot, sub } from './Vector.js';
+import { cross } from './Vector3.js';
 
 export interface DistRectangle3CanonicalBox3Result {
     distance: number;

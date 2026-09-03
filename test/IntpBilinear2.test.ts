@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { IntpBilinear2 } from '../src/IntpBilinear2';
+import { IntpBilinear2 } from '../src/IntpBilinear2.js';
 
 // Build the row-major sample array F[c + xBound*r] = f(xMin + c*dx, yMin + r*dy).
 function makeSamples(xBound: number, yBound: number, xMin: number, dx: number,

@@ -35,12 +35,12 @@
 // using the same message as the upstream assertion in
 // IntrCanonicalBox3Cylinder3.h. See also upstream issue #187.
 
-import type { Cylinder3 } from './Cylinder3';
-import { GTE_C_HALF_PI, GTE_C_TWO_PI } from './Constants';
-import { logAssert } from './Logger';
-import { Vector, add, sub, mul, dot, length, normalize } from './Vector';
-import { cross, computeOrthogonalComplement3 } from './Vector3';
-import type { TIQuery } from './TIQuery';
+import type { Cylinder3 } from './Cylinder3.js';
+import { GTE_C_HALF_PI, GTE_C_TWO_PI } from './Constants.js';
+import { logAssert } from './Logger.js';
+import { Vector, add, sub, mul, dot, length, normalize } from './Vector.js';
+import { cross, computeOrthogonalComplement3 } from './Vector3.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrCylinder3Cylinder3TI.test.
 export interface IntrCylinder3Cylinder3TIResult {

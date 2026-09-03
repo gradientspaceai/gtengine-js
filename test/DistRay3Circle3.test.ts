@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { Circle3 } from '../src/Circle3';
-import { DistLine3Circle3 } from '../src/DistLine3Circle3';
-import { DistRay3Circle3 } from '../src/DistRay3Circle3';
-import { Line, type Line3 } from '../src/Line';
-import { Ray } from '../src/Ray';
-import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector';
+import { Circle3 } from '../src/Circle3.js';
+import { DistLine3Circle3 } from '../src/DistLine3Circle3.js';
+import { DistRay3Circle3 } from '../src/DistRay3Circle3.js';
+import { Line, type Line3 } from '../src/Line.js';
+import { Ray } from '../src/Ray.js';
+import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

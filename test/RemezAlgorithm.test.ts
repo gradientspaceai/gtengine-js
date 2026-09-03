@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { REMEZ_FAILURE, RemezAlgorithm } from '../src/RemezAlgorithm';
+import { REMEZ_FAILURE, RemezAlgorithm } from '../src/RemezAlgorithm.js';
 
 // Sample the error F(x) - P(x) densely and return its extreme values.
 function sampleError(F: (x: number) => number, coefficients: readonly number[],

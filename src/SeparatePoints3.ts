@@ -63,11 +63,11 @@
 // Hyperplane.fromNormalConstant so that origin = constant * normal is
 // consistent with the other two members.
 
-import { BSNumber } from './BSNumber';
-import { ConvexHull3 } from './ConvexHull3';
-import { Hyperplane, type Plane3 } from './Hyperplane';
-import { Vector, dot, sub } from './Vector';
-import { unitCross } from './Vector3';
+import { BSNumber } from './BSNumber.js';
+import { ConvexHull3 } from './ConvexHull3.js';
+import { Hyperplane, type Plane3 } from './Hyperplane.js';
+import { Vector, dot, sub } from './Vector.js';
+import { unitCross } from './Vector3.js';
 
 // The result of the separation query. 'separated' is upstream's boolean
 // return value: true if and only if 'separatingPlane' separates the two

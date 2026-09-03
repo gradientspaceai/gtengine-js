@@ -14,10 +14,10 @@
 // pointer pairs collapse to arrays (see ApprQuery.ts). The observation type
 // is a 2D Vector.
 
-import { ApprQuery } from './ApprQuery';
-import { OrientedBox } from './OrientedBox';
-import { SymmetricEigensolver2x2 } from './SymmetricEigensolver2x2';
-import { Vector, dot } from './Vector';
+import { ApprQuery } from './ApprQuery.js';
+import { OrientedBox } from './OrientedBox.js';
+import { SymmetricEigensolver2x2 } from './SymmetricEigensolver2x2.js';
+import { Vector, dot } from './Vector.js';
 
 export class ApprGaussian2 extends ApprQuery<Vector> {
     private mParameters: OrientedBox;

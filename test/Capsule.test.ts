@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { Capsule } from '../src/Capsule';
-import { Segment } from '../src/Segment';
-import { Vector } from '../src/Vector';
+import { Capsule } from '../src/Capsule.js';
+import { Segment } from '../src/Segment.js';
+import { Vector } from '../src/Vector.js';
 
 // Component equality that treats -0 and +0 as equal, as the C++ comparisons
 // do. (Segment's default p0 is the negation of a unit vector, so its zero

@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { Frustum3 } from '../src/Frustum3';
-import { OrientedBox } from '../src/OrientedBox';
-import { Vector, add, dot, mul, normalize, sub } from '../src/Vector';
-import { computeOrthogonalComplement3 } from '../src/Vector3';
-import { IntrOrientedBox3Frustum3TI } from '../src/IntrOrientedBox3Frustum3';
+import { Frustum3 } from '../src/Frustum3.js';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
+import { computeOrthogonalComplement3 } from '../src/Vector3.js';
+import { IntrOrientedBox3Frustum3TI } from '../src/IntrOrientedBox3Frustum3.js';
 
 function vec(a: number[]): Vector {
     return Vector.fromArray(a);

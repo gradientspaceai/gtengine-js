@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { GaussianBlur2 } from '../src/GaussianBlur2';
-import { PdeFilterScaleType } from '../src/PdeFilter';
+import { GaussianBlur2 } from '../src/GaussianBlur2.js';
+import { PdeFilterScaleType } from '../src/PdeFilter.js';
 
 const NEUMANN = Number.MAX_VALUE;
 

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { AlignedBox } from '../src/AlignedBox';
-import { DistTriangle3AlignedBox3 } from '../src/DistTriangle3AlignedBox3';
-import { Triangle } from '../src/Triangle';
-import { Vector, add, length, mul, sub } from '../src/Vector';
+import { AlignedBox } from '../src/AlignedBox.js';
+import { DistTriangle3AlignedBox3 } from '../src/DistTriangle3AlignedBox3.js';
+import { Triangle } from '../src/Triangle.js';
+import { Vector, add, length, mul, sub } from '../src/Vector.js';
 
 function v(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

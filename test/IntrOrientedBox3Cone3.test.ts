@@ -1,15 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { AlignedBox } from '../src/AlignedBox';
-import { Cone } from '../src/Cone';
-import { IntrAlignedBox3Cone3TI } from '../src/IntrAlignedBox3Cone3';
+import { AlignedBox } from '../src/AlignedBox.js';
+import { Cone } from '../src/Cone.js';
+import { IntrAlignedBox3Cone3TI } from '../src/IntrAlignedBox3Cone3.js';
 import {
     IntrOrientedBox3Cone3TI,
     defaultIntrOrientedBox3Cone3TIResult
-} from '../src/IntrOrientedBox3Cone3';
-import { OrientedBox } from '../src/OrientedBox';
-import { Ray } from '../src/Ray';
-import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+} from '../src/IntrOrientedBox3Cone3.js';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Ray } from '../src/Ray.js';
+import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 function vec(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BasisFunction, BasisFunctionInput, UniqueKnot } from '../src/BasisFunction';
+import { BasisFunction, BasisFunctionInput, UniqueKnot } from '../src/BasisFunction.js';
 
 // Evaluate the single basis function N_{i,degree} at t (order 'order'),
 // honoring local support: indices outside [minIndex, maxIndex] are zero.

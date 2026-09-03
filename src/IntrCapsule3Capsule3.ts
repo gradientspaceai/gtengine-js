@@ -11,10 +11,10 @@
 // Port notes: see IntrIntervals.ts for the Intr* precedent. Upstream has only
 // a TIQuery specialization, so the port has only IntrCapsule3Capsule3TI.
 
-import type { Capsule } from './Capsule';
-import { DistSegmentSegment } from './DistSegmentSegment';
-import { logAssert } from './Logger';
-import type { TIQuery } from './TIQuery';
+import type { Capsule } from './Capsule.js';
+import { DistSegmentSegment } from './DistSegmentSegment.js';
+import { logAssert } from './Logger.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrCapsule3Capsule3TI.test.
 export interface IntrCapsule3Capsule3TIResult {

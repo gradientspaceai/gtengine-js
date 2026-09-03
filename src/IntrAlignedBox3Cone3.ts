@@ -35,15 +35,15 @@
 // HasPointInsideCone is exported as a module function so that it can be
 // tested and reused.
 
-import type { AlignedBox } from './AlignedBox';
-import type { Cone } from './Cone';
-import { IntrRay3AlignedBox3TI } from './IntrRay3AlignedBox3';
-import { IntrSegment3AlignedBox3TI } from './IntrSegment3AlignedBox3';
-import { Ray } from './Ray';
-import { Segment } from './Segment';
-import type { TIQuery } from './TIQuery';
-import { Vector, add, dot, length, mul, sub } from './Vector';
-import { cross } from './Vector3';
+import type { AlignedBox } from './AlignedBox.js';
+import type { Cone } from './Cone.js';
+import { IntrRay3AlignedBox3TI } from './IntrRay3AlignedBox3.js';
+import { IntrSegment3AlignedBox3TI } from './IntrSegment3AlignedBox3.js';
+import { Ray } from './Ray.js';
+import { Segment } from './Segment.js';
+import type { TIQuery } from './TIQuery.js';
+import { Vector, add, dot, length, mul, sub } from './Vector.js';
+import { cross } from './Vector3.js';
 
 // The result of the test-intersection query.
 export interface IntrAlignedBox3Cone3TIResult {

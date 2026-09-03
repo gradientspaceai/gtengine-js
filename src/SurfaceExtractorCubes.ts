@@ -16,12 +16,12 @@
 // nested VETable/TVertex classes are module-private. LogError becomes
 // logError from src/Logger.ts.
 
-import { logError } from './Logger';
+import { logError } from './Logger.js';
 import {
     SurfaceExtractor,
     SurfaceExtractorTriangle,
     SurfaceExtractorVertex
-} from './SurfaceExtractor';
+} from './SurfaceExtractor.js';
 
 // Indices of the 12 voxel edges and the 6 voxel faces in the VETable. An
 // edge name lists the two coordinates that are constant on that edge; for

@@ -13,13 +13,13 @@
 // Gaussian fit fails, so the port returns null in that case. MergeContainers
 // returns a vestigial 'true', so the port returns the merged ellipse.
 
-import { ApprGaussian2 } from './ApprGaussian2';
-import { Hyperellipsoid, type Ellipse2 } from './Hyperellipsoid';
-import { Line } from './Line';
-import { logAssert } from './Logger';
-import { projectEllipse2 } from './Projection';
-import { Vector, add, dot, length, mul, negate, normalize, sub } from './Vector';
-import { perp } from './Vector2';
+import { ApprGaussian2 } from './ApprGaussian2.js';
+import { Hyperellipsoid, type Ellipse2 } from './Hyperellipsoid.js';
+import { Line } from './Line.js';
+import { logAssert } from './Logger.js';
+import { projectEllipse2 } from './Projection.js';
+import { Vector, add, dot, length, mul, negate, normalize, sub } from './Vector.js';
+import { perp } from './Vector2.js';
 
 // The input points are fit with a Gaussian distribution. The center C of the
 // ellipse is chosen to be the mean of the distribution. The axes of the

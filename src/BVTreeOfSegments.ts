@@ -22,10 +22,10 @@
 //   - 'Execute' becomes 'execute' and returns the node indices rather than
 //     filling an output std::vector.
 
-import { BVTree } from './BVTree';
-import type { BVTreeBoundingVolume, BVTreeVolumeOps } from './BVTree';
-import { logAssert } from './Logger';
-import { Vector, add, mul } from './Vector';
+import { BVTree } from './BVTree.js';
+import type { BVTreeBoundingVolume, BVTreeVolumeOps } from './BVTree.js';
+import { logAssert } from './Logger.js';
+import { Vector, add, mul } from './Vector.js';
 
 export abstract class BVTreeOfSegments<BV extends BVTreeBoundingVolume> extends BVTree<BV> {
     protected mVertices: Vector[];

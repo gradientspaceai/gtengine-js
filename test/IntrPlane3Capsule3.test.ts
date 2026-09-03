@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { Capsule } from '../src/Capsule';
-import { DistPointHyperplane } from '../src/DistPointHyperplane';
-import { Hyperplane } from '../src/Hyperplane';
+import { Capsule } from '../src/Capsule.js';
+import { DistPointHyperplane } from '../src/DistPointHyperplane.js';
+import { Hyperplane } from '../src/Hyperplane.js';
 import {
     IntrPlane3Capsule3TI,
     defaultIntrPlane3Capsule3TIResult
-} from '../src/IntrPlane3Capsule3';
-import { Segment } from '../src/Segment';
-import { Vector, add, mul, normalize, sub } from '../src/Vector';
+} from '../src/IntrPlane3Capsule3.js';
+import { Segment } from '../src/Segment.js';
+import { Vector, add, mul, normalize, sub } from '../src/Vector.js';
 
 function plane(normal: number[], origin: number[]): Hyperplane {
     const n = Vector.fromArray(normal);

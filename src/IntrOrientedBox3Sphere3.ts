@@ -23,18 +23,18 @@
 // which DoQuery reports no contact, so the results are identical; only the
 // final rotation into world coordinates is applied here.
 
-import { AlignedBox } from './AlignedBox';
-import { DistPointOrientedBox } from './DistPointOrientedBox';
-import { Hypersphere } from './Hypersphere';
+import { AlignedBox } from './AlignedBox.js';
+import { DistPointOrientedBox } from './DistPointOrientedBox.js';
+import { Hypersphere } from './Hypersphere.js';
 import {
     IntrAlignedBox3Sphere3FI,
     IntrAlignedBox3Sphere3FIResultType
-} from './IntrAlignedBox3Sphere3';
-import type { IntrAlignedBox3Sphere3FIResult } from './IntrAlignedBox3Sphere3';
-import { logAssert } from './Logger';
-import type { OrientedBox3 } from './OrientedBox';
-import { Vector, add, dot, mul, negate, sub } from './Vector';
-import type { TIQuery } from './TIQuery';
+} from './IntrAlignedBox3Sphere3.js';
+import type { IntrAlignedBox3Sphere3FIResult } from './IntrAlignedBox3Sphere3.js';
+import { logAssert } from './Logger.js';
+import type { OrientedBox3 } from './OrientedBox.js';
+import { Vector, add, dot, mul, negate, sub } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrOrientedBox3Sphere3TI.test.
 export interface IntrOrientedBox3Sphere3TIResult {

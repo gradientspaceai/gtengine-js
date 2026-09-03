@@ -14,9 +14,9 @@
 // static_assert. This port takes the degree as a runtime argument validated
 // by logAssert; see expEstimate below.
 
-import { GTE_C_INV_LN_2 } from './Constants';
-import { exp2Estimate, exp2EstimateRR } from './Exp2Estimate';
-import { logAssert } from './Logger';
+import { GTE_C_INV_LN_2 } from './Constants.js';
+import { exp2Estimate, exp2EstimateRR } from './Exp2Estimate.js';
+import { logAssert } from './Logger.js';
 
 const C_EXP_EST_MAX_ERROR: readonly number[] = [
     8.6071332055935e-2,  // degree 1

@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { Line } from '../src/Line';
-import { Segment } from '../src/Segment';
-import { Vector, add, mul, sub, dot, length } from '../src/Vector';
+import { Line } from '../src/Line.js';
+import { Segment } from '../src/Segment.js';
+import { Vector, add, mul, sub, dot, length } from '../src/Vector.js';
 import {
     IntrLine2Segment2TI,
     IntrLine2Segment2FI
-} from '../src/IntrLine2Segment2';
+} from '../src/IntrLine2Segment2.js';
 
 const INT32_MAX = 2147483647;
 const MAX_T = Number.MAX_VALUE;

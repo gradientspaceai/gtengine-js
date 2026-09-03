@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { NURBSVolume } from '../src/NURBSVolume';
-import { BSplineVolume } from '../src/BSplineVolume';
-import { BasisFunctionInput, UniqueKnot } from '../src/BasisFunction';
-import { Vector, length as vectorLength, sub } from '../src/Vector';
+import { NURBSVolume } from '../src/NURBSVolume.js';
+import { BSplineVolume } from '../src/BSplineVolume.js';
+import { BasisFunctionInput, UniqueKnot } from '../src/BasisFunction.js';
+import { Vector, length as vectorLength, sub } from '../src/Vector.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

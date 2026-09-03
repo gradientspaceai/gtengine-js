@@ -11,13 +11,13 @@ import {
     BSPrecision,
     BSPrecisionParameters,
     BSPrecisionType,
-} from '../src/ArbitraryPrecision';
+} from '../src/ArbitraryPrecision.js';
 
 // The umbrella module must expose the same working set as the direct modules.
-import * as Umbrella from '../src/ArbitraryPrecision';
-import { BSNumber as DirectBSNumber } from '../src/BSNumber';
-import { BSRational as DirectBSRational } from '../src/BSRational';
-import { BSPrecision as DirectBSPrecision } from '../src/BSPrecision';
+import * as Umbrella from '../src/ArbitraryPrecision.js';
+import { BSNumber as DirectBSNumber } from '../src/BSNumber.js';
+import { BSRational as DirectBSRational } from '../src/BSRational.js';
+import { BSPrecision as DirectBSPrecision } from '../src/BSPrecision.js';
 
 describe('ArbitraryPrecision (umbrella module)', () => {
     it('re-exports exactly the symbols of the ported includes', () => {

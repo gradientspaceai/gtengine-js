@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { ApprHeightLine2 } from '../src/ApprHeightLine2';
-import { Vector } from '../src/Vector';
+import { ApprHeightLine2 } from '../src/ApprHeightLine2.js';
+import { Vector } from '../src/Vector.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

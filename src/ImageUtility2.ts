@@ -49,8 +49,8 @@
 //     distances to float precision with Math.fround to match the upstream
 //     Image2<float> transform.
 
-import { Image2 } from './Image2';
-import { logAssert } from './Logger';
+import { Image2 } from './Image2.js';
+import { logAssert } from './Logger.js';
 
 // The type of the callback invoked by the draw* functions for each visited
 // pixel (upstream std::function<void(int32_t, int32_t)>).

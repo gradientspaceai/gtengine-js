@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { Hypersphere } from '../src/Hypersphere';
-import { Sector2 } from '../src/Sector2';
-import { Vector, add, mul, sub, length, normalize } from '../src/Vector';
-import { IntrDisk2Sector2TI } from '../src/IntrDisk2Sector2';
+import { Hypersphere } from '../src/Hypersphere.js';
+import { Sector2 } from '../src/Sector2.js';
+import { Vector, add, mul, sub, length, normalize } from '../src/Vector.js';
+import { IntrDisk2Sector2TI } from '../src/IntrDisk2Sector2.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { TetrahedronKey } from '../src/TetrahedronKey';
-import { FeatureKey } from '../src/FeatureKey';
-import { Vector, dot, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+import { TetrahedronKey } from '../src/TetrahedronKey.js';
+import { FeatureKey } from '../src/FeatureKey.js';
+import { Vector, dot, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 // Deterministic pseudorandom generator so failures are reproducible.
 function makeRng(seed: number): () => number {

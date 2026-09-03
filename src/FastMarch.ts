@@ -21,8 +21,8 @@
 // MinHeap<size_t, Real>::Record* array whose null entries mark non-trial
 // pixels.
 
-import { MinHeap } from './MinHeap';
-import type { MinHeapRecord } from './MinHeap';
+import { MinHeap } from './MinHeap.js';
+import type { MinHeapRecord } from './MinHeap.js';
 
 export abstract class FastMarch {
     // The seed points have a crossing time of 0. As the iterations occur,

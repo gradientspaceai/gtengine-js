@@ -27,12 +27,12 @@
 // which is structurally identical to the canonical-box result that upstream
 // aliases.
 
-import type { AlignedBox3 } from './AlignedBox';
-import { CanonicalBox } from './CanonicalBox';
-import type { DCPQuery } from './DCPQuery';
-import { DistLine3CanonicalBox3 } from './DistLine3CanonicalBox3';
-import { Line, type Line3 } from './Line';
-import { Vector, add, mul, sub } from './Vector';
+import type { AlignedBox3 } from './AlignedBox.js';
+import { CanonicalBox } from './CanonicalBox.js';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistLine3CanonicalBox3 } from './DistLine3CanonicalBox3.js';
+import { Line, type Line3 } from './Line.js';
+import { Vector, add, mul, sub } from './Vector.js';
 
 export interface DistLine3AlignedBox3Result {
     distance: number;

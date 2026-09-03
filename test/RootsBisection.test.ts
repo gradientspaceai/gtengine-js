@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { RootsBisection } from '../src/RootsBisection';
+import { RootsBisection } from '../src/RootsBisection.js';
 
 describe('RootsBisection', () => {
     it('finds the root of cos on [0,2] to machine precision', () => {

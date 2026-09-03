@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BSPrecision, BSPrecisionParameters, BSPrecisionType } from '../src/BSPrecision';
+import { BSPrecision, BSPrecisionParameters, BSPrecisionType } from '../src/BSPrecision.js';
 
 function expectParams(
     p: BSPrecisionParameters,

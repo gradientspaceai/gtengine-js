@@ -26,9 +26,9 @@
 // protected mControls/mWeights arrays that the port's NURBSSurface exposes,
 // with the same row-major layout attribute[i0 + numControls0*i1].
 
-import { BasisFunctionInput, UniqueKnot } from './BasisFunction';
-import { NURBSSurface } from './NURBSSurface';
-import { Vector } from './Vector';
+import { BasisFunctionInput, UniqueKnot } from './BasisFunction.js';
+import { NURBSSurface } from './NURBSSurface.js';
+import { Vector } from './Vector.js';
 
 // Allocate the 'values' output of NURBSEighthSphereDegree4.evaluate: six
 // zero-valued 3D vectors (position; dX/du, dX/dv; d2X/du2, d2X/dudv,

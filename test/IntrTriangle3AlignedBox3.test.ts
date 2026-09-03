@@ -1,15 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { AlignedBox } from '../src/AlignedBox';
+import { AlignedBox } from '../src/AlignedBox.js';
 import {
     IntrTriangle3AlignedBox3TI,
     IntrTriangle3AlignedBox3FI,
     defaultIntrTriangle3AlignedBox3FIResult,
     defaultIntrTriangle3AlignedBox3TIResult,
     intrTriangle3BoxFacePlanes
-} from '../src/IntrTriangle3AlignedBox3';
-import { Triangle } from '../src/Triangle';
-import { Vector, add, dot, mul, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+} from '../src/IntrTriangle3AlignedBox3.js';
+import { Triangle } from '../src/Triangle.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 function vec(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

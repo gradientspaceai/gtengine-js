@@ -17,14 +17,14 @@
 // protected DoQuery and the private case handlers become module-private
 // functions that write into the result object (upstream passes 'Result&').
 
-import { AlignedBox } from './AlignedBox';
-import { DistPointAlignedBox } from './DistPointAlignedBox';
-import type { Hypersphere } from './Hypersphere';
-import { IntrRay3AlignedBox3TI } from './IntrRay3AlignedBox3';
-import { Ray } from './Ray';
-import { logAssert } from './Logger';
-import { Vector, add, dot, sub } from './Vector';
-import type { TIQuery } from './TIQuery';
+import { AlignedBox } from './AlignedBox.js';
+import { DistPointAlignedBox } from './DistPointAlignedBox.js';
+import type { Hypersphere } from './Hypersphere.js';
+import { IntrRay3AlignedBox3TI } from './IntrRay3AlignedBox3.js';
+import { Ray } from './Ray.js';
+import { logAssert } from './Logger.js';
+import { Vector, add, dot, sub } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrAlignedBox3Sphere3TI.test.
 export interface IntrAlignedBox3Sphere3TIResult {

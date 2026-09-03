@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { Segment } from '../src/Segment';
-import { Vector, add, sub, mul, length } from '../src/Vector';
+import { Segment } from '../src/Segment.js';
+import { Vector, add, sub, mul, length } from '../src/Vector.js';
 
 // Numeric equality that treats -0 and +0 as equal, as the C++ comparisons do.
 function expectVector(v: Vector, expected: readonly number[]): void {

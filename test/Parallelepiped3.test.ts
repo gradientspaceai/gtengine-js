@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { Parallelepiped3 } from '../src/Parallelepiped3';
-import { Vector } from '../src/Vector';
-import { dotCross } from '../src/Vector3';
+import { Parallelepiped3 } from '../src/Parallelepiped3.js';
+import { Vector } from '../src/Vector.js';
+import { dotCross } from '../src/Vector3.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

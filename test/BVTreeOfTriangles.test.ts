@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { BVTree, BVTreeNode } from '../src/BVTree';
+import { BVTree, BVTreeNode } from '../src/BVTree.js';
 import type {
     BVTreeBoundingVolume, BVTreeSplittingAxis, BVTreeVolumeOps
-} from '../src/BVTree';
+} from '../src/BVTree.js';
 import {
     BVTreeOfTriangles, BVTreeOfTrianglesIntersection, intersectLineTriangle,
     intersectRayTriangle, intersectSegmentTriangle
-} from '../src/BVTreeOfTriangles';
-import { Triangle } from '../src/Triangle';
-import { Vector, sub } from '../src/Vector';
+} from '../src/BVTreeOfTriangles.js';
+import { Triangle } from '../src/Triangle.js';
+import { Vector, sub } from '../src/Vector.js';
 
 // ---------------------------------------------------------------------------
 // A concrete BoundingVolume: an axis-aligned bounding box, the same minimal

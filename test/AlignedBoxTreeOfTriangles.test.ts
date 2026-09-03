@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { AlignedBoxTreeOfTriangles } from '../src/AlignedBoxTreeOfTriangles';
-import { AlignedBoxBV } from '../src/AlignedBoxBV';
-import { BVTree, BVTreeNode } from '../src/BVTree';
+import { AlignedBoxTreeOfTriangles } from '../src/AlignedBoxTreeOfTriangles.js';
+import { AlignedBoxBV } from '../src/AlignedBoxBV.js';
+import { BVTree, BVTreeNode } from '../src/BVTree.js';
 import {
     intersectLineTriangle, intersectRayTriangle, intersectSegmentTriangle
-} from '../src/BVTreeOfTriangles';
-import type { LinearTriangleResult } from '../src/BVTreeOfTriangles';
-import { Triangle } from '../src/Triangle';
-import { Vector } from '../src/Vector';
+} from '../src/BVTreeOfTriangles.js';
+import type { LinearTriangleResult } from '../src/BVTreeOfTriangles.js';
+import { Triangle } from '../src/Triangle.js';
+import { Vector } from '../src/Vector.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

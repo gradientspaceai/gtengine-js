@@ -11,7 +11,7 @@
 // All of Vector's module free functions (negate, add, sub, mul, div, compMul,
 // compDiv, dot, length, normalize, orthonormalize, computeExtremes, hlift,
 // hproject, lift, project) apply to GVector unchanged and are NOT duplicated
-// here; import them from './Vector' (upstream GVector.h re-implements them
+// here; import them from './Vector.js' (upstream GVector.h re-implements them
 // with identical algorithms).
 //
 // Behavioral differences from Vector, matching upstream GVector.h:
@@ -29,8 +29,8 @@
 // - HProject/Project of a size<=1 tuple return an empty GVector upstream;
 //   the shared hproject()/project() throw as Vector.h's static_assert does.
 
-import { logAssert } from './Logger';
-import { Vector } from './Vector';
+import { logAssert } from './Logger.js';
+import { Vector } from './Vector.js';
 
 export class GVector extends Vector {
     // Create a tuple of the given size (default 0, matching the upstream

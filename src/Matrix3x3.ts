@@ -10,9 +10,9 @@
 // GTE_USE_MAT_VEC, so doTransform3x3 is M*V and A*B, and the basis vectors
 // are the columns).
 
-import { logAssert } from './Logger';
-import { Matrix, multiplyAB, mulMatrix } from './Matrix';
-import { Vector } from './Vector';
+import { logAssert } from './Logger.js';
+import { Matrix, multiplyAB, mulMatrix } from './Matrix.js';
+import { Vector } from './Vector.js';
 
 // The port of upstream's template alias 'using Matrix3x3 = Matrix<3,3,Real>'.
 export type Matrix3x3 = Matrix;

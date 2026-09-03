@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { DistLineLine } from '../src/DistLineLine';
-import { Line } from '../src/Line';
-import { Vector, add, dot, mul, sub } from '../src/Vector';
+import { DistLineLine } from '../src/DistLineLine.js';
+import { Line } from '../src/Line.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

@@ -25,14 +25,14 @@
 // type is the triangle-canonical-box result type, re-exported here as the
 // alias DistTriangle3AlignedBox3Result.
 
-import type { AlignedBox3 } from './AlignedBox';
-import { CanonicalBox } from './CanonicalBox';
-import type { DCPQuery } from './DCPQuery';
-import { DistTriangle3CanonicalBox3 } from './DistTriangle3CanonicalBox3';
-import type { DistTriangle3CanonicalBox3Result } from './DistTriangle3CanonicalBox3';
-import { Triangle } from './Triangle';
-import type { Triangle3 } from './Triangle';
-import { add, sub } from './Vector';
+import type { AlignedBox3 } from './AlignedBox.js';
+import { CanonicalBox } from './CanonicalBox.js';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistTriangle3CanonicalBox3 } from './DistTriangle3CanonicalBox3.js';
+import type { DistTriangle3CanonicalBox3Result } from './DistTriangle3CanonicalBox3.js';
+import { Triangle } from './Triangle.js';
+import type { Triangle3 } from './Triangle.js';
+import { add, sub } from './Vector.js';
 
 // Upstream reuses the triangle-canonical-box result type ('using Result =
 // typename TBQuery::Result').

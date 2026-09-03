@@ -22,12 +22,12 @@
 //   evaluate(theta, phi), which returns { valid, F }; F is meaningless when
 //   valid is false.
 
-import { GTE_C_PI, GTE_C_TWO_PI } from './Constants';
-import { Delaunay2 } from './Delaunay2';
-import { Delaunay2Mesh } from './Delaunay2Mesh';
-import { IntpQuadraticNonuniform2 } from './IntpQuadraticNonuniform2';
-import { logAssert } from './Logger';
-import { Vector } from './Vector';
+import { GTE_C_PI, GTE_C_TWO_PI } from './Constants.js';
+import { Delaunay2 } from './Delaunay2.js';
+import { Delaunay2Mesh } from './Delaunay2Mesh.js';
+import { IntpQuadraticNonuniform2 } from './IntpQuadraticNonuniform2.js';
+import { logAssert } from './Logger.js';
+import { Vector } from './Vector.js';
 
 export interface IntpSphere2Result {
     // Valid is true if and only if the input point is in the convex hull of

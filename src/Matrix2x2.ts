@@ -30,9 +30,9 @@
 // Upstream's optional 'bool* reportInvertibility' output parameter becomes a
 // field of the object returned by inverse2x2, matching Matrix.ts's inverse.
 
-import { logAssert } from './Logger';
-import { Matrix, multiplyAB, mulMatrix } from './Matrix';
-import { Vector } from './Vector';
+import { logAssert } from './Logger.js';
+import { Matrix, multiplyAB, mulMatrix } from './Matrix.js';
+import { Vector } from './Vector.js';
 
 // The port of upstream's template alias. The port's Matrix carries its
 // dimensions at run time, so this is documentation rather than a distinct

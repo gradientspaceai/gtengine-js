@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     log2Estimate, log2EstimateRR, getLog2EstimateMaxError
-} from '../src/Log2Estimate';
+} from '../src/Log2Estimate.js';
 
 const DEGREES = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 

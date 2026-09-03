@@ -34,15 +34,15 @@
 // valid pair of points, but not necessarily the global minimum. See the
 // 'Upstream bug suspects' section of the port PR.
 
-import type { Cone3 } from './Cone';
-import type { DCPQuery } from './DCPQuery';
-import { LCPSolver } from './LCPSolver';
-import { logAssert } from './Logger';
-import { Minimize1 } from './Minimize1';
-import type { OrientedBox3 } from './OrientedBox';
-import { GTE_C_HALF_PI } from './Constants';
-import { Vector, add, dot, length, mul, sub } from './Vector';
-import { computeOrthogonalComplement3 } from './Vector3';
+import type { Cone3 } from './Cone.js';
+import type { DCPQuery } from './DCPQuery.js';
+import { LCPSolver } from './LCPSolver.js';
+import { logAssert } from './Logger.js';
+import { Minimize1 } from './Minimize1.js';
+import type { OrientedBox3 } from './OrientedBox.js';
+import { GTE_C_HALF_PI } from './Constants.js';
+import { Vector, add, dot, length, mul, sub } from './Vector.js';
+import { computeOrthogonalComplement3 } from './Vector3.js';
 
 // Parameters used internally for controlling the minimizer.
 export interface DistOrientedBox3Cone3Control {

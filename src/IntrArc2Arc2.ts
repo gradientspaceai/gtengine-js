@@ -14,11 +14,11 @@
 // Arc2.containsOnCircle in the port, and C++ Vector2 equality becomes
 // Vector.equals.
 
-import { Arc2 } from './Arc2';
-import { Hypersphere } from './Hypersphere';
-import { Vector } from './Vector';
-import { IntrCircle2Circle2FI } from './IntrCircle2Circle2';
-import type { FIQuery } from './FIQuery';
+import { Arc2 } from './Arc2.js';
+import { Hypersphere } from './Hypersphere.js';
+import { Vector } from './Vector.js';
+import { IntrCircle2Circle2FI } from './IntrCircle2Circle2.js';
+import type { FIQuery } from './FIQuery.js';
 
 // The port of std::numeric_limits<int32_t>::max(), which the circle-circle
 // query uses as the 'numIntersections' value meaning "the circles are the

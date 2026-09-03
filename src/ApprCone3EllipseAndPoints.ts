@@ -21,23 +21,23 @@
 //   reference; the port returns them. The upstream 'OBBTree'/'OBBNode' type
 //   aliases are dropped in favor of the concrete types.
 
-import { ApprEllipse2 } from './ApprEllipse2';
-import { ApprGaussian3 } from './ApprGaussian3';
-import { BVTreeNode } from './BVTree';
-import { Cone } from './Cone';
-import type { Cone3 } from './Cone';
-import { GTE_C_HALF_PI } from './Constants';
-import { Ellipse3 } from './Ellipse3';
-import { Hyperellipsoid } from './Hyperellipsoid';
-import type { Ellipse2 } from './Hyperellipsoid';
-import { Hyperplane } from './Hyperplane';
-import type { Plane3 } from './Hyperplane';
-import { logAssert } from './Logger';
-import { Minimize1 } from './Minimize1';
-import type { OrientedBox3 } from './OrientedBox';
-import { OrientedBoxBV } from './OrientedBoxBV';
-import { OrientedBoxTreeOfPoints } from './OrientedBoxTreeOfPoints';
-import { Vector, add, dot, mul, sub } from './Vector';
+import { ApprEllipse2 } from './ApprEllipse2.js';
+import { ApprGaussian3 } from './ApprGaussian3.js';
+import { BVTreeNode } from './BVTree.js';
+import { Cone } from './Cone.js';
+import type { Cone3 } from './Cone.js';
+import { GTE_C_HALF_PI } from './Constants.js';
+import { Ellipse3 } from './Ellipse3.js';
+import { Hyperellipsoid } from './Hyperellipsoid.js';
+import type { Ellipse2 } from './Hyperellipsoid.js';
+import { Hyperplane } from './Hyperplane.js';
+import type { Plane3 } from './Hyperplane.js';
+import { logAssert } from './Logger.js';
+import { Minimize1 } from './Minimize1.js';
+import type { OrientedBox3 } from './OrientedBox.js';
+import { OrientedBoxBV } from './OrientedBoxBV.js';
+import { OrientedBoxTreeOfPoints } from './OrientedBoxTreeOfPoints.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
 
 // The default control parameters appear to be reasonable for applications,
 // but they are exposed to the caller for tuning.

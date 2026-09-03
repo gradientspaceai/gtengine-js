@@ -64,8 +64,8 @@
 // such an endpoint; an interval containing one carries no information other
 // than "indeterminate".
 
-import { BSRational } from './BSRational';
-import { logAssert } from './Logger';
+import { BSRational } from './BSRational.js';
+import { logAssert } from './Logger.js';
 
 // Is the endpoint one of the -infinity/+infinity sentinels produced by
 // APInterval.reals(), reciprocalDown() and reciprocalUp()? The sentinel is

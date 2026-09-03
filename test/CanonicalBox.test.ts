@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { CanonicalBox } from '../src/CanonicalBox';
-import { Vector } from '../src/Vector';
+import { CanonicalBox } from '../src/CanonicalBox.js';
+import { Vector } from '../src/Vector.js';
 
 describe('CanonicalBox construction', () => {
     it('the default constructor sets all members to zero', () => {

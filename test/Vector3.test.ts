@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
     cross, unitCross, dotCross, computeOrthogonalComplement3,
     fastComputeOrthogonalComplement, computeBarycentrics3, IntrinsicsVector3
-} from '../src/Vector3';
-import { Vector, add, dot, length, mul } from '../src/Vector';
+} from '../src/Vector3.js';
+import { Vector, add, dot, length, mul } from '../src/Vector.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

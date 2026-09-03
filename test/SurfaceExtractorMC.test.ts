@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { Image3 } from '../src/Image3';
-import { MarchingCubes } from '../src/MarchingCubes';
-import { SurfaceExtractorMC } from '../src/SurfaceExtractorMC';
-import type { Vector } from '../src/Vector';
+import { Image3 } from '../src/Image3.js';
+import { MarchingCubes } from '../src/MarchingCubes.js';
+import { SurfaceExtractorMC } from '../src/SurfaceExtractorMC.js';
+import type { Vector } from '../src/Vector.js';
 
 // Build an Image3<number> of the given dimensions from an analytic function
 // evaluated at the voxel coordinates.

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { EdgeKey } from '../src/EdgeKey';
-import { FeatureKey } from '../src/FeatureKey';
+import { EdgeKey } from '../src/EdgeKey.js';
+import { FeatureKey } from '../src/FeatureKey.js';
 
 // Deterministic pseudorandom generator so failures are reproducible.
 function makeRng(seed: number): () => number {

@@ -56,7 +56,7 @@
 //     is then zero, which contradicts the monic normalization the Cauchy
 //     bound and the recursion assume. The port allocates degree+1 entries.
 
-import { BSRational } from './BSRational';
+import { BSRational } from './BSRational.js';
 
 function ratio(x: number): BSRational {
     return BSRational.fromNumber(x);

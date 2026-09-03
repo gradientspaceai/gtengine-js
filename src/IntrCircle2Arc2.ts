@@ -11,11 +11,11 @@
 // single-argument upstream Arc2::Contains (which assumes the point is on the
 // circle of the arc) is Arc2.containsOnCircle in the port.
 
-import { Arc2 } from './Arc2';
-import { Hypersphere } from './Hypersphere';
-import { Vector } from './Vector';
-import { IntrCircle2Circle2FI } from './IntrCircle2Circle2';
-import type { FIQuery } from './FIQuery';
+import { Arc2 } from './Arc2.js';
+import { Hypersphere } from './Hypersphere.js';
+import { Vector } from './Vector.js';
+import { IntrCircle2Circle2FI } from './IntrCircle2Circle2.js';
+import type { FIQuery } from './FIQuery.js';
 
 // The port of std::numeric_limits<int32_t>::max(), the 'numIntersections'
 // value meaning "the arc is on the circle".

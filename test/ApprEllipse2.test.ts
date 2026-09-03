@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { ApprEllipse2 } from '../src/ApprEllipse2';
-import { Hyperellipsoid } from '../src/Hyperellipsoid';
-import { Vector, dot } from '../src/Vector';
+import { ApprEllipse2 } from '../src/ApprEllipse2.js';
+import { Hyperellipsoid } from '../src/Hyperellipsoid.js';
+import { Vector, dot } from '../src/Vector.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

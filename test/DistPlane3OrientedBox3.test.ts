@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { DistPlane3OrientedBox3 } from '../src/DistPlane3OrientedBox3';
-import { Hyperplane } from '../src/Hyperplane';
-import { OrientedBox } from '../src/OrientedBox';
-import { Vector, dot, normalize, sub } from '../src/Vector';
+import { DistPlane3OrientedBox3 } from '../src/DistPlane3OrientedBox3.js';
+import { Hyperplane } from '../src/Hyperplane.js';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Vector, dot, normalize, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

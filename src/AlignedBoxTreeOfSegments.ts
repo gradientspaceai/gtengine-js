@@ -10,9 +10,9 @@
 //
 // Port notes: see AlignedBoxTreeOfPoints.ts; the same remarks apply.
 
-import { AlignedBoxBV } from './AlignedBoxBV';
-import type { BVTreeVolumeOps } from './BVTree';
-import { BVTreeOfSegments } from './BVTreeOfSegments';
+import { AlignedBoxBV } from './AlignedBoxBV.js';
+import type { BVTreeVolumeOps } from './BVTree.js';
+import { BVTreeOfSegments } from './BVTreeOfSegments.js';
 
 const alignedBoxBVOps: BVTreeVolumeOps<AlignedBoxBV> = {
     create: () => new AlignedBoxBV(),

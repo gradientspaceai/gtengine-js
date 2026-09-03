@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { Polygon2 } from '../src/Polygon2';
-import { Vector, length, sub } from '../src/Vector';
+import { Polygon2 } from '../src/Polygon2.js';
+import { Vector, length, sub } from '../src/Vector.js';
 
 function V(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

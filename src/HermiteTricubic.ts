@@ -19,7 +19,7 @@
 // evaluation reuses HermiteCubic.p, exactly as upstream reuses
 // HermiteCubic<T>::P.
 
-import { HermiteCubic } from './HermiteCubic';
+import { HermiteCubic } from './HermiteCubic.js';
 
 // Sample of a function at a lattice voxel: the function value f and the
 // derivatives fx, fy, fz, fxy, fxz, fyz, fxyz. The default sample is

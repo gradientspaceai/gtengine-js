@@ -19,21 +19,21 @@
 // relative to the centered form of the segment, C + t * D with |t| <= e, as
 // upstream reports them.
 
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
 import {
     intrSegment3AlignedBox3TIDoQuery,
     intrSegment3AlignedBox3FIDoQuery,
     defaultIntrSegment3AlignedBox3TIResult,
     defaultIntrSegment3AlignedBox3FIResult
-} from './IntrSegment3AlignedBox3';
+} from './IntrSegment3AlignedBox3.js';
 import type {
     IntrSegment3AlignedBox3TIResult,
     IntrSegment3AlignedBox3FIResult
-} from './IntrSegment3AlignedBox3';
-import type { OrientedBox3 } from './OrientedBox';
-import type { Segment3 } from './Segment';
-import { Vector, add, dot, mul, sub } from './Vector';
+} from './IntrSegment3AlignedBox3.js';
+import type { OrientedBox3 } from './OrientedBox.js';
+import type { Segment3 } from './Segment.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
 
 // The upstream derived TIQuery::Result adds no members.
 export type IntrSegment3OrientedBox3TIResult =

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { ApprCircle2 } from '../src/ApprCircle2';
-import { Hypersphere } from '../src/Hypersphere';
-import { Vector } from '../src/Vector';
+import { ApprCircle2 } from '../src/ApprCircle2.js';
+import { Hypersphere } from '../src/Hypersphere.js';
+import { Vector } from '../src/Vector.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

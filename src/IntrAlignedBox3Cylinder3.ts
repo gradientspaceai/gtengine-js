@@ -17,18 +17,18 @@
 // so IntrAlignedBox3Cylinder3TIResult is a type alias per the Intr*
 // precedent.
 
-import type { AlignedBox } from './AlignedBox';
-import { CanonicalBox } from './CanonicalBox';
-import { Cylinder3 } from './Cylinder3';
+import type { AlignedBox } from './AlignedBox.js';
+import { CanonicalBox } from './CanonicalBox.js';
+import { Cylinder3 } from './Cylinder3.js';
 import {
     IntrCanonicalBox3Cylinder3TI
-} from './IntrCanonicalBox3Cylinder3';
+} from './IntrCanonicalBox3Cylinder3.js';
 import type {
     IntrCanonicalBox3Cylinder3TIResult
-} from './IntrCanonicalBox3Cylinder3';
-import { logAssert } from './Logger';
-import { sub } from './Vector';
-import type { TIQuery } from './TIQuery';
+} from './IntrCanonicalBox3Cylinder3.js';
+import { logAssert } from './Logger.js';
+import { sub } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrAlignedBox3Cylinder3TI.test. Upstream adds no members to
 // the canonical-box-versus-cylinder result.

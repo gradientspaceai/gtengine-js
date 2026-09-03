@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { DisjointRectangles } from '../src/DisjointRectangles';
-import { DisjointIntervals } from '../src/DisjointIntervals';
+import { DisjointRectangles } from '../src/DisjointRectangles.js';
+import { DisjointIntervals } from '../src/DisjointIntervals.js';
 
 type Rect = [number, number, number, number];  // [xmin, xmax, ymin, ymax]
 

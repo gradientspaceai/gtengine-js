@@ -24,13 +24,13 @@
 // class DistLine3Rectangle3 with the result type DistLine3Rectangle3Result.
 // The convenience alias DCPLine3Rectangle3 is dropped.
 
-import type { DCPQuery } from './DCPQuery';
-import { DistLineSegment } from './DistLineSegment';
-import type { Line3 } from './Line';
-import type { Rectangle3 } from './Rectangle';
-import { Segment } from './Segment';
-import { Vector, add, dot, mul, sub } from './Vector';
-import { cross } from './Vector3';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistLineSegment } from './DistLineSegment.js';
+import type { Line3 } from './Line.js';
+import type { Rectangle3 } from './Rectangle.js';
+import { Segment } from './Segment.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
+import { cross } from './Vector3.js';
 
 export interface DistLine3Rectangle3Result {
     distance: number;

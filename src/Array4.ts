@@ -13,7 +13,7 @@
 // i0 + bound0 * (i1 + bound1 * (i2 + bound2 * i3)). Accesses are not
 // bounds-checked, matching upstream.
 
-import { logAssert } from './Logger';
+import { logAssert } from './Logger.js';
 
 export class Array4<T> {
     private mBound0: number;

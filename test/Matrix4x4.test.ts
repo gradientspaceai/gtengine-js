@@ -3,11 +3,11 @@ import {
     inverse4x4, adjoint4x4, determinant4x4, trace4x4, doTransform4x4,
     setBasis4x4, getBasis4x4, makeObliqueProjection4x4,
     makePerspectiveProjection4x4, makeReflection4x4
-} from '../src/Matrix4x4';
+} from '../src/Matrix4x4.js';
 import {
     Matrix, inverse, determinant, multiplyAB, mulMatrix
-} from '../src/Matrix';
-import { Vector, dot, normalize, sub } from '../src/Vector';
+} from '../src/Matrix.js';
+import { Vector, dot, normalize, sub } from '../src/Vector.js';
 
 function expectMatrixClose(actual: Matrix, expected: Matrix,
     tolerance: number = 1e-12): void {

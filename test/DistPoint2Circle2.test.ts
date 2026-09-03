@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { DistPoint2Circle2 } from '../src/DistPoint2Circle2';
-import { Hypersphere } from '../src/Hypersphere';
-import { Vector, dot, sub } from '../src/Vector';
+import { DistPoint2Circle2 } from '../src/DistPoint2Circle2.js';
+import { Hypersphere } from '../src/Hypersphere.js';
+import { Vector, dot, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

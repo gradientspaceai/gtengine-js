@@ -33,15 +33,15 @@
 // The upstream single-argument 'Arc2::Contains' (which assumes the point is
 // on the circle) is the port's 'containsOnCircle'.
 
-import type { Arc2 } from './Arc2';
-import type { DCPQuery } from './DCPQuery';
-import type { DistLine2Circle2Result } from './DistLine2Circle2';
-import { DistPoint2Arc2 } from './DistPoint2Arc2';
-import { DistPointRay } from './DistPointRay';
-import { DistRay2Circle2 } from './DistRay2Circle2';
-import { Hypersphere } from './Hypersphere';
-import type { Ray2 } from './Ray';
-import { Vector } from './Vector';
+import type { Arc2 } from './Arc2.js';
+import type { DCPQuery } from './DCPQuery.js';
+import type { DistLine2Circle2Result } from './DistLine2Circle2.js';
+import { DistPoint2Arc2 } from './DistPoint2Arc2.js';
+import { DistPointRay } from './DistPointRay.js';
+import { DistRay2Circle2 } from './DistRay2Circle2.js';
+import { Hypersphere } from './Hypersphere.js';
+import type { Ray2 } from './Ray.js';
+import { Vector } from './Vector.js';
 
 // Upstream reuses the line-circle result type ('using Result = typename
 // LCQuery::Result').

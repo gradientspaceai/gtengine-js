@@ -18,10 +18,10 @@
 // Port notes: see IntrIntervals.ts for the Intr* precedent. Upstream provides
 // only a TIQuery specialization for this pair of primitives.
 
-import { AlignedBox } from './AlignedBox';
-import { OrientedBox } from './OrientedBox';
-import { sub, dot } from './Vector';
-import type { TIQuery } from './TIQuery';
+import { AlignedBox } from './AlignedBox.js';
+import { OrientedBox } from './OrientedBox.js';
+import { sub, dot } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrAlignedBox2OrientedBox2TI.test.
 export interface IntrAlignedBox2OrientedBox2TIResult {

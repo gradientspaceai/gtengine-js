@@ -38,13 +38,13 @@
 // of A^{-1}B sum to one only to that accuracy (so the result is only
 // approximately invariant under translation of the control points).
 
-import { BandedMatrix } from './BandedMatrix';
-import { GMatrix } from './GMatrix';
-import { Integration } from './Integration';
-import { IntrIntervalsFI } from './IntrIntervals';
-import { logAssert } from './Logger';
-import { multiplyAB } from './Matrix';
-import { Vector } from './Vector';
+import { BandedMatrix } from './BandedMatrix.js';
+import { GMatrix } from './GMatrix.js';
+import { Integration } from './Integration.js';
+import { IntrIntervalsFI } from './IntrIntervals.js';
+import { logAssert } from './Logger.js';
+import { multiplyAB } from './Matrix.js';
+import { Vector } from './Vector.js';
 
 export class BSplineReduction {
     private mDegree: number;

@@ -21,13 +21,13 @@
 // upstream specialization 'DCPQuery<T, Line3<T>, Triangle3<T>>' becomes the
 // class DistLine3Triangle3 with the result type DistLine3Triangle3Result.
 
-import type { DCPQuery } from './DCPQuery';
-import { DistLineSegment } from './DistLineSegment';
-import type { Line3 } from './Line';
-import { Segment } from './Segment';
-import type { Triangle3 } from './Triangle';
-import { Vector, add, dot, mul, sub } from './Vector';
-import { cross } from './Vector3';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistLineSegment } from './DistLineSegment.js';
+import type { Line3 } from './Line.js';
+import { Segment } from './Segment.js';
+import type { Triangle3 } from './Triangle.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
+import { cross } from './Vector3.js';
 
 export interface DistLine3Triangle3Result {
     distance: number;

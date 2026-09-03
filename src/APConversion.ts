@@ -47,10 +47,10 @@
 //     convertBSRational(input, precision, mode) and Convert(input, mode,
 //     double& output) becomes convertBSRationalToNumber(input, mode).
 
-import { BSNumberRoundingMode } from './BSNumber';
-import { BSRational, convertBSRational, convertBSRationalToNumber } from './BSRational';
-import { logAssert, logError } from './Logger';
-import { nextDown, nextUp } from './SWInterval';
+import { BSNumberRoundingMode } from './BSNumber.js';
+import { BSRational, convertBSRational, convertBSRationalToNumber } from './BSRational.js';
+import { logAssert, logError } from './Logger.js';
+import { nextDown, nextUp } from './SWInterval.js';
 
 // The structural form of upstream's QFN1 = QFNumber<Rational, 1> with
 // Rational = BSRational: the quadratic field number x[0] + x[1] * sqrt(d).

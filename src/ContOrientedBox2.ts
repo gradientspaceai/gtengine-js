@@ -18,11 +18,11 @@
 // value; ApprGaussian2::getParameters returns the fitter's own object, so the
 // port clones it.
 
-import { ApprGaussian2 } from './ApprGaussian2';
-import { logAssert } from './Logger';
-import { OrientedBox, type OrientedBox2 } from './OrientedBox';
-import { Vector, add, dot, mul, negate, normalize, sub } from './Vector';
-import { perp } from './Vector2';
+import { ApprGaussian2 } from './ApprGaussian2.js';
+import { logAssert } from './Logger.js';
+import { OrientedBox, type OrientedBox2 } from './OrientedBox.js';
+import { Vector, add, dot, mul, negate, normalize, sub } from './Vector.js';
+import { perp } from './Vector2.js';
 
 // Compute an oriented bounding box of the points. The box center is the
 // average of the points. The box axes are the eigenvectors of the covariance

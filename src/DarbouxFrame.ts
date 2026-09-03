@@ -20,12 +20,12 @@
 // - Matrix2x2<Real> becomes 'new Matrix(2, 2)' with determinant2x2 (see the
 //   fixed-size matrix naming precedent from B56).
 
-import { logAssert } from './Logger';
-import { Matrix } from './Matrix';
-import { determinant2x2 } from './Matrix2x2';
-import { ParametricSurface } from './ParametricSurface';
-import { Vector, add, dot, mul, normalize } from './Vector';
-import { cross, unitCross } from './Vector3';
+import { logAssert } from './Logger.js';
+import { Matrix } from './Matrix.js';
+import { determinant2x2 } from './Matrix2x2.js';
+import { ParametricSurface } from './ParametricSurface.js';
+import { Vector, add, dot, mul, normalize } from './Vector.js';
+import { cross, unitCross } from './Vector3.js';
 
 export interface DarbouxFrame3Result {
     position: Vector;

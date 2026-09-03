@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ParametricCurve } from '../src/ParametricCurve';
-import { Vector, length as vectorLength, sub } from '../src/Vector';
+import { ParametricCurve } from '../src/ParametricCurve.js';
+import { Vector, length as vectorLength, sub } from '../src/Vector.js';
 
 // A circle of radius r traversed once on [0, 2*pi]. Speed is the constant r,
 // so every quantity computed by ParametricCurve has a closed form:

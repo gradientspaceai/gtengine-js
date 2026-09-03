@@ -23,14 +23,14 @@
 //   - The VCreator function pointer becomes an optional constructor callback,
 //     and the copy constructor and operator= become clone() and assign().
 
-import { EdgeKey } from './EdgeKey';
-import { FeatureKey } from './FeatureKey';
+import { EdgeKey } from './EdgeKey.js';
+import { FeatureKey } from './FeatureKey.js';
 import {
     ETManifoldMesh, ETManifoldMeshEdge, ETManifoldMeshTriangle
-} from './ETManifoldMesh';
-import type { ETManifoldMeshECreator, ETManifoldMeshTCreator } from './ETManifoldMesh';
-import { logAssert } from './Logger';
-import { TriangleKey } from './TriangleKey';
+} from './ETManifoldMesh.js';
+import type { ETManifoldMeshECreator, ETManifoldMeshTCreator } from './ETManifoldMesh.js';
+import { logAssert } from './Logger.js';
+import { TriangleKey } from './TriangleKey.js';
 
 // The port of VETManifoldMesh::Vertex.
 export class VETManifoldMeshVertex {

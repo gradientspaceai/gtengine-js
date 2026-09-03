@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FastMarch2 } from '../src/FastMarch2';
+import { FastMarch2 } from '../src/FastMarch2.js';
 
 // Run the fast marching to completion (the heap empties, after which
 // iterate() is a no-op).

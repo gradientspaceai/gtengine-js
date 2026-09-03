@@ -27,13 +27,13 @@
 // IntrLine3Rectangle3.ts, 'rectCoord' keeps the upstream length-3 array even
 // though only the first two entries have meaning.
 
-import { Line } from './Line';
-import type { Ray } from './Ray';
-import type { Rectangle } from './Rectangle';
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
-import { Vector } from './Vector';
-import { IntrLine3Rectangle3FI } from './IntrLine3Rectangle3';
+import { Line } from './Line.js';
+import type { Ray } from './Ray.js';
+import type { Rectangle } from './Rectangle.js';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
+import { Vector } from './Vector.js';
+import { IntrLine3Rectangle3FI } from './IntrLine3Rectangle3.js';
 
 // The result of IntrRay3Rectangle3TI queries.
 export interface IntrRay3Rectangle3TIResult {

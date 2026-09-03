@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { ApprParabola2 } from '../src/ApprParabola2';
-import { Vector } from '../src/Vector';
+import { ApprParabola2 } from '../src/ApprParabola2.js';
+import { Vector } from '../src/Vector.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

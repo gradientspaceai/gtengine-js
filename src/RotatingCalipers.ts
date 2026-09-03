@@ -28,9 +28,9 @@
 //   the array type non-nullable, which is behavior-preserving because the
 //   entries for removed vertices are never read.
 
-import { BSNumber } from './BSNumber';
-import { logAssert } from './Logger';
-import { Vector } from './Vector';
+import { BSNumber } from './BSNumber.js';
+import { logAssert } from './Logger.js';
+import { Vector } from './Vector.js';
 
 // The Antipode members are lookups into the input vertices[] to
 // computeAntipodes(...). 'vertex' is the antipodal vertex and 'edge' holds

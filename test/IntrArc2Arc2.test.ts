@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { Arc2 } from '../src/Arc2';
-import { Vector, sub, length } from '../src/Vector';
+import { Arc2 } from '../src/Arc2.js';
+import { Vector, sub, length } from '../src/Vector.js';
 import {
     IntrArc2Arc2FI,
     IntrArc2Arc2Configuration as Cfg
-} from '../src/IntrArc2Arc2';
+} from '../src/IntrArc2Arc2.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

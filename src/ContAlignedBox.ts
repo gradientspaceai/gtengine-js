@@ -17,9 +17,9 @@
 //   not guaranteed, namely an empty point set).
 // - The number-of-points argument is dropped in favor of the array length.
 
-import { AlignedBox } from './AlignedBox';
-import { logAssert } from './Logger';
-import { Vector, computeExtremes } from './Vector';
+import { AlignedBox } from './AlignedBox.js';
+import { logAssert } from './Logger.js';
+import { Vector, computeExtremes } from './Vector.js';
 
 // Compute the minimum size aligned bounding box of the points. The extreme
 // values are the minima and maxima of the point coordinates. Upstream

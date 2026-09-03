@@ -13,12 +13,12 @@
 // IntrRay3Triangle3FI (find), with the result types IntrRay3Triangle3TIResult
 // and IntrRay3Triangle3FIResult.
 
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
-import type { Ray } from './Ray';
-import type { Triangle } from './Triangle';
-import { Vector, add, dot, mul, sub } from './Vector';
-import { cross, dotCross } from './Vector3';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
+import type { Ray } from './Ray.js';
+import type { Triangle } from './Triangle.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
+import { cross, dotCross } from './Vector3.js';
 
 // The result of IntrRay3Triangle3TI queries.
 export interface IntrRay3Triangle3TIResult {

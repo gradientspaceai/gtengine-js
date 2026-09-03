@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { DistPointTriangle } from '../src/DistPointTriangle';
-import { Triangle } from '../src/Triangle';
-import { Vector, add, dot, mul, sub } from '../src/Vector';
+import { DistPointTriangle } from '../src/DistPointTriangle.js';
+import { Triangle } from '../src/Triangle.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

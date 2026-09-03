@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { ConvertCoordinates } from '../src/ConvertCoordinates';
+import { ConvertCoordinates } from '../src/ConvertCoordinates.js';
 import {
     Matrix, multiplyAB, mulMatrix, determinant, transpose
-} from '../src/Matrix';
-import { Vector } from '../src/Vector';
+} from '../src/Matrix.js';
+import { Vector } from '../src/Vector.js';
 
 function expectVectorClose(actual: Vector, expected: readonly number[],
     tolerance: number = 1e-12): void {

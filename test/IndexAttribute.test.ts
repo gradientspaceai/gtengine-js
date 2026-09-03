@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { IndexAttribute } from '../src/IndexAttribute';
+import { IndexAttribute } from '../src/IndexAttribute.js';
 
 describe('IndexAttribute', () => {
     it('defaults to a null source with no supported view', () => {

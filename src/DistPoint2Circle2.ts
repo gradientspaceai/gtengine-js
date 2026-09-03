@@ -18,9 +18,9 @@
 // upstream specialization 'DCPQuery<T, Vector2<T>, Circle2<T>>' becomes the
 // class DistPoint2Circle2 with the result type DistPoint2Circle2Result.
 
-import type { DCPQuery } from './DCPQuery';
-import type { Circle2 } from './Hypersphere';
-import { Vector, add, div, dot, mul, sub } from './Vector';
+import type { DCPQuery } from './DCPQuery.js';
+import type { Circle2 } from './Hypersphere.js';
+import { Vector, add, div, dot, mul, sub } from './Vector.js';
 
 export interface DistPoint2Circle2Result {
     distance: number;

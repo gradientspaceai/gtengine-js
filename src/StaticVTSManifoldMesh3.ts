@@ -30,7 +30,7 @@
 // become return values. getAdjacentTetrahedra also fixes an upstream bug; see
 // the comment in that method.
 
-import { logAssert } from './Logger';
+import { logAssert } from './Logger.js';
 
 // The port of the nested class StaticVTSManifoldMesh3::Vertex. The name is
 // prefixed because the library exports one flat namespace.

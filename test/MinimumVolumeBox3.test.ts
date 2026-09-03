@@ -4,7 +4,7 @@ import {
     MVB3Rational,
     MVB3GPU,
     type MVB3ComputeType
-} from '../src/MinimumVolumeBox3';
+} from '../src/MinimumVolumeBox3.js';
 
 // MinimumVolumeBox3.h is a facade header: it defines only the compute-type
 // tags (upstream std::integral_constant<std::size_t, N>) used to select a

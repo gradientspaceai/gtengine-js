@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { Line } from '../src/Line';
-import { Vector, add, mul, sub, length } from '../src/Vector';
-import { IntrLine2Line2TI, IntrLine2Line2FI } from '../src/IntrLine2Line2';
+import { Line } from '../src/Line.js';
+import { Vector, add, mul, sub, length } from '../src/Vector.js';
+import { IntrLine2Line2TI, IntrLine2Line2FI } from '../src/IntrLine2Line2.js';
 
 function line(px: number, py: number, dx: number, dy: number): Line {
     return Line.fromOriginDirection(Vector.fromArray([px, py]),

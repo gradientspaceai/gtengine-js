@@ -12,8 +12,8 @@
 // methods). The class is not templated on the dimension upstream, so the
 // default constructor takes no arguments and builds a 3D rectangle.
 
-import { logAssert } from './Logger';
-import { Rectangle } from './Rectangle';
+import { logAssert } from './Logger.js';
+import { Rectangle } from './Rectangle.js';
 
 export class Lozenge3 {
     // Public member access.

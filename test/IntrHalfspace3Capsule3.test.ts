@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { Capsule } from '../src/Capsule';
-import { Halfspace } from '../src/Halfspace';
-import { Segment } from '../src/Segment';
-import { Vector, add, sub, mul, dot, normalize } from '../src/Vector';
-import { IntrHalfspace3Capsule3TI } from '../src/IntrHalfspace3Capsule3';
+import { Capsule } from '../src/Capsule.js';
+import { Halfspace } from '../src/Halfspace.js';
+import { Segment } from '../src/Segment.js';
+import { Vector, add, sub, mul, dot, normalize } from '../src/Vector.js';
+import { IntrHalfspace3Capsule3TI } from '../src/IntrHalfspace3Capsule3.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

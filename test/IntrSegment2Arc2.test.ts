@@ -1,15 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { Arc2 } from '../src/Arc2';
-import { Hypersphere } from '../src/Hypersphere';
-import { IntrLine2Circle2FI } from '../src/IntrLine2Circle2';
+import { Arc2 } from '../src/Arc2.js';
+import { Hypersphere } from '../src/Hypersphere.js';
+import { IntrLine2Circle2FI } from '../src/IntrLine2Circle2.js';
 import {
     IntrSegment2Arc2TI,
     IntrSegment2Arc2FI,
     defaultIntrSegment2Arc2FIResult
-} from '../src/IntrSegment2Arc2';
-import { Line } from '../src/Line';
-import { Segment } from '../src/Segment';
-import { Vector, add, length, mul, sub } from '../src/Vector';
+} from '../src/IntrSegment2Arc2.js';
+import { Line } from '../src/Line.js';
+import { Segment } from '../src/Segment.js';
+import { Vector, add, length, mul, sub } from '../src/Vector.js';
 
 function vec(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

@@ -11,9 +11,9 @@
 // the columns, and the special matrices below are the ones shown in the
 // upstream comments).
 
-import { logAssert } from './Logger';
-import { Matrix, multiplyAB, mulMatrix } from './Matrix';
-import { Vector, dot, sub } from './Vector';
+import { logAssert } from './Logger.js';
+import { Matrix, multiplyAB, mulMatrix } from './Matrix.js';
+import { Vector, dot, sub } from './Vector.js';
 
 // The port of upstream's template alias 'using Matrix4x4 = Matrix<4,4,Real>'.
 export type Matrix4x4 = Matrix;

@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
     atandivpi, atan2divpi, clamp, cospi, exp10, invsqrt, isign, saturate,
     sign, sinpi, sqr, fma, robustSOP, robustDOP
-} from '../src/Functions';
-import { GTE_C_INV_PI, GTE_C_PI, GTE_C_LN_10 } from '../src/Constants';
+} from '../src/Functions.js';
+import { GTE_C_INV_PI, GTE_C_PI, GTE_C_LN_10 } from '../src/Constants.js';
 
 describe('Functions trigonometric helpers', () => {
     it('atandivpi returns the angle as a fraction of pi', () => {

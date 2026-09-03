@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { AlignedBox } from '../src/AlignedBox';
-import { CanonicalBox } from '../src/CanonicalBox';
-import { Cylinder3 } from '../src/Cylinder3';
-import { Line } from '../src/Line';
-import { Vector, normalize, sub } from '../src/Vector';
-import { IntrAlignedBox3Cylinder3TI } from '../src/IntrAlignedBox3Cylinder3';
-import { IntrCanonicalBox3Cylinder3TI } from '../src/IntrCanonicalBox3Cylinder3';
+import { AlignedBox } from '../src/AlignedBox.js';
+import { CanonicalBox } from '../src/CanonicalBox.js';
+import { Cylinder3 } from '../src/Cylinder3.js';
+import { Line } from '../src/Line.js';
+import { Vector, normalize, sub } from '../src/Vector.js';
+import { IntrAlignedBox3Cylinder3TI } from '../src/IntrAlignedBox3Cylinder3.js';
+import { IntrCanonicalBox3Cylinder3TI } from '../src/IntrCanonicalBox3Cylinder3.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

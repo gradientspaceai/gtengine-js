@@ -16,13 +16,13 @@
 // a TIQuery specialization, which becomes IntrPlane3Ellipsoid3TI.
 // 'Ellipsoid3::GetMInverse(M)' returns its matrix in the port.
 
-import { DistPointHyperplane } from './DistPointHyperplane';
-import type { Ellipsoid3 } from './Hyperellipsoid';
-import { logAssert } from './Logger';
-import { mulMatrix } from './Matrix';
-import type { Plane3 } from './Hyperplane';
-import { Vector, dot } from './Vector';
-import type { TIQuery } from './TIQuery';
+import { DistPointHyperplane } from './DistPointHyperplane.js';
+import type { Ellipsoid3 } from './Hyperellipsoid.js';
+import { logAssert } from './Logger.js';
+import { mulMatrix } from './Matrix.js';
+import type { Plane3 } from './Hyperplane.js';
+import { Vector, dot } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrPlane3Ellipsoid3TI.test.
 export interface IntrPlane3Ellipsoid3TIResult {

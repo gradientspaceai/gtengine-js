@@ -22,13 +22,13 @@
 // line-box result type, re-exported here as the alias
 // DistRay2OrientedBox2Result.
 
-import type { DCPQuery } from './DCPQuery';
-import { DistLine2OrientedBox2 } from './DistLine2OrientedBox2';
-import type { DistLine2OrientedBox2Result } from './DistLine2OrientedBox2';
-import { DistPointOrientedBox } from './DistPointOrientedBox';
-import { Line } from './Line';
-import type { OrientedBox2 } from './OrientedBox';
-import type { Ray2 } from './Ray';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistLine2OrientedBox2 } from './DistLine2OrientedBox2.js';
+import type { DistLine2OrientedBox2Result } from './DistLine2OrientedBox2.js';
+import { DistPointOrientedBox } from './DistPointOrientedBox.js';
+import { Line } from './Line.js';
+import type { OrientedBox2 } from './OrientedBox.js';
+import type { Ray2 } from './Ray.js';
 
 // Upstream reuses the line-box result type ('using Result = typename
 // OrientedQuery::Result').

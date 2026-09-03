@@ -14,8 +14,8 @@
 // Vector[] of length 3; its comparisons are lexicographic over the elements,
 // as std::array's are.
 
-import { logAssert } from './Logger';
-import { Vector } from './Vector';
+import { logAssert } from './Logger.js';
+import { Vector } from './Vector.js';
 
 // Lexicographic comparison of the three-element vertex arrays (the port of
 // std::array's relational operators). Returns -1, 0 or +1.

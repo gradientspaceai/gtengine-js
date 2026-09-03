@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { ExtremalQuery3BSP } from '../src/ExtremalQuery3BSP';
-import { ExtremalQuery3PRJ } from '../src/ExtremalQuery3PRJ';
-import { Polyhedron3 } from '../src/Polyhedron3';
-import { Vector, dot, normalize } from '../src/Vector';
+import { ExtremalQuery3BSP } from '../src/ExtremalQuery3BSP.js';
+import { ExtremalQuery3PRJ } from '../src/ExtremalQuery3PRJ.js';
+import { Polyhedron3 } from '../src/Polyhedron3.js';
+import { Vector, dot, normalize } from '../src/Vector.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

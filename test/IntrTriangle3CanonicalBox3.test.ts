@@ -4,12 +4,12 @@ import {
     IntrTriangle3CanonicalBox3TI,
     defaultIntrTriangle3CanonicalBox3FIResult,
     defaultIntrTriangle3CanonicalBox3TIResult
-} from '../src/IntrTriangle3CanonicalBox3';
-import { CanonicalBox } from '../src/CanonicalBox';
-import { Triangle } from '../src/Triangle';
-import { Vector, add, dot, length, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
-import { DistTriangle3CanonicalBox3 } from '../src/DistTriangle3CanonicalBox3';
+} from '../src/IntrTriangle3CanonicalBox3.js';
+import { CanonicalBox } from '../src/CanonicalBox.js';
+import { Triangle } from '../src/Triangle.js';
+import { Vector, add, dot, length, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
+import { DistTriangle3CanonicalBox3 } from '../src/DistTriangle3CanonicalBox3.js';
 
 const V3 = (x: number, y: number, z: number) => Vector.fromArray([x, y, z]);
 

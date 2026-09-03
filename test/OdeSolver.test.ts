@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { OdeSolver, type OdeFunction } from '../src/OdeSolver';
+import { OdeSolver, type OdeFunction } from '../src/OdeSolver.js';
 
 // A minimal concrete subclass (an explicit Euler step) used to exercise the
 // abstract base class. The real OdeEuler port arrives in a later batch.

@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
     IntrOrientedBox2OrientedBox2TI,
     IntrOrientedBox2OrientedBox2FI
-} from '../src/IntrOrientedBox2OrientedBox2';
-import { OrientedBox } from '../src/OrientedBox';
-import { Vector, add, dot, mul, sub } from '../src/Vector';
+} from '../src/IntrOrientedBox2OrientedBox2.js';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
 
 const ti = new IntrOrientedBox2OrientedBox2TI();
 const fi = new IntrOrientedBox2OrientedBox2FI();

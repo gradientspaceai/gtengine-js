@@ -15,8 +15,8 @@
 // std::pair<Vector2,Vector2>; per PORTING.md the pair becomes an object with
 // named fields (average, coefficients).
 
-import { ApprQuery } from './ApprQuery';
-import { Vector, dot, sub } from './Vector';
+import { ApprQuery } from './ApprQuery.js';
+import { Vector, dot, sub } from './Vector.js';
 
 export interface ApprHeightLine2Parameters {
     // (xAvr,yAvr), the average of the sample points.

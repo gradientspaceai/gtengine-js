@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
     PolygonTree, PolygonTreeEx, PolygonTreeExNode
-} from '../src/PolygonTree';
-import { Vector } from '../src/Vector';
+} from '../src/PolygonTree.js';
+import { Vector } from '../src/Vector.js';
 
 function pts(points: [number, number][]): Vector[] {
     return points.map(p => Vector.fromArray(p));

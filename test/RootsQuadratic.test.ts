@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { BSRational } from '../src/BSRational';
-import type { PolynomialRoot } from '../src/PolynomialRoot';
-import { RootsPolynomial } from '../src/RootsPolynomial';
-import { RootsQuadratic, rationalSqrtViaQuadratic } from '../src/RootsQuadratic';
+import { BSRational } from '../src/BSRational.js';
+import type { PolynomialRoot } from '../src/PolynomialRoot.js';
+import { RootsPolynomial } from '../src/RootsPolynomial.js';
+import { RootsQuadratic, rationalSqrtViaQuadratic } from '../src/RootsQuadratic.js';
 
 const rat = (x: number, y?: number) => BSRational.fromNumber(x, y);
 

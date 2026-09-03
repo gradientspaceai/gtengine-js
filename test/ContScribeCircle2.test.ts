@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { circumscribeCircle2, inscribeCircle2 } from '../src/ContScribeCircle2';
-import { Vector, length, sub } from '../src/Vector';
-import { dotPerp } from '../src/Vector2';
+import { circumscribeCircle2, inscribeCircle2 } from '../src/ContScribeCircle2.js';
+import { Vector, length, sub } from '../src/Vector.js';
+import { dotPerp } from '../src/Vector2.js';
 
 function v(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

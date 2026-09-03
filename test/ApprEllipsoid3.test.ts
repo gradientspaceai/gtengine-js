@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { ApprEllipsoid3 } from '../src/ApprEllipsoid3';
-import { Hyperellipsoid } from '../src/Hyperellipsoid';
-import { Vector, dot } from '../src/Vector';
-import { cross } from '../src/Vector3';
+import { ApprEllipsoid3 } from '../src/ApprEllipsoid3.js';
+import { Hyperellipsoid } from '../src/Hyperellipsoid.js';
+import { Vector, dot } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

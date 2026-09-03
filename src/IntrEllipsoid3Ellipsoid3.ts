@@ -15,13 +15,13 @@
 // functions getRoots1, getRoots2 and getRoots3, each returning the array of
 // roots rather than filling a caller-supplied buffer.
 
-import type { Ellipsoid3 } from './Hyperellipsoid';
-import { logAssert, logError } from './Logger';
-import { Matrix, multiplyAB, multiplyATB, mulMatrix } from './Matrix';
-import { RootsBisection } from './RootsBisection';
-import { SymmetricEigensolver3x3 } from './SymmetricEigensolver3x3';
-import { Vector, sub } from './Vector';
-import type { TIQuery } from './TIQuery';
+import type { Ellipsoid3 } from './Hyperellipsoid.js';
+import { logAssert, logError } from './Logger.js';
+import { Matrix, multiplyAB, multiplyATB, mulMatrix } from './Matrix.js';
+import { RootsBisection } from './RootsBisection.js';
+import { SymmetricEigensolver3x3 } from './SymmetricEigensolver3x3.js';
+import { Vector, sub } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The relationship of the two solid ellipsoids.
 export enum IntrEllipsoid3Ellipsoid3Classification {

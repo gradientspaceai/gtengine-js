@@ -18,7 +18,7 @@
 // into a slope array; the port takes the array and the offset of the
 // four-element window.
 
-import { logAssert } from './Logger';
+import { logAssert } from './Logger.js';
 
 // P(x) = c[0] + c[1]*x + c[2]*x^2 + c[3]*x^3
 export class IntpAkima1Polynomial {

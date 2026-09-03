@@ -24,10 +24,10 @@
 // reports the outside state, it returns the pair { outside, polygon } rather
 // than mutating a reference argument.
 
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
-import type { OrientedBox } from './OrientedBox';
-import { Vector, add, dot, mul, negate, sub } from './Vector';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
+import type { OrientedBox } from './OrientedBox.js';
+import { Vector, add, dot, mul, negate, sub } from './Vector.js';
 
 // The result of IntrOrientedBox2OrientedBox2TI queries.
 export interface IntrOrientedBox2OrientedBox2TIResult {

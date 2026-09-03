@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { ApprOrthogonalPlane3 } from '../src/ApprOrthogonalPlane3';
-import { Vector, dot } from '../src/Vector';
+import { ApprOrthogonalPlane3 } from '../src/ApprOrthogonalPlane3.js';
+import { Vector, dot } from '../src/Vector.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

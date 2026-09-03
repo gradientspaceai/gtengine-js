@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { IntpAkima1, IntpAkima1Polynomial } from '../src/IntpAkima1';
+import { IntpAkima1, IntpAkima1Polynomial } from '../src/IntpAkima1.js';
 
 // Minimal concrete subclass on the uniform lattice x = 0, 1, ..., q-1 whose
 // segment polynomials are Hermite cubics built from prescribed derivatives.

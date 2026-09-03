@@ -11,10 +11,10 @@
 // (origin,direction). The error for S = (x0,y0) is
 // (S-P)^T*(I - D*D^T)*(S-P).
 
-import { ApprQuery } from './ApprQuery';
-import { Line } from './Line';
-import { SymmetricEigensolver2x2 } from './SymmetricEigensolver2x2';
-import { Vector, dot } from './Vector';
+import { ApprQuery } from './ApprQuery.js';
+import { Line } from './Line.js';
+import { SymmetricEigensolver2x2 } from './SymmetricEigensolver2x2.js';
+import { Vector, dot } from './Vector.js';
 
 export class ApprOrthogonalLine2 extends ApprQuery<Vector> {
     private mParameters: Line;

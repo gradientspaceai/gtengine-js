@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { CurveExtractorSquares } from '../src/CurveExtractorSquares';
-import { CurveExtractorVertex } from '../src/CurveExtractor';
+import { CurveExtractorSquares } from '../src/CurveExtractorSquares.js';
+import { CurveExtractorVertex } from '../src/CurveExtractor.js';
 
 // Build a pixel image from a function of the integer lattice.
 function image(xBound: number, yBound: number,

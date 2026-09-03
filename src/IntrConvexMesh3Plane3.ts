@@ -30,13 +30,13 @@
 //   module-private functions getIntersectionPolygonTangential (the coplanar
 //   face case) and getIntersectionPolygonSplit (the transverse case).
 
-import { ConvexMesh3 } from './ConvexMesh3';
-import type { ConvexMesh3Triangle, ConvexMesh3Vertex } from './ConvexMesh3';
-import type { FIQuery } from './FIQuery';
-import type { Hyperplane } from './Hyperplane';
-import { logAssert, logError } from './Logger';
-import { UniqueVerticesSimplices } from './UniqueVerticesSimplices';
-import { Vector, add, dot, mul } from './Vector';
+import { ConvexMesh3 } from './ConvexMesh3.js';
+import type { ConvexMesh3Triangle, ConvexMesh3Vertex } from './ConvexMesh3.js';
+import type { FIQuery } from './FIQuery.js';
+import type { Hyperplane } from './Hyperplane.js';
+import { logAssert, logError } from './Logger.js';
+import { UniqueVerticesSimplices } from './UniqueVerticesSimplices.js';
+import { Vector, add, dot, mul } from './Vector.js';
 
 // The result of the find-intersection query.
 export interface IntrConvexMesh3Plane3FIResult {

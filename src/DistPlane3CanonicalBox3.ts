@@ -27,11 +27,11 @@
 // doQuery3D, doQuery2D, doQuery1D and doQuery0D. Where upstream assigns one
 // closest point to the other (C++ value semantics), the port clones.
 
-import type { CanonicalBox3 } from './CanonicalBox';
-import type { DCPQuery } from './DCPQuery';
-import { clamp } from './Functions';
-import type { Plane3 } from './Hyperplane';
-import { Vector, add, dot, mul, negate, sub } from './Vector';
+import type { CanonicalBox3 } from './CanonicalBox.js';
+import type { DCPQuery } from './DCPQuery.js';
+import { clamp } from './Functions.js';
+import type { Plane3 } from './Hyperplane.js';
+import { Vector, add, dot, mul, negate, sub } from './Vector.js';
 
 export interface DistPlane3CanonicalBox3Result {
     distance: number;

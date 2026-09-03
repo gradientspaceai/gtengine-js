@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { Arc2 } from '../src/Arc2';
-import { Vector } from '../src/Vector';
+import { Arc2 } from '../src/Arc2.js';
+import { Vector } from '../src/Vector.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

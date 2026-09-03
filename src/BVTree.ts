@@ -57,9 +57,9 @@
 //   - create() copies the input centroids (upstream moves them, which is the
 //     same observable result).
 
-import { BitHacks } from './BitHacks';
-import { logAssert } from './Logger';
-import { Vector, dot, sub } from './Vector';
+import { BitHacks } from './BitHacks.js';
+import { logAssert } from './Logger.js';
+import { Vector, dot, sub } from './Vector.js';
 
 // The line/origin pair returned by BoundingVolume::GetSplittingAxis.
 export interface BVTreeSplittingAxis {

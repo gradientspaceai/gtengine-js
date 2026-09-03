@@ -4,10 +4,10 @@ import {
     IntrLine3Sphere3FI,
     intrLine3Sphere3DoQuery,
     defaultIntrLine3Sphere3FIResult
-} from '../src/IntrLine3Sphere3';
-import { Hypersphere } from '../src/Hypersphere';
-import { Line } from '../src/Line';
-import { Vector, add, dot, mul, normalize, sub } from '../src/Vector';
+} from '../src/IntrLine3Sphere3.js';
+import { Hypersphere } from '../src/Hypersphere.js';
+import { Line } from '../src/Line.js';
+import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
 
 const ti = new IntrLine3Sphere3TI();
 const fi = new IntrLine3Sphere3FI();

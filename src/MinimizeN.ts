@@ -14,9 +14,9 @@
 // these mean. The input 'maxIterations' is the number of iterations for the
 // direction-set method.
 
-import { GVector } from './GVector';
-import { Minimize1 } from './Minimize1';
-import { Vector, add, div, length as vectorLength, mul, sub } from './Vector';
+import { GVector } from './GVector.js';
+import { Minimize1 } from './Minimize1.js';
+import { Vector, add, div, length as vectorLength, mul, sub } from './Vector.js';
 
 // The port of 'std::function<Real(Real const*)>'. The domain point is passed
 // as an array of 'dimensions' components. Follows the Minimize1Function

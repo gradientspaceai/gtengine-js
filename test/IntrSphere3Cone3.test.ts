@@ -4,11 +4,11 @@ import {
     IntrSphere3Cone3TI,
     defaultIntrSphere3Cone3FIResult,
     defaultIntrSphere3Cone3TIResult
-} from '../src/IntrSphere3Cone3';
-import { Cone } from '../src/Cone';
-import { Hypersphere } from '../src/Hypersphere';
-import { Ray } from '../src/Ray';
-import { Vector, dot, length, normalize, sub } from '../src/Vector';
+} from '../src/IntrSphere3Cone3.js';
+import { Cone } from '../src/Cone.js';
+import { Hypersphere } from '../src/Hypersphere.js';
+import { Ray } from '../src/Ray.js';
+import { Vector, dot, length, normalize, sub } from '../src/Vector.js';
 
 const V3 = (x: number, y: number, z: number) => Vector.fromArray([x, y, z]);
 

@@ -8,12 +8,12 @@
 // a TIQuery and an FIQuery specialization, which become IntrPlane3Triangle3TI
 // and IntrPlane3Triangle3FI.
 
-import type { FIQuery } from './FIQuery';
-import type { Plane3 } from './Hyperplane';
-import { logAssert } from './Logger';
-import type { Triangle3 } from './Triangle';
-import { Vector, add, dot, mul, sub } from './Vector';
-import type { TIQuery } from './TIQuery';
+import type { FIQuery } from './FIQuery.js';
+import type { Plane3 } from './Hyperplane.js';
+import { logAssert } from './Logger.js';
+import type { Triangle3 } from './Triangle.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrPlane3Triangle3TI.test.
 export interface IntrPlane3Triangle3TIResult {

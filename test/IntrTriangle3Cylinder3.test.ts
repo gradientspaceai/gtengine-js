@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { Cylinder3 } from '../src/Cylinder3';
-import { DistPointTriangle } from '../src/DistPointTriangle';
-import { Line } from '../src/Line';
-import { Triangle } from '../src/Triangle';
-import { Vector, add, dot, mul, normalize, sub } from '../src/Vector';
-import { computeOrthogonalComplement3 } from '../src/Vector3';
+import { Cylinder3 } from '../src/Cylinder3.js';
+import { DistPointTriangle } from '../src/DistPointTriangle.js';
+import { Line } from '../src/Line.js';
+import { Triangle } from '../src/Triangle.js';
+import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
+import { computeOrthogonalComplement3 } from '../src/Vector3.js';
 import {
     IntrTriangle3Cylinder3TI
-} from '../src/IntrTriangle3Cylinder3';
+} from '../src/IntrTriangle3Cylinder3.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

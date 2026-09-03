@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { GTE_C_PI } from '../src/Constants';
-import { Matrix, addMatrix, mulMatrix } from '../src/Matrix';
+import { GTE_C_PI } from '../src/Constants.js';
+import { Matrix, addMatrix, mulMatrix } from '../src/Matrix.js';
 import {
     rotC0Estimate, rotC1Estimate, rotC2Estimate, rotC3Estimate,
     rotC4Estimate, getRotC0EstimateMaxError, getRotC1EstimateMaxError,
     getRotC2EstimateMaxError, getRotC3EstimateMaxError,
     getRotC4EstimateMaxError, rotationEstimate, rotationDerivativeEstimate,
     rotationAndDerivativeEstimate
-} from '../src/RotationEstimate';
-import { Vector, length } from '../src/Vector';
+} from '../src/RotationEstimate.js';
+import { Vector, length } from '../src/Vector.js';
 
 const DEGREES = [4, 6, 8, 10, 12, 14, 16] as const;
 

@@ -3,10 +3,10 @@ import {
     getContainerOrientedBox3,
     inContainerOrientedBox3,
     mergeContainersOrientedBox3
-} from '../src/ContOrientedBox3';
-import { OrientedBox, type OrientedBox3 } from '../src/OrientedBox';
-import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+} from '../src/ContOrientedBox3.js';
+import { OrientedBox, type OrientedBox3 } from '../src/OrientedBox.js';
+import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

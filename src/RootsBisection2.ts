@@ -33,7 +33,7 @@
 //   to zero where upstream would report a stale value from a previous call;
 //   on a first call the behavior matches upstream's zero-initialized members.
 
-import { RootsBisection1 } from './RootsBisection1';
+import { RootsBisection1 } from './RootsBisection1.js';
 
 export interface RootsBisection2Result {
     // The number of iterations used by the x-direction bisector, with the

@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { Hyperellipsoid } from '../src/Hyperellipsoid';
+import { Hyperellipsoid } from '../src/Hyperellipsoid.js';
 import {
     IntrEllipsoid3Ellipsoid3TI,
     IntrEllipsoid3Ellipsoid3Classification as C
-} from '../src/IntrEllipsoid3Ellipsoid3';
-import { Vector, add, dot, mul, normalize, sub } from '../src/Vector';
-import { computeOrthogonalComplement3 } from '../src/Vector3';
+} from '../src/IntrEllipsoid3Ellipsoid3.js';
+import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
+import { computeOrthogonalComplement3 } from '../src/Vector3.js';
 
 function vec(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

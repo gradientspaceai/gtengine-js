@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { FastGaussianBlur1 } from '../src/FastGaussianBlur1';
-import { FastGaussianBlur3 } from '../src/FastGaussianBlur3';
+import { FastGaussianBlur1 } from '../src/FastGaussianBlur1.js';
+import { FastGaussianBlur3 } from '../src/FastGaussianBlur3.js';
 
 function sum(values: ArrayLike<number>): number {
     let s = 0;

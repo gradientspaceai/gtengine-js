@@ -28,13 +28,13 @@
 // two private static 'Update' overloads become the module-private functions
 // updateForRay and updateForOrigin.
 
-import type { DCPQuery } from './DCPQuery';
-import { DistLine2Circle2 } from './DistLine2Circle2';
-import { DistPoint2Circle2 } from './DistPoint2Circle2';
-import type { Circle2 } from './Hypersphere';
-import { Line } from './Line';
-import type { Ray2 } from './Ray';
-import { Vector } from './Vector';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistLine2Circle2 } from './DistLine2Circle2.js';
+import { DistPoint2Circle2 } from './DistPoint2Circle2.js';
+import type { Circle2 } from './Hypersphere.js';
+import { Line } from './Line.js';
+import type { Ray2 } from './Ray.js';
+import { Vector } from './Vector.js';
 
 export interface DistRay2Circle2Result {
     distance: number;

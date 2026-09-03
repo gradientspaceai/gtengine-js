@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
     isArbitraryPrecision, hasDivisionOperator,
     type ArbitraryPrecisionNumber
-} from '../src/TypeTraits';
+} from '../src/TypeTraits.js';
 
 // Stand-ins for the future BSNumber (no division) and BSRational (division)
 // arbitrary-precision types.

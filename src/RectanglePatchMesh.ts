@@ -13,11 +13,11 @@
 // become a MeshChannel allocated by MeshChannel.allocate (the B77/B84
 // precedent).
 
-import { logAssert } from './Logger';
-import { Mesh, MeshChannel, MeshDescription, MeshTopology } from './Mesh';
-import { ParametricSurface } from './ParametricSurface';
-import { Vector, normalize } from './Vector';
-import { computeOrthogonalComplement3, unitCross } from './Vector3';
+import { logAssert } from './Logger.js';
+import { Mesh, MeshChannel, MeshDescription, MeshTopology } from './Mesh.js';
+import { ParametricSurface } from './ParametricSurface.js';
+import { Vector, normalize } from './Vector.js';
+import { computeOrthogonalComplement3, unitCross } from './Vector3.js';
 
 export class RectanglePatchMesh extends Mesh {
     protected mSurface: ParametricSurface | null;

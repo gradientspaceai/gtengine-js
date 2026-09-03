@@ -28,9 +28,9 @@
 // descriptive name, useConjugateGradient, because only the canonical query
 // may be named compute.
 
-import type { DCPQuery } from './DCPQuery';
-import type { Triangle } from './Triangle';
-import { Vector, add, dot, mul, sub } from './Vector';
+import type { DCPQuery } from './DCPQuery.js';
+import type { Triangle } from './Triangle.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
 
 export interface DistPointTriangleResult {
     distance: number;

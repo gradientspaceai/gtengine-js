@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MinHeap, type MinHeapRecord } from '../src/MinHeap';
+import { MinHeap, type MinHeapRecord } from '../src/MinHeap.js';
 
 // Deterministic pseudorandom generator so failures are reproducible.
 function makeRng(seed: number): () => number {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { DistPointSegment } from '../src/DistPointSegment';
-import { Segment } from '../src/Segment';
-import { Vector, add, dot, mul, sub } from '../src/Vector';
+import { DistPointSegment } from '../src/DistPointSegment.js';
+import { Segment } from '../src/Segment.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

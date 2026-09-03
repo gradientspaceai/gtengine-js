@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { DistPoint3Frustum3 } from '../src/DistPoint3Frustum3';
-import { Frustum3 } from '../src/Frustum3';
-import { Vector, add, dot, mul, normalize, sub } from '../src/Vector';
+import { DistPoint3Frustum3 } from '../src/DistPoint3Frustum3.js';
+import { Frustum3 } from '../src/Frustum3.js';
+import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

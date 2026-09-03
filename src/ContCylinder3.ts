@@ -13,11 +13,11 @@
 // cylinder. The number-of-points argument is dropped in favor of the array
 // length.
 
-import { ApprOrthogonalLine3 } from './ApprOrthogonalLine3';
-import { Cylinder3 } from './Cylinder3';
-import { DistPointLine } from './DistPointLine';
-import { logAssert } from './Logger';
-import { Vector, add, dot, length, mul, sub } from './Vector';
+import { ApprOrthogonalLine3 } from './ApprOrthogonalLine3.js';
+import { Cylinder3 } from './Cylinder3.js';
+import { DistPointLine } from './DistPointLine.js';
+import { logAssert } from './Logger.js';
+import { Vector, add, dot, length, mul, sub } from './Vector.js';
 
 // Compute the cylinder axis segment using least-squares fit. The radius is
 // the maximum distance from points to the axis. The height is determined by

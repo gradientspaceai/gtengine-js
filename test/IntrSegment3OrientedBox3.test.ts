@@ -1,18 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { AlignedBox } from '../src/AlignedBox';
+import { AlignedBox } from '../src/AlignedBox.js';
 import {
     IntrSegment3AlignedBox3TI,
     IntrSegment3AlignedBox3FI
-} from '../src/IntrSegment3AlignedBox3';
+} from '../src/IntrSegment3AlignedBox3.js';
 import {
     IntrSegment3OrientedBox3TI,
     IntrSegment3OrientedBox3FI,
     defaultIntrSegment3OrientedBox3TIResult,
     defaultIntrSegment3OrientedBox3FIResult
-} from '../src/IntrSegment3OrientedBox3';
-import { OrientedBox } from '../src/OrientedBox';
-import { Segment } from '../src/Segment';
-import { Vector, add, dot, mul, sub } from '../src/Vector';
+} from '../src/IntrSegment3OrientedBox3.js';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Segment } from '../src/Segment.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
 
 function vec(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

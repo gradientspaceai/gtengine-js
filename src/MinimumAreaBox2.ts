@@ -44,11 +44,11 @@
 //   GetSupportIndices() and GetArea() become getHull(), getSupportIndices()
 //   and getArea().
 
-import { ConvexHull2 } from './ConvexHull2';
-import { logAssert } from './Logger';
-import { BSRational } from './BSRational';
-import { OrientedBox, type OrientedBox2 } from './OrientedBox';
-import { Vector, dot, normalize, sub } from './Vector';
+import { ConvexHull2 } from './ConvexHull2.js';
+import { logAssert } from './Logger.js';
+import { BSRational } from './BSRational.js';
+import { OrientedBox, type OrientedBox2 } from './OrientedBox.js';
+import { Vector, dot, normalize, sub } from './Vector.js';
 
 // The port of Vector2<ComputeType>.
 type RationalPoint2 = [BSRational, BSRational];

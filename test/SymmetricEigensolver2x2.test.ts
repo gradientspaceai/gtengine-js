@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SymmetricEigensolver2x2 } from '../src/SymmetricEigensolver2x2';
+import { SymmetricEigensolver2x2 } from '../src/SymmetricEigensolver2x2.js';
 
 // A simple deterministic pseudorandom generator so test runs are repeatable.
 function makeRandom(seed: number): () => number {

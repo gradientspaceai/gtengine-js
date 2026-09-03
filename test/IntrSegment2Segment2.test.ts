@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { Segment } from '../src/Segment';
-import { Vector, add, dot, mul, sub } from '../src/Vector';
-import { dotPerp } from '../src/Vector2';
+import { Segment } from '../src/Segment.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { dotPerp } from '../src/Vector2.js';
 import {
     IntrSegment2Segment2TI,
     IntrSegment2Segment2FI
-} from '../src/IntrSegment2Segment2';
+} from '../src/IntrSegment2Segment2.js';
 
 function vec(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

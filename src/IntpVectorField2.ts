@@ -16,11 +16,11 @@
 //   evaluate(input), which returns { valid, output }; the output is
 //   meaningless when valid is false.
 
-import { Delaunay2 } from './Delaunay2';
-import { Delaunay2Mesh } from './Delaunay2Mesh';
-import { IntpQuadraticNonuniform2 } from './IntpQuadraticNonuniform2';
-import { logAssert } from './Logger';
-import { Vector } from './Vector';
+import { Delaunay2 } from './Delaunay2.js';
+import { Delaunay2Mesh } from './Delaunay2Mesh.js';
+import { IntpQuadraticNonuniform2 } from './IntpQuadraticNonuniform2.js';
+import { logAssert } from './Logger.js';
+import { Vector } from './Vector.js';
 
 export interface IntpVectorField2Result {
     // Valid is true if and only if the input point is in the convex hull of

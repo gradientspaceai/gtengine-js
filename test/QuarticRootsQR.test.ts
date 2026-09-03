@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { QuarticRootsQR, type QuarticRootsQRMatrix } from '../src/QuarticRootsQR';
+import { QuarticRootsQR, type QuarticRootsQRMatrix } from '../src/QuarticRootsQR.js';
 
 // Deterministic pseudorandom generator so failures are reproducible.
 function makeRng(seed: number): () => number {

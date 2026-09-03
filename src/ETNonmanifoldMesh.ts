@@ -40,10 +40,10 @@
 // operator=, which perform a deep copy by reinserting the triangles, become
 // clone() and assign().
 
-import { logAssert } from './Logger';
-import { EdgeKey } from './EdgeKey';
-import { TriangleKey } from './TriangleKey';
-import { FeatureKey } from './FeatureKey';
+import { logAssert } from './Logger.js';
+import { EdgeKey } from './EdgeKey.js';
+import { TriangleKey } from './TriangleKey.js';
+import { FeatureKey } from './FeatureKey.js';
 
 // The port of ETNonmanifoldMesh::Edge.
 export class ETNonmanifoldMeshEdge {

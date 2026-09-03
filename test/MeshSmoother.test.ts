@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { MeshSmoother } from '../src/MeshSmoother';
-import { Vector } from '../src/Vector';
+import { MeshSmoother } from '../src/MeshSmoother.js';
+import { Vector } from '../src/Vector.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

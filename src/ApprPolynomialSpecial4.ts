@@ -16,11 +16,11 @@
 // the "distinct triples" the header comment promises; the port preserves
 // the upstream assertions.
 
-import { ApprQuery } from './ApprQuery';
-import { GMatrix } from './GMatrix';
-import { logAssert } from './Logger';
-import { inverse, mulMatrix } from './Matrix';
-import { Vector } from './Vector';
+import { ApprQuery } from './ApprQuery.js';
+import { GMatrix } from './GMatrix.js';
+import { logAssert } from './Logger.js';
+import { inverse, mulMatrix } from './Matrix.js';
+import { Vector } from './Vector.js';
 
 export class ApprPolynomialSpecial4 extends ApprQuery<readonly number[]> {
     private mXDegrees: number[];

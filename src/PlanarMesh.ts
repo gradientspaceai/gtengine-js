@@ -53,13 +53,13 @@
 //     resulting planar mesh. Upstream iterates an unordered_map, so its
 //     ordering is implementation-defined.
 
-import { logAssert } from './Logger';
-import { PointInPolygon2 } from './ContPointInPolygon2';
-import { ETManifoldMesh } from './ETManifoldMesh';
-import { PrimalQuery2 } from './PrimalQuery2';
-import { TriangleKey } from './TriangleKey';
-import { Vector } from './Vector';
-import { computeBarycentrics2 } from './Vector2';
+import { logAssert } from './Logger.js';
+import { PointInPolygon2 } from './ContPointInPolygon2.js';
+import { ETManifoldMesh } from './ETManifoldMesh.js';
+import { PrimalQuery2 } from './PrimalQuery2.js';
+import { TriangleKey } from './TriangleKey.js';
+import { Vector } from './Vector.js';
+import { computeBarycentrics2 } from './Vector2.js';
 
 export class PlanarMesh {
     private mNumVertices: number;

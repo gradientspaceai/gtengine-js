@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MinimumSpanningTree, type MSTEdge } from '../src/MinimumSpanningTree';
+import { MinimumSpanningTree, type MSTEdge } from '../src/MinimumSpanningTree.js';
 
 const nil = MinimumSpanningTree.nil;
 

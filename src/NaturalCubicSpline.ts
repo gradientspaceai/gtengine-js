@@ -34,11 +34,11 @@
 // - evaluate supports order <= 3, so ParametricCurve.createJet() (which
 //   allocates SUP_ORDER = 4 entries) is the right allocation for callers.
 
-import { logAssert } from './Logger';
-import { Matrix } from './Matrix';
-import { inverse3x3 } from './Matrix3x3';
-import { ParametricCurve } from './ParametricCurve';
-import { Vector, add, mul, sub } from './Vector';
+import { logAssert } from './Logger.js';
+import { Matrix } from './Matrix.js';
+import { inverse3x3 } from './Matrix3x3.js';
+import { ParametricCurve } from './ParametricCurve.js';
+import { Vector, add, mul, sub } from './Vector.js';
 
 // A cubic polynomial segment: the four Vector coefficients of
 // p(u) = c[0] + u*(c[1] + u*(c[2] + u*c[3])) for u in [0,1].

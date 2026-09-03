@@ -10,8 +10,8 @@
 // dimension is a run-time value, so the solvers are concrete classes derived
 // from OdeSolver<Vector>.
 
-import { OdeSolver, type OdeFunction } from './OdeSolver';
-import { Vector, add, mul } from './Vector';
+import { OdeSolver, type OdeFunction } from './OdeSolver.js';
+import { Vector, add, mul } from './Vector.js';
 
 export class OdeRungeKutta4 extends OdeSolver<Vector> {
     constructor(tDelta: number, F: OdeFunction<Vector>) {

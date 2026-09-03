@@ -13,10 +13,10 @@
 // std::vector) collapse into a single compute() that takes arrays, per
 // PORTING.md. The results are read back through the get* accessors.
 
-import { Matrix, mulMatrix, multiplyAB } from './Matrix';
-import { inverse3x3 } from './Matrix3x3';
-import { Vector, add, dot, mul, normalize, sub } from './Vector';
-import { cross, computeOrthogonalComplement3 } from './Vector3';
+import { Matrix, mulMatrix, multiplyAB } from './Matrix.js';
+import { inverse3x3 } from './Matrix3x3.js';
+import { Vector, add, dot, mul, normalize, sub } from './Vector.js';
+import { cross, computeOrthogonalComplement3 } from './Vector3.js';
 
 export class MeshCurvature {
     private mNormals: Vector[] = [];

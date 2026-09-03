@@ -25,12 +25,12 @@
 // Port notes: see IntrIntervals.ts for the Intr* precedent. Upstream has only
 // a TIQuery specialization, which becomes IntrOrientedBox2Cone2TI.
 
-import type { Cone } from './Cone';
-import { IntrRay2OrientedBox2TI } from './IntrRay2OrientedBox2';
-import { logAssert } from './Logger';
-import type { OrientedBox2 } from './OrientedBox';
-import { dot, sub } from './Vector';
-import type { TIQuery } from './TIQuery';
+import type { Cone } from './Cone.js';
+import { IntrRay2OrientedBox2TI } from './IntrRay2OrientedBox2.js';
+import { logAssert } from './Logger.js';
+import type { OrientedBox2 } from './OrientedBox.js';
+import { dot, sub } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrOrientedBox2Cone2TI.test.
 export interface IntrOrientedBox2Cone2TIResult {

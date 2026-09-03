@@ -14,10 +14,10 @@
 // only a TIQuery specialization for this pair of primitives, which becomes
 // IntrOrientedBox3Frustum3TI.
 
-import type { Frustum3 } from './Frustum3';
-import type { OrientedBox } from './OrientedBox';
-import type { TIQuery } from './TIQuery';
-import { dot, sub } from './Vector';
+import type { Frustum3 } from './Frustum3.js';
+import type { OrientedBox } from './OrientedBox.js';
+import type { TIQuery } from './TIQuery.js';
+import { dot, sub } from './Vector.js';
 
 // The result of IntrOrientedBox3Frustum3TI queries.
 export interface IntrOrientedBox3Frustum3TIResult {

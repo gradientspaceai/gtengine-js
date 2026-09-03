@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { Cone } from '../src/Cone';
-import { DistOrientedBox3Cone3 } from '../src/DistOrientedBox3Cone3';
+import { Cone } from '../src/Cone.js';
+import { DistOrientedBox3Cone3 } from '../src/DistOrientedBox3Cone3.js';
 import type { DistOrientedBox3Cone3Result }
-    from '../src/DistOrientedBox3Cone3';
-import { OrientedBox } from '../src/OrientedBox';
-import { Ray } from '../src/Ray';
-import { Vector, add, dot, mul, sub } from '../src/Vector';
+    from '../src/DistOrientedBox3Cone3.js';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Ray } from '../src/Ray.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

@@ -41,8 +41,8 @@
 // * Upstream's default Result constructor becomes the module-private factory
 //   functions defaultTIResult()/defaultFIResult().
 
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
 
 // The kind of intersection set reported by IntrIntervalsFI. Upstream stores
 // these as 'static int32_t const' members of FIQuery::Result.

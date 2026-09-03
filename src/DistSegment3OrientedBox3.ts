@@ -24,14 +24,14 @@
 // type is the line-box result type, re-exported here as the alias
 // DistSegment3OrientedBox3Result.
 
-import type { DCPQuery } from './DCPQuery';
-import { DistLine3OrientedBox3 } from './DistLine3OrientedBox3';
-import type { DistLine3OrientedBox3Result } from './DistLine3OrientedBox3';
-import { DistPointOrientedBox } from './DistPointOrientedBox';
-import { Line } from './Line';
-import type { OrientedBox3 } from './OrientedBox';
-import type { Segment3 } from './Segment';
-import { Vector, sub } from './Vector';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistLine3OrientedBox3 } from './DistLine3OrientedBox3.js';
+import type { DistLine3OrientedBox3Result } from './DistLine3OrientedBox3.js';
+import { DistPointOrientedBox } from './DistPointOrientedBox.js';
+import { Line } from './Line.js';
+import type { OrientedBox3 } from './OrientedBox.js';
+import type { Segment3 } from './Segment.js';
+import { Vector, sub } from './Vector.js';
 
 // Upstream reuses the line-box result type ('using Result = typename
 // LBQuery::Result').

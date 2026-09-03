@@ -16,18 +16,18 @@
 // reported parameters are relative to the centered form of the segment,
 // C + t * D with |t| <= e, as upstream reports them.
 
-import type { Capsule3 } from './Capsule';
-import { DistSegmentSegment } from './DistSegmentSegment';
-import type { FIQuery } from './FIQuery';
-import { IntrIntervalsFI } from './IntrIntervals';
+import type { Capsule3 } from './Capsule.js';
+import { DistSegmentSegment } from './DistSegmentSegment.js';
+import type { FIQuery } from './FIQuery.js';
+import { IntrIntervalsFI } from './IntrIntervals.js';
 import {
     IntrLine3Capsule3FI,
     defaultIntrLine3Capsule3FIResult
-} from './IntrLine3Capsule3';
-import type { IntrLine3Capsule3FIResult } from './IntrLine3Capsule3';
-import type { Segment3 } from './Segment';
-import { Vector, add, mul } from './Vector';
-import type { TIQuery } from './TIQuery';
+} from './IntrLine3Capsule3.js';
+import type { IntrLine3Capsule3FIResult } from './IntrLine3Capsule3.js';
+import type { Segment3 } from './Segment.js';
+import { Vector, add, mul } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrSegment3Capsule3TI.test.
 export interface IntrSegment3Capsule3TIResult {

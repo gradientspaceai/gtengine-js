@@ -48,8 +48,8 @@
 //      it is dead code. The port implements close6/close18/close26 with the
 //      correct 3D neighborhoods.
 
-import { Image3 } from './Image3';
-import { logAssert } from './Logger';
+import { Image3 } from './Image3.js';
+import { logAssert } from './Logger.js';
 
 // The type of the callback invoked by drawLine for each visited voxel
 // (upstream std::function<void(int32_t, int32_t, int32_t)>).

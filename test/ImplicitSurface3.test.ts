@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { ImplicitSurface3 } from '../src/ImplicitSurface3';
-import { Vector, dot, length, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+import { ImplicitSurface3 } from '../src/ImplicitSurface3.js';
+import { Vector, dot, length, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 // F(x,y,z) = x^2 + y^2 + z^2 - r^2.
 class Sphere extends ImplicitSurface3 {

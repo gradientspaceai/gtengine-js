@@ -3,10 +3,10 @@ import {
     Quaternion, negateQuaternion, addQuaternion, subQuaternion,
     mulQuaternion, divQuaternion, conjugate, inverseQuaternion, rotate,
     slerpQuaternion
-} from '../src/Quaternion';
-import { Vector, dot, length, normalize } from '../src/Vector';
-import { slerp, slerpUsingCosAngle, slerpUsingMidpoint } from '../src/Slerp';
-import { Matrix, mulMatrix } from '../src/Matrix';
+} from '../src/Quaternion.js';
+import { Vector, dot, length, normalize } from '../src/Vector.js';
+import { slerp, slerpUsingCosAngle, slerpUsingMidpoint } from '../src/Slerp.js';
+import { Matrix, mulMatrix } from '../src/Matrix.js';
 
 function expectQuaternionClose(actual: Vector, expected: readonly number[],
     tolerance: number = 1e-13): void {

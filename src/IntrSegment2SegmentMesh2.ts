@@ -18,13 +18,13 @@
 // length, so the reported segmentParameter is in [0,1] rather than in
 // [-extent, extent].
 
-import type { FIQuery } from './FIQuery';
-import { IntrLine2SegmentMesh2FI } from './IntrLine2SegmentMesh2';
-import { Line } from './Line';
-import type { Segment2 } from './Segment';
-import type { SegmentMesh2 } from './SegmentMesh';
-import { sub } from './Vector';
-import type { Vector } from './Vector';
+import type { FIQuery } from './FIQuery.js';
+import { IntrLine2SegmentMesh2FI } from './IntrLine2SegmentMesh2.js';
+import { Line } from './Line.js';
+import type { Segment2 } from './Segment.js';
+import type { SegmentMesh2 } from './SegmentMesh.js';
+import { sub } from './Vector.js';
+import type { Vector } from './Vector.js';
 
 // One point at which the segment intersects a mesh segment.
 export interface IntrSegment2SegmentMesh2Intersection {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { NaturalQuinticSpline } from '../src/NaturalQuinticSpline';
-import { Vector, length, sub } from '../src/Vector';
+import { NaturalQuinticSpline } from '../src/NaturalQuinticSpline.js';
+import { Vector, length, sub } from '../src/Vector.js';
 
 function vec(...values: number[]): Vector {
     return Vector.fromArray(values);

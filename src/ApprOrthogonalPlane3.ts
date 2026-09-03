@@ -14,9 +14,9 @@
 // std::pair<Vector3,Vector3>; per PORTING.md the pair becomes an object with
 // named fields (origin, normal).
 
-import { ApprQuery } from './ApprQuery';
-import { SymmetricEigensolver3x3 } from './SymmetricEigensolver3x3';
-import { Vector, dot, sub } from './Vector';
+import { ApprQuery } from './ApprQuery.js';
+import { SymmetricEigensolver3x3 } from './SymmetricEigensolver3x3.js';
+import { Vector, dot, sub } from './Vector.js';
 
 export interface ApprOrthogonalPlane3Parameters {
     // P, the average of the sample points.

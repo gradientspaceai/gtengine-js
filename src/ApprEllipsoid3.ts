@@ -44,14 +44,14 @@
 // and the port raises an error rather than reading an uninitialized box as
 // upstream does.
 
-import { getContainerOrientedBox3 } from './ContOrientedBox3';
-import type { Ellipsoid3 } from './Hyperellipsoid';
-import { logAssert } from './Logger';
-import { Matrix, addMatrix, divMatrix, mulMatrix, outerProduct } from './Matrix';
-import { determinant3x3 } from './Matrix3x3';
-import { RootsPolynomial } from './RootsPolynomial';
-import { SymmetricEigensolver3x3 } from './SymmetricEigensolver3x3';
-import { Vector, add, dot, mul, normalize, sub } from './Vector';
+import { getContainerOrientedBox3 } from './ContOrientedBox3.js';
+import type { Ellipsoid3 } from './Hyperellipsoid.js';
+import { logAssert } from './Logger.js';
+import { Matrix, addMatrix, divMatrix, mulMatrix, outerProduct } from './Matrix.js';
+import { determinant3x3 } from './Matrix3x3.js';
+import { RootsPolynomial } from './RootsPolynomial.js';
+import { SymmetricEigensolver3x3 } from './SymmetricEigensolver3x3.js';
+import { Vector, add, dot, mul, normalize, sub } from './Vector.js';
 
 export class ApprEllipsoid3 {
     // If you want this function to compute the initial guess for the

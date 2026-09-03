@@ -16,7 +16,7 @@
 // ported as 'evaluate(xOrder, yOrder, x, y)'. The basis polynomial evaluation
 // reuses HermiteCubic.p, exactly as upstream reuses HermiteCubic<T>::P.
 
-import { HermiteCubic } from './HermiteCubic';
+import { HermiteCubic } from './HermiteCubic.js';
 
 // Sample of a function at a lattice pixel: the function value f, the first
 // derivatives fx, fy and the mixed second derivative fxy. The default sample

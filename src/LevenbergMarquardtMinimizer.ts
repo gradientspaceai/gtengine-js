@@ -33,10 +33,10 @@
 //   unaffected because that callback computes both J^T*J and -J^T*F from
 //   pCurrent itself.
 
-import { CholeskyDecomposition } from './CholeskyDecomposition';
-import { logAssert } from './Logger';
-import { Matrix, multiplyATB, mulMatrix } from './Matrix';
-import { Vector, add, dot, length, negate } from './Vector';
+import { CholeskyDecomposition } from './CholeskyDecomposition.js';
+import { logAssert } from './Logger.js';
+import { Matrix, multiplyATB, mulMatrix } from './Matrix.js';
+import { Vector, add, dot, length, negate } from './Vector.js';
 
 // F: given p (numPDimensions), fill f (numFDimensions) with F(p).
 export type LevenbergMarquardtFFunction = (p: Vector, f: Vector) => void;

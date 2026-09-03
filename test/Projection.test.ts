@@ -1,16 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { AxisAngle } from '../src/AxisAngle';
-import { GTE_C_PI } from '../src/Constants';
-import { Hyperellipsoid } from '../src/Hyperellipsoid';
-import { Hyperplane } from '../src/Hyperplane';
-import { Line } from '../src/Line';
-import { mulMatrix } from '../src/Matrix';
+import { AxisAngle } from '../src/AxisAngle.js';
+import { GTE_C_PI } from '../src/Constants.js';
+import { Hyperellipsoid } from '../src/Hyperellipsoid.js';
+import { Hyperplane } from '../src/Hyperplane.js';
+import { Line } from '../src/Line.js';
+import { mulMatrix } from '../src/Matrix.js';
 import {
     perspectiveProject, projectEllipse2, projectEllipsoid3
-} from '../src/Projection';
-import { Rotation } from '../src/Rotation';
-import { Vector, add, dot, mul, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+} from '../src/Projection.js';
+import { Rotation } from '../src/Rotation.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 function makeRandom(seed: number): () => number {
     let state = seed >>> 0;

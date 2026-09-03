@@ -22,13 +22,13 @@
 // result type is the box-box result type, re-exported here as the alias
 // DistAlignedBox3OrientedBox3Result.
 
-import type { AlignedBox3 } from './AlignedBox';
-import type { DCPQuery } from './DCPQuery';
-import { DistOrientedBox3OrientedBox3 } from './DistOrientedBox3OrientedBox3';
-import type { DistOrientedBox3OrientedBox3Result } from './DistOrientedBox3OrientedBox3';
-import { OrientedBox } from './OrientedBox';
-import type { OrientedBox3 } from './OrientedBox';
-import { Vector, add, mul, sub } from './Vector';
+import type { AlignedBox3 } from './AlignedBox.js';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistOrientedBox3OrientedBox3 } from './DistOrientedBox3OrientedBox3.js';
+import type { DistOrientedBox3OrientedBox3Result } from './DistOrientedBox3OrientedBox3.js';
+import { OrientedBox } from './OrientedBox.js';
+import type { OrientedBox3 } from './OrientedBox.js';
+import { Vector, add, mul, sub } from './Vector.js';
 
 // Upstream reuses the box-box result type ('using Result = typename
 // BBQuery::Result').

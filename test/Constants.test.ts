@@ -5,7 +5,7 @@ import {
     GTE_C_DEG_TO_RAD, GTE_C_RAD_TO_DEG,
     GTE_C_SQRT_2, GTE_C_INV_SQRT_2,
     GTE_C_LN_2, GTE_C_INV_LN_2, GTE_C_LN_10, GTE_C_INV_LN_10
-} from '../src/Constants';
+} from '../src/Constants.js';
 
 describe('Constants', () => {
     it('pi constants match the exact double values', () => {

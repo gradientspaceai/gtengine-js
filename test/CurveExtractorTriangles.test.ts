@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { CurveExtractorTriangles } from '../src/CurveExtractorTriangles';
-import { CurveExtractorSquares } from '../src/CurveExtractorSquares';
-import { CurveExtractorVertex } from '../src/CurveExtractor';
+import { CurveExtractorTriangles } from '../src/CurveExtractorTriangles.js';
+import { CurveExtractorSquares } from '../src/CurveExtractorSquares.js';
+import { CurveExtractorVertex } from '../src/CurveExtractor.js';
 
 function image(xBound: number, yBound: number,
     f: (x: number, y: number) => number): number[] {

@@ -18,11 +18,11 @@
 // them, so the cached vectors are re-read from the array in
 // computeChristoffel1.
 
-import { BSplineSurface } from './BSplineSurface';
-import { GVector } from './GVector';
-import { logAssert } from './Logger';
-import { RiemannianGeodesic } from './RiemannianGeodesic';
-import { Vector, dot } from './Vector';
+import { BSplineSurface } from './BSplineSurface.js';
+import { GVector } from './GVector.js';
+import { logAssert } from './Logger.js';
+import { RiemannianGeodesic } from './RiemannianGeodesic.js';
+import { Vector, dot } from './Vector.js';
 
 export class BSplineGeodesic extends RiemannianGeodesic {
     private mSpline: BSplineSurface;

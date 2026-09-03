@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { Cylinder3 } from '../src/Cylinder3';
-import { Line } from '../src/Line';
-import { Vector, add, dot, mul, normalize, sub } from '../src/Vector';
-import { IntrLine3Cylinder3FI } from '../src/IntrLine3Cylinder3';
+import { Cylinder3 } from '../src/Cylinder3.js';
+import { Line } from '../src/Line.js';
+import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
+import { IntrLine3Cylinder3FI } from '../src/IntrLine3Cylinder3.js';
 
 function vec(a: number[]): Vector {
     return Vector.fromArray(a);

@@ -28,10 +28,10 @@
 // isConstructed() is meaningful. This does not affect evaluate, which (like
 // TCBSplineCurve, unlike BezierCurve/BSplineCurve) does not test the flag.
 
-import { logAssert } from './Logger';
-import { ParametricCurve } from './ParametricCurve';
-import { Polynomial1 } from './Polynomial1';
-import { Vector } from './Vector';
+import { logAssert } from './Logger.js';
+import { ParametricCurve } from './ParametricCurve.js';
+import { Polynomial1 } from './Polynomial1.js';
+import { Vector } from './Vector.js';
 
 export class PolynomialCurve extends ParametricCurve {
     protected mPolynomial: Polynomial1[];

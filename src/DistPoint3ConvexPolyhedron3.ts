@@ -18,10 +18,10 @@
 // upstream does. Upstream's 'bool LCPSolver::Solve(q, M, w, z)' returns
 // '{ success, result, w, z }' in the port.
 
-import { ConvexPolyhedron3 } from './ConvexPolyhedron3';
-import type { DCPQuery } from './DCPQuery';
-import { LCPSolver } from './LCPSolver';
-import { Vector, dot, hlift, hproject, sub } from './Vector';
+import { ConvexPolyhedron3 } from './ConvexPolyhedron3.js';
+import type { DCPQuery } from './DCPQuery.js';
+import { LCPSolver } from './LCPSolver.js';
+import { Vector, dot, hlift, hproject, sub } from './Vector.js';
 
 export interface DistPoint3ConvexPolyhedron3Result {
     queryIsSuccessful: boolean;

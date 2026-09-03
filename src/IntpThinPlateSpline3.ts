@@ -24,9 +24,9 @@
 //   i.e. the comment does not describe the transformed configuration. The
 //   port preserves the behavior and only documents the mismatch.
 
-import { inverse, multiplyAB, multiplyATB } from './Matrix';
-import { GMatrix } from './GMatrix';
-import { logAssert } from './Logger';
+import { inverse, multiplyAB, multiplyATB } from './Matrix.js';
+import { GMatrix } from './GMatrix.js';
+import { logAssert } from './Logger.js';
 
 // Kernel(t) = -|t|
 export function intpThinPlateSpline3Kernel(t: number): number {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { Line } from '../src/Line';
-import { Vector, add, mul } from '../src/Vector';
+import { Line } from '../src/Line.js';
+import { Vector, add, mul } from '../src/Vector.js';
 
 describe('Line construction', () => {
     it('the default constructor is the x-axis through the origin', () => {

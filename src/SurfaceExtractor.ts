@@ -24,7 +24,7 @@
 // in insertion order, not map order), so the port uses a Map keyed by a
 // canonical string; the output is identical.
 
-import { logAssert } from './Logger';
+import { logAssert } from './Logger.js';
 
 // A vertex of the extracted level surface, stored as the rational triple
 // (xNumer/xDenom, yNumer/yDenom, zNumer/zDenom) with all components

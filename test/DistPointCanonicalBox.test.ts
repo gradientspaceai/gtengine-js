@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { CanonicalBox } from '../src/CanonicalBox';
-import { DistPointCanonicalBox } from '../src/DistPointCanonicalBox';
-import { Vector, dot, sub } from '../src/Vector';
+import { CanonicalBox } from '../src/CanonicalBox.js';
+import { DistPointCanonicalBox } from '../src/DistPointCanonicalBox.js';
+import { Vector, dot, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

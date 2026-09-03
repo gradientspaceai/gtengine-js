@@ -2,16 +2,16 @@ import { describe, it, expect } from 'vitest';
 import {
     IntrRay3Triangle3TI,
     IntrRay3Triangle3FI
-} from '../src/IntrRay3Triangle3';
+} from '../src/IntrRay3Triangle3.js';
 import {
     IntrLine3Triangle3TI,
     IntrLine3Triangle3FI
-} from '../src/IntrLine3Triangle3';
-import { Line } from '../src/Line';
-import { Ray } from '../src/Ray';
-import { Triangle } from '../src/Triangle';
-import { Vector, add, dot, mul, normalize, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+} from '../src/IntrLine3Triangle3.js';
+import { Line } from '../src/Line.js';
+import { Ray } from '../src/Ray.js';
+import { Triangle } from '../src/Triangle.js';
+import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 const ti = new IntrRay3Triangle3TI();
 const fi = new IntrRay3Triangle3FI();

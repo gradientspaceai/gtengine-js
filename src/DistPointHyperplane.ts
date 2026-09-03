@@ -19,10 +19,10 @@
 // runtime logAssert, and the dimension aliases are dropped because the
 // runtime-dimension Vector serves every N.
 
-import type { DCPQuery } from './DCPQuery';
-import type { Hyperplane } from './Hyperplane';
-import { logAssert } from './Logger';
-import { Vector, dot, mul, sub } from './Vector';
+import type { DCPQuery } from './DCPQuery.js';
+import type { Hyperplane } from './Hyperplane.js';
+import { logAssert } from './Logger.js';
+import { Vector, dot, mul, sub } from './Vector.js';
 
 export interface DistPointHyperplaneResult {
     distance: number;

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { Halfspace } from '../src/Halfspace';
-import { Hypersphere } from '../src/Hypersphere';
-import { Vector, dot, normalize } from '../src/Vector';
-import { IntrHalfspace3Sphere3TI } from '../src/IntrHalfspace3Sphere3';
+import { Halfspace } from '../src/Halfspace.js';
+import { Hypersphere } from '../src/Hypersphere.js';
+import { Vector, dot, normalize } from '../src/Vector.js';
+import { IntrHalfspace3Sphere3TI } from '../src/IntrHalfspace3Sphere3.js';
 
 function halfspace(nx: number, ny: number, nz: number, c: number): Halfspace {
     const n = Vector.fromArray([nx, ny, nz]);

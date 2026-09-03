@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { LCPSolver, LCPSolverResult } from '../src/LCPSolver';
+import { LCPSolver, LCPSolverResult } from '../src/LCPSolver.js';
 
 function makeRandom(seed: number): () => number {
     let state = seed >>> 0;

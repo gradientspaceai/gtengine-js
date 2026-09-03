@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { logAssert, logError } from '../src/Logger';
+import { logAssert, logError } from '../src/Logger.js';
 
 describe('Logger', () => {
     it('logAssert does nothing when the condition is true', () => {

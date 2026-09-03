@@ -17,8 +17,8 @@
 // component w = 0) when you want to use 4-tuples and 4x4 matrices for affine
 // algebra. Thus, you may use those functions for 4-tuples.
 
-import { logAssert } from './Logger';
-import { Vector, dot, normalize, orthonormalize } from './Vector';
+import { logAssert } from './Logger.js';
+import { Vector, dot, normalize, orthonormalize } from './Vector.js';
 
 function assertSize4(v: Vector): void {
     logAssert(v.size === 4, 'Vector4: vector must have size 4.');

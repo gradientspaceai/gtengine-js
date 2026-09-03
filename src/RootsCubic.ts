@@ -48,16 +48,16 @@
 //     uses Cauchy's bound b = 1 + max(|d0|,|d1|), which is valid for a monic
 //     polynomial.
 
-import { BSRational } from './BSRational';
-import { fma } from './Functions';
-import { PolynomialRoot, polynomialRootBisect } from './PolynomialRoot';
+import { BSRational } from './BSRational.js';
+import { fma } from './Functions.js';
+import { PolynomialRoot, polynomialRootBisect } from './PolynomialRoot.js';
 import {
     PolynomialRootRational, type RootsScalarOps, rootsNumberOps, rootsRationalOps,
     solveLinearGeneric, solveMonicLinearGeneric, sortRoots
-} from './RootsLinear';
+} from './RootsLinear.js';
 import {
     computeDepressedQuadraticRoots, solveMonicQuadraticGeneric, solveQuadraticGeneric
-} from './RootsQuadratic';
+} from './RootsQuadratic.js';
 
 const HALF = BSRational.fromNumber(0.5);
 const ONE_DIV_3 = BSRational.fromNumber(1, 3);

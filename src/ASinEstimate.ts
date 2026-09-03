@@ -13,9 +13,9 @@
 // static_assert. This port takes the degree as a runtime argument validated
 // by logAssert; see asinEstimate below.
 
-import { acosEstimate } from './ACosEstimate';
-import { GTE_C_HALF_PI } from './Constants';
-import { logAssert } from './Logger';
+import { acosEstimate } from './ACosEstimate.js';
+import { GTE_C_HALF_PI } from './Constants.js';
+import { logAssert } from './Logger.js';
 
 // These are the upstream C_ASIN_EST_MAX_ERROR values. Because
 // asin(x) - asinEstimate(x) = acosEstimate(x) - acos(x), the bounds are

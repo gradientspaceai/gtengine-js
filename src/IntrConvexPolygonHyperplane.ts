@@ -15,10 +15,10 @@
 // is a module-private function. The vertices stored in the result arrays are
 // clones, matching C++ value semantics.
 
-import { Hyperplane } from './Hyperplane';
-import { Vector, add, dot, mul } from './Vector';
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
+import { Hyperplane } from './Hyperplane.js';
+import { Vector, add, dot, mul } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
 
 // The relationship of the convex polygon to the hyperplane.
 export enum IntrConvexPolygonHyperplaneConfiguration {

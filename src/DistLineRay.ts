@@ -18,10 +18,10 @@
 // upstream specialization 'DCPQuery<T, Line<N,T>, Ray<N,T>>' becomes the
 // class DistLineRay with the result type DistLineRayResult.
 
-import type { DCPQuery } from './DCPQuery';
-import type { Line } from './Line';
-import type { Ray } from './Ray';
-import { Vector, add, dot, mul, sub } from './Vector';
+import type { DCPQuery } from './DCPQuery.js';
+import type { Line } from './Line.js';
+import type { Ray } from './Ray.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
 
 export interface DistLineRayResult {
     distance: number;

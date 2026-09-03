@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { type DCPQuery } from '../src/DCPQuery';
+import { type DCPQuery } from '../src/DCPQuery.js';
 
 // A miniature distance query in the style of the Dist* files: point-to-point
 // distance in 1D, with a Result shaped like upstream's nested structs.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { DistPointRay } from '../src/DistPointRay';
-import { Ray } from '../src/Ray';
-import { Vector, add, dot, mul, sub } from '../src/Vector';
+import { DistPointRay } from '../src/DistPointRay.js';
+import { Ray } from '../src/Ray.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

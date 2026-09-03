@@ -37,10 +37,10 @@
 //   the port's BSPTree2 is a separate module-level class, splitEdge is a
 //   public method documented as internal.
 
-import { EdgeKey } from './EdgeKey';
-import { logAssert } from './Logger';
-import { Vector, add, dot, mul, sub } from './Vector';
-import { perp } from './Vector2';
+import { EdgeKey } from './EdgeKey.js';
+import { logAssert } from './Logger.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
+import { perp } from './Vector2.js';
 
 // The upstream unnamed enum inside BSPTree2.
 const Classification = {

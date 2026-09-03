@@ -23,14 +23,14 @@
 // plane-canonical-box result type, re-exported here as the alias
 // DistPlane3OrientedBox3Result.
 
-import { CanonicalBox } from './CanonicalBox';
-import type { DCPQuery } from './DCPQuery';
-import { DistPlane3CanonicalBox3 } from './DistPlane3CanonicalBox3';
-import type { DistPlane3CanonicalBox3Result } from './DistPlane3CanonicalBox3';
-import { Hyperplane } from './Hyperplane';
-import type { Plane3 } from './Hyperplane';
-import type { OrientedBox3 } from './OrientedBox';
-import { Vector, add, dot, mul, sub } from './Vector';
+import { CanonicalBox } from './CanonicalBox.js';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistPlane3CanonicalBox3 } from './DistPlane3CanonicalBox3.js';
+import type { DistPlane3CanonicalBox3Result } from './DistPlane3CanonicalBox3.js';
+import { Hyperplane } from './Hyperplane.js';
+import type { Plane3 } from './Hyperplane.js';
+import type { OrientedBox3 } from './OrientedBox.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
 
 // Upstream reuses the plane-box result type ('using Result = typename
 // PCQuery::Result').

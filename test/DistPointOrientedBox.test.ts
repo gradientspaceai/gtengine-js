@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { DistPointAlignedBox } from '../src/DistPointAlignedBox';
-import { DistPointOrientedBox } from '../src/DistPointOrientedBox';
-import { AlignedBox } from '../src/AlignedBox';
-import { OrientedBox } from '../src/OrientedBox';
-import { Vector, add, dot, mul, sub } from '../src/Vector';
+import { DistPointAlignedBox } from '../src/DistPointAlignedBox.js';
+import { DistPointOrientedBox } from '../src/DistPointOrientedBox.js';
+import { AlignedBox } from '../src/AlignedBox.js';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

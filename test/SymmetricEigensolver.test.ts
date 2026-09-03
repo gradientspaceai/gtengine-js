@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SymmetricEigensolver } from '../src/SymmetricEigensolver';
+import { SymmetricEigensolver } from '../src/SymmetricEigensolver.js';
 
 function makeRandom(seed: number): () => number {
     let state = seed >>> 0;

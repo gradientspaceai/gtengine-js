@@ -16,7 +16,7 @@
 // invalid indices (-1, -1); the port keeps that behavior when the vertex
 // indices are omitted.
 
-import { FeatureKey } from './FeatureKey';
+import { FeatureKey } from './FeatureKey.js';
 
 export class EdgeKey extends FeatureKey {
     // With v0 and v1 omitted, the key is initialized to invalid indices.

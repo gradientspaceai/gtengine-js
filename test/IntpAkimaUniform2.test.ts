@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { IntpAkimaUniform2 } from '../src/IntpAkimaUniform2';
+import { IntpAkimaUniform2 } from '../src/IntpAkimaUniform2.js';
 
 // Build the row-major sample array F[c + xBound*r] = f(xMin + c*dx, yMin + r*dy).
 function makeSamples(xBound: number, yBound: number, xMin: number, dx: number,

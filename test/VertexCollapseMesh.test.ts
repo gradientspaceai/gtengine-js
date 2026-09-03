@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
     VERTEX_COLLAPSE_MESH_INVALID_VERTEX, VertexCollapseMesh,
     VertexCollapseMeshVertex
-} from '../src/VertexCollapseMesh';
-import type { VertexCollapseMeshResult } from '../src/VertexCollapseMesh';
-import { VETManifoldMesh } from '../src/VETManifoldMesh';
-import { Vector } from '../src/Vector';
+} from '../src/VertexCollapseMesh.js';
+import type { VertexCollapseMeshResult } from '../src/VertexCollapseMesh.js';
+import { VETManifoldMesh } from '../src/VETManifoldMesh.js';
+import { Vector } from '../src/Vector.js';
 
 // An n-by-n grid of vertices in the plane z = 0, each quad split by the
 // diagonal from its lower-left to its upper-right corner. There are

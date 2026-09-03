@@ -41,6 +41,6 @@ const header = `// gtengine-js: TypeScript port of the Geometric Tools Engine (G
 `;
 const body = files.length === 0
   ? 'export {};\n'
-  : files.map(f => `export * from './${f.replace(/\.ts$/, '')}';`).join('\n') + '\n';
+  : files.map(f => `export * from './${f.replace(/\.ts$/, '.js')}';`).join('\n') + '\n';
 writeFileSync(join(root, 'src', 'index.ts'), header + body);
 console.log(`src/index.ts: ${files.length} modules exported`);

@@ -30,8 +30,8 @@
 // affects floating-point summation in computeVertexAverage) matches
 // upstream. The 'operator bool' validity check becomes 'isValid()'.
 
-import { Vector, add, sub, div, length } from './Vector';
-import { dotCross, cross } from './Vector3';
+import { Vector, add, sub, div, length } from './Vector.js';
+import { dotCross, cross } from './Vector3.js';
 
 export class Polyhedron3 {
     private mVertexPool: Vector[] | null;

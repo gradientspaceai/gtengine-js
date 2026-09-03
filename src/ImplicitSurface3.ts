@@ -19,10 +19,10 @@
 // literals per PORTING.md. Positions and directions are 3-dimensional
 // Vector objects and the Hessian is a 3-by-3 Matrix.
 
-import { Matrix, multiplyATB, mulMatrix, divMatrix } from './Matrix';
-import { SymmetricEigensolver2x2 } from './SymmetricEigensolver2x2';
-import { Vector, normalize } from './Vector';
-import { computeOrthogonalComplement3 } from './Vector3';
+import { Matrix, multiplyATB, mulMatrix, divMatrix } from './Matrix.js';
+import { SymmetricEigensolver2x2 } from './SymmetricEigensolver2x2.js';
+import { Vector, normalize } from './Vector.js';
+import { computeOrthogonalComplement3 } from './Vector3.js';
 
 // The set {tangent0, tangent1, normal} is a right-handed orthonormal basis.
 export interface ImplicitSurface3Frame {

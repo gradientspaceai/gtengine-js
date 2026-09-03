@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { MinimumAreaBox2 } from '../src/MinimumAreaBox2';
-import type { OrientedBox2 } from '../src/OrientedBox';
-import { Vector, dot, sub } from '../src/Vector';
+import { MinimumAreaBox2 } from '../src/MinimumAreaBox2.js';
+import type { OrientedBox2 } from '../src/OrientedBox.js';
+import { Vector, dot, sub } from '../src/Vector.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

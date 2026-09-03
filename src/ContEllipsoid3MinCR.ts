@@ -59,10 +59,10 @@
 // ellipsoid larger than the minimum-volume one. Roughly 4% of random point
 // clouds stall this way. This is upstream behavior and is preserved.
 
-import { logAssert } from './Logger';
-import { type Matrix3x3 } from './Matrix3x3';
-import { mulMatrix } from './Matrix';
-import { Vector, compMul, sub } from './Vector';
+import { logAssert } from './Logger.js';
+import { type Matrix3x3 } from './Matrix3x3.js';
+import { mulMatrix } from './Matrix.js';
+import { Vector, compMul, sub } from './Vector.js';
 
 // Compute the diagonal matrix D = diag(D[0],D[1],D[2]) of the minimum-volume
 // ellipsoid with the specified center and orientation that contains the input

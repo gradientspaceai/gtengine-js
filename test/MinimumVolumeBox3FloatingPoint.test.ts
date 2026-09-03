@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { Vector, dot, normalize } from '../src/Vector';
-import { cross, computeOrthogonalComplement3, dotCross } from '../src/Vector3';
-import { type OrientedBox3 } from '../src/OrientedBox';
-import { ConvexHull3 } from '../src/ConvexHull3';
-import { MinimumAreaBox2 } from '../src/MinimumAreaBox2';
+import { Vector, dot, normalize } from '../src/Vector.js';
+import { cross, computeOrthogonalComplement3, dotCross } from '../src/Vector3.js';
+import { type OrientedBox3 } from '../src/OrientedBox.js';
+import { ConvexHull3 } from '../src/ConvexHull3.js';
+import { MinimumAreaBox2 } from '../src/MinimumAreaBox2.js';
 import {
     MinimumVolumeBox3FloatingPoint,
     type MinimumVolumeBox3FloatingPointResult
-} from '../src/MinimumVolumeBox3FloatingPoint';
+} from '../src/MinimumVolumeBox3FloatingPoint.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

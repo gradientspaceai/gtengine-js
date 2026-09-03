@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { Transform, mulTransform } from '../src/Transform';
-import { Matrix, mulMatrix, multiplyAB, transpose } from '../src/Matrix';
-import { inverse4x4 } from '../src/Matrix4x4';
-import { Vector, normalize } from '../src/Vector';
+import { Transform, mulTransform } from '../src/Transform.js';
+import { Matrix, mulMatrix, multiplyAB, transpose } from '../src/Matrix.js';
+import { inverse4x4 } from '../src/Matrix4x4.js';
+import { Vector, normalize } from '../src/Vector.js';
 
-import { AxisAngle } from '../src/AxisAngle';
-import { EulerAngles } from '../src/EulerAngles';
-import { Rotation } from '../src/Rotation';
+import { AxisAngle } from '../src/AxisAngle.js';
+import { EulerAngles } from '../src/EulerAngles.js';
+import { Rotation } from '../src/Rotation.js';
 
 function expectMatrixClose(actual: Matrix, expected: Matrix,
     tolerance: number = 1e-12): void {

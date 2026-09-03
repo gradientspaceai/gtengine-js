@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { circleThroughPointSpecifiedTangentAndRadius } from '../src/CircleThroughPointSpecifiedTangentAndRadius';
-import { Vector, dot, length, normalize, sub } from '../src/Vector';
+import { circleThroughPointSpecifiedTangentAndRadius } from '../src/CircleThroughPointSpecifiedTangentAndRadius.js';
+import { Vector, dot, length, normalize, sub } from '../src/Vector.js';
 
 const v2 = (x: number, y: number): Vector => Vector.fromArray([x, y]);
 

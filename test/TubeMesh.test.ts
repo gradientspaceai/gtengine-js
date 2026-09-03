@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { TubeMesh } from '../src/TubeMesh';
-import { MeshDescription, MeshTopology } from '../src/Mesh';
-import { ParametricCurve } from '../src/ParametricCurve';
-import { FrenetFrame3 } from '../src/FrenetFrame';
-import { IndexAttribute } from '../src/IndexAttribute';
-import { VertexAttribute } from '../src/VertexAttribute';
-import { Vector, dot, length, sub } from '../src/Vector';
+import { TubeMesh } from '../src/TubeMesh.js';
+import { MeshDescription, MeshTopology } from '../src/Mesh.js';
+import { ParametricCurve } from '../src/ParametricCurve.js';
+import { FrenetFrame3 } from '../src/FrenetFrame.js';
+import { IndexAttribute } from '../src/IndexAttribute.js';
+import { VertexAttribute } from '../src/VertexAttribute.js';
+import { Vector, dot, length, sub } from '../src/Vector.js';
 
 // A ParametricCurve whose derivatives are supplied in closed form.
 class FunctionCurve3 extends ParametricCurve {

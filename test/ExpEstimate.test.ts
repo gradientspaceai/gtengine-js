@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
     expEstimate, expEstimateRR, getExpEstimateMaxError
-} from '../src/ExpEstimate';
-import { exp2Estimate, exp2EstimateRR } from '../src/Exp2Estimate';
-import { GTE_C_INV_LN_2 } from '../src/Constants';
+} from '../src/ExpEstimate.js';
+import { exp2Estimate, exp2EstimateRR } from '../src/Exp2Estimate.js';
+import { GTE_C_INV_LN_2 } from '../src/Constants.js';
 
 const DEGREES = [1, 2, 3, 4, 5, 6, 7] as const;
 

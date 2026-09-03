@@ -25,10 +25,10 @@
 // endpoint arc.end[1] is not. An arc short enough that the count truncates to
 // zero produces no points.
 
-import { Arc2 } from './Arc2';
-import { GTE_C_TWO_PI } from './Constants';
-import { Vector, dot, normalize } from './Vector';
-import { dotPerp, perp } from './Vector2';
+import { Arc2 } from './Arc2.js';
+import { GTE_C_TWO_PI } from './Constants.js';
+import { Vector, dot, normalize } from './Vector.js';
+import { dotPerp, perp } from './Vector2.js';
 
 export class SampleCircularArc {
     compute(arc: Arc2): Vector[] {

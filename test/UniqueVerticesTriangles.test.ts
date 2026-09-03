@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { UniqueVerticesTriangles, defaultVertexKey } from '../src/UniqueVerticesTriangles';
+import { UniqueVerticesTriangles, defaultVertexKey } from '../src/UniqueVerticesTriangles.js';
 
 type P3 = [number, number, number];
 

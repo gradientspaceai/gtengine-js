@@ -15,12 +15,12 @@
 // IntrSphere3Cone3FI. The private DoQuery* helpers become module-private
 // functions.
 
-import type { Cone } from './Cone';
-import type { Hypersphere } from './Hypersphere';
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
-import { Vector, add, dot, length, mul, sub } from './Vector';
-import { cross } from './Vector3';
+import type { Cone } from './Cone.js';
+import type { Hypersphere } from './Hypersphere.js';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
+import { Vector, add, dot, length, mul, sub } from './Vector.js';
+import { cross } from './Vector3.js';
 
 // The result of IntrSphere3Cone3TI.test.
 export interface IntrSphere3Cone3TIResult {

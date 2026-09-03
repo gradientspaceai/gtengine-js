@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MeshStaticManifold3, MeshStaticManifold3Vertex } from '../src/MeshStaticManifold3';
+import { MeshStaticManifold3, MeshStaticManifold3Vertex } from '../src/MeshStaticManifold3.js';
 
 const invalid = MeshStaticManifold3.invalid;
 

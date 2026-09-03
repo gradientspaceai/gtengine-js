@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { Cylinder3 } from '../src/Cylinder3';
-import { Hyperplane } from '../src/Hyperplane';
+import { Cylinder3 } from '../src/Cylinder3.js';
+import { Hyperplane } from '../src/Hyperplane.js';
 import {
     IntrPlane3Cylinder3TI,
     IntrPlane3Cylinder3FI,
     IntrPlane3Cylinder3FIResultType,
     defaultIntrPlane3Cylinder3FIResult
-} from '../src/IntrPlane3Cylinder3';
-import { Line } from '../src/Line';
-import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector';
+} from '../src/IntrPlane3Cylinder3.js';
+import { Line } from '../src/Line.js';
+import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector.js';
 
 function plane(normal: number[], origin: number[]): Hyperplane {
     const n = Vector.fromArray(normal);

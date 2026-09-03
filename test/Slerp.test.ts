@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { slerp, slerpUsingCosAngle, slerpUsingMidpoint } from '../src/Slerp';
+import { slerp, slerpUsingCosAngle, slerpUsingMidpoint } from '../src/Slerp.js';
 
 // Closed-form geodesic reference:
 //   slerp(t,q0,q1) = [sin((1-t)*A)*q0 + sin(t*A)*q1]/sin(A), cos(A)=dot(q0,q1)

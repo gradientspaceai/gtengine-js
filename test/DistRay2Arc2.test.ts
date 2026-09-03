@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { Arc2 } from '../src/Arc2';
-import { DistRay2Arc2 } from '../src/DistRay2Arc2';
-import { Ray } from '../src/Ray';
-import { Vector, add, dot, length, mul, sub } from '../src/Vector';
+import { Arc2 } from '../src/Arc2.js';
+import { DistRay2Arc2 } from '../src/DistRay2Arc2.js';
+import { Ray } from '../src/Ray.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

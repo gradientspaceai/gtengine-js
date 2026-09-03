@@ -22,9 +22,9 @@
 // avoid repeated construction costs for rational types) are numeric literals
 // here.
 
-import { Polynomial1 } from './Polynomial1';
-import { RootsPolynomial } from './RootsPolynomial';
-import { Vector, dot } from './Vector';
+import { Polynomial1 } from './Polynomial1.js';
+import { RootsPolynomial } from './RootsPolynomial.js';
+import { Vector, dot } from './Vector.js';
 
 export interface ApprParallelLines2Result {
     // The point equidistant from the two lines, with only a U-component

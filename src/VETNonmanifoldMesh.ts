@@ -20,16 +20,16 @@
 //     callback, and the copy constructor and operator= become clone() and
 //     assign().
 
-import { EdgeKey } from './EdgeKey';
-import { FeatureKey } from './FeatureKey';
+import { EdgeKey } from './EdgeKey.js';
+import { FeatureKey } from './FeatureKey.js';
 import {
     ETNonmanifoldMesh, ETNonmanifoldMeshEdge, ETNonmanifoldMeshTriangle
-} from './ETNonmanifoldMesh';
+} from './ETNonmanifoldMesh.js';
 import type {
     ETNonmanifoldMeshECreator, ETNonmanifoldMeshTCreator
-} from './ETNonmanifoldMesh';
-import { logAssert } from './Logger';
-import { TriangleKey } from './TriangleKey';
+} from './ETNonmanifoldMesh.js';
+import { logAssert } from './Logger.js';
+import { TriangleKey } from './TriangleKey.js';
 
 // The port of VETNonmanifoldMesh::Vertex.
 export class VETNonmanifoldMeshVertex {

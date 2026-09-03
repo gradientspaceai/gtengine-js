@@ -29,7 +29,7 @@
 //     or trial pixel is always strictly interior. Upstream relies on the same
 //     invariant (its size_t arithmetic would otherwise wrap).
 
-import { FastMarch } from './FastMarch';
+import { FastMarch } from './FastMarch.js';
 
 export class FastMarch2 extends FastMarch {
     protected mXBound: number;

@@ -19,11 +19,11 @@
 // upstream derived classes (ray/segment vs sphere) call, is exported as the
 // module function 'intrLine3Sphere3DoQuery'.
 
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
-import type { Hypersphere } from './Hypersphere';
-import type { Line } from './Line';
-import { Vector, add, dot, mul, sub } from './Vector';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
+import type { Hypersphere } from './Hypersphere.js';
+import type { Line } from './Line.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
 
 // The result of IntrLine3Sphere3TI queries.
 export interface IntrLine3Sphere3TIResult {

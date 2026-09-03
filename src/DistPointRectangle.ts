@@ -22,9 +22,9 @@
 // the class DistPointRectangle with the result type
 // DistPointRectangleResult.
 
-import type { DCPQuery } from './DCPQuery';
-import type { Rectangle } from './Rectangle';
-import { Vector, add, dot, mul, sub } from './Vector';
+import type { DCPQuery } from './DCPQuery.js';
+import type { Rectangle } from './Rectangle.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
 
 export interface DistPointRectangleResult {
     distance: number;

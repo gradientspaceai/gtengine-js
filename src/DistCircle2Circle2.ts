@@ -37,10 +37,10 @@
 // class DistCircle2Circle2 with the result type DistCircle2Circle2Result. The
 // private helper 'DoQuery' becomes the private method doQuery.
 
-import type { DCPQuery } from './DCPQuery';
-import type { Circle2 } from './Hypersphere';
-import { Vector, add, length, mul, normalize, sub } from './Vector';
-import { perp } from './Vector2';
+import type { DCPQuery } from './DCPQuery.js';
+import type { Circle2 } from './Hypersphere.js';
+import { Vector, add, length, mul, normalize, sub } from './Vector.js';
+import { perp } from './Vector2.js';
 
 export interface DistCircle2Circle2Result {
     distance: number;

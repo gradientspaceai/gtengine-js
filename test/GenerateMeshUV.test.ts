@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { GenerateMeshUV } from '../src/GenerateMeshUV';
-import { Vector } from '../src/Vector';
+import { GenerateMeshUV } from '../src/GenerateMeshUV.js';
+import { Vector } from '../src/Vector.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

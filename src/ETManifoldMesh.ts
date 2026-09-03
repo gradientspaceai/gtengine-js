@@ -52,10 +52,10 @@
 // the sibling port and callers of the graceful path may rely on the upstream
 // state. Prefer the default throwing behavior.
 
-import { logAssert, logError } from './Logger';
-import { EdgeKey } from './EdgeKey';
-import { TriangleKey } from './TriangleKey';
-import { FeatureKey } from './FeatureKey';
+import { logAssert, logError } from './Logger.js';
+import { EdgeKey } from './EdgeKey.js';
+import { TriangleKey } from './TriangleKey.js';
+import { FeatureKey } from './FeatureKey.js';
 
 // The port of ETManifoldMesh::Edge.
 export class ETManifoldMeshEdge {

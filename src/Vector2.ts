@@ -14,8 +14,8 @@
 // parameter 'bary' of ComputeBarycentrics becomes a field of the returned
 // object.
 
-import { logAssert } from './Logger';
-import { Vector, dot, negate, normalize, orthonormalize, sub } from './Vector';
+import { logAssert } from './Logger.js';
+import { Vector, dot, negate, normalize, orthonormalize, sub } from './Vector.js';
 
 function assertSize2(v: Vector): void {
     logAssert(v.size === 2, 'Vector2: vector must have size 2.');

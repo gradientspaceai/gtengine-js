@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { PlanarMesh } from '../src/PlanarMesh';
-import { ETManifoldMesh } from '../src/ETManifoldMesh';
-import { Vector } from '../src/Vector';
+import { PlanarMesh } from '../src/PlanarMesh.js';
+import { ETManifoldMesh } from '../src/ETManifoldMesh.js';
+import { Vector } from '../src/Vector.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

@@ -29,10 +29,10 @@
 // dimension aliases are dropped because the runtime-dimension Vector serves
 // every N.
 
-import type { DCPQuery } from './DCPQuery';
-import type { Hyperellipsoid } from './Hyperellipsoid';
-import { logAssert } from './Logger';
-import { Vector, add, dot, length, mul, sub } from './Vector';
+import type { DCPQuery } from './DCPQuery.js';
+import type { Hyperellipsoid } from './Hyperellipsoid.js';
+import { logAssert } from './Logger.js';
+import { Vector, add, dot, length, mul, sub } from './Vector.js';
 
 export interface DistPointHyperellipsoidResult {
     distance: number;

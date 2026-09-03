@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { LexicoArray2 } from '../src/LexicoArray2';
+import { LexicoArray2 } from '../src/LexicoArray2.js';
 
 describe('LexicoArray2', () => {
     // A 2x3 matrix

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { RectangleManager } from '../src/RectangleManager';
-import { AlignedBox } from '../src/AlignedBox';
-import { Vector } from '../src/Vector';
+import { RectangleManager } from '../src/RectangleManager.js';
+import { AlignedBox } from '../src/AlignedBox.js';
+import { Vector } from '../src/Vector.js';
 
 function rect(min: [number, number], max: [number, number]): AlignedBox {
     return AlignedBox.fromMinMax(Vector.fromArray(min), Vector.fromArray(max));

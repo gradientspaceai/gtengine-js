@@ -17,12 +17,12 @@
 // semiinfinite-semiinfinite operator() overload is the ported method
 // findSemiInfiniteSemiInfinite.
 
-import { GTE_C_INV_HALF_PI, GTE_C_TWO_PI } from './Constants';
-import { IntrIntervalsFI, IntrIntervalsFIResultType } from './IntrIntervals';
-import { logAssert, logError } from './Logger';
-import { Vector, add, dot, mul, sub } from './Vector';
-import { perp } from './Vector2';
-import { cross } from './Vector3';
+import { GTE_C_INV_HALF_PI, GTE_C_TWO_PI } from './Constants.js';
+import { IntrIntervalsFI, IntrIntervalsFIResultType } from './IntrIntervals.js';
+import { logAssert, logError } from './Logger.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
+import { perp } from './Vector2.js';
+import { cross } from './Vector3.js';
 
 export interface InscribedFixedAspectRectInQuadResult {
     // The value is 'true' when there is a unique solution or 'false' when

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PolynomialRoot, polynomialRootBisect } from '../src/PolynomialRoot';
+import { PolynomialRoot, polynomialRootBisect } from '../src/PolynomialRoot.js';
 
 describe('PolynomialRoot', () => {
     it('default-constructs an invalid root (x = 0, m = 0)', () => {

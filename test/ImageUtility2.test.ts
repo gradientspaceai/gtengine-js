@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { Image2 } from '../src/Image2';
-import { ImageUtility2 } from '../src/ImageUtility2';
+import { Image2 } from '../src/Image2.js';
+import { ImageUtility2 } from '../src/ImageUtility2.js';
 
 // Build an Image2<number> of the given size whose pixels are 1 exactly at the
 // listed (x,y) coordinates.

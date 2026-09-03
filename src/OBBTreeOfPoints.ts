@@ -20,9 +20,9 @@
 //     it is merely conservative (it is forced to contain the mean of the
 //     centroids). The quirk is preserved; see upstream issue #103.
 
-import { OBBTree } from './OBBTree';
-import { OrientedBox } from './OrientedBox';
-import { Vector, dot, sub } from './Vector';
+import { OBBTree } from './OBBTree.js';
+import { OrientedBox } from './OrientedBox.js';
+import { Vector, dot, sub } from './Vector.js';
 
 export class OBBTreeOfPoints extends OBBTree {
     constructor() {

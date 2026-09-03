@@ -30,8 +30,8 @@
 //   - Triangles are 3-element index arrays and points are Vector objects of
 //     size 2.
 
-import { logAssert } from './Logger';
-import { Vector } from './Vector';
+import { logAssert } from './Logger.js';
+import { Vector } from './Vector.js';
 
 // A tree of nested polygons. The root node corresponds to an outer polygon.
 // The children of the root correspond to inner polygons, which are polygons

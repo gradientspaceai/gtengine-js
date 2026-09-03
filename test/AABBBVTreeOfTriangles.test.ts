@@ -1,15 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import {
     AABBBoundingVolume, AABBBVTreeOfTriangles, aabbBoundingVolumeOps
-} from '../src/AABBBVTreeOfTriangles';
-import { AlignedBox } from '../src/AlignedBox';
-import { BVTree, BVTreeNode } from '../src/BVTree';
+} from '../src/AABBBVTreeOfTriangles.js';
+import { AlignedBox } from '../src/AlignedBox.js';
+import { BVTree, BVTreeNode } from '../src/BVTree.js';
 import {
     intersectLineTriangle, intersectRayTriangle, intersectSegmentTriangle
-} from '../src/BVTreeOfTriangles';
-import type { LinearTriangleResult } from '../src/BVTreeOfTriangles';
-import { Triangle } from '../src/Triangle';
-import { Vector, normalize } from '../src/Vector';
+} from '../src/BVTreeOfTriangles.js';
+import type { LinearTriangleResult } from '../src/BVTreeOfTriangles.js';
+import { Triangle } from '../src/Triangle.js';
+import { Vector, normalize } from '../src/Vector.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

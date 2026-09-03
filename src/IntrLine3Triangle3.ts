@@ -13,12 +13,12 @@
 // IntrLine3Triangle3FI (find), with the result types
 // IntrLine3Triangle3TIResult and IntrLine3Triangle3FIResult.
 
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
-import type { Line } from './Line';
-import type { Triangle } from './Triangle';
-import { Vector, add, dot, mul, sub } from './Vector';
-import { cross, dotCross } from './Vector3';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
+import type { Line } from './Line.js';
+import type { Triangle } from './Triangle.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
+import { cross, dotCross } from './Vector3.js';
 
 // The result of IntrLine3Triangle3TI queries.
 export interface IntrLine3Triangle3TIResult {

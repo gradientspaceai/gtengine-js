@@ -17,13 +17,13 @@
 // and IntrLine3Ellipsoid3FI. The protected FIQuery::DoQuery is also exported
 // as the module function 'intrLine3Ellipsoid3FIDoQuery'.
 
-import type { FIQuery } from './FIQuery';
-import type { Ellipsoid3 } from './Hyperellipsoid';
-import type { Line3 } from './Line';
-import { logAssert } from './Logger';
-import { mulMatrix } from './Matrix';
-import { Vector, add, dot, mul, sub } from './Vector';
-import type { TIQuery } from './TIQuery';
+import type { FIQuery } from './FIQuery.js';
+import type { Ellipsoid3 } from './Hyperellipsoid.js';
+import type { Line3 } from './Line.js';
+import { logAssert } from './Logger.js';
+import { mulMatrix } from './Matrix.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrLine3Ellipsoid3TI.test.
 export interface IntrLine3Ellipsoid3TIResult {

@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { Ray } from '../src/Ray';
-import { Segment } from '../src/Segment';
-import { Vector, add, mul, normalize, sub, length } from '../src/Vector';
+import { Ray } from '../src/Ray.js';
+import { Segment } from '../src/Segment.js';
+import { Vector, add, mul, normalize, sub, length } from '../src/Vector.js';
 import {
     IntrRay2Segment2TI,
     IntrRay2Segment2FI
-} from '../src/IntrRay2Segment2';
+} from '../src/IntrRay2Segment2.js';
 
 function vec(a: number[]): Vector {
     return Vector.fromArray(a);

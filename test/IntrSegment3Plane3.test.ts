@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { Hyperplane } from '../src/Hyperplane';
+import { Hyperplane } from '../src/Hyperplane.js';
 import {
     IntrSegment3Plane3TI,
     IntrSegment3Plane3FI,
     defaultIntrSegment3Plane3FIResult,
     defaultIntrSegment3Plane3TIResult,
     intrSegment3Plane3FIDoQuery
-} from '../src/IntrSegment3Plane3';
-import { Segment } from '../src/Segment';
-import { Vector, add, dot, mul, normalize, sub } from '../src/Vector';
+} from '../src/IntrSegment3Plane3.js';
+import { Segment } from '../src/Segment.js';
+import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
 
 function vec(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

@@ -30,8 +30,8 @@
 // max-heap over the same lexicographic pair ordering, so the retained
 // neighbor set and the output order are those of the upstream code.
 
-import { logAssert } from './Logger';
-import { Vector, dot, sub } from './Vector';
+import { logAssert } from './Logger.js';
+import { Vector, dot, sub } from './Vector.js';
 
 // The site abstraction: anything that can report its position.
 export interface NearestNeighborSite {

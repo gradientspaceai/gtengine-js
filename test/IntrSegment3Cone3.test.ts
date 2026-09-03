@@ -1,19 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import { Cone } from '../src/Cone';
+import { Cone } from '../src/Cone.js';
 import {
     IntrLine3Cone3FI,
     IntrLine3Cone3FIResultType,
     intrLine3Cone3Convert,
     intrLine3Cone3ConvertPoint
-} from '../src/IntrLine3Cone3';
+} from '../src/IntrLine3Cone3.js';
 import {
     IntrSegment3Cone3FI,
     defaultIntrSegment3Cone3FIResult
-} from '../src/IntrSegment3Cone3';
-import { Line } from '../src/Line';
-import { Ray } from '../src/Ray';
-import { Segment } from '../src/Segment';
-import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector';
+} from '../src/IntrSegment3Cone3.js';
+import { Line } from '../src/Line.js';
+import { Ray } from '../src/Ray.js';
+import { Segment } from '../src/Segment.js';
+import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector.js';
 
 function segment(p0: number[], p1: number[]): Segment {
     return Segment.fromEndpoints(Vector.fromArray(p0), Vector.fromArray(p1));

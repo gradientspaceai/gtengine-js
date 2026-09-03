@@ -33,23 +33,23 @@
 // in that branch; cdeParameter is already [0,0] from the default constructor,
 // so the port simply omits it.
 
-import { inContainerOrientedBox2 } from './ContOrientedBox2';
-import type { FIQuery } from './FIQuery';
+import { inContainerOrientedBox2 } from './ContOrientedBox2.js';
+import type { FIQuery } from './FIQuery.js';
 import {
     intrSegment2AlignedBox2TIDoQuery,
     intrSegment2AlignedBox2FIDoQuery,
     defaultIntrSegment2AlignedBox2TIResult,
     defaultIntrSegment2AlignedBox2FIResult
-} from './IntrSegment2AlignedBox2';
+} from './IntrSegment2AlignedBox2.js';
 import type {
     IntrSegment2AlignedBox2TIResult,
     IntrSegment2AlignedBox2FIResult
-} from './IntrSegment2AlignedBox2';
-import { logAssert } from './Logger';
-import type { OrientedBox2 } from './OrientedBox';
-import type { Segment2 } from './Segment';
-import { Vector, add, dot, mul, sub } from './Vector';
-import type { TIQuery } from './TIQuery';
+} from './IntrSegment2AlignedBox2.js';
+import { logAssert } from './Logger.js';
+import type { OrientedBox2 } from './OrientedBox.js';
+import type { Segment2 } from './Segment.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The upstream derived TIQuery::Result adds no members.
 export type IntrSegment2OrientedBox2TIResult = IntrSegment2AlignedBox2TIResult;

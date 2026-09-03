@@ -12,14 +12,14 @@
 // a TIQuery and an FIQuery specialization, which become IntrPlane3Sphere3TI
 // and IntrPlane3Sphere3FI.
 
-import { Circle3 } from './Circle3';
-import { DistPointHyperplane } from './DistPointHyperplane';
-import type { FIQuery } from './FIQuery';
-import type { Hypersphere } from './Hypersphere';
-import { logAssert } from './Logger';
-import type { Plane3 } from './Hyperplane';
-import { Vector, mul, sub } from './Vector';
-import type { TIQuery } from './TIQuery';
+import { Circle3 } from './Circle3.js';
+import { DistPointHyperplane } from './DistPointHyperplane.js';
+import type { FIQuery } from './FIQuery.js';
+import type { Hypersphere } from './Hypersphere.js';
+import { logAssert } from './Logger.js';
+import type { Plane3 } from './Hyperplane.js';
+import { Vector, mul, sub } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrPlane3Sphere3TI.test.
 export interface IntrPlane3Sphere3TIResult {

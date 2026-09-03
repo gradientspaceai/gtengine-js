@@ -42,14 +42,14 @@
 //   on every iteration; the port hoists it out of the loop, which is
 //   value-preserving.
 
-import { GaussianElimination } from './GaussianElimination';
-import { LexicoArray2 } from './LexicoArray2';
-import { logAssert } from './Logger';
-import { Matrix, mulMatrix } from './Matrix';
-import { inverse2x2 } from './Matrix2x2';
-import { inverse3x3 } from './Matrix3x3';
-import { inverse4x4 } from './Matrix4x4';
-import { Vector } from './Vector';
+import { GaussianElimination } from './GaussianElimination.js';
+import { LexicoArray2 } from './LexicoArray2.js';
+import { logAssert } from './Logger.js';
+import { Matrix, mulMatrix } from './Matrix.js';
+import { inverse2x2 } from './Matrix2x2.js';
+import { inverse3x3 } from './Matrix3x3.js';
+import { inverse4x4 } from './Matrix4x4.js';
+import { Vector } from './Vector.js';
 
 // The solution of A*X = B for a fixed-size system.
 export interface LinearSystemVectorResult {

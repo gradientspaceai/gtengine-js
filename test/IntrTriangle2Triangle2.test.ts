@@ -4,10 +4,10 @@ import {
     IntrTriangle2Triangle2TI,
     defaultIntrTriangle2Triangle2FIResult,
     defaultIntrTriangle2Triangle2TIResult
-} from '../src/IntrTriangle2Triangle2';
-import { Triangle } from '../src/Triangle';
-import { Vector, add, sub } from '../src/Vector';
-import { dotPerp } from '../src/Vector2';
+} from '../src/IntrTriangle2Triangle2.js';
+import { Triangle } from '../src/Triangle.js';
+import { Vector, add, sub } from '../src/Vector.js';
+import { dotPerp } from '../src/Vector2.js';
 
 const V2 = (x: number, y: number) => Vector.fromArray([x, y]);
 

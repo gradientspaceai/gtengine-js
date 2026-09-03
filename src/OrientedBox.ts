@@ -18,8 +18,8 @@
 // Vector[] of length N; its comparisons are lexicographic over the elements,
 // as std::array's are.
 
-import { logAssert } from './Logger';
-import { Vector, add, sub, mul } from './Vector';
+import { logAssert } from './Logger.js';
+import { Vector, add, sub, mul } from './Vector.js';
 
 // Lexicographic comparison of equal-length vector arrays (the port of
 // std::array's relational operators). Returns -1, 0 or +1.

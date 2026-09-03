@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { Ray } from '../src/Ray';
-import { Hypersphere } from '../src/Hypersphere';
-import { Vector, add, mul, sub, dot, normalize } from '../src/Vector';
+import { Ray } from '../src/Ray.js';
+import { Hypersphere } from '../src/Hypersphere.js';
+import { Vector, add, mul, sub, dot, normalize } from '../src/Vector.js';
 import {
     IntrRay3Sphere3TI,
     IntrRay3Sphere3FI,
     defaultIntrRay3Sphere3FIResult,
     intrRay3Sphere3DoQuery
-} from '../src/IntrRay3Sphere3';
+} from '../src/IntrRay3Sphere3.js';
 
 function vec(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

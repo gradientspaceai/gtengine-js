@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
     hyperCross, unitHyperCross, dotHyperCross, computeOrthogonalComplement4
-} from '../src/Vector4';
-import { Vector, dot, length, negate } from '../src/Vector';
-import { Matrix, determinant } from '../src/Matrix';
+} from '../src/Vector4.js';
+import { Vector, dot, length, negate } from '../src/Vector.js';
+import { Matrix, determinant } from '../src/Matrix.js';
 
 const e0 = () => Vector.fromArray([1, 0, 0, 0]);
 const e1 = () => Vector.fromArray([0, 1, 0, 0]);

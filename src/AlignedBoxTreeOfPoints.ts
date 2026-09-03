@@ -20,9 +20,9 @@
 //     computeInteriorBoundingVolume/computeLeafBoundingVolume, as upstream.
 //     C++ assignment from a vertex copies, so the port clones explicitly.
 
-import { AlignedBoxBV } from './AlignedBoxBV';
-import type { BVTreeVolumeOps } from './BVTree';
-import { BVTreeOfPoints } from './BVTreeOfPoints';
+import { AlignedBoxBV } from './AlignedBoxBV.js';
+import type { BVTreeVolumeOps } from './BVTree.js';
+import { BVTreeOfPoints } from './BVTreeOfPoints.js';
 
 const alignedBoxBVOps: BVTreeVolumeOps<AlignedBoxBV> = {
     create: () => new AlignedBoxBV(),

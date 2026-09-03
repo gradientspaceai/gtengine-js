@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { Hyperplane } from '../src/Hyperplane';
+import { Hyperplane } from '../src/Hyperplane.js';
 import {
     IntrRay3Plane3TI,
     IntrRay3Plane3FI,
     defaultIntrRay3Plane3FIResult,
     defaultIntrRay3Plane3TIResult,
     intrRay3Plane3FIDoQuery
-} from '../src/IntrRay3Plane3';
-import { Ray } from '../src/Ray';
-import { Vector, add, dot, mul, normalize } from '../src/Vector';
+} from '../src/IntrRay3Plane3.js';
+import { Ray } from '../src/Ray.js';
+import { Vector, add, dot, mul, normalize } from '../src/Vector.js';
 
 function vec(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

@@ -13,17 +13,17 @@
 // the protected line-triangle helper is reached through a module-private
 // subclass, since TypeScript cannot narrow an inherited method parameter.
 
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
-import type { Segment } from './Segment';
-import type { Triangle } from './Triangle';
-import { Vector, add, mul, sub } from './Vector';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
+import type { Segment } from './Segment.js';
+import type { Triangle } from './Triangle.js';
+import { Vector, add, mul, sub } from './Vector.js';
 import {
     IntrLine2Triangle2FI,
     defaultIntrLine2Triangle2FIResult
-} from './IntrLine2Triangle2';
-import type { IntrLine2Triangle2FIResult } from './IntrLine2Triangle2';
-import { IntrIntervalsFI } from './IntrIntervals';
+} from './IntrLine2Triangle2.js';
+import type { IntrLine2Triangle2FIResult } from './IntrLine2Triangle2.js';
+import { IntrIntervalsFI } from './IntrIntervals.js';
 
 // The result of IntrSegment2Triangle2TI queries.
 export interface IntrSegment2Triangle2TIResult {

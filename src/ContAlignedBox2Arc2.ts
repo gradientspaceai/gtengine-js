@@ -17,9 +17,9 @@
 // already taken by the point-set overload in ContAlignedBox.ts. Upstream
 // returns 'bool' and fills an output reference; the port returns the box.
 
-import { AlignedBox } from './AlignedBox';
-import { Arc2 } from './Arc2';
-import { Vector, computeExtremes } from './Vector';
+import { AlignedBox } from './AlignedBox.js';
+import { Arc2 } from './Arc2.js';
+import { Vector, computeExtremes } from './Vector.js';
 
 // Compute the smallest-area axis-aligned box containing the arc.
 //

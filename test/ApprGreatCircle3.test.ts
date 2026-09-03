@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { ApprGreatArc3, ApprGreatCircle3 } from '../src/ApprGreatCircle3';
-import { Vector, dot, length, normalize } from '../src/Vector';
+import { ApprGreatArc3, ApprGreatCircle3 } from '../src/ApprGreatCircle3.js';
+import { Vector, dot, length, normalize } from '../src/Vector.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

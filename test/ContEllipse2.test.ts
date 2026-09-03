@@ -3,11 +3,11 @@ import {
     getContainerEllipse2,
     inContainerEllipse2,
     mergeContainersEllipse2
-} from '../src/ContEllipse2';
-import { Hyperellipsoid, type Ellipse2 } from '../src/Hyperellipsoid';
-import { Line } from '../src/Line';
-import { projectEllipse2 } from '../src/Projection';
-import { Vector, add, dot, length, mul, sub } from '../src/Vector';
+} from '../src/ContEllipse2.js';
+import { Hyperellipsoid, type Ellipse2 } from '../src/Hyperellipsoid.js';
+import { Line } from '../src/Line.js';
+import { projectEllipse2 } from '../src/Projection.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
 
 function v(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

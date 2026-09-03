@@ -13,8 +13,8 @@
 // { index, dx }, per the IntpAkima1 base. The upstream null-pointer test on
 // X becomes a length test.
 
-import { IntpAkima1 } from './IntpAkima1';
-import { logAssert } from './Logger';
+import { IntpAkima1 } from './IntpAkima1.js';
+import { logAssert } from './Logger.js';
 
 export class IntpAkimaNonuniform1 extends IntpAkima1 {
     protected mX: readonly number[];

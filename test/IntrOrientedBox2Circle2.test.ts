@@ -1,17 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { AlignedBox } from '../src/AlignedBox';
-import { Hypersphere } from '../src/Hypersphere';
+import { AlignedBox } from '../src/AlignedBox.js';
+import { Hypersphere } from '../src/Hypersphere.js';
 import {
     IntrAlignedBox2Circle2FI,
     IntrAlignedBox2Circle2FIResultType
-} from '../src/IntrAlignedBox2Circle2';
+} from '../src/IntrAlignedBox2Circle2.js';
 import {
     IntrOrientedBox2Circle2TI,
     IntrOrientedBox2Circle2FI,
     defaultIntrOrientedBox2Circle2TIResult
-} from '../src/IntrOrientedBox2Circle2';
-import { OrientedBox } from '../src/OrientedBox';
-import { Vector, add, mul, sub } from '../src/Vector';
+} from '../src/IntrOrientedBox2Circle2.js';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Vector, add, mul, sub } from '../src/Vector.js';
 
 function vec(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

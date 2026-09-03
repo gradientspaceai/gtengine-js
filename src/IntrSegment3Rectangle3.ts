@@ -28,13 +28,13 @@
 // that quirk is inherited from IntrLine3Rectangle3 (issue #141), where the
 // third component is always left at zero.
 
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
-import type { Rectangle } from './Rectangle';
-import type { Segment } from './Segment';
-import { Line } from './Line';
-import { Vector, sub } from './Vector';
-import { IntrLine3Rectangle3FI } from './IntrLine3Rectangle3';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
+import type { Rectangle } from './Rectangle.js';
+import type { Segment } from './Segment.js';
+import { Line } from './Line.js';
+import { Vector, sub } from './Vector.js';
+import { IntrLine3Rectangle3FI } from './IntrLine3Rectangle3.js';
 
 // The result of IntrSegment3Rectangle3TI queries.
 export interface IntrSegment3Rectangle3TIResult {

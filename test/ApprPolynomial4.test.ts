@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ApprPolynomial4 } from '../src/ApprPolynomial4';
-import { ApprQuery } from '../src/ApprQuery';
+import { ApprPolynomial4 } from '../src/ApprPolynomial4.js';
+import { ApprQuery } from '../src/ApprQuery.js';
 
 // w = sum_{i,j,k} c[i + (dx+1)*(j + (dy+1)*k)] * x^i * y^j * z^k
 function poly(c: readonly number[], dx: number, dy: number, dz: number,

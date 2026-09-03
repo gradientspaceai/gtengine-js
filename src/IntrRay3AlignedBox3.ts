@@ -20,22 +20,22 @@
 // the port exports type aliases. The ray-specific DoQuery members remain
 // available as the protected doQuery() methods.
 
-import type { AlignedBox } from './AlignedBox';
-import type { Ray } from './Ray';
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
-import { Vector, add, mul, sub } from './Vector';
+import type { AlignedBox } from './AlignedBox.js';
+import type { Ray } from './Ray.js';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
+import { Vector, add, mul, sub } from './Vector.js';
 import {
     IntrLine3AlignedBox3TI,
     IntrLine3AlignedBox3FI,
     defaultIntrLine3AlignedBox3TIResult,
     defaultIntrLine3AlignedBox3FIResult
-} from './IntrLine3AlignedBox3';
+} from './IntrLine3AlignedBox3.js';
 import type {
     IntrLine3AlignedBox3TIResult,
     IntrLine3AlignedBox3FIResult
-} from './IntrLine3AlignedBox3';
-import { IntrIntervalsFI } from './IntrIntervals';
+} from './IntrLine3AlignedBox3.js';
+import { IntrIntervalsFI } from './IntrIntervals.js';
 
 // The result of IntrRay3AlignedBox3TI.test. Upstream adds no members to the
 // line-box result.

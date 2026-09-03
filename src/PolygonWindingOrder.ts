@@ -19,8 +19,8 @@
 // 'polygon[i] < polygon[lowerLeft]' is std::array's lexicographic
 // comparison, which is Vector.lessThan in the port.
 
-import { Vector, sub } from './Vector';
-import { dotPerp } from './Vector2';
+import { Vector, sub } from './Vector.js';
+import { dotPerp } from './Vector2.js';
 
 export class PolygonWindingOrder {
     // The polygon vertices must be ordered, either CCW or CW. The function

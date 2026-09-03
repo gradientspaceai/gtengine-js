@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { Hyperplane } from '../src/Hyperplane';
-import { Hypersphere } from '../src/Hypersphere';
+import { Hyperplane } from '../src/Hyperplane.js';
+import { Hypersphere } from '../src/Hypersphere.js';
 import {
     IntrPlane3Sphere3TI,
     IntrPlane3Sphere3FI,
     defaultIntrPlane3Sphere3FIResult
-} from '../src/IntrPlane3Sphere3';
-import { Vector, dot, normalize, sub } from '../src/Vector';
+} from '../src/IntrPlane3Sphere3.js';
+import { Vector, dot, normalize, sub } from '../src/Vector.js';
 
 function plane(normal: number[], origin: number[]): Hyperplane {
     const n = Vector.fromArray(normal);

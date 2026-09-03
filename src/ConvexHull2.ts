@@ -23,12 +23,12 @@
 // * The mConverted/mRationalPoints memoization pair becomes a single array of
 //   nullable rational points.
 
-import { logAssert } from './Logger';
-import { Line } from './Line';
-import type { Line2 } from './Line';
-import { Vector, sub, normalize } from './Vector';
-import { BSNumber } from './BSNumber';
-import { SWInterval } from './SWInterval';
+import { logAssert } from './Logger.js';
+import { Line } from './Line.js';
+import type { Line2 } from './Line.js';
+import { Vector, sub, normalize } from './Vector.js';
+import { BSNumber } from './BSNumber.js';
+import { SWInterval } from './SWInterval.js';
 
 // A rational 2D point, the port of Vector2<Rational>.
 type RationalPoint2 = [BSNumber, BSNumber];

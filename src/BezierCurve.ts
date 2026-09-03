@@ -19,10 +19,10 @@
 // third-order difference tables that drive the derivative evaluation are not
 // built for degree 1.
 
-import { Array2 } from './Array2';
-import { logAssert } from './Logger';
-import { ParametricCurve } from './ParametricCurve';
-import { Vector } from './Vector';
+import { Array2 } from './Array2.js';
+import { logAssert } from './Logger.js';
+import { ParametricCurve } from './ParametricCurve.js';
+import { Vector } from './Vector.js';
 
 export class BezierCurve extends ParametricCurve {
     protected mDegree: number;

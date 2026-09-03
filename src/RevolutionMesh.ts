@@ -10,11 +10,11 @@
 // which upstream stores in a std::vector and points mTCoords at, become a
 // MeshChannel allocated by MeshChannel.allocate.
 
-import { GTE_C_TWO_PI } from './Constants';
-import { logAssert } from './Logger';
-import { Mesh, MeshChannel, MeshDescription, MeshTopology } from './Mesh';
-import { ParametricCurve } from './ParametricCurve';
-import { Vector } from './Vector';
+import { GTE_C_TWO_PI } from './Constants.js';
+import { logAssert } from './Logger.js';
+import { Mesh, MeshChannel, MeshDescription, MeshTopology } from './Mesh.js';
+import { ParametricCurve } from './ParametricCurve.js';
+import { Vector } from './Vector.js';
 
 export class RevolutionMesh extends Mesh {
     private mCurve: ParametricCurve | null;

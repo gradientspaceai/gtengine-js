@@ -38,7 +38,7 @@
 // suggested by Golub and van Loan) in order to make the implementation more
 // readable.
 
-import { logAssert } from './Logger';
+import { logAssert } from './Logger.js';
 
 // A Givens rotation is the identity with the following replacement entries:
 // R(index0,index0) = cs, R(index0,index1) = sn, R(index1,index0) = -sn and

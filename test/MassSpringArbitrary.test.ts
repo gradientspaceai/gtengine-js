@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
     MassSpringArbitrary,
     MassSpringArbitrarySpring
-} from '../src/MassSpringArbitrary';
-import { MassSpringCurve } from '../src/MassSpringCurve';
-import { Vector, add, dot, length as vectorLength, mul, sub } from '../src/Vector';
+} from '../src/MassSpringArbitrary.js';
+import { MassSpringCurve } from '../src/MassSpringCurve.js';
+import { Vector, add, dot, length as vectorLength, mul, sub } from '../src/Vector.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

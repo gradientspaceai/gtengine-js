@@ -16,16 +16,16 @@
 // 'intrLine3Plane3FIDoQuery'. The protected 'FIQuery::DoQuery' becomes the
 // exported module function 'intrRay3Plane3FIDoQuery'.
 
-import { DistPointHyperplane } from './DistPointHyperplane';
-import type { FIQuery } from './FIQuery';
+import { DistPointHyperplane } from './DistPointHyperplane.js';
+import type { FIQuery } from './FIQuery.js';
 import {
     defaultIntrLine3Plane3FIResult, intrLine3Plane3FIDoQuery
-} from './IntrLine3Plane3';
-import type { IntrLine3Plane3FIResult } from './IntrLine3Plane3';
-import type { Plane3 } from './Hyperplane';
-import type { Ray3 } from './Ray';
-import type { TIQuery } from './TIQuery';
-import { Vector, add, dot, mul } from './Vector';
+} from './IntrLine3Plane3.js';
+import type { IntrLine3Plane3FIResult } from './IntrLine3Plane3.js';
+import type { Plane3 } from './Hyperplane.js';
+import type { Ray3 } from './Ray.js';
+import type { TIQuery } from './TIQuery.js';
+import { Vector, add, dot, mul } from './Vector.js';
 
 // The result of IntrRay3Plane3TI.test.
 export interface IntrRay3Plane3TIResult {

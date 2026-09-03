@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { FrenetFrame2, FrenetFrame3 } from '../src/FrenetFrame';
-import { ParametricCurve } from '../src/ParametricCurve';
-import { Vector, dot } from '../src/Vector';
-import { cross } from '../src/Vector3';
+import { FrenetFrame2, FrenetFrame3 } from '../src/FrenetFrame.js';
+import { ParametricCurve } from '../src/ParametricCurve.js';
+import { Vector, dot } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 // A counterclockwise circle of radius r in the plane: X(t) = r*(cos t, sin t).
 class Circle2 extends ParametricCurve {

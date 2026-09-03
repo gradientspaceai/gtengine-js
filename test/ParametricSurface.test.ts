@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { ParametricSurface } from '../src/ParametricSurface';
-import { Vector, dot, length, sub, div } from '../src/Vector';
+import { ParametricSurface } from '../src/ParametricSurface.js';
+import { Vector, dot, length, sub, div } from '../src/Vector.js';
 
 // ---------------------------------------------------------------------------
 // Concrete subclasses used to exercise the abstract base. The real surface

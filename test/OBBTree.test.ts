@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { OBBNode, OBBTree } from '../src/OBBTree';
-import { OrientedBox } from '../src/OrientedBox';
-import { Vector, dot, normalize, sub } from '../src/Vector';
-import { cross, dotCross } from '../src/Vector3';
+import { OBBNode, OBBTree } from '../src/OBBTree.js';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Vector, dot, normalize, sub } from '../src/Vector.js';
+import { cross, dotCross } from '../src/Vector3.js';
 
 // ---------------------------------------------------------------------------
 // A concrete OBBTree of triangles, modeled on upstream OBBTreeOfTriangles.h.

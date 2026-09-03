@@ -39,7 +39,7 @@
 //     no clamping is applied. The port returns plain (possibly negative)
 //     numbers, which is what the documented semantics call for.
 
-import { Image } from './Image';
+import { Image } from './Image.js';
 
 export class Image3<PixelType> extends Image<PixelType> {
     // Construction. With no arguments the image is empty. Otherwise the

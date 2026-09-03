@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
     slerpEstimate, slerpEstimateUsingCosAngle, slerpEstimateUsingMidpoint
-} from '../src/SlerpEstimate';
-import { slerp, slerpUsingCosAngle, slerpUsingMidpoint } from '../src/Slerp';
-import { getChebyshevRatioEstimateMaxError } from '../src/ChebyshevRatioEstimate';
+} from '../src/SlerpEstimate.js';
+import { slerp, slerpUsingCosAngle, slerpUsingMidpoint } from '../src/Slerp.js';
+import { getChebyshevRatioEstimateMaxError } from '../src/ChebyshevRatioEstimate.js';
 
 const DEGREES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16] as const;
 

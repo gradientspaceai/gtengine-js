@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ApprPolynomial3 } from '../src/ApprPolynomial3';
-import { ApprQuery } from '../src/ApprQuery';
+import { ApprPolynomial3 } from '../src/ApprPolynomial3.js';
+import { ApprQuery } from '../src/ApprQuery.js';
 
 // Solve the (small, well-conditioned) system A*X = B by Gauss-Jordan
 // elimination with partial pivoting; an independent check of the fit.

@@ -41,12 +41,12 @@
 // coefficient array, toCoefficientsABC()/fromCoefficientsABC() use the
 // (A, B, C) triple. Out-parameters become return values.
 
-import { logAssert } from './Logger';
+import { logAssert } from './Logger.js';
 import {
     Matrix, addMatrix, inverse, mulMatrix, outerProduct
-} from './Matrix';
-import { SymmetricEigensolver } from './SymmetricEigensolver';
-import { Vector, div, dot, mul } from './Vector';
+} from './Matrix.js';
+import { SymmetricEigensolver } from './SymmetricEigensolver.js';
+import { Vector, div, dot, mul } from './Vector.js';
 
 // The number of coefficients (N+1)*(N+2)/2 of the quadratic equation for a
 // hyperellipsoid of dimension N.

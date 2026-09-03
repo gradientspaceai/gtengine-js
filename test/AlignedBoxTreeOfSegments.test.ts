@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { AlignedBoxTreeOfSegments } from '../src/AlignedBoxTreeOfSegments';
-import { AlignedBoxBV } from '../src/AlignedBoxBV';
-import { BVTree, BVTreeNode } from '../src/BVTree';
-import { Vector } from '../src/Vector';
+import { AlignedBoxTreeOfSegments } from '../src/AlignedBoxTreeOfSegments.js';
+import { AlignedBoxBV } from '../src/AlignedBoxBV.js';
+import { BVTree, BVTreeNode } from '../src/BVTree.js';
+import { Vector } from '../src/Vector.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

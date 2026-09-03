@@ -31,12 +31,12 @@
 // Triangle2 queries, which derive from this class) becomes the protected
 // method 'doQuery' that mutates the passed-in result, as upstream does.
 
-import { Line } from './Line';
-import { Triangle } from './Triangle';
-import { Vector, add, sub, mul, dot } from './Vector';
-import { dotPerp } from './Vector2';
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
+import { Line } from './Line.js';
+import { Triangle } from './Triangle.js';
+import { Vector, add, sub, mul, dot } from './Vector.js';
+import { dotPerp } from './Vector2.js';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
 
 // The result of IntrLine2Triangle2TI.test.
 export interface IntrLine2Triangle2TIResult {

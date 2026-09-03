@@ -3,8 +3,8 @@ import {
     SurfaceExtractor,
     SurfaceExtractorTriangle,
     SurfaceExtractorVertex
-} from '../src/SurfaceExtractor';
-import { MarchingCubes } from '../src/MarchingCubes';
+} from '../src/SurfaceExtractor.js';
+import { MarchingCubes } from '../src/MarchingCubes.js';
 
 // Concrete extractor built on the ported MarchingCubes tables, mirroring the
 // structure of the upstream derived classes. Voxel corner k of the cube with

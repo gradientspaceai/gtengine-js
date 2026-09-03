@@ -26,16 +26,16 @@
 // - std::map<int32_t,int32_t> edgeMap becomes a Map with an explicit sorted
 //   start key, so the traversal matches the upstream std::map ordering.
 
-import type { ETManifoldMeshTriangle } from './ETManifoldMesh';
-import { logAssert } from './Logger';
-import { MinHeap } from './MinHeap';
-import type { MinHeapRecord } from './MinHeap';
-import { Polygon2 } from './Polygon2';
-import { TriangleKey } from './TriangleKey';
-import { TriangulateEC } from './TriangulateEC';
-import { Vector, dot, length as vectorLength, normalize, sub } from './Vector';
-import { computeOrthogonalComplement3, cross } from './Vector3';
-import { VETManifoldMesh, VETManifoldMeshVertex } from './VETManifoldMesh';
+import type { ETManifoldMeshTriangle } from './ETManifoldMesh.js';
+import { logAssert } from './Logger.js';
+import { MinHeap } from './MinHeap.js';
+import type { MinHeapRecord } from './MinHeap.js';
+import { Polygon2 } from './Polygon2.js';
+import { TriangleKey } from './TriangleKey.js';
+import { TriangulateEC } from './TriangulateEC.js';
+import { Vector, dot, length as vectorLength, normalize, sub } from './Vector.js';
+import { computeOrthogonalComplement3, cross } from './Vector3.js';
+import { VETManifoldMesh, VETManifoldMeshVertex } from './VETManifoldMesh.js';
 
 // The upstream invalid-vertex marker 0x80000000, which is INT32_MIN when
 // stored in the int32_t 'record.vertex'.

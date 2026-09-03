@@ -2,11 +2,11 @@ import { describe, it, expect } from 'vitest';
 import {
     getContainerLozenge3,
     inContainerLozenge3
-} from '../src/ContLozenge3';
-import { Lozenge3 } from '../src/Lozenge3';
-import { Rectangle } from '../src/Rectangle';
-import { DistPointRectangle } from '../src/DistPointRectangle';
-import { Vector, dot } from '../src/Vector';
+} from '../src/ContLozenge3.js';
+import { Lozenge3 } from '../src/Lozenge3.js';
+import { Rectangle } from '../src/Rectangle.js';
+import { DistPointRectangle } from '../src/DistPointRectangle.js';
+import { Vector, dot } from '../src/Vector.js';
 
 function v(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

@@ -65,13 +65,13 @@
 // argument; createMesh requires N = 3 and asserts it. The CreateMesh output
 // reference parameters become a returned object literal.
 
-import { GTE_C_HALF_PI, GTE_C_QUARTER_PI, GTE_C_TWO_PI } from './Constants';
-import { logAssert } from './Logger';
-import { Matrix, mulMatrix } from './Matrix';
-import { Ray } from './Ray';
-import { UniqueVerticesSimplices } from './UniqueVerticesSimplices';
-import { Vector, add, div, hlift } from './Vector';
-import { computeOrthogonalComplement3 } from './Vector3';
+import { GTE_C_HALF_PI, GTE_C_QUARTER_PI, GTE_C_TWO_PI } from './Constants.js';
+import { logAssert } from './Logger.js';
+import { Matrix, mulMatrix } from './Matrix.js';
+import { Ray } from './Ray.js';
+import { UniqueVerticesSimplices } from './UniqueVerticesSimplices.js';
+import { Vector, add, div, hlift } from './Vector.js';
+import { computeOrthogonalComplement3 } from './Vector3.js';
 
 export class Cone {
     // The cone axis direction (ray.direction) must be unit length.

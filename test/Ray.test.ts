@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { Ray } from '../src/Ray';
-import { Vector, add, mul } from '../src/Vector';
+import { Ray } from '../src/Ray.js';
+import { Vector, add, mul } from '../src/Vector.js';
 
 describe('Ray construction', () => {
     it('the default constructor is the positive x-axis from the origin', () => {

@@ -12,8 +12,8 @@
 // static_assert. This port takes the degree as a runtime argument validated
 // by logAssert; see sqrtEstimate below.
 
-import { GTE_C_SQRT_2 } from './Constants';
-import { logAssert } from './Logger';
+import { GTE_C_SQRT_2 } from './Constants.js';
+import { logAssert } from './Logger.js';
 
 const C_SQRT_EST_COEFF: readonly (readonly number[])[] = [
     [   // degree 1

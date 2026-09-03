@@ -23,11 +23,11 @@
 // floating-point query is ported; no file in the library uses the exact path.
 // There is no TIQuery upstream, so this file exports only the FI class.
 
-import type { Hypersphere } from './Hypersphere';
-import type { Triangle } from './Triangle';
-import { Vector, add, dot, mul, sub } from './Vector';
-import { cross, unitCross } from './Vector3';
-import { DistPointTriangle } from './DistPointTriangle';
+import type { Hypersphere } from './Hypersphere.js';
+import type { Triangle } from './Triangle.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
+import { cross, unitCross } from './Vector3.js';
+import { DistPointTriangle } from './DistPointTriangle.js';
 
 // The kind of contact reported by IntrSphere3Triangle3FI.
 export enum IntrSphere3Triangle3FIResultType {

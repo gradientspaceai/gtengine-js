@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { StaticVETManifoldMesh2 } from '../src/StaticVETManifoldMesh2';
+import { StaticVETManifoldMesh2 } from '../src/StaticVETManifoldMesh2.js';
 
 const invalid = StaticVETManifoldMesh2.invalid;
 

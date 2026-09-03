@@ -25,16 +25,16 @@
 // instance (composition instead of inheritance), which mirrors the upstream
 // call 'TIQuery<Real, AlignedBox3, Cone3>::operator()'.
 
-import { AlignedBox } from './AlignedBox';
-import type { Cone3 } from './Cone';
+import { AlignedBox } from './AlignedBox.js';
+import type { Cone3 } from './Cone.js';
 import {
     IntrAlignedBox3Cone3TI, defaultIntrAlignedBox3Cone3TIResult
-} from './IntrAlignedBox3Cone3';
-import type { IntrAlignedBox3Cone3TIResult } from './IntrAlignedBox3Cone3';
-import { logAssert } from './Logger';
-import type { OrientedBox3 } from './OrientedBox';
-import type { TIQuery } from './TIQuery';
-import { Vector, add, dot, sub } from './Vector';
+} from './IntrAlignedBox3Cone3.js';
+import type { IntrAlignedBox3Cone3TIResult } from './IntrAlignedBox3Cone3.js';
+import { logAssert } from './Logger.js';
+import type { OrientedBox3 } from './OrientedBox.js';
+import type { TIQuery } from './TIQuery.js';
+import { Vector, add, dot, sub } from './Vector.js';
 
 // The result of IntrOrientedBox3Cone3TI.test. Upstream derives its Result
 // from the aligned-box result and adds no members.

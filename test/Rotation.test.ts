@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { AxisAngle } from '../src/AxisAngle';
-import { GTE_C_HALF_PI, GTE_C_PI } from '../src/Constants';
-import { EulerAngles, EulerResult } from '../src/EulerAngles';
-import { Matrix, multiplyAB, transpose } from '../src/Matrix';
-import { Quaternion } from '../src/Quaternion';
-import { Rotation } from '../src/Rotation';
-import { Vector, dot } from '../src/Vector';
+import { AxisAngle } from '../src/AxisAngle.js';
+import { GTE_C_HALF_PI, GTE_C_PI } from '../src/Constants.js';
+import { EulerAngles, EulerResult } from '../src/EulerAngles.js';
+import { Matrix, multiplyAB, transpose } from '../src/Matrix.js';
+import { Quaternion } from '../src/Quaternion.js';
+import { Rotation } from '../src/Rotation.js';
+import { Vector, dot } from '../src/Vector.js';
 
 function expectMatrixClose(actual: Matrix, expected: Matrix,
     tolerance: number = 1e-12): void {

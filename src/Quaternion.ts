@@ -47,10 +47,10 @@
 // - The port uses GTE_USE_MAT_VEC (the GTE default), so rotate(q,u) is the
 //   vector R*u where R is the rotation matrix corresponding to q.
 
-import { chebyshevRatiosUsingCosAngle } from './ChebyshevRatio';
-import { logAssert } from './Logger';
-import { Vector, add, mul } from './Vector';
-import { cross } from './Vector3';
+import { chebyshevRatiosUsingCosAngle } from './ChebyshevRatio.js';
+import { logAssert } from './Logger.js';
+import { Vector, add, mul } from './Vector.js';
+import { cross } from './Vector3.js';
 
 export class Quaternion extends Vector {
     // The quaternions are of the form q = x*i + y*j + z*k + w. In tuple

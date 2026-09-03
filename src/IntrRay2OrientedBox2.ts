@@ -19,21 +19,21 @@
 import {
     IntrRay2AlignedBox2TI,
     IntrRay2AlignedBox2FI
-} from './IntrRay2AlignedBox2';
+} from './IntrRay2AlignedBox2.js';
 import type {
     IntrRay2AlignedBox2TIResult,
     IntrRay2AlignedBox2FIResult
-} from './IntrRay2AlignedBox2';
+} from './IntrRay2AlignedBox2.js';
 import {
     defaultIntrLine2AlignedBox2TIResult,
     defaultIntrLine2AlignedBox2FIResult
-} from './IntrLine2AlignedBox2';
-import { logAssert } from './Logger';
-import type { OrientedBox2 } from './OrientedBox';
-import type { Ray2 } from './Ray';
-import { Vector, add, dot, mul, sub } from './Vector';
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
+} from './IntrLine2AlignedBox2.js';
+import { logAssert } from './Logger.js';
+import type { OrientedBox2 } from './OrientedBox.js';
+import type { Ray2 } from './Ray.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
 
 // The upstream derived Result structs add no members.
 export type IntrRay2OrientedBox2TIResult = IntrRay2AlignedBox2TIResult;

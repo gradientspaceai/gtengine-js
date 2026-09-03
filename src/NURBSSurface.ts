@@ -22,9 +22,9 @@
 // points are copied (C++ value semantics), and getControl returns a reference
 // into the internal storage as upstream does.
 
-import { BasisFunction, BasisFunctionInput } from './BasisFunction';
-import { ParametricSurface } from './ParametricSurface';
-import { Vector } from './Vector';
+import { BasisFunction, BasisFunctionInput } from './BasisFunction.js';
+import { ParametricSurface } from './ParametricSurface.js';
+import { Vector } from './Vector.js';
 
 export class NURBSSurface extends ParametricSurface {
     protected mBasisFunction: BasisFunction[];

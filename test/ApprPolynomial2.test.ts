@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ApprPolynomial2 } from '../src/ApprPolynomial2';
-import { ApprQuery } from '../src/ApprQuery';
+import { ApprPolynomial2 } from '../src/ApprPolynomial2.js';
+import { ApprQuery } from '../src/ApprQuery.js';
 
 // Evaluate sum_i c[i]*x^i.
 function poly(c: readonly number[], x: number): number {

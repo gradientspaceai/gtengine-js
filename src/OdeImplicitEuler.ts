@@ -20,8 +20,8 @@
 // inverse below (Gauss-Jordan with partial pivoting); as upstream, a
 // noninvertible matrix produces the zero matrix rather than an exception.
 
-import { OdeSolver, type OdeFunction } from './OdeSolver';
-import { Vector, add, mul } from './Vector';
+import { OdeSolver, type OdeFunction } from './OdeSolver.js';
+import { Vector, add, mul } from './Vector.js';
 
 // The port of 'std::function<TMatrix(Real, TVector const&)>'. The returned
 // array stores the N-by-N matrix in row-major order: DF(r,c) is element

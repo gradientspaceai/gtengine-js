@@ -38,10 +38,10 @@
 // only a TIQuery specialization for this pair of primitives. The optional
 // epsilon argument of 'operator()' is an optional third argument of test().
 
-import { AlignedBox } from './AlignedBox';
-import { OrientedBox } from './OrientedBox';
-import { sub, dot } from './Vector';
-import type { TIQuery } from './TIQuery';
+import { AlignedBox } from './AlignedBox.js';
+import { OrientedBox } from './OrientedBox.js';
+import { sub, dot } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrAlignedBox3OrientedBox3TI.test.
 export interface IntrAlignedBox3OrientedBox3TIResult {

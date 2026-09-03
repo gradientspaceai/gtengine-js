@@ -27,15 +27,15 @@
 
 import type {
     BVTreeBoundingVolume, BVTreeSplittingAxis, BVTreeVolumeOps
-} from './BVTree';
-import { IntrLine3OrientedBox3TI } from './IntrLine3OrientedBox3';
-import { IntrRay3OrientedBox3TI } from './IntrRay3OrientedBox3';
-import { IntrSegment3OrientedBox3TI } from './IntrSegment3OrientedBox3';
-import { Line } from './Line';
-import { OrientedBox } from './OrientedBox';
-import { Ray } from './Ray';
-import { Segment } from './Segment';
-import { Vector } from './Vector';
+} from './BVTree.js';
+import { IntrLine3OrientedBox3TI } from './IntrLine3OrientedBox3.js';
+import { IntrRay3OrientedBox3TI } from './IntrRay3OrientedBox3.js';
+import { IntrSegment3OrientedBox3TI } from './IntrSegment3OrientedBox3.js';
+import { Line } from './Line.js';
+import { OrientedBox } from './OrientedBox.js';
+import { Ray } from './Ray.js';
+import { Segment } from './Segment.js';
+import { Vector } from './Vector.js';
 
 export class OrientedBoxBV implements BVTreeBoundingVolume {
     // Public member access.

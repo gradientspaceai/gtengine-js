@@ -10,11 +10,11 @@
 // Port notes: see IntrIntervals.ts for the Intr* precedent. Upstream has only
 // a TIQuery specialization, so the port has only IntrHalfspace3Capsule3TI.
 
-import type { Capsule } from './Capsule';
-import type { Halfspace } from './Halfspace';
-import { logAssert } from './Logger';
-import { dot } from './Vector';
-import type { TIQuery } from './TIQuery';
+import type { Capsule } from './Capsule.js';
+import type { Halfspace } from './Halfspace.js';
+import { logAssert } from './Logger.js';
+import { dot } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrHalfspace3Capsule3TI.test.
 export interface IntrHalfspace3Capsule3TIResult {

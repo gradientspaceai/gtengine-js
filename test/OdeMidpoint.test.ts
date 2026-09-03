@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { OdeMidpoint } from '../src/OdeMidpoint';
-import { OdeSolver } from '../src/OdeSolver';
-import { Vector } from '../src/Vector';
+import { OdeMidpoint } from '../src/OdeMidpoint.js';
+import { OdeSolver } from '../src/OdeSolver.js';
+import { Vector } from '../src/Vector.js';
 
 describe('OdeMidpoint', () => {
     it('is an OdeSolver whose step size is readable and writable', () => {

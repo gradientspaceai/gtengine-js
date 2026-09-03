@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { MeshCurvature } from '../src/MeshCurvature';
-import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+import { MeshCurvature } from '../src/MeshCurvature.js';
+import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 function V3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

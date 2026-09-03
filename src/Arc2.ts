@@ -18,9 +18,9 @@
 // two 'Contains' overloads become 'contains' (with tolerance) and
 // 'containsOnCircle' (assumes P is on the circle).
 
-import { logAssert } from './Logger';
-import { Vector, sub, length } from './Vector';
-import { dotPerp } from './Vector2';
+import { logAssert } from './Logger.js';
+import { Vector, sub, length } from './Vector.js';
+import { dotPerp } from './Vector2.js';
 
 export class Arc2 {
     // Public member access.

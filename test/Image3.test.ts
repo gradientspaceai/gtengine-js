@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { Image } from '../src/Image';
-import { Image3 } from '../src/Image3';
+import { Image } from '../src/Image.js';
+import { Image3 } from '../src/Image3.js';
 
 // Lexicographical index for an image with dimensions (d0,d1,d2).
 function linear(d0: number, d1: number, x: number, y: number, z: number): number {

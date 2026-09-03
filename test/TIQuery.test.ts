@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { type TIQuery } from '../src/TIQuery';
+import { type TIQuery } from '../src/TIQuery.js';
 
 // A miniature test-intersection query in the style of the Intr* files:
 // interval-interval overlap in 1D.

@@ -20,7 +20,7 @@
 // If the polyline is not V-shaped, both subintervals [t0,tm] and [tm,t1]
 // are searched for a minimum.
 
-import { logAssert } from './Logger';
+import { logAssert } from './Logger.js';
 
 // Upstream returns the location and value of the minimum through the output
 // reference parameters tMin and fMin; per PORTING.md these become the named

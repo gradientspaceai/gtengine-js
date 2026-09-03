@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { Cylinder3 } from '../src/Cylinder3';
-import { Line } from '../src/Line';
-import { Vector } from '../src/Vector';
+import { Cylinder3 } from '../src/Cylinder3.js';
+import { Line } from '../src/Line.js';
+import { Vector } from '../src/Vector.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

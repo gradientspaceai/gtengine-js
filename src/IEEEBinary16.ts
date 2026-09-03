@@ -36,12 +36,12 @@
 
 import {
     IEEEBinary32, IEEEClassification
-} from './IEEEBinary';
-import { BitHacks } from './BitHacks';
+} from './IEEEBinary.js';
+import { BitHacks } from './BitHacks.js';
 import {
     atandivpi, atan2divpi, clamp, cospi, exp10, invsqrt, isign, saturate,
     sign, sinpi, sqr
-} from './Functions';
+} from './Functions.js';
 
 // Scratch views for converting between binary32 values and their bit
 // patterns.

@@ -17,11 +17,11 @@
 // the three partial-derivative matrices as an array, and
 // rotationAndDerivativeEstimate returns both.
 
-import { logAssert } from './Logger';
+import { logAssert } from './Logger.js';
 import {
     Matrix, addMatrix, mulMatrix, multiplyAB, subMatrix
-} from './Matrix';
-import { Vector, length } from './Vector';
+} from './Matrix.js';
+import { Vector, length } from './Vector.js';
 
 // Constants for rotc0(t) = sin(t)/t.
 const C_ROTC0_EST_COEFF: readonly (readonly number[])[] = [

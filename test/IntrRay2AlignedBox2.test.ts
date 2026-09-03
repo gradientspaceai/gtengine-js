@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { AlignedBox } from '../src/AlignedBox';
-import { Line } from '../src/Line';
-import { Ray } from '../src/Ray';
-import { Vector, add, mul, normalize } from '../src/Vector';
-import { IntrLine2AlignedBox2FI } from '../src/IntrLine2AlignedBox2';
+import { AlignedBox } from '../src/AlignedBox.js';
+import { Line } from '../src/Line.js';
+import { Ray } from '../src/Ray.js';
+import { Vector, add, mul, normalize } from '../src/Vector.js';
+import { IntrLine2AlignedBox2FI } from '../src/IntrLine2AlignedBox2.js';
 import {
     IntrRay2AlignedBox2TI,
     IntrRay2AlignedBox2FI
-} from '../src/IntrRay2AlignedBox2';
+} from '../src/IntrRay2AlignedBox2.js';
 
 function vec(a: number[]): Vector {
     return Vector.fromArray(a);

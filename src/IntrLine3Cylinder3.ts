@@ -17,11 +17,11 @@
 // IntrLine3Cylinder3FI. The protected DoQuery member becomes the protected
 // doQuery() method.
 
-import type { Cylinder3 } from './Cylinder3';
-import type { Line } from './Line';
-import type { FIQuery } from './FIQuery';
-import { Vector, add, dot, mul, sub } from './Vector';
-import { computeOrthogonalComplement3 } from './Vector3';
+import type { Cylinder3 } from './Cylinder3.js';
+import type { Line } from './Line.js';
+import type { FIQuery } from './FIQuery.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
+import { computeOrthogonalComplement3 } from './Vector3.js';
 
 // The result of IntrLine3Cylinder3FI queries. When 'intersect' is true, the
 // intersection is the segment of line parameters [parameter[0],parameter[1]]

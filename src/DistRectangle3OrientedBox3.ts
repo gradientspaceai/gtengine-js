@@ -27,14 +27,14 @@
 // type is the rectangle-canonical-box result type, re-exported here as the
 // alias DistRectangle3OrientedBox3Result.
 
-import { CanonicalBox } from './CanonicalBox';
-import type { DCPQuery } from './DCPQuery';
-import { DistRectangle3CanonicalBox3 } from './DistRectangle3CanonicalBox3';
-import type { DistRectangle3CanonicalBox3Result } from './DistRectangle3CanonicalBox3';
-import type { OrientedBox3 } from './OrientedBox';
-import { Rectangle } from './Rectangle';
-import type { Rectangle3 } from './Rectangle';
-import { Vector, add, dot, mul, sub } from './Vector';
+import { CanonicalBox } from './CanonicalBox.js';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistRectangle3CanonicalBox3 } from './DistRectangle3CanonicalBox3.js';
+import type { DistRectangle3CanonicalBox3Result } from './DistRectangle3CanonicalBox3.js';
+import type { OrientedBox3 } from './OrientedBox.js';
+import { Rectangle } from './Rectangle.js';
+import type { Rectangle3 } from './Rectangle.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
 
 // Upstream reuses the rectangle-canonical-box result type ('using Result =
 // typename RBQuery::Result').

@@ -25,7 +25,7 @@
 // indices (-1, -1, -1); the port keeps that behavior when the vertex indices
 // are omitted.
 
-import { FeatureKey } from './FeatureKey';
+import { FeatureKey } from './FeatureKey.js';
 
 export class TriangleKey extends FeatureKey {
     // With v0, v1 and v2 omitted, the key is initialized to invalid indices.

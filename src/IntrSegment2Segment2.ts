@@ -15,13 +15,13 @@
 // numerically cleaner query for float/double input (no normalization) and its
 // parameters have a different meaning (endpoint form, t in [0,1]).
 
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
-import type { Segment } from './Segment';
-import { Vector, add, dot, mul, sub } from './Vector';
-import { Line } from './Line';
-import { IntrLine2Line2FI } from './IntrLine2Line2';
-import { IntrIntervalsFI } from './IntrIntervals';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
+import type { Segment } from './Segment.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
+import { Line } from './Line.js';
+import { IntrLine2Line2FI } from './IntrLine2Line2.js';
+import { IntrIntervalsFI } from './IntrIntervals.js';
 
 // The port of std::numeric_limits<int32_t>::max(), the IntrLine2Line2
 // 'numIntersections' value meaning "the lines are the same".

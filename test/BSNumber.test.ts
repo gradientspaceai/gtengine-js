@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { BSNumber, BSNumberRoundingMode, convertBSNumber } from '../src/BSNumber';
-import { isArbitraryPrecision, hasDivisionOperator } from '../src/TypeTraits';
+import { BSNumber, BSNumberRoundingMode, convertBSNumber } from '../src/BSNumber.js';
+import { isArbitraryPrecision, hasDivisionOperator } from '../src/TypeTraits.js';
 
 function makeRandom(seed: number): () => number {
     let state = seed >>> 0;

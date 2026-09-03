@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { Sector2 } from '../src/Sector2';
-import { GTE_C_PI } from '../src/Constants';
-import { Vector } from '../src/Vector';
+import { Sector2 } from '../src/Sector2.js';
+import { GTE_C_PI } from '../src/Constants.js';
+import { Vector } from '../src/Vector.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

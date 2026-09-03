@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { DarbouxFrame3 } from '../src/DarbouxFrame';
-import { ParametricSurface } from '../src/ParametricSurface';
-import { Vector, dot, length, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+import { DarbouxFrame3 } from '../src/DarbouxFrame.js';
+import { ParametricSurface } from '../src/ParametricSurface.js';
+import { Vector, dot, length, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 // A sphere of radius r centered at the origin,
 //   X(u,v) = r*(cos(v)*cos(u), cos(v)*sin(u), sin(v)).

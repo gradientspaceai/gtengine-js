@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
     BlockCholeskyDecomposition, CholeskyDecomposition
-} from '../src/CholeskyDecomposition';
+} from '../src/CholeskyDecomposition.js';
 import type {
     CholeskyBlockMatrix, CholeskyBlockVector
-} from '../src/CholeskyDecomposition';
-import { Matrix, multiplyABT, mulMatrix } from '../src/Matrix';
-import { Vector, sub } from '../src/Vector';
+} from '../src/CholeskyDecomposition.js';
+import { Matrix, multiplyABT, mulMatrix } from '../src/Matrix.js';
+import { Vector, sub } from '../src/Vector.js';
 
 // A deterministic pseudorandom generator so the randomized cross-checks are
 // reproducible.

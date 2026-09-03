@@ -9,11 +9,11 @@
 //
 // Port notes: see IntrIntervals.ts for the Intr* precedent.
 
-import { Halfspace } from './Halfspace';
-import { Segment } from './Segment';
-import { Vector, add, sub, mul, dot } from './Vector';
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
+import { Halfspace } from './Halfspace.js';
+import { Segment } from './Segment.js';
+import { Vector, add, sub, mul, dot } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
 
 // The result of IntrHalfspace3Segment3TI.test.
 export interface IntrHalfspace3Segment3TIResult {

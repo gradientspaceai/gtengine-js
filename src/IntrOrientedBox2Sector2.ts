@@ -24,15 +24,15 @@
 // only a TIQuery specialization for this pair of primitives, which becomes
 // IntrOrientedBox2Sector2TI.
 
-import type { OrientedBox } from './OrientedBox';
-import type { Sector2 } from './Sector2';
-import type { TIQuery } from './TIQuery';
-import { Vector, add, dot, mul, sub, negate } from './Vector';
-import { perp } from './Vector2';
-import { Halfspace } from './Halfspace';
-import { Segment } from './Segment';
-import { IntrHalfspace2Polygon2FI } from './IntrHalfspace2Polygon2';
-import { DistPointSegment } from './DistPointSegment';
+import type { OrientedBox } from './OrientedBox.js';
+import type { Sector2 } from './Sector2.js';
+import type { TIQuery } from './TIQuery.js';
+import { Vector, add, dot, mul, sub, negate } from './Vector.js';
+import { perp } from './Vector2.js';
+import { Halfspace } from './Halfspace.js';
+import { Segment } from './Segment.js';
+import { IntrHalfspace2Polygon2FI } from './IntrHalfspace2Polygon2.js';
+import { DistPointSegment } from './DistPointSegment.js';
 
 // The result of IntrOrientedBox2Sector2TI queries.
 export interface IntrOrientedBox2Sector2TIResult {

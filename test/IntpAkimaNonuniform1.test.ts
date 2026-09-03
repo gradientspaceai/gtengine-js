@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { IntpAkimaNonuniform1 } from '../src/IntpAkimaNonuniform1';
-import { IntpAkimaUniform1 } from '../src/IntpAkimaUniform1';
+import { IntpAkimaNonuniform1 } from '../src/IntpAkimaNonuniform1.js';
+import { IntpAkimaUniform1 } from '../src/IntpAkimaUniform1.js';
 
 describe('IntpAkimaNonuniform1', () => {
     it('throws for invalid inputs', () => {

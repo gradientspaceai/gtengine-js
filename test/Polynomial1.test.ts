@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     Polynomial1, greatestCommonDivisor, squareFreeFactorization
-} from '../src/Polynomial1';
+} from '../src/Polynomial1.js';
 
 // Deterministic pseudorandom generator so failures are reproducible.
 function makeRng(seed: number): () => number {

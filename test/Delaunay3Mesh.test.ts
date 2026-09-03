@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { Delaunay3 } from '../src/Delaunay3';
-import { Delaunay3Mesh } from '../src/Delaunay3Mesh';
-import { Vector } from '../src/Vector';
+import { Delaunay3 } from '../src/Delaunay3.js';
+import { Delaunay3Mesh } from '../src/Delaunay3Mesh.js';
+import { Vector } from '../src/Vector.js';
 
 const v3 = (x: number, y: number, z: number): Vector =>
     Vector.fromArray([x, y, z]);

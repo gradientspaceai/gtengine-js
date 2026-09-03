@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { BVTree, BVTreeNode } from '../src/BVTree';
+import { BVTree, BVTreeNode } from '../src/BVTree.js';
 import type {
     BVTreeBoundingVolume, BVTreeSplittingAxis, BVTreeVolumeOps
-} from '../src/BVTree';
-import { BVTreeOfPoints } from '../src/BVTreeOfPoints';
-import { Vector, sub } from '../src/Vector';
+} from '../src/BVTree.js';
+import { BVTreeOfPoints } from '../src/BVTreeOfPoints.js';
+import { Vector, sub } from '../src/Vector.js';
 
 // ---------------------------------------------------------------------------
 // A concrete BoundingVolume: an axis-aligned bounding box, the same minimal

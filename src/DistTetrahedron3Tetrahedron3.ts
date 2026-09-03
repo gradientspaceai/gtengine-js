@@ -24,13 +24,13 @@
 // barycentric coordinates are all zero for a degenerate (zero-volume)
 // tetrahedron.
 
-import { inContainerTetrahedron3 } from './ContTetrahedron3';
-import type { DCPQuery } from './DCPQuery';
-import { DistTriangle3Triangle3 } from './DistTriangle3Triangle3';
-import { Triangle } from './Triangle';
-import { Tetrahedron3 } from './Tetrahedron3';
-import { Vector } from './Vector';
-import { computeBarycentrics3 } from './Vector3';
+import { inContainerTetrahedron3 } from './ContTetrahedron3.js';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistTriangle3Triangle3 } from './DistTriangle3Triangle3.js';
+import { Triangle } from './Triangle.js';
+import { Tetrahedron3 } from './Tetrahedron3.js';
+import { Vector } from './Vector.js';
+import { computeBarycentrics3 } from './Vector3.js';
 
 export interface DistTetrahedron3Tetrahedron3Result {
     distance: number;

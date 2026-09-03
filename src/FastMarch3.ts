@@ -40,7 +40,7 @@
 // intend, and which restores the invariant that valid or trial voxels are
 // strictly interior.
 
-import { FastMarch } from './FastMarch';
+import { FastMarch } from './FastMarch.js';
 
 export class FastMarch3 extends FastMarch {
     protected mXBound: number;

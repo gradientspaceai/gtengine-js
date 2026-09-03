@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { Circle3 } from '../src/Circle3';
-import { DistLine3Circle3, distLine3Circle3Execute } from '../src/DistLine3Circle3';
-import { Line } from '../src/Line';
-import { Vector, add, dot, mul, normalize, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+import { Circle3 } from '../src/Circle3.js';
+import { DistLine3Circle3, distLine3Circle3Execute } from '../src/DistLine3Circle3.js';
+import { Line } from '../src/Line.js';
+import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

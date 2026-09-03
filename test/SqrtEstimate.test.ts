@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
     sqrtEstimate, sqrtEstimateRR, getSqrtEstimateMaxError
-} from '../src/SqrtEstimate';
-import { GTE_C_SQRT_2 } from '../src/Constants';
+} from '../src/SqrtEstimate.js';
+import { GTE_C_SQRT_2 } from '../src/Constants.js';
 
 const DEGREES = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 

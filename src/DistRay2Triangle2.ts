@@ -23,13 +23,13 @@
 // is structurally identical to the line-triangle result that upstream
 // aliases.
 
-import type { DCPQuery } from './DCPQuery';
-import { DistLine2Triangle2 } from './DistLine2Triangle2';
-import { DistPointTriangle } from './DistPointTriangle';
-import { Line } from './Line';
-import type { Ray2 } from './Ray';
-import type { Triangle2 } from './Triangle';
-import type { Vector } from './Vector';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistLine2Triangle2 } from './DistLine2Triangle2.js';
+import { DistPointTriangle } from './DistPointTriangle.js';
+import { Line } from './Line.js';
+import type { Ray2 } from './Ray.js';
+import type { Triangle2 } from './Triangle.js';
+import type { Vector } from './Vector.js';
 
 export interface DistRay2Triangle2Result {
     distance: number;

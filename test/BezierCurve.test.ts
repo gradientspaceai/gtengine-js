@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { BezierCurve } from '../src/BezierCurve';
-import { Vector } from '../src/Vector';
+import { BezierCurve } from '../src/BezierCurve.js';
+import { Vector } from '../src/Vector.js';
 
 function makeRandom(seed: number): () => number {
     let state = seed >>> 0;

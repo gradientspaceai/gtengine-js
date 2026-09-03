@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { GVector } from '../src/GVector';
-import { RiemannianGeodesic } from '../src/RiemannianGeodesic';
-import { Vector, dot } from '../src/Vector';
+import { GVector } from '../src/GVector.js';
+import { RiemannianGeodesic } from '../src/RiemannianGeodesic.js';
+import { Vector, dot } from '../src/Vector.js';
 
 // A flat (Euclidean) metric: g = I and all Christoffel symbols vanish, so the
 // geodesics are straight lines and the arc length is the Euclidean length.

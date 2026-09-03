@@ -27,7 +27,7 @@
 // a canonical string of the tuple. The private debugging function
 // PrintRectangles (ostream output) is not ported.
 
-import { logAssert, logError } from './Logger';
+import { logAssert, logError } from './Logger.js';
 
 // Configuration flags for LinearMergeTree nodes. CFG_MULT is the bitwise OR
 // of CFG_INCR and CFG_DECR.

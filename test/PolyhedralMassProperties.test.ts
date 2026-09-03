@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { computeMassProperties } from '../src/PolyhedralMassProperties';
-import { Vector } from '../src/Vector';
-import { Matrix } from '../src/Matrix';
+import { computeMassProperties } from '../src/PolyhedralMassProperties.js';
+import { Vector } from '../src/Vector.js';
+import { Matrix } from '../src/Matrix.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

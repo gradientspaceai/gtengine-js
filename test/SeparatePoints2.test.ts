@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { SeparatePoints2 } from '../src/SeparatePoints2';
-import type { Line2 } from '../src/Line';
-import { Vector, dot } from '../src/Vector';
-import { perp } from '../src/Vector2';
+import { SeparatePoints2 } from '../src/SeparatePoints2.js';
+import type { Line2 } from '../src/Line.js';
+import { Vector, dot } from '../src/Vector.js';
+import { perp } from '../src/Vector2.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

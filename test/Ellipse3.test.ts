@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { Ellipse3 } from '../src/Ellipse3';
-import { Vector, dot, sub, add, mul } from '../src/Vector';
-import { cross } from '../src/Vector3';
+import { Ellipse3 } from '../src/Ellipse3.js';
+import { Vector, dot, sub, add, mul } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

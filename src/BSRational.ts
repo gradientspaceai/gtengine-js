@@ -47,14 +47,14 @@
 // - Write/Read serialize the C++ block representation to a binary stream; the
 //   bigint storage has no such layout, so they are omitted (as in BSNumber).
 
-import { logAssert, logError } from './Logger';
-import { BSNumber, BSNumberRoundingMode } from './BSNumber';
-import { IEEEBinary32, IEEEBinary64 } from './IEEEBinary';
-import type { ArbitraryPrecisionNumber } from './TypeTraits';
+import { logAssert, logError } from './Logger.js';
+import { BSNumber, BSNumberRoundingMode } from './BSNumber.js';
+import { IEEEBinary32, IEEEBinary64 } from './IEEEBinary.js';
+import type { ArbitraryPrecisionNumber } from './TypeTraits.js';
 import {
     atandivpi, atan2divpi, clamp, cospi, exp10, invsqrt, isign, saturate,
     sign, sinpi, sqr
-} from './Functions';
+} from './Functions.js';
 
 // The port of 'shift = result.ShiftRightToOdd(number)': the odd number
 // obtained by removing the trailing zero bits of a positive bigint, together

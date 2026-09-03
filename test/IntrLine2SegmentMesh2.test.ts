@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { IntrLine2SegmentMesh2FI } from '../src/IntrLine2SegmentMesh2';
-import { Line } from '../src/Line';
-import { SegmentMesh } from '../src/SegmentMesh';
-import { Vector, add, mul, normalize, sub } from '../src/Vector';
+import { IntrLine2SegmentMesh2FI } from '../src/IntrLine2SegmentMesh2.js';
+import { Line } from '../src/Line.js';
+import { SegmentMesh } from '../src/SegmentMesh.js';
+import { Vector, add, mul, normalize, sub } from '../src/Vector.js';
 
 function vec(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

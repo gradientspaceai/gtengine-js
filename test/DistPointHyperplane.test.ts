@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { DistPointHyperplane } from '../src/DistPointHyperplane';
-import { Hyperplane } from '../src/Hyperplane';
-import { Vector, dot, normalize } from '../src/Vector';
+import { DistPointHyperplane } from '../src/DistPointHyperplane.js';
+import { Hyperplane } from '../src/Hyperplane.js';
+import { Vector, dot, normalize } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

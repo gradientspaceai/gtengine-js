@@ -10,10 +10,10 @@
 // Port notes: see IntrIntervals.ts for the Intr* precedent. Upstream provides
 // only a TIQuery specialization for this pair of primitives.
 
-import { Halfspace } from './Halfspace';
-import { Hypersphere } from './Hypersphere';
-import { dot } from './Vector';
-import type { TIQuery } from './TIQuery';
+import { Halfspace } from './Halfspace.js';
+import { Hypersphere } from './Hypersphere.js';
+import { dot } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrHalfspace3Sphere3TI.test.
 export interface IntrHalfspace3Sphere3TIResult {

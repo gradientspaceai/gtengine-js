@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { approximateCurveByArcs } from '../src/ApprCurveByArcs';
-import { ParametricCurve } from '../src/ParametricCurve';
-import { Vector, length as vectorLength, sub } from '../src/Vector';
+import { approximateCurveByArcs } from '../src/ApprCurveByArcs.js';
+import { ParametricCurve } from '../src/ParametricCurve.js';
+import { Vector, length as vectorLength, sub } from '../src/Vector.js';
 
 // A circle of radius r centered at (cx,cy), traversed once on [0, 2*pi].
 // The speed is the constant r, so the arc-length subdivision is exact.

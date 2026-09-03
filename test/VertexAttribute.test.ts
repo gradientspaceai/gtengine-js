@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { VertexAttribute } from '../src/VertexAttribute';
+import { VertexAttribute } from '../src/VertexAttribute.js';
 
 describe('VertexAttribute', () => {
     it('defaults to an empty semantic with a null source', () => {

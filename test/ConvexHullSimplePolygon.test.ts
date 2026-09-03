@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { ConvexHullSimplePolygon } from '../src/ConvexHullSimplePolygon';
-import { Vector } from '../src/Vector';
+import { ConvexHullSimplePolygon } from '../src/ConvexHullSimplePolygon.js';
+import { Vector } from '../src/Vector.js';
 
 const v2 = (x: number, y: number): Vector => Vector.fromArray([x, y]);
 

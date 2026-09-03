@@ -13,14 +13,14 @@
 // take the same (P, Q) pairs: for a line and a ray, P is the origin and Q is
 // the unit-length direction; for a segment, P and Q are the endpoints.
 
-import { AlignedBox } from './AlignedBox';
-import { IntrLine3AlignedBox3TI } from './IntrLine3AlignedBox3';
-import { IntrRay3AlignedBox3TI } from './IntrRay3AlignedBox3';
-import { IntrSegment3AlignedBox3TI } from './IntrSegment3AlignedBox3';
-import { Line } from './Line';
-import { Ray } from './Ray';
-import { Segment } from './Segment';
-import { Vector, add, mul, sub } from './Vector';
+import { AlignedBox } from './AlignedBox.js';
+import { IntrLine3AlignedBox3TI } from './IntrLine3AlignedBox3.js';
+import { IntrRay3AlignedBox3TI } from './IntrRay3AlignedBox3.js';
+import { IntrSegment3AlignedBox3TI } from './IntrSegment3AlignedBox3.js';
+import { Line } from './Line.js';
+import { Ray } from './Ray.js';
+import { Segment } from './Segment.js';
+import { Vector, add, mul, sub } from './Vector.js';
 
 export class AlignedBoxBV {
     // Public member access.

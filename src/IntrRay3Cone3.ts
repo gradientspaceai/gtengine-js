@@ -20,16 +20,16 @@
 // IntrLine3Cone3.ts, so they are replicated here verbatim as module-private
 // functions (a port PR may only touch the files of its own batch).
 
-import type { Cone3 } from './Cone';
-import type { FIQuery } from './FIQuery';
+import type { Cone3 } from './Cone.js';
+import type { FIQuery } from './FIQuery.js';
 import {
     IntrLine3Cone3FIResultType, defaultIntrLine3Cone3FIResult,
     intrLine3Cone3ComputePoints, intrLine3Cone3FIDoQuery
-} from './IntrLine3Cone3';
-import type { IntrLine3Cone3FIResult } from './IntrLine3Cone3';
-import { logAssert } from './Logger';
-import { QFNumber } from './QFNumber';
-import type { Ray3 } from './Ray';
+} from './IntrLine3Cone3.js';
+import type { IntrLine3Cone3FIResult } from './IntrLine3Cone3.js';
+import { logAssert } from './Logger.js';
+import { QFNumber } from './QFNumber.js';
+import type { Ray3 } from './Ray.js';
 
 // The result of IntrRay3Cone3FI.find. Upstream derives its Result from the
 // line-cone Result and adds no members.

@@ -33,10 +33,10 @@
 //   protected 'getKeyInfo', which returns { key, dt } instead of using
 //   output reference parameters.
 
-import { LinearSystem } from './LinearSystem';
-import { logAssert } from './Logger';
-import { ParametricCurve } from './ParametricCurve';
-import { Vector, add, div, mul, sub } from './Vector';
+import { LinearSystem } from './LinearSystem.js';
+import { logAssert } from './Logger.js';
+import { ParametricCurve } from './ParametricCurve.js';
+import { Vector, add, div, mul, sub } from './Vector.js';
 
 // Which boundary conditions the spline satisfies.
 export enum NaturalSplineCurveKind {

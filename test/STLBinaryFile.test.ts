@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { STLBinaryFile, STLTriangle, type STLTuple3 } from '../src/STLBinaryFile';
+import { STLBinaryFile, STLTriangle, type STLTuple3 } from '../src/STLBinaryFile.js';
 
 function makeTriangle(normal: STLTuple3, v0: STLTuple3, v1: STLTuple3, v2: STLTuple3,
     attributeByteCount: number = 0): STLTriangle {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { Torus3 } from '../src/Torus3';
-import { Vector, dot, sub, length } from '../src/Vector';
+import { Torus3 } from '../src/Torus3.js';
+import { Vector, dot, sub, length } from '../src/Vector.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

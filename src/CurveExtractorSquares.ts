@@ -22,7 +22,7 @@
 
 import {
     CurveExtractor, CurveExtractorEdge, CurveExtractorVertex
-} from './CurveExtractor';
+} from './CurveExtractor.js';
 
 export class CurveExtractorSquares extends CurveExtractor {
     // The input is a 2D image with lexicographically ordered pixels (x,y)

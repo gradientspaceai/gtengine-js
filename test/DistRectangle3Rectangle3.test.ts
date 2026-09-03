@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { DistRectangle3Rectangle3 } from '../src/DistRectangle3Rectangle3';
+import { DistRectangle3Rectangle3 } from '../src/DistRectangle3Rectangle3.js';
 import type { DistRectangle3Rectangle3Result }
-    from '../src/DistRectangle3Rectangle3';
-import { Rectangle } from '../src/Rectangle';
-import { Vector, add, dot, mul, sub } from '../src/Vector';
+    from '../src/DistRectangle3Rectangle3.js';
+import { Rectangle } from '../src/Rectangle.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

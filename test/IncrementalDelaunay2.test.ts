@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { Delaunay2 } from '../src/Delaunay2';
+import { Delaunay2 } from '../src/Delaunay2.js';
 import {
     IncrementalDelaunay2, IncrementalDelaunay2SearchInfo
-} from '../src/IncrementalDelaunay2';
-import { Vector } from '../src/Vector';
+} from '../src/IncrementalDelaunay2.js';
+import { Vector } from '../src/Vector.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

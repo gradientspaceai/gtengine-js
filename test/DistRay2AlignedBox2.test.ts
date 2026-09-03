@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { AlignedBox } from '../src/AlignedBox';
-import { DistRay2AlignedBox2 } from '../src/DistRay2AlignedBox2';
-import { Ray } from '../src/Ray';
-import { Vector, add, mul, sub } from '../src/Vector';
+import { AlignedBox } from '../src/AlignedBox.js';
+import { DistRay2AlignedBox2 } from '../src/DistRay2AlignedBox2.js';
+import { Ray } from '../src/Ray.js';
+import { Vector, add, mul, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Minimize1 } from '../src/Minimize1';
+import { Minimize1 } from '../src/Minimize1.js';
 
 // A brute-force scan of F on [t0,t1] used as an independent estimate of the
 // global minimum.

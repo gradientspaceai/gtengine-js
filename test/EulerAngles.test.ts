@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { EulerAngles, EulerResult } from '../src/EulerAngles';
+import { EulerAngles, EulerResult } from '../src/EulerAngles.js';
 
 describe('EulerResult', () => {
     it('has the four upstream enumerators in declaration order', () => {

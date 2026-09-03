@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { CanonicalBox } from '../src/CanonicalBox';
-import { DistPointOrientedBox } from '../src/DistPointOrientedBox';
-import { DistSegment3CanonicalBox3 } from '../src/DistSegment3CanonicalBox3';
-import { DistSegment3OrientedBox3 } from '../src/DistSegment3OrientedBox3';
+import { CanonicalBox } from '../src/CanonicalBox.js';
+import { DistPointOrientedBox } from '../src/DistPointOrientedBox.js';
+import { DistSegment3CanonicalBox3 } from '../src/DistSegment3CanonicalBox3.js';
+import { DistSegment3OrientedBox3 } from '../src/DistSegment3OrientedBox3.js';
 import type { DistSegment3OrientedBox3Result }
-    from '../src/DistSegment3OrientedBox3';
-import { OrientedBox } from '../src/OrientedBox';
-import { Segment } from '../src/Segment';
-import { Vector, add, dot, mul, sub } from '../src/Vector';
+    from '../src/DistSegment3OrientedBox3.js';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Segment } from '../src/Segment.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

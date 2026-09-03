@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { TriangulateEC } from '../src/TriangulateEC';
-import { PolygonTree } from '../src/PolygonTree';
-import { Vector } from '../src/Vector';
+import { TriangulateEC } from '../src/TriangulateEC.js';
+import { PolygonTree } from '../src/PolygonTree.js';
+import { Vector } from '../src/Vector.js';
 
 function pts(points: [number, number][]): Vector[] {
     return points.map(p => Vector.fromArray(p));

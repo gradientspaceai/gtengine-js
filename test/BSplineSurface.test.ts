@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { BSplineSurface } from '../src/BSplineSurface';
-import { BasisFunctionInput, UniqueKnot } from '../src/BasisFunction';
-import { ParametricSurface } from '../src/ParametricSurface';
-import { Vector } from '../src/Vector';
+import { BSplineSurface } from '../src/BSplineSurface.js';
+import { BasisFunctionInput, UniqueKnot } from '../src/BasisFunction.js';
+import { ParametricSurface } from '../src/ParametricSurface.js';
+import { Vector } from '../src/Vector.js';
 
 function makeRandom(seed: number): () => number {
     let state = seed >>> 0;

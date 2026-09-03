@@ -35,9 +35,9 @@
 //   'block(row,col)' access; the port follows it and uses get/set on the
 //   block throughout.
 
-import { logAssert, logError } from './Logger';
-import { Matrix } from './Matrix';
-import { Vector } from './Vector';
+import { logAssert, logError } from './Logger.js';
+import { Matrix } from './Matrix.js';
+import { Vector } from './Vector.js';
 
 // An array of numBlocks*numBlocks blockSize-by-blockSize matrices, in
 // row-major order over the blocks.

@@ -15,9 +15,9 @@
 // upstream specialization 'DCPQuery<T, Vector3<T>, Frustum3<T>>' becomes the
 // class DistPoint3Frustum3 with the result type DistPoint3Frustum3Result.
 
-import type { DCPQuery } from './DCPQuery';
-import type { Frustum3 } from './Frustum3';
-import { Vector, add, dot, mul, sub } from './Vector';
+import type { DCPQuery } from './DCPQuery.js';
+import type { Frustum3 } from './Frustum3.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
 
 export interface DistPoint3Frustum3Result {
     distance: number;

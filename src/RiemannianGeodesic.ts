@@ -22,11 +22,11 @@
 //   vector, leaving the input untouched.
 // - 'std::function<void(void)> refineCallback' becomes a '() => void' field.
 
-import { GMatrix } from './GMatrix';
-import { GVector } from './GVector';
-import { logAssert } from './Logger';
-import { addMatrix, inverse, mulMatrix } from './Matrix';
-import { Vector, add, dot, mul, sub } from './Vector';
+import { GMatrix } from './GMatrix.js';
+import { GVector } from './GVector.js';
+import { logAssert } from './Logger.js';
+import { addMatrix, inverse, mulMatrix } from './Matrix.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
 
 // The result of computeGeodesic.
 export interface RiemannianGeodesicResult {

@@ -39,11 +39,11 @@
 // - The nested Vertex struct and VertexList class become module-private
 //   declarations, because exported names must be unique library-wide.
 
-import { logAssert } from './Logger';
-import { PolygonTree } from './PolygonTree';
-import { PrimalQuery2 } from './PrimalQuery2';
-import { Vector, dot, sub } from './Vector';
-import { dotPerp } from './Vector2';
+import { logAssert } from './Logger.js';
+import { PolygonTree } from './PolygonTree.js';
+import { PrimalQuery2 } from './PrimalQuery2.js';
+import { Vector, dot, sub } from './Vector.js';
+import { dotPerp } from './Vector2.js';
 
 // The fundamental problem is to compute the triangulation of a polygon tree.
 // The outer polygons have counterclockwise ordered vertices. The inner

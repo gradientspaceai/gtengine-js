@@ -27,14 +27,14 @@
 // The upstream bisection is always performed in double precision, which the
 // port matches trivially since 'number' is IEEE f64.
 
-import type { Circle3 } from './Circle3';
-import type { DCPQuery } from './DCPQuery';
-import type { Line3 } from './Line';
-import { RootsBisection1 } from './RootsBisection1';
+import type { Circle3 } from './Circle3.js';
+import type { DCPQuery } from './DCPQuery.js';
+import type { Line3 } from './Line.js';
+import { RootsBisection1 } from './RootsBisection1.js';
 import {
     Vector, add, dot, getOrthogonal, length, mul, normalize, sub
-} from './Vector';
-import { cross } from './Vector3';
+} from './Vector.js';
+import { cross } from './Vector3.js';
 
 export interface DistLine3Circle3Result {
     // The possible number of closest line-circle pairs is 1, 2 or all circle

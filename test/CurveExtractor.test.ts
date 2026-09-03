@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     CurveExtractor, CurveExtractorEdge, CurveExtractorVertex
-} from '../src/CurveExtractor';
+} from '../src/CurveExtractor.js';
 
 // A concrete extractor used to exercise the protected helpers and the
 // abstract extract() contract. It does not implement a real marching-squares

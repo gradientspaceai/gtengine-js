@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
     NURBSEighthSphereDegree4, NURBSHalfSphereDegree3, NURBSFullSphereDegree3,
     createEighthSphereValues
-} from '../src/NURBSSphere';
-import { NURBSSurface } from '../src/NURBSSurface';
-import { ParametricSurface } from '../src/ParametricSurface';
-import { Vector } from '../src/Vector';
+} from '../src/NURBSSphere.js';
+import { NURBSSurface } from '../src/NURBSSurface.js';
+import { ParametricSurface } from '../src/ParametricSurface.js';
+import { Vector } from '../src/Vector.js';
 
 function positionOf(surface: NURBSSurface, u: number, v: number): Vector {
     const jet = surface.createJet();

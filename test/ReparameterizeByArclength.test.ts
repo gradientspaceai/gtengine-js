@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { ReparameterizeByArclength } from '../src/ReparameterizeByArclength';
-import { BezierCurve } from '../src/BezierCurve';
-import { ParametricCurve } from '../src/ParametricCurve';
-import { Vector } from '../src/Vector';
+import { ReparameterizeByArclength } from '../src/ReparameterizeByArclength.js';
+import { BezierCurve } from '../src/BezierCurve.js';
+import { ParametricCurve } from '../src/ParametricCurve.js';
+import { Vector } from '../src/Vector.js';
 
 function vec(...values: number[]): Vector {
     const v = new Vector(values.length);

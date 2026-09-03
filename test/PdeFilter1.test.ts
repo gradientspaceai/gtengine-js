@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { PdeFilterScaleType } from '../src/PdeFilter';
-import { PdeFilter1 } from '../src/PdeFilter1';
+import { PdeFilterScaleType } from '../src/PdeFilter.js';
+import { PdeFilter1 } from '../src/PdeFilter1.js';
 
 // A concrete 1D filter solving the heat equation u_t = u_xx with an explicit
 // Euler step, which is the 1D analogue of the upstream GaussianBlur2 filter.

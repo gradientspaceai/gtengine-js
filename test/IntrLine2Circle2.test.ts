@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { Hypersphere } from '../src/Hypersphere';
-import { Line } from '../src/Line';
-import { Vector, add, sub, mul, dot, length, normalize } from '../src/Vector';
+import { Hypersphere } from '../src/Hypersphere.js';
+import { Line } from '../src/Line.js';
+import { Vector, add, sub, mul, dot, length, normalize } from '../src/Vector.js';
 import {
     IntrLine2Circle2TI,
     IntrLine2Circle2FI
-} from '../src/IntrLine2Circle2';
+} from '../src/IntrLine2Circle2.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

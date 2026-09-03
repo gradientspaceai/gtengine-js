@@ -10,10 +10,10 @@
 //
 // Port notes: see OrientedBoxTreeOfPoints.ts; the same remarks apply.
 
-import { getContainerOrientedBox3 } from './ContOrientedBox3';
-import { BVTreeOfSegments } from './BVTreeOfSegments';
-import { OrientedBoxBV, orientedBoxBVOps } from './OrientedBoxBV';
-import { Vector } from './Vector';
+import { getContainerOrientedBox3 } from './ContOrientedBox3.js';
+import { BVTreeOfSegments } from './BVTreeOfSegments.js';
+import { OrientedBoxBV, orientedBoxBVOps } from './OrientedBoxBV.js';
+import { Vector } from './Vector.js';
 
 export class OrientedBoxTreeOfSegments extends BVTreeOfSegments<OrientedBoxBV> {
     constructor() {

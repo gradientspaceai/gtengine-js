@@ -21,17 +21,17 @@
 // port asserts that the cylinder is finite instead of silently computing
 // nonsense.
 
-import type { Cylinder3 } from './Cylinder3';
-import type { FIQuery } from './FIQuery';
-import { IntrIntervalsFI } from './IntrIntervals';
+import type { Cylinder3 } from './Cylinder3.js';
+import type { FIQuery } from './FIQuery.js';
+import { IntrIntervalsFI } from './IntrIntervals.js';
 import {
     IntrLine3Cylinder3FI,
     defaultIntrLine3Cylinder3FIResult
-} from './IntrLine3Cylinder3';
-import type { IntrLine3Cylinder3FIResult } from './IntrLine3Cylinder3';
-import { logAssert } from './Logger';
-import type { Ray3 } from './Ray';
-import { Vector, add, mul } from './Vector';
+} from './IntrLine3Cylinder3.js';
+import type { IntrLine3Cylinder3FIResult } from './IntrLine3Cylinder3.js';
+import { logAssert } from './Logger.js';
+import type { Ray3 } from './Ray.js';
+import { Vector, add, mul } from './Vector.js';
 
 // The upstream derived FIQuery::Result adds no members.
 export type IntrRay3Cylinder3FIResult = IntrLine3Cylinder3FIResult;

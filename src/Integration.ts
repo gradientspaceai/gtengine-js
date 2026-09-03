@@ -4,7 +4,7 @@
 // Distributed under the Boost Software License, Version 1.0.
 // https://www.boost.org/LICENSE_1_0.txt
 
-import { RootsPolynomial } from './RootsPolynomial';
+import { RootsPolynomial } from './RootsPolynomial.js';
 
 // Numerical integration: the trapezoid rule, Romberg integration
 // (trapezoid rule plus Richardson extrapolation) and Gauss-Legendre

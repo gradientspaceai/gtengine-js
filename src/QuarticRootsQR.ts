@@ -17,7 +17,7 @@
 // returns the iteration count and writes numRoots/roots to reference
 // parameters; the port returns { iterations, numRoots, roots }.
 
-import { CubicRootsQR, type CubicRootsQRMatrix } from './CubicRootsQR';
+import { CubicRootsQR, type CubicRootsQRMatrix } from './CubicRootsQR.js';
 
 // A 4x4 matrix stored as rows: A[r][c] is row r, column c, matching the
 // upstream std::array<std::array<Real, 4>, 4> layout.

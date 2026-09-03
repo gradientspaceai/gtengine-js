@@ -16,13 +16,13 @@
 // MergeContainers returns a vestigial 'true', so the port returns the merged
 // box.
 
-import { ApprGaussian3 } from './ApprGaussian3';
-import { logAssert } from './Logger';
-import { Matrix } from './Matrix';
-import { OrientedBox, type OrientedBox3 } from './OrientedBox';
-import { addQuaternion, negateQuaternion } from './Quaternion';
-import { Rotation } from './Rotation';
-import { Vector, add, dot, mul, normalize, sub } from './Vector';
+import { ApprGaussian3 } from './ApprGaussian3.js';
+import { logAssert } from './Logger.js';
+import { Matrix } from './Matrix.js';
+import { OrientedBox, type OrientedBox3 } from './OrientedBox.js';
+import { addQuaternion, negateQuaternion } from './Quaternion.js';
+import { Rotation } from './Rotation.js';
+import { Vector, add, dot, mul, normalize, sub } from './Vector.js';
 
 // Compute an oriented bounding box of the points. The box center is the
 // average of the points. The box axes are the eigenvectors of the covariance

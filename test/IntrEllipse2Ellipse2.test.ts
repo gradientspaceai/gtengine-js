@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { Hyperellipsoid } from '../src/Hyperellipsoid';
-import { Matrix } from '../src/Matrix';
-import { Vector, dot, sub } from '../src/Vector';
+import { Hyperellipsoid } from '../src/Hyperellipsoid.js';
+import { Matrix } from '../src/Matrix.js';
+import { Vector, dot, sub } from '../src/Vector.js';
 import {
     IntrEllipse2Ellipse2TI,
     IntrEllipse2Ellipse2FI,
     IntrEllipse2Ellipse2Classification as Cls,
     intrEllipse2Ellipse2InfinitePoints
-} from '../src/IntrEllipse2Ellipse2';
+} from '../src/IntrEllipse2Ellipse2.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

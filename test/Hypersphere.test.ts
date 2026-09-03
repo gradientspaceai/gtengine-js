@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { Hypersphere } from '../src/Hypersphere';
-import { Vector, sub, length } from '../src/Vector';
+import { Hypersphere } from '../src/Hypersphere.js';
+import { Vector, sub, length } from '../src/Vector.js';
 
 describe('Hypersphere construction', () => {
     it('the default constructor is the unit hypersphere at the origin', () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { IntpTricubic3 } from '../src/IntpTricubic3';
+import { IntpTricubic3 } from '../src/IntpTricubic3.js';
 
 // Grid used by most of the tests. The bounds, origins and spacings are all
 // distinct so that a transposed index or a swapped spacing is caught.

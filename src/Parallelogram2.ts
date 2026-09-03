@@ -17,9 +17,9 @@
 // 'GetVertices' returns a new array of 4 vertices instead of filling a
 // caller-supplied std::array.
 
-import { logAssert } from './Logger';
-import { Vector, add, sub } from './Vector';
-import { dotPerp } from './Vector2';
+import { logAssert } from './Logger.js';
+import { Vector, add, sub } from './Vector.js';
+import { dotPerp } from './Vector2.js';
 
 // Lexicographic comparison of the two-element axis arrays (the port of
 // std::array's relational operators). Returns -1, 0 or +1.

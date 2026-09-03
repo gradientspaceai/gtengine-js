@@ -10,10 +10,10 @@
 // Port notes: see IntrIntervals.ts for the Intr* precedent. Upstream provides
 // only a TIQuery specialization for this pair of primitives.
 
-import { Halfspace } from './Halfspace';
-import { OrientedBox } from './OrientedBox';
-import { dot } from './Vector';
-import type { TIQuery } from './TIQuery';
+import { Halfspace } from './Halfspace.js';
+import { OrientedBox } from './OrientedBox.js';
+import { dot } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrHalfspace3OrientedBox3TI.test.
 export interface IntrHalfspace3OrientedBox3TIResult {

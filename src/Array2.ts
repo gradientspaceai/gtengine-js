@@ -18,7 +18,7 @@
 // move machinery is not needed in TypeScript and is not ported. Accesses are
 // not bounds-checked, matching upstream.
 
-import { logAssert } from './Logger';
+import { logAssert } from './Logger.js';
 
 export class Array2<T> {
     private mBound0: number;

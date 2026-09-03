@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { RotatingCalipers } from '../src/RotatingCalipers';
-import type { RotatingCalipersAntipode } from '../src/RotatingCalipers';
-import { Vector } from '../src/Vector';
+import { RotatingCalipers } from '../src/RotatingCalipers.js';
+import type { RotatingCalipersAntipode } from '../src/RotatingCalipers.js';
+import { Vector } from '../src/Vector.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

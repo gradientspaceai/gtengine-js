@@ -3,11 +3,11 @@ import {
     ApprCone3EllipseAndPoints,
     ApprCone3EllipseAndPointsControl,
     ApprCone3ExtractEllipses
-} from '../src/ApprCone3EllipseAndPoints';
-import { Ellipse3 } from '../src/Ellipse3';
-import { GTE_C_HALF_PI } from '../src/Constants';
-import { Vector, add, dot, mul, normalize, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+} from '../src/ApprCone3EllipseAndPoints.js';
+import { Ellipse3 } from '../src/Ellipse3.js';
+import { GTE_C_HALF_PI } from '../src/Constants.js';
+import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 const v3 = (x: number, y: number, z: number): Vector =>
     Vector.fromArray([x, y, z]);

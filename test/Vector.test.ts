@@ -3,7 +3,7 @@ import {
     Vector, negate, add, sub, mul, div, compMul, compDiv,
     dot, length, normalize, orthonormalize, getOrthogonal, computeExtremes,
     hlift, hproject, lift, project
-} from '../src/Vector';
+} from '../src/Vector.js';
 
 // Deterministic pseudorandom generator so failures are reproducible.
 function makeRng(seed: number): () => number {

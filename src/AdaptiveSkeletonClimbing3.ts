@@ -43,9 +43,9 @@
 //    helper insertSubdividedFaceEdges. This is a behavior-preserving
 //    refactor.
 
-import { logAssert, logError } from './Logger';
-import { Array2 } from './Array2';
-import { TriangleKey } from './TriangleKey';
+import { logAssert, logError } from './Logger.js';
+import { Array2 } from './Array2.js';
+import { TriangleKey } from './TriangleKey.js';
 
 // A vertex of the extracted level surface, as (x, y, z) in voxel
 // coordinates.

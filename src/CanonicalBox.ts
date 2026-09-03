@@ -15,7 +15,7 @@
 // constructor, named static factories that copy their Vector arguments,
 // comparison methods).
 
-import { Vector } from './Vector';
+import { Vector } from './Vector.js';
 
 export class CanonicalBox {
     // It is required that extent[i] >= 0.

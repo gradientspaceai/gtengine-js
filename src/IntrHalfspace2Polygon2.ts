@@ -11,9 +11,9 @@
 // only an FIQuery specialization for this pair of primitives. The C++
 // 'std::vector<Vector2<T>>' polygon becomes a Vector[] (readonly on input).
 
-import { Halfspace } from './Halfspace';
-import { Vector, add, sub, mul, dot } from './Vector';
-import type { FIQuery } from './FIQuery';
+import { Halfspace } from './Halfspace.js';
+import { Vector, add, sub, mul, dot } from './Vector.js';
+import type { FIQuery } from './FIQuery.js';
 
 // The result of IntrHalfspace2Polygon2FI.find.
 export interface IntrHalfspace2Polygon2FIResult {

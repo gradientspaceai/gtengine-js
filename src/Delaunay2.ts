@@ -55,15 +55,15 @@
 //   'getHull(): number[]'; the bool was 'true' on every path that returns.
 // * The upstream operator() becomes compute(vertices).
 
-import { logAssert, logError } from './Logger';
-import { Line } from './Line';
-import type { Line2 } from './Line';
-import { Vector } from './Vector';
-import { IntrinsicsVector2 } from './Vector2';
-import { BSNumber } from './BSNumber';
-import { SWInterval } from './SWInterval';
-import { VETManifoldMesh } from './VETManifoldMesh';
-import { ETManifoldMesh, ETManifoldMeshTriangle } from './ETManifoldMesh';
+import { logAssert, logError } from './Logger.js';
+import { Line } from './Line.js';
+import type { Line2 } from './Line.js';
+import { Vector } from './Vector.js';
+import { IntrinsicsVector2 } from './Vector2.js';
+import { BSNumber } from './BSNumber.js';
+import { SWInterval } from './SWInterval.js';
+import { VETManifoldMesh } from './VETManifoldMesh.js';
+import { ETManifoldMesh, ETManifoldMeshTriangle } from './ETManifoldMesh.js';
 
 // A rational 2D point, the port of Vector2<InputRational>.
 type RationalPoint2 = [BSNumber, BSNumber];

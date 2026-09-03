@@ -47,7 +47,7 @@
 //     GTL_VALIDATE_UNIQUE_VERTICES_TRIANGLES is defined. The port has the
 //     'validate' property, which defaults to false to match upstream.
 
-import { logAssert } from './Logger';
+import { logAssert } from './Logger.js';
 
 // The default vertex key. Arrays (for example [x, y, z] positions) are joined
 // with commas; other objects are serialized with JSON.stringify; primitives

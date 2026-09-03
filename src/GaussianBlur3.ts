@@ -11,8 +11,8 @@
 // mBuffer[mDst][z][y][x] becomes mBuffer[mDst].set(x, y, z, ...) per the
 // Array3 port.
 
-import { PdeFilter3 } from './PdeFilter3';
-import { PdeFilterScaleType } from './PdeFilter';
+import { PdeFilter3 } from './PdeFilter3.js';
+import { PdeFilterScaleType } from './PdeFilter.js';
 
 export class GaussianBlur3 extends PdeFilter3 {
     // The largest time step for which the explicit Euler update is stable.

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { ApprCylinder3 } from '../src/ApprCylinder3';
-import { Cylinder3 } from '../src/Cylinder3';
-import { Vector, dot, length, normalize, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+import { ApprCylinder3 } from '../src/ApprCylinder3.js';
+import { Cylinder3 } from '../src/Cylinder3.js';
+import { Vector, dot, length, normalize, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

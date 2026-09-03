@@ -28,12 +28,12 @@
 // private static CylinderAxisIntersectsBox3D is dead code (never called; the
 // same computation is inlined at the top of DoQueryNoZeros) and is omitted.
 
-import type { CanonicalBox } from './CanonicalBox';
-import type { Cylinder3 } from './Cylinder3';
-import { logAssert, logError } from './Logger';
-import { Vector, dot } from './Vector';
-import { computeOrthogonalComplement3 } from './Vector3';
-import type { TIQuery } from './TIQuery';
+import type { CanonicalBox } from './CanonicalBox.js';
+import type { Cylinder3 } from './Cylinder3.js';
+import { logAssert, logError } from './Logger.js';
+import { Vector, dot } from './Vector.js';
+import { computeOrthogonalComplement3 } from './Vector3.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrCanonicalBox3Cylinder3TI.test.
 export interface IntrCanonicalBox3Cylinder3TIResult {

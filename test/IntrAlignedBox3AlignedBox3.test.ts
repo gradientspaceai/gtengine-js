@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { AlignedBox } from '../src/AlignedBox';
-import { Vector } from '../src/Vector';
+import { AlignedBox } from '../src/AlignedBox.js';
+import { Vector } from '../src/Vector.js';
 import {
     IntrAlignedBox3AlignedBox3TI,
     IntrAlignedBox3AlignedBox3FI
-} from '../src/IntrAlignedBox3AlignedBox3';
+} from '../src/IntrAlignedBox3AlignedBox3.js';
 
 function box(min: number[], max: number[]): AlignedBox {
     return AlignedBox.fromMinMax(Vector.fromArray(min), Vector.fromArray(max));

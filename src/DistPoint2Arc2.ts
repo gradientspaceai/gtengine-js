@@ -18,11 +18,11 @@
 // upstream single-argument 'Arc2::Contains' (which assumes the point is on
 // the circle) is the port's 'containsOnCircle'.
 
-import { Arc2 } from './Arc2';
-import type { DCPQuery } from './DCPQuery';
-import { DistPoint2Circle2 } from './DistPoint2Circle2';
-import { Hypersphere } from './Hypersphere';
-import { Vector, dot, sub } from './Vector';
+import { Arc2 } from './Arc2.js';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistPoint2Circle2 } from './DistPoint2Circle2.js';
+import { Hypersphere } from './Hypersphere.js';
+import { Vector, dot, sub } from './Vector.js';
 
 export interface DistPoint2Arc2Result {
     distance: number;

@@ -18,9 +18,9 @@
 // copied (C++ value semantics), and getControl returns a reference into the
 // internal storage as upstream does.
 
-import { BasisFunction, BasisFunctionInput } from './BasisFunction';
-import { ParametricCurve } from './ParametricCurve';
-import { Vector } from './Vector';
+import { BasisFunction, BasisFunctionInput } from './BasisFunction.js';
+import { ParametricCurve } from './ParametricCurve.js';
+import { Vector } from './Vector.js';
 
 export class BSplineCurve extends ParametricCurve {
     private mBasisFunction: BasisFunction;

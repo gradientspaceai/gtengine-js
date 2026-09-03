@@ -18,9 +18,9 @@
 // UpdateEulerAngle* helpers take 'F' by reference upstream; the port returns
 // the updated value alongside the boolean.
 
-import { logAssert } from './Logger';
-import { Matrix, mulMatrix, multiplyAB } from './Matrix';
-import { Vector, add, div, dot, mul, sub } from './Vector';
+import { logAssert } from './Logger.js';
+import { Matrix, mulMatrix, multiplyAB } from './Matrix.js';
+import { Vector, add, div, dot, mul, sub } from './Vector.js';
 
 export interface HelmertTransformation7Result {
     // The number of iterations actually performed.

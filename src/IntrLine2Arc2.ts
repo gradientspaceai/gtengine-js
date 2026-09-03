@@ -11,13 +11,13 @@
 // IntrLine2Arc2FI. Upstream calls the single-argument Arc2::Contains, which
 // the port names 'containsOnCircle'.
 
-import type { Arc2 } from './Arc2';
-import type { FIQuery } from './FIQuery';
-import { IntrLine2Circle2FI } from './IntrLine2Circle2';
-import { Hypersphere } from './Hypersphere';
-import type { Line2 } from './Line';
-import { Vector } from './Vector';
-import type { TIQuery } from './TIQuery';
+import type { Arc2 } from './Arc2.js';
+import type { FIQuery } from './FIQuery.js';
+import { IntrLine2Circle2FI } from './IntrLine2Circle2.js';
+import { Hypersphere } from './Hypersphere.js';
+import type { Line2 } from './Line.js';
+import { Vector } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrLine2Arc2TI.test.
 export interface IntrLine2Arc2TIResult {

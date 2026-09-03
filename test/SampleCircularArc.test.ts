@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { SampleCircularArc } from '../src/SampleCircularArc';
-import { Arc2 } from '../src/Arc2';
-import { Vector } from '../src/Vector';
+import { SampleCircularArc } from '../src/SampleCircularArc.js';
+import { Arc2 } from '../src/Arc2.js';
+import { Vector } from '../src/Vector.js';
 
 function arcFromAngle(center: readonly number[], radius: number,
     a0: number, a1: number): Arc2 {

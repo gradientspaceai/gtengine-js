@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { Hyperellipsoid } from '../src/Hyperellipsoid';
-import { Hyperplane } from '../src/Hyperplane';
+import { Hyperellipsoid } from '../src/Hyperellipsoid.js';
+import { Hyperplane } from '../src/Hyperplane.js';
 import {
     IntrPlane3Ellipsoid3TI,
     defaultIntrPlane3Ellipsoid3TIResult
-} from '../src/IntrPlane3Ellipsoid3';
-import { Vector, dot, normalize } from '../src/Vector';
+} from '../src/IntrPlane3Ellipsoid3.js';
+import { Vector, dot, normalize } from '../src/Vector.js';
 
 function plane(normal: number[], origin: number[]): Hyperplane {
     const n = Vector.fromArray(normal);

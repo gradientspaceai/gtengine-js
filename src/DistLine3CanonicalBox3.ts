@@ -33,10 +33,10 @@
 // upstream does, they mutate the 'origin' vector in place: on return it holds
 // the closest box point (in the reflected coordinate frame).
 
-import type { CanonicalBox3 } from './CanonicalBox';
-import type { DCPQuery } from './DCPQuery';
-import type { Line3 } from './Line';
-import { Vector, add, mul } from './Vector';
+import type { CanonicalBox3 } from './CanonicalBox.js';
+import type { DCPQuery } from './DCPQuery.js';
+import type { Line3 } from './Line.js';
+import { Vector, add, mul } from './Vector.js';
 
 export interface DistLine3CanonicalBox3Result {
     distance: number;

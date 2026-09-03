@@ -3,8 +3,8 @@ import {
     ETNonmanifoldMesh,
     ETNonmanifoldMeshEdge,
     ETNonmanifoldMeshTriangle
-} from '../src/ETNonmanifoldMesh';
-import { TriangleKey } from '../src/TriangleKey';
+} from '../src/ETNonmanifoldMesh.js';
+import { TriangleKey } from '../src/TriangleKey.js';
 
 // The keys of the triangles of a mesh (or of a component), as arrays of the
 // three vertex indices.

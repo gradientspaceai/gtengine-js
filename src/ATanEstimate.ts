@@ -14,8 +14,8 @@
 // static_assert. This port takes the degree as a runtime argument validated
 // by logAssert; see atanEstimate below.
 
-import { GTE_C_HALF_PI } from './Constants';
-import { logAssert } from './Logger';
+import { GTE_C_HALF_PI } from './Constants.js';
+import { logAssert } from './Logger.js';
 
 const C_ATAN_EST_COEFF: readonly (readonly number[])[] = [
     [   // degree 3

@@ -14,9 +14,9 @@
 // static_assert. This port takes the degree as a runtime argument validated
 // by logAssert; see logEstimate below.
 
-import { GTE_C_LN_2 } from './Constants';
-import { getLog2EstimateMaxError, log2Estimate, log2EstimateRR } from './Log2Estimate';
-import { logAssert } from './Logger';
+import { GTE_C_LN_2 } from './Constants.js';
+import { getLog2EstimateMaxError, log2Estimate, log2EstimateRR } from './Log2Estimate.js';
+import { logAssert } from './Logger.js';
 
 // The input constraint is x in [1,2]. For example a degree-3 estimate is
 //   const x = ...;  // in [1,2]

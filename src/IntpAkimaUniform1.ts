@@ -12,8 +12,8 @@
 // 'Lookup(x, index&, dx&)' is ported as 'lookup(x)' returning
 // { index, dx }, per the IntpAkima1 base.
 
-import { IntpAkima1 } from './IntpAkima1';
-import { logAssert } from './Logger';
+import { IntpAkima1 } from './IntpAkima1.js';
+import { logAssert } from './Logger.js';
 
 export class IntpAkimaUniform1 extends IntpAkima1 {
     protected mXMin: number;

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { APConversion } from '../src/APConversion';
-import type { APConversionQFN1 } from '../src/APConversion';
-import { BSRational } from '../src/BSRational';
+import { APConversion } from '../src/APConversion.js';
+import type { APConversionQFN1 } from '../src/APConversion.js';
+import { BSRational } from '../src/BSRational.js';
 
 function r(numerator: number, denominator: number = 1): BSRational {
     return BSRational.fromNumber(numerator, denominator);

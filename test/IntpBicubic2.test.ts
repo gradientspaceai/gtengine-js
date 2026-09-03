@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { IntpBicubic2 } from '../src/IntpBicubic2';
+import { IntpBicubic2 } from '../src/IntpBicubic2.js';
 
 // Build the row-major sample array F[c + xBound*r] = f(xMin + c*dx, yMin + r*dy).
 function makeSamples(xBound: number, yBound: number, xMin: number, dx: number,

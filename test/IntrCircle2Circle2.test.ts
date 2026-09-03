@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { Hypersphere } from '../src/Hypersphere';
-import { Vector, length, sub } from '../src/Vector';
+import { Hypersphere } from '../src/Hypersphere.js';
+import { Vector, length, sub } from '../src/Vector.js';
 import {
     IntrCircle2Circle2TI,
     IntrCircle2Circle2FI
-} from '../src/IntrCircle2Circle2';
+} from '../src/IntrCircle2Circle2.js';
 
 function circle(cx: number, cy: number, r: number): Hypersphere {
     return Hypersphere.fromCenterRadius(Vector.fromArray([cx, cy]), r);

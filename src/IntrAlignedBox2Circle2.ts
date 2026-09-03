@@ -15,13 +15,13 @@
 // and the private case handlers become module-private functions that write
 // into the result object (upstream passes 'Result&').
 
-import type { AlignedBox } from './AlignedBox';
-import { DistPointAlignedBox } from './DistPointAlignedBox';
-import type { Hypersphere } from './Hypersphere';
-import { logAssert } from './Logger';
-import { Vector, add, dot, sub } from './Vector';
-import { perp } from './Vector2';
-import type { TIQuery } from './TIQuery';
+import type { AlignedBox } from './AlignedBox.js';
+import { DistPointAlignedBox } from './DistPointAlignedBox.js';
+import type { Hypersphere } from './Hypersphere.js';
+import { logAssert } from './Logger.js';
+import { Vector, add, dot, sub } from './Vector.js';
+import { perp } from './Vector2.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrAlignedBox2Circle2TI.test.
 export interface IntrAlignedBox2Circle2TIResult {

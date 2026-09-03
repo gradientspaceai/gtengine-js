@@ -25,10 +25,10 @@
 //   exactness; the port does the same with BSRational, then converts the
 //   result to double.
 
-import { logAssert } from './Logger';
-import { Vector } from './Vector';
-import { BSRational } from './BSRational';
-import { Delaunay2, Delaunay2SearchInfo } from './Delaunay2';
+import { logAssert } from './Logger.js';
+import { Vector } from './Vector.js';
+import { BSRational } from './BSRational.js';
+import { Delaunay2, Delaunay2SearchInfo } from './Delaunay2.js';
 
 // The port of Vector2<Rational>.
 type RationalPoint2 = [BSRational, BSRational];

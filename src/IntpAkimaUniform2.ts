@@ -22,8 +22,8 @@
 // ComputeDerivative(Real* slope) with pointer offsets receives the four
 // window values directly.
 
-import { Array2 } from './Array2';
-import { logAssert } from './Logger';
+import { Array2 } from './Array2.js';
+import { logAssert } from './Logger.js';
 
 // P(x,y) = (1,x,x^2,x^3)*A*(1,y,y^2,y^3). The matrix term A[ix][iy]
 // corresponds to the polynomial term x^{ix} y^{iy}.

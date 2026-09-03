@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FPInterval } from '../src/FPInterval';
+import { FPInterval } from '../src/FPInterval.js';
 
 // Deterministic pseudorandom generator (LCG) for reproducible tests.
 function makeRandom(seed: number): () => number {

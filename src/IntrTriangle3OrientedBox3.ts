@@ -15,18 +15,18 @@
 // 'intrTriangle3BoxFacePlanes' and 'intrTriangle3BoxClip' helpers of
 // IntrTriangle3AlignedBox3.ts instead (behavior-preserving).
 
-import type { FIQuery } from './FIQuery';
-import { CanonicalBox } from './CanonicalBox';
+import type { FIQuery } from './FIQuery.js';
+import { CanonicalBox } from './CanonicalBox.js';
 import {
     intrTriangle3BoxClip, intrTriangle3BoxFacePlanes
-} from './IntrTriangle3AlignedBox3';
-import { IntrTriangle3CanonicalBox3TI } from './IntrTriangle3CanonicalBox3';
-import { logAssert } from './Logger';
-import type { OrientedBox3 } from './OrientedBox';
-import { Triangle } from './Triangle';
-import type { Triangle3 } from './Triangle';
-import type { TIQuery } from './TIQuery';
-import { Vector, dot, sub } from './Vector';
+} from './IntrTriangle3AlignedBox3.js';
+import { IntrTriangle3CanonicalBox3TI } from './IntrTriangle3CanonicalBox3.js';
+import { logAssert } from './Logger.js';
+import type { OrientedBox3 } from './OrientedBox.js';
+import { Triangle } from './Triangle.js';
+import type { Triangle3 } from './Triangle.js';
+import type { TIQuery } from './TIQuery.js';
+import { Vector, dot, sub } from './Vector.js';
 
 // The result of IntrTriangle3OrientedBox3TI.test.
 export interface IntrTriangle3OrientedBox3TIResult {

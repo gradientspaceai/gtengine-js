@@ -7,10 +7,10 @@
 // Port notes: see IntrIntervals.ts for the Intr* precedent. The circles are
 // the ported Hypersphere with dimension 2.
 
-import { Hypersphere } from './Hypersphere';
-import { Vector, add, sub, mul, dot, length } from './Vector';
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
+import { Hypersphere } from './Hypersphere.js';
+import { Vector, add, sub, mul, dot, length } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
 
 // The port of std::numeric_limits<int32_t>::max(), which upstream uses as the
 // 'numIntersections' value meaning "the circles are the same".

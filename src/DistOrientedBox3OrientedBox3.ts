@@ -20,11 +20,11 @@
 // becomes the class DistOrientedBox3OrientedBox3 with the result type
 // DistOrientedBox3OrientedBox3Result.
 
-import type { DCPQuery } from './DCPQuery';
-import { DistRectangle3OrientedBox3 } from './DistRectangle3OrientedBox3';
-import type { OrientedBox3 } from './OrientedBox';
-import { Rectangle } from './Rectangle';
-import { Vector, add, mul, sub } from './Vector';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistRectangle3OrientedBox3 } from './DistRectangle3OrientedBox3.js';
+import type { OrientedBox3 } from './OrientedBox.js';
+import { Rectangle } from './Rectangle.js';
+import { Vector, add, mul, sub } from './Vector.js';
 
 export interface DistOrientedBox3OrientedBox3Result {
     distance: number;

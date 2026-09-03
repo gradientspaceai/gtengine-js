@@ -32,11 +32,11 @@
 //   over the triangle edges (v0,v1), (v1,v2), (v2,v0); the arithmetic for
 //   each edge is unchanged.
 
-import { EdgeKey } from './EdgeKey';
-import { DistPointHyperplane } from './DistPointHyperplane';
-import type { Hyperplane } from './Hyperplane';
-import { logAssert } from './Logger';
-import { Vector, add, mul, sub } from './Vector';
+import { EdgeKey } from './EdgeKey.js';
+import { DistPointHyperplane } from './DistPointHyperplane.js';
+import type { Hyperplane } from './Hyperplane.js';
+import { logAssert } from './Logger.js';
+import { Vector, add, mul, sub } from './Vector.js';
 
 export interface SplitMeshByPlaneResult {
     // The input vertices followed by the vertices generated at the

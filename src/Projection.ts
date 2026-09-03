@@ -25,14 +25,14 @@
 //   dimension Hyperellipsoid/Line/Hyperplane; the dimensions are checked at
 //   runtime.
 
-import type { Ellipse2, Ellipsoid3 } from './Hyperellipsoid';
-import { Hyperellipsoid } from './Hyperellipsoid';
-import type { Plane3 } from './Hyperplane';
-import type { Line2, Line3 } from './Line';
-import { logAssert } from './Logger';
-import { Matrix, mulMatrix, outerProduct, subMatrix } from './Matrix';
-import { Vector, add, dot, mul, sub } from './Vector';
-import { computeOrthogonalComplement3 } from './Vector3';
+import type { Ellipse2, Ellipsoid3 } from './Hyperellipsoid.js';
+import { Hyperellipsoid } from './Hyperellipsoid.js';
+import type { Plane3 } from './Hyperplane.js';
+import type { Line2, Line3 } from './Line.js';
+import { logAssert } from './Logger.js';
+import { Matrix, mulMatrix, outerProduct, subMatrix } from './Matrix.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
+import { computeOrthogonalComplement3 } from './Vector3.js';
 
 // Orthogonally project an ellipse onto a line. The projection interval is
 // [smin,smax] and corresponds to the line segment P + s * D, where

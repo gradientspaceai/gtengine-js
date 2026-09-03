@@ -32,7 +32,7 @@
 // vertex indices are omitted. The function-local static of
 // GetOppositeFace() becomes a module-level frozen table.
 
-import { FeatureKey } from './FeatureKey';
+import { FeatureKey } from './FeatureKey.js';
 
 // Indexing for the vertices of the triangle opposite a vertex. The triangle
 // opposite vertex j is

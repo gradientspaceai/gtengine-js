@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
     LieSE2, LieSE3, LieSO2, LieSO3
-} from '../src/LieGroupsAlgebras';
-import { GTE_C_PI } from '../src/Constants';
+} from '../src/LieGroupsAlgebras.js';
+import { GTE_C_PI } from '../src/Constants.js';
 import {
     Matrix, addMatrix, mulMatrix, multiplyAB, multiplyABT, subMatrix,
     transpose, lInfinityNorm
-} from '../src/Matrix';
-import { inverse3x3 } from '../src/Matrix3x3';
-import { inverse4x4 } from '../src/Matrix4x4';
-import { Vector, dot, sub } from '../src/Vector';
+} from '../src/Matrix.js';
+import { inverse3x3 } from '../src/Matrix3x3.js';
+import { inverse4x4 } from '../src/Matrix4x4.js';
+import { Vector, dot, sub } from '../src/Vector.js';
 
 function maxDiff(A: Matrix, B: Matrix): number {
     return lInfinityNorm(subMatrix(A, B));

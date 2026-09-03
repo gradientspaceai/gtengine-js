@@ -4,9 +4,9 @@ import {
     circumscribeSphere3,
     inscribeCircle3,
     inscribeSphere3
-} from '../src/ContScribeCircle3Sphere3';
-import { Vector, add, dot, length, mul, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+} from '../src/ContScribeCircle3Sphere3.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

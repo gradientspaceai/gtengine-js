@@ -16,8 +16,8 @@
 // axes and a 2-dimensional extent vector, matching upstream's
 // 'std::array<Vector<N, Real>, 2> axis' and 'Vector<2, Real> extent'.
 
-import { logAssert } from './Logger';
-import { Vector, add, sub, mul } from './Vector';
+import { logAssert } from './Logger.js';
+import { Vector, add, sub, mul } from './Vector.js';
 
 // Lexicographic comparison of the two-element axis arrays (the port of
 // std::array's relational operators). Returns -1, 0 or +1.

@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { Circle3 } from '../src/Circle3';
-import { DistCircle3Circle3 } from '../src/DistCircle3Circle3';
+import { Circle3 } from '../src/Circle3.js';
+import { DistCircle3Circle3 } from '../src/DistCircle3Circle3.js';
 import {
     Vector, add, dot, length, mul, normalize, sub
-} from '../src/Vector';
-import { cross } from '../src/Vector3';
+} from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 function v(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

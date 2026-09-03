@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { Cylinder3 } from '../src/Cylinder3';
-import { Halfspace } from '../src/Halfspace';
-import { Line } from '../src/Line';
-import { Vector, add, mul, dot, normalize } from '../src/Vector';
-import { computeOrthogonalComplement3 } from '../src/Vector3';
-import { IntrHalfspace3Cylinder3TI } from '../src/IntrHalfspace3Cylinder3';
+import { Cylinder3 } from '../src/Cylinder3.js';
+import { Halfspace } from '../src/Halfspace.js';
+import { Line } from '../src/Line.js';
+import { Vector, add, mul, dot, normalize } from '../src/Vector.js';
+import { computeOrthogonalComplement3 } from '../src/Vector3.js';
+import { IntrHalfspace3Cylinder3TI } from '../src/IntrHalfspace3Cylinder3.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

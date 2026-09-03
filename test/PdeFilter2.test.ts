@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { PdeFilterScaleType } from '../src/PdeFilter';
-import { PdeFilter2 } from '../src/PdeFilter2';
+import { PdeFilterScaleType } from '../src/PdeFilter.js';
+import { PdeFilter2 } from '../src/PdeFilter2.js';
 
 // Concrete subclass solving the linear heat equation u_t = u_xx + u_yy with
 // an explicit Euler step, the canonical use of the PdeFilter2 plumbing.

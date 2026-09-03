@@ -13,8 +13,8 @@
 // comparison methods). The class is not templated on the dimension upstream,
 // so the default constructor takes no arguments and builds 3D vectors.
 
-import { logAssert } from './Logger';
-import { Vector } from './Vector';
+import { logAssert } from './Logger.js';
+import { Vector } from './Vector.js';
 
 export class Circle3 {
     // Public member access.

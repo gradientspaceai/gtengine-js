@@ -62,18 +62,18 @@
 //   getTetrahedronIndices(t)/getTetrahedronAdjacencies(t), returning null
 //   instead of 'false'.
 
-import { logAssert, logError } from './Logger';
-import { Line } from './Line';
-import type { Line3 } from './Line';
-import { Hyperplane } from './Hyperplane';
-import type { Plane3 } from './Hyperplane';
-import { Vector } from './Vector';
-import { IntrinsicsVector3, unitCross } from './Vector3';
-import { BSNumber } from './BSNumber';
-import { SWInterval } from './SWInterval';
-import { TriangleKey } from './TriangleKey';
-import { TetrahedronKey } from './TetrahedronKey';
-import { TSManifoldMesh, TSManifoldMeshTetrahedron } from './TSManifoldMesh';
+import { logAssert, logError } from './Logger.js';
+import { Line } from './Line.js';
+import type { Line3 } from './Line.js';
+import { Hyperplane } from './Hyperplane.js';
+import type { Plane3 } from './Hyperplane.js';
+import { Vector } from './Vector.js';
+import { IntrinsicsVector3, unitCross } from './Vector3.js';
+import { BSNumber } from './BSNumber.js';
+import { SWInterval } from './SWInterval.js';
+import { TriangleKey } from './TriangleKey.js';
+import { TetrahedronKey } from './TetrahedronKey.js';
+import { TSManifoldMesh, TSManifoldMeshTetrahedron } from './TSManifoldMesh.js';
 
 // A rational 3D point, the port of Vector3<InputRational>.
 type RationalPoint3 = [BSNumber, BSNumber, BSNumber];

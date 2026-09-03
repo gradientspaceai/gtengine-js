@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { Hyperplane } from '../src/Hyperplane';
+import { Hyperplane } from '../src/Hyperplane.js';
 import {
     IntrPlane3OrientedBox3TI,
     defaultIntrPlane3OrientedBox3TIResult
-} from '../src/IntrPlane3OrientedBox3';
-import { OrientedBox } from '../src/OrientedBox';
-import { Vector, dot, normalize } from '../src/Vector';
+} from '../src/IntrPlane3OrientedBox3.js';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Vector, dot, normalize } from '../src/Vector.js';
 
 function plane(normal: number[], origin: number[]): Hyperplane {
     const n = Vector.fromArray(normal);

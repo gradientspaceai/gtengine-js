@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BitHacks } from '../src/BitHacks';
+import { BitHacks } from '../src/BitHacks.js';
 
 // Independent reference implementations used for cross-checks.
 function refLeadingBit(value: number): number {

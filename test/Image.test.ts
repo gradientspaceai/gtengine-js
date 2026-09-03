@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Image } from '../src/Image';
+import { Image } from '../src/Image.js';
 
 describe('Image', () => {
     it('defaults to an empty image', () => {

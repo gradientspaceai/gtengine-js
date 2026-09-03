@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
     sinEstimate, sinEstimateRR, getSinEstimateMaxError
-} from '../src/SinEstimate';
-import { GTE_C_HALF_PI } from '../src/Constants';
+} from '../src/SinEstimate.js';
+import { GTE_C_HALF_PI } from '../src/Constants.js';
 
 const DEGREES = [3, 5, 7, 9, 11] as const;
 

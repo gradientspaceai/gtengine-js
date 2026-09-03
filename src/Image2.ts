@@ -38,7 +38,7 @@
 // 2-tuple 8-neighborhood ordering (row-major order without the center);
 // both match upstream exactly.
 
-import { Image } from './Image';
+import { Image } from './Image.js';
 
 export class Image2<PixelType> extends Image<PixelType> {
     // Construction. With no arguments the image is empty. Otherwise both

@@ -49,10 +49,10 @@
 // overlap. Both cause separated tetrahedra to be reported as intersecting;
 // the second also makes the upstream query asymmetric in its arguments.
 
-import { Tetrahedron3 } from './Tetrahedron3';
-import type { TIQuery } from './TIQuery';
-import { Vector, dot, sub } from './Vector';
-import { cross } from './Vector3';
+import { Tetrahedron3 } from './Tetrahedron3.js';
+import type { TIQuery } from './TIQuery.js';
+import { Vector, dot, sub } from './Vector.js';
+import { cross } from './Vector3.js';
 
 // The port of std::numeric_limits<size_t>::max() used to mark a 'separating'
 // entry that does not participate in the reported separating axis.

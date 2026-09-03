@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { IntpAkimaUniform3 } from '../src/IntpAkimaUniform3';
-import { IntpAkimaUniform2 } from '../src/IntpAkimaUniform2';
+import { IntpAkimaUniform3 } from '../src/IntpAkimaUniform3.js';
+import { IntpAkimaUniform2 } from '../src/IntpAkimaUniform2.js';
 
 // Build the lexicographic sample array F[c + xBound*(r + yBound*s)] =
 // f(xMin + c*dx, yMin + r*dy, zMin + s*dz).

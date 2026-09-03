@@ -55,18 +55,18 @@
 //     port routes every such extraction through rationalSqrtViaQuadratic (see
 //     RootsQuadratic.ts), which returns 0 for a zero or negative argument.
 
-import { BSRational } from './BSRational';
-import { PolynomialRoot } from './PolynomialRoot';
+import { BSRational } from './BSRational.js';
+import { PolynomialRoot } from './PolynomialRoot.js';
 import {
     PolynomialRootRational, type RootsScalarOps, rootsNumberOps, rootsRationalOps,
     solveLinearGeneric, solveMonicLinearGeneric, sortRoots
-} from './RootsLinear';
+} from './RootsLinear.js';
 import {
     rationalSqrtViaQuadratic, solveMonicQuadraticGeneric, solveQuadraticGeneric
-} from './RootsQuadratic';
+} from './RootsQuadratic.js';
 import {
     computeDepressedCubicRoots, solveCubicGeneric, solveMonicCubicGeneric
-} from './RootsCubic';
+} from './RootsCubic.js';
 
 const HALF = BSRational.fromNumber(0.5);
 const ONE_DIV_3 = BSRational.fromNumber(1, 3);

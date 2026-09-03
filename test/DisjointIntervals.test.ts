@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DisjointIntervals } from '../src/DisjointIntervals';
+import { DisjointIntervals } from '../src/DisjointIntervals.js';
 
 // Collect the intervals of a set as [xmin, xmax] pairs for comparison.
 function intervalsOf(set: DisjointIntervals): [number, number][] {

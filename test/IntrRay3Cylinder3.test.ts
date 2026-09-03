@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { Cylinder3 } from '../src/Cylinder3';
+import { Cylinder3 } from '../src/Cylinder3.js';
 import {
     IntrRay3Cylinder3FI,
     defaultIntrRay3Cylinder3FIResult,
     intrRay3Cylinder3FIDoQuery
-} from '../src/IntrRay3Cylinder3';
-import { Line } from '../src/Line';
-import { Ray } from '../src/Ray';
-import { Vector, add, dot, mul, normalize, sub } from '../src/Vector';
+} from '../src/IntrRay3Cylinder3.js';
+import { Line } from '../src/Line.js';
+import { Ray } from '../src/Ray.js';
+import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
 
 function vec(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

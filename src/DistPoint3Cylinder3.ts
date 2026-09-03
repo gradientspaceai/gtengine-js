@@ -24,11 +24,11 @@
 // trips the 'positive height' assertion. The port uses the Cylinder3
 // isInfinite() predicate instead.
 
-import type { Cylinder3 } from './Cylinder3';
-import type { DCPQuery } from './DCPQuery';
-import { logAssert } from './Logger';
-import { Vector, add, dot, mul, sub } from './Vector';
-import { computeOrthogonalComplement3 } from './Vector3';
+import type { Cylinder3 } from './Cylinder3.js';
+import type { DCPQuery } from './DCPQuery.js';
+import { logAssert } from './Logger.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
+import { computeOrthogonalComplement3 } from './Vector3.js';
 
 export interface DistPoint3Cylinder3Result {
     distance: number;

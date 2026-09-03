@@ -23,14 +23,14 @@
 // line-box result type, re-exported here as the alias
 // DistSegment2AlignedBox2Result.
 
-import type { AlignedBox2 } from './AlignedBox';
-import type { DCPQuery } from './DCPQuery';
-import { DistLine2AlignedBox2 } from './DistLine2AlignedBox2';
-import type { DistLine2AlignedBox2Result } from './DistLine2AlignedBox2';
-import { DistPointAlignedBox } from './DistPointAlignedBox';
-import { Line } from './Line';
-import type { Segment2 } from './Segment';
-import { Vector, sub } from './Vector';
+import type { AlignedBox2 } from './AlignedBox.js';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistLine2AlignedBox2 } from './DistLine2AlignedBox2.js';
+import type { DistLine2AlignedBox2Result } from './DistLine2AlignedBox2.js';
+import { DistPointAlignedBox } from './DistPointAlignedBox.js';
+import { Line } from './Line.js';
+import type { Segment2 } from './Segment.js';
+import { Vector, sub } from './Vector.js';
 
 // Upstream reuses the line-box result type ('using Result = typename
 // AlignedQuery::Result').

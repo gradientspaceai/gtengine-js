@@ -16,12 +16,12 @@
 // 'clamp' from Functions.ts, which has the same
 // 'u <= umin ? umin : (u >= umax ? umax : u)' semantics.
 
-import type { DCPQuery } from './DCPQuery';
-import { clamp } from './Functions';
-import { Matrix, multiplyATB, mulMatrix } from './Matrix';
-import { inverse2x2 } from './Matrix2x2';
-import type { Parallelogram2 } from './Parallelogram2';
-import { Vector, add, mul, sub } from './Vector';
+import type { DCPQuery } from './DCPQuery.js';
+import { clamp } from './Functions.js';
+import { Matrix, multiplyATB, mulMatrix } from './Matrix.js';
+import { inverse2x2 } from './Matrix2x2.js';
+import type { Parallelogram2 } from './Parallelogram2.js';
+import { Vector, add, mul, sub } from './Vector.js';
 
 export interface DistPoint2Parallelogram2Result {
     // The point closest[0] is the query point. The point closest[1] is the

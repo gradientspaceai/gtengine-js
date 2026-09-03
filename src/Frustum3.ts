@@ -19,8 +19,8 @@
 // 'ComputeVertices' returns a new array of 8 vertices instead of filling a
 // caller-supplied std::array.
 
-import { logAssert } from './Logger';
-import { Vector, add, sub, mul } from './Vector';
+import { logAssert } from './Logger.js';
+import { Vector, add, sub, mul } from './Vector.js';
 
 export class Frustum3 {
     // Public member access.

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { GVector } from '../src/GVector';
+import { GVector } from '../src/GVector.js';
 import {
     Vector, add, sub, mul, div, dot, length, normalize, orthonormalize, hlift
-} from '../src/Vector';
+} from '../src/Vector.js';
 
 describe('GVector construction and sizing', () => {
     it('default constructor produces the size-0 tuple', () => {

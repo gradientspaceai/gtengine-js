@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { ConvexMesh3 } from '../src/ConvexMesh3';
-import type { ConvexMesh3Triangle } from '../src/ConvexMesh3';
-import { Hyperplane } from '../src/Hyperplane';
-import { Vector, dot, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+import { ConvexMesh3 } from '../src/ConvexMesh3.js';
+import type { ConvexMesh3Triangle } from '../src/ConvexMesh3.js';
+import { Hyperplane } from '../src/Hyperplane.js';
+import { Vector, dot, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 import {
     IntrConvexMesh3Plane3FI,
     defaultIntrConvexMesh3Plane3FIResult
-} from '../src/IntrConvexMesh3Plane3';
+} from '../src/IntrConvexMesh3Plane3.js';
 
 const Q = IntrConvexMesh3Plane3FI;
 

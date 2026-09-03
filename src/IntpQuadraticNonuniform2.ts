@@ -38,12 +38,12 @@
 //   which returns { valid, F, FX, FY }; the values are meaningless when
 //   valid is false.
 
-import { AlignedBox } from './AlignedBox';
-import { inscribeCircle2 } from './ContScribeCircle2';
-import { DistPointAlignedBox } from './DistPointAlignedBox';
-import { logAssert } from './Logger';
-import { Vector } from './Vector';
-import { computeBarycentrics2 } from './Vector2';
+import { AlignedBox } from './AlignedBox.js';
+import { inscribeCircle2 } from './ContScribeCircle2.js';
+import { DistPointAlignedBox } from './DistPointAlignedBox.js';
+import { logAssert } from './Logger.js';
+import { Vector } from './Vector.js';
+import { computeBarycentrics2 } from './Vector2.js';
 
 // The duck-typed triangle mesh required by the interpolator.
 export interface IntpQuadraticNonuniform2TriangleMesh {

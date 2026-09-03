@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { Capsule } from '../src/Capsule';
-import { Line } from '../src/Line';
-import { Segment } from '../src/Segment';
-import { Vector, add, dot, mul, normalize, sub, length } from '../src/Vector';
+import { Capsule } from '../src/Capsule.js';
+import { Line } from '../src/Line.js';
+import { Segment } from '../src/Segment.js';
+import { Vector, add, dot, mul, normalize, sub, length } from '../src/Vector.js';
 import {
     IntrLine3Capsule3TI,
     IntrLine3Capsule3FI
-} from '../src/IntrLine3Capsule3';
+} from '../src/IntrLine3Capsule3.js';
 
 function vec(a: number[]): Vector {
     return Vector.fromArray(a);

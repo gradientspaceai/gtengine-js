@@ -15,20 +15,20 @@
 // IntrConvexPolygonHyperplaneFI; the upstream 'PPQuery'/'PPResult' type
 // aliases are unnecessary in the port.
 
-import type { AlignedBox3 } from './AlignedBox';
-import { CanonicalBox } from './CanonicalBox';
-import type { FIQuery } from './FIQuery';
-import { Hyperplane } from './Hyperplane';
-import type { Plane3 } from './Hyperplane';
+import type { AlignedBox3 } from './AlignedBox.js';
+import { CanonicalBox } from './CanonicalBox.js';
+import type { FIQuery } from './FIQuery.js';
+import { Hyperplane } from './Hyperplane.js';
+import type { Plane3 } from './Hyperplane.js';
 import {
     IntrConvexPolygonHyperplaneConfiguration, IntrConvexPolygonHyperplaneFI
-} from './IntrConvexPolygonHyperplane';
-import { IntrTriangle3CanonicalBox3TI } from './IntrTriangle3CanonicalBox3';
-import { logAssert } from './Logger';
-import { Triangle } from './Triangle';
-import type { Triangle3 } from './Triangle';
-import type { TIQuery } from './TIQuery';
-import { Vector, add, dot, mul, negate, sub } from './Vector';
+} from './IntrConvexPolygonHyperplane.js';
+import { IntrTriangle3CanonicalBox3TI } from './IntrTriangle3CanonicalBox3.js';
+import { logAssert } from './Logger.js';
+import { Triangle } from './Triangle.js';
+import type { Triangle3 } from './Triangle.js';
+import type { TIQuery } from './TIQuery.js';
+import { Vector, add, dot, mul, negate, sub } from './Vector.js';
 
 // The result of IntrTriangle3AlignedBox3TI.test.
 export interface IntrTriangle3AlignedBox3TIResult {

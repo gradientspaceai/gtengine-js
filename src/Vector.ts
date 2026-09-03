@@ -28,7 +28,7 @@
 //   vector arguments in place and return the length, exactly as upstream.
 // - Mismatched dimensions (a compile error upstream) throw via logAssert.
 
-import { logAssert } from './Logger';
+import { logAssert } from './Logger.js';
 
 export class Vector {
     // The components of the vector. The contents may be read and written

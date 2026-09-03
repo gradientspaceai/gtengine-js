@@ -13,10 +13,10 @@
 // Port notes: the pointer/count pairs collapse to arrays (see ApprQuery.ts).
 // The observation type is a 3D Vector.
 
-import { ApprQuery } from './ApprQuery';
-import { OrientedBox } from './OrientedBox';
-import { SymmetricEigensolver3x3 } from './SymmetricEigensolver3x3';
-import { Vector, dot } from './Vector';
+import { ApprQuery } from './ApprQuery.js';
+import { OrientedBox } from './OrientedBox.js';
+import { SymmetricEigensolver3x3 } from './SymmetricEigensolver3x3.js';
+import { Vector, dot } from './Vector.js';
 
 export class ApprGaussian3 extends ApprQuery<Vector> {
     private mParameters: OrientedBox;

@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { Hypersphere } from '../src/Hypersphere';
+import { Hypersphere } from '../src/Hypersphere.js';
 import {
     IntrSegment2Circle2TI,
     IntrSegment2Circle2FI,
     defaultIntrSegment2Circle2FIResult,
     intrSegment2Circle2FIDoQuery
-} from '../src/IntrSegment2Circle2';
-import { Segment } from '../src/Segment';
-import { Vector, add, dot, mul, sub } from '../src/Vector';
+} from '../src/IntrSegment2Circle2.js';
+import { Segment } from '../src/Segment.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
 
 function vec(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

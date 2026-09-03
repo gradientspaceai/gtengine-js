@@ -20,19 +20,19 @@
 // ray-ellipsoid one is exported here as 'intrRay3Ellipsoid3FIDoQuery' for the
 // same reason (the precedent set by IntrRay3Sphere3.ts).
 
-import type { Ellipsoid3 } from './Hyperellipsoid';
-import type { FIQuery } from './FIQuery';
-import { IntrIntervalsFI } from './IntrIntervals';
+import type { Ellipsoid3 } from './Hyperellipsoid.js';
+import type { FIQuery } from './FIQuery.js';
+import { IntrIntervalsFI } from './IntrIntervals.js';
 import {
     intrLine3Ellipsoid3FIDoQuery,
     defaultIntrLine3Ellipsoid3FIResult
-} from './IntrLine3Ellipsoid3';
-import type { IntrLine3Ellipsoid3FIResult } from './IntrLine3Ellipsoid3';
-import { logAssert } from './Logger';
-import { mulMatrix } from './Matrix';
-import type { Ray3 } from './Ray';
-import { Vector, add, dot, mul, sub } from './Vector';
-import type { TIQuery } from './TIQuery';
+} from './IntrLine3Ellipsoid3.js';
+import type { IntrLine3Ellipsoid3FIResult } from './IntrLine3Ellipsoid3.js';
+import { logAssert } from './Logger.js';
+import { mulMatrix } from './Matrix.js';
+import type { Ray3 } from './Ray.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrRay3Ellipsoid3TI.test.
 export interface IntrRay3Ellipsoid3TIResult {

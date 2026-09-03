@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     atanEstimate, atanEstimateRR, getATanEstimateMaxError
-} from '../src/ATanEstimate';
+} from '../src/ATanEstimate.js';
 
 const DEGREES = [3, 5, 7, 9, 11, 13] as const;
 

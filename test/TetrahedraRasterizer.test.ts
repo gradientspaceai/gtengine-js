@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { TetrahedraRasterizer } from '../src/TetrahedraRasterizer';
+import { TetrahedraRasterizer } from '../src/TetrahedraRasterizer.js';
 
 // The canonical orientation: {v0,v1,v2,v3} with v0=(0,0,0), v1=(1,0,0),
 // v2=(0,1,0), v3=(0,0,1) (positive determinant of edge vectors).

@@ -21,9 +21,9 @@
 // not affect Evaluate, which (unlike the other curve classes) does not test
 // mConstructed.
 
-import { logAssert } from './Logger';
-import { ParametricCurve } from './ParametricCurve';
-import { Vector, length as vectorLength } from './Vector';
+import { logAssert } from './Logger.js';
+import { ParametricCurve } from './ParametricCurve.js';
+import { Vector, length as vectorLength } from './Vector.js';
 
 export class TCBSplineCurve extends ParametricCurve {
     // The constructor inputs.

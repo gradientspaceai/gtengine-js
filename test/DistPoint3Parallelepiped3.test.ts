@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { CanonicalBox } from '../src/CanonicalBox';
-import { DistPoint3Parallelepiped3 } from '../src/DistPoint3Parallelepiped3';
+import { CanonicalBox } from '../src/CanonicalBox.js';
+import { DistPoint3Parallelepiped3 } from '../src/DistPoint3Parallelepiped3.js';
 import type { DistPoint3Parallelepiped3Result }
-    from '../src/DistPoint3Parallelepiped3';
-import { DistPointCanonicalBox } from '../src/DistPointCanonicalBox';
-import { Matrix, mulMatrix } from '../src/Matrix';
-import { inverse3x3 } from '../src/Matrix3x3';
-import { Parallelepiped3 } from '../src/Parallelepiped3';
-import { Vector, add, dot, mul, sub } from '../src/Vector';
+    from '../src/DistPoint3Parallelepiped3.js';
+import { DistPointCanonicalBox } from '../src/DistPointCanonicalBox.js';
+import { Matrix, mulMatrix } from '../src/Matrix.js';
+import { inverse3x3 } from '../src/Matrix3x3.js';
+import { Parallelepiped3 } from '../src/Parallelepiped3.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

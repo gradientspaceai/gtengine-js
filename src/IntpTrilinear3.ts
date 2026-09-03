@@ -33,7 +33,7 @@
 //   cell's linear polynomial is extrapolated instead of clamped. The port
 //   preserves this behavior.
 
-import { logAssert } from './Logger';
+import { logAssert } from './Logger.js';
 
 export class IntpTrilinear3 {
     private readonly mXBound: number;

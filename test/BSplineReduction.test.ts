@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { BSplineReduction } from '../src/BSplineReduction';
-import { BSplineCurve } from '../src/BSplineCurve';
-import { BasisFunctionInput } from '../src/BasisFunction';
-import { Vector } from '../src/Vector';
+import { BSplineReduction } from '../src/BSplineReduction.js';
+import { BSplineCurve } from '../src/BSplineCurve.js';
+import { BasisFunctionInput } from '../src/BasisFunction.js';
+import { Vector } from '../src/Vector.js';
 
 function makeRandom(seed: number): () => number {
     let state = seed >>> 0;

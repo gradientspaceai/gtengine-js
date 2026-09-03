@@ -53,7 +53,7 @@
 // whose simplices are arrays of 'dimension' indices. The upstream output
 // parameters become returned object literals.
 
-import { logAssert, logError } from './Logger';
+import { logAssert, logError } from './Logger.js';
 
 // The type of a primitive key that identifies a vertex value.
 export type UVSVertexKey = string | number;

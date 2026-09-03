@@ -19,7 +19,7 @@
 // evaluation reuses HermiteQuintic.p, exactly as upstream reuses
 // HermiteQuintic<T>::P.
 
-import { HermiteQuintic } from './HermiteQuintic';
+import { HermiteQuintic } from './HermiteQuintic.js';
 
 // Sample of a function at a lattice pixel: the function value f and the
 // derivatives fx, fy, fxx, fxy, fyy, fxxy, fxyy, fxxyy. The default sample

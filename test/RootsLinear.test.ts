@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { BSRational } from '../src/BSRational';
+import { BSRational } from '../src/BSRational.js';
 import {
     PolynomialRootRational, RootsLinear, rootsNumberOps, rootsRationalOps, sortRoots
-} from '../src/RootsLinear';
+} from '../src/RootsLinear.js';
 
 describe('PolynomialRootRational', () => {
     it('defaults to the invalid root (0, 0)', () => {

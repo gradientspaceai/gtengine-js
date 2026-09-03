@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { UniqueVerticesSimplices } from '../src/UniqueVerticesSimplices';
+import { UniqueVerticesSimplices } from '../src/UniqueVerticesSimplices.js';
 
 type P2 = [number, number];
 type P3 = [number, number, number];

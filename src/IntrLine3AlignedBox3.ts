@@ -18,12 +18,12 @@
 // private static 'Clip' becomes the module-private function 'clip', which
 // takes the mutable [t0,t1] interval as an object.
 
-import { AlignedBox } from './AlignedBox';
-import { Line } from './Line';
-import { Vector, add, sub, mul } from './Vector';
-import { cross } from './Vector3';
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
+import { AlignedBox } from './AlignedBox.js';
+import { Line } from './Line.js';
+import { Vector, add, sub, mul } from './Vector.js';
+import { cross } from './Vector3.js';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
 
 // The port of std::numeric_limits<T>::max() for T = double.
 const MAX_T = Number.MAX_VALUE;

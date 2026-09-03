@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
     invSqrtEstimate, invSqrtEstimateRR, getInvSqrtEstimateMaxError
-} from '../src/InvSqrtEstimate';
-import { GTE_C_INV_SQRT_2 } from '../src/Constants';
+} from '../src/InvSqrtEstimate.js';
+import { GTE_C_INV_SQRT_2 } from '../src/Constants.js';
 
 const DEGREES = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 

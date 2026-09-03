@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { BSPPolygon2 } from '../src/BSPPolygon2';
-import { EdgeKey } from '../src/EdgeKey';
-import { Vector } from '../src/Vector';
+import { BSPPolygon2 } from '../src/BSPPolygon2.js';
+import { EdgeKey } from '../src/EdgeKey.js';
+import { Vector } from '../src/Vector.js';
 
 function makeRandom(seed: number): () => number {
     let state = seed >>> 0;

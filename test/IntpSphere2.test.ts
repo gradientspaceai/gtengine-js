@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { GTE_C_PI, GTE_C_TWO_PI } from '../src/Constants';
-import { IntpSphere2 } from '../src/IntpSphere2';
+import { GTE_C_PI, GTE_C_TWO_PI } from '../src/Constants.js';
+import { IntpSphere2 } from '../src/IntpSphere2.js';
 
 function makeRandom(seed: number): () => number {
     let s = seed >>> 0;

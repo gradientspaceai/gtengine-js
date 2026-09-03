@@ -17,11 +17,11 @@
 // {(0,0),(1,0),(0,1)} is rejected. The port preserves the upstream
 // assertions verbatim rather than relaxing them.
 
-import { ApprQuery } from './ApprQuery';
-import { GMatrix } from './GMatrix';
-import { logAssert } from './Logger';
-import { inverse, mulMatrix } from './Matrix';
-import { Vector } from './Vector';
+import { ApprQuery } from './ApprQuery.js';
+import { GMatrix } from './GMatrix.js';
+import { logAssert } from './Logger.js';
+import { inverse, mulMatrix } from './Matrix.js';
+import { Vector } from './Vector.js';
 
 export class ApprPolynomialSpecial3 extends ApprQuery<readonly number[]> {
     private mXDegrees: number[];

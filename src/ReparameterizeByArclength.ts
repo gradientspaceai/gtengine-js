@@ -21,8 +21,8 @@
 // root finder. As upstream notes, the iteration counts for 'double' are no
 // larger than about 53 for bisection.
 
-import { logAssert } from './Logger';
-import { ParametricCurve } from './ParametricCurve';
+import { logAssert } from './Logger.js';
+import { ParametricCurve } from './ParametricCurve.js';
 
 // The output object stores the curve's t-parameter corresponding to a
 // user-specified arclength s. The 'f' member is F(t, s). The

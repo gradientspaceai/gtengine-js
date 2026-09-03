@@ -3,9 +3,9 @@ import {
     getContainerSphere3,
     inContainerSphere3,
     mergeContainersSphere3
-} from '../src/ContSphere3';
-import { Hypersphere, type Sphere3 } from '../src/Hypersphere';
-import { Vector, length, sub } from '../src/Vector';
+} from '../src/ContSphere3.js';
+import { Hypersphere, type Sphere3 } from '../src/Hypersphere.js';
+import { Vector, length, sub } from '../src/Vector.js';
 
 function v(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

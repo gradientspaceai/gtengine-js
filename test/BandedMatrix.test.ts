@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BandedMatrix } from '../src/BandedMatrix';
+import { BandedMatrix } from '../src/BandedMatrix.js';
 
 function makeRandom(seed: number): () => number {
     let state = seed >>> 0;

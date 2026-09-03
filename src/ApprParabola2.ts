@@ -18,10 +18,10 @@
 //   when the pointer is non-null, an optimization that matters only for the
 //   rational instantiation).
 
-import { logAssert } from './Logger';
-import { LinearSystem } from './LinearSystem';
-import { Matrix } from './Matrix';
-import { Vector } from './Vector';
+import { logAssert } from './Logger.js';
+import { LinearSystem } from './LinearSystem.js';
+import { Matrix } from './Matrix.js';
+import { Vector } from './Vector.js';
 
 // The result of ApprParabola2.fit. The parabola is
 //   y = u[0] * x^2 + u[1] * x + u[2]

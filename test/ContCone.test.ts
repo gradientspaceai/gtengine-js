@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { inContainerCone } from '../src/ContCone';
-import { Cone } from '../src/Cone';
-import { Ray } from '../src/Ray';
-import { Vector, dot, normalize, sub } from '../src/Vector';
+import { inContainerCone } from '../src/ContCone.js';
+import { Cone } from '../src/Cone.js';
+import { Ray } from '../src/Ray.js';
+import { Vector, dot, normalize, sub } from '../src/Vector.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

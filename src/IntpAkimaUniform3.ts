@@ -44,8 +44,8 @@
 //     issue (gtengine-js issue #58); as in that port the quirk is preserved
 //     so the TypeScript results match upstream exactly.
 
-import { Array3 } from './Array3';
-import { logAssert } from './Logger';
+import { Array3 } from './Array3.js';
+import { logAssert } from './Logger.js';
 
 // Flat indices into a 2x2x2 corner block; BIJK is upstream's B[i][j][k].
 const B000 = 0;

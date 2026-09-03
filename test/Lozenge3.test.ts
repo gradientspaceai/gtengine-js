@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { Lozenge3 } from '../src/Lozenge3';
-import { Rectangle } from '../src/Rectangle';
-import { Vector } from '../src/Vector';
+import { Lozenge3 } from '../src/Lozenge3.js';
+import { Rectangle } from '../src/Rectangle.js';
+import { Vector } from '../src/Vector.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

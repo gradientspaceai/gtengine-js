@@ -28,12 +28,12 @@
 // applied in place; the port does the same on Vector copies made by the
 // caller.
 
-import type { AlignedBox2 } from './AlignedBox';
-import type { DCPQuery } from './DCPQuery';
-import { clamp } from './Functions';
-import type { Line2 } from './Line';
-import { Vector, add, dot, mul, sub } from './Vector';
-import { dotPerp } from './Vector2';
+import type { AlignedBox2 } from './AlignedBox.js';
+import type { DCPQuery } from './DCPQuery.js';
+import { clamp } from './Functions.js';
+import type { Line2 } from './Line.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
+import { dotPerp } from './Vector2.js';
 
 export interface DistLine2AlignedBox2Result {
     distance: number;

@@ -25,13 +25,13 @@
 // the class DistTriangle3Rectangle3 with the result type
 // DistTriangle3Rectangle3Result.
 
-import type { DCPQuery } from './DCPQuery';
-import { DistSegment3Rectangle3 } from './DistSegment3Rectangle3';
-import { DistSegment3Triangle3 } from './DistSegment3Triangle3';
-import type { Rectangle3 } from './Rectangle';
-import { Segment } from './Segment';
-import type { Triangle3 } from './Triangle';
-import { Vector } from './Vector';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistSegment3Rectangle3 } from './DistSegment3Rectangle3.js';
+import { DistSegment3Triangle3 } from './DistSegment3Triangle3.js';
+import type { Rectangle3 } from './Rectangle.js';
+import { Segment } from './Segment.js';
+import type { Triangle3 } from './Triangle.js';
+import { Vector } from './Vector.js';
 
 export interface DistTriangle3Rectangle3Result {
     distance: number;

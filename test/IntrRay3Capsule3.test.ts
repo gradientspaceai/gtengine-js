@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { Capsule } from '../src/Capsule';
+import { Capsule } from '../src/Capsule.js';
 import {
     IntrRay3Capsule3TI,
     IntrRay3Capsule3FI,
     defaultIntrRay3Capsule3FIResult,
     intrRay3Capsule3FIDoQuery
-} from '../src/IntrRay3Capsule3';
-import { Ray } from '../src/Ray';
-import { Segment } from '../src/Segment';
-import { Vector, add, dot, mul, normalize, sub } from '../src/Vector';
+} from '../src/IntrRay3Capsule3.js';
+import { Ray } from '../src/Ray.js';
+import { Segment } from '../src/Segment.js';
+import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
 
 function vec(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

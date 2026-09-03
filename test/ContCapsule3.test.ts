@@ -5,12 +5,12 @@ import {
     inContainerSphereCapsule3,
     inContainerCapsuleCapsule3,
     mergeContainersCapsule3
-} from '../src/ContCapsule3';
-import { Capsule, type Capsule3 } from '../src/Capsule';
-import { Hypersphere } from '../src/Hypersphere';
-import { Segment } from '../src/Segment';
-import { DistPointSegment } from '../src/DistPointSegment';
-import { Vector } from '../src/Vector';
+} from '../src/ContCapsule3.js';
+import { Capsule, type Capsule3 } from '../src/Capsule.js';
+import { Hypersphere } from '../src/Hypersphere.js';
+import { Segment } from '../src/Segment.js';
+import { DistPointSegment } from '../src/DistPointSegment.js';
+import { Vector } from '../src/Vector.js';
 
 function v(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

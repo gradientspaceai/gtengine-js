@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FastMarch } from '../src/FastMarch';
+import { FastMarch } from '../src/FastMarch.js';
 
 // FastMarch is an abstract base class; exercise it through a minimal
 // concrete 1-dimensional subclass that exposes the protected trial/heap

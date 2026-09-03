@@ -15,9 +15,9 @@
 // Circle2 is the 2D alias of Hypersphere, so the port asserts that the input
 // vectors have dimension 2, which the C++ Vector2<Real> type guarantees.
 
-import { Hypersphere, type Circle2 } from './Hypersphere';
-import { logAssert } from './Logger';
-import { Vector, add, div, mul, sub, dot, length } from './Vector';
+import { Hypersphere, type Circle2 } from './Hypersphere.js';
+import { logAssert } from './Logger.js';
+import { Vector, add, div, mul, sub, dot, length } from './Vector.js';
 
 // Compute the smallest bounding circle whose center is the average of the
 // input points. Upstream reads points[0] unconditionally, so at least one

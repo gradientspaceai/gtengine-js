@@ -3,9 +3,9 @@ import {
     ETManifoldMesh,
     ETManifoldMeshEdge,
     ETManifoldMeshTriangle
-} from '../src/ETManifoldMesh';
-import { EdgeKey } from '../src/EdgeKey';
-import { TriangleKey } from '../src/TriangleKey';
+} from '../src/ETManifoldMesh.js';
+import { EdgeKey } from '../src/EdgeKey.js';
+import { TriangleKey } from '../src/TriangleKey.js';
 
 // The ordered triangle keys of the mesh (or of a component), as arrays of the
 // three vertex indices.

@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
     IntrOrientedBox3OrientedBox3TI
-} from '../src/IntrOrientedBox3OrientedBox3';
-import { OrientedBox } from '../src/OrientedBox';
-import { Vector, add, dot, mul, normalize, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+} from '../src/IntrOrientedBox3OrientedBox3.js';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 const ti = new IntrOrientedBox3OrientedBox3TI();
 

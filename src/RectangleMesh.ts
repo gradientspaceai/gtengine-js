@@ -12,11 +12,11 @@
 // MeshChannel.allocate (the B77/B84 precedent set by TubeMesh and
 // RevolutionMesh).
 
-import { Mesh, MeshChannel, MeshDescription, MeshTopology } from './Mesh';
-import { Rectangle } from './Rectangle';
-import { logAssert } from './Logger';
-import { Vector, add, mul } from './Vector';
-import { unitCross } from './Vector3';
+import { Mesh, MeshChannel, MeshDescription, MeshTopology } from './Mesh.js';
+import { Rectangle } from './Rectangle.js';
+import { logAssert } from './Logger.js';
+import { Vector, add, mul } from './Vector.js';
+import { unitCross } from './Vector3.js';
 
 export class RectangleMesh extends Mesh {
     protected mRectangle: Rectangle;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { type FIQuery } from '../src/FIQuery';
+import { type FIQuery } from '../src/FIQuery.js';
 
 // A miniature find-intersection query in the style of the Intr* files:
 // interval-interval intersection in 1D.

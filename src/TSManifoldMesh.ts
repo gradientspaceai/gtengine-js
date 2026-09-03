@@ -35,10 +35,10 @@
 // it rather than rolling the insertion back. Prefer the default throwing
 // behavior.
 
-import { logAssert, logError } from './Logger';
-import { TriangleKey } from './TriangleKey';
-import { TetrahedronKey } from './TetrahedronKey';
-import { FeatureKey } from './FeatureKey';
+import { logAssert, logError } from './Logger.js';
+import { TriangleKey } from './TriangleKey.js';
+import { TetrahedronKey } from './TetrahedronKey.js';
+import { FeatureKey } from './FeatureKey.js';
 
 // The port of TSManifoldMesh::Triangle, a face of the mesh.
 export class TSManifoldMeshTriangle {

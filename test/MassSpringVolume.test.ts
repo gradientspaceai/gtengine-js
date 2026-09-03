@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { MassSpringVolume } from '../src/MassSpringVolume';
-import { MassSpringCurve } from '../src/MassSpringCurve';
-import { Vector, add, dot, length as vectorLength, sub } from '../src/Vector';
+import { MassSpringVolume } from '../src/MassSpringVolume.js';
+import { MassSpringCurve } from '../src/MassSpringCurve.js';
+import { Vector, add, dot, length as vectorLength, sub } from '../src/Vector.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

@@ -42,10 +42,10 @@
 // 'circle' array always has two elements; those with index >= numCircles have
 // a zero center and a zero radius, exactly as upstream.
 
-import { Hypersphere } from './Hypersphere';
-import { logAssert } from './Logger';
-import { Vector, add, dot, mul, sub } from './Vector';
-import { perp } from './Vector2';
+import { Hypersphere } from './Hypersphere.js';
+import { logAssert } from './Logger.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
+import { perp } from './Vector2.js';
 
 export interface CircleThroughTwoPointsSpecifiedRadiusResult {
     // The number of circles satisfying the constraints. The number is 2 when

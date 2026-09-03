@@ -23,10 +23,10 @@
 // (it describes closest[0] as the segment point); the code stores the line
 // point in closest[0], which is what the port documents.
 
-import type { DCPQuery } from './DCPQuery';
-import type { Line } from './Line';
-import type { Segment } from './Segment';
-import { Vector, add, dot, mul, sub } from './Vector';
+import type { DCPQuery } from './DCPQuery.js';
+import type { Line } from './Line.js';
+import type { Segment } from './Segment.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
 
 export interface DistLineSegmentResult {
     distance: number;

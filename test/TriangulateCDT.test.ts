@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { PolygonTree, PolygonTreeEx } from '../src/PolygonTree';
-import { TriangulateCDT } from '../src/TriangulateCDT';
-import { Vector } from '../src/Vector';
+import { PolygonTree, PolygonTreeEx } from '../src/PolygonTree.js';
+import { TriangulateCDT } from '../src/TriangulateCDT.js';
+import { Vector } from '../src/Vector.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { BVTree, BVTreeNode } from '../src/BVTree';
+import { BVTree, BVTreeNode } from '../src/BVTree.js';
 import type {
     BVTreeBoundingVolume, BVTreeSplittingAxis, BVTreeVolumeOps
-} from '../src/BVTree';
-import { Vector, dot, sub } from '../src/Vector';
+} from '../src/BVTree.js';
+import { Vector, dot, sub } from '../src/Vector.js';
 
 // ---------------------------------------------------------------------------
 // A concrete BoundingVolume: an axis-aligned bounding box. Upstream this is

@@ -47,21 +47,21 @@
 //     #167, filed for the identical bug in BVTreeOfTriangles.h (where the
 //     port preserved the quirk).
 
-import { IntrLine3OrientedBox3TI } from './IntrLine3OrientedBox3';
-import { IntrLine3Triangle3FI } from './IntrLine3Triangle3';
-import { IntrRay3OrientedBox3TI } from './IntrRay3OrientedBox3';
-import { IntrRay3Triangle3FI } from './IntrRay3Triangle3';
-import { IntrSegment3OrientedBox3TI } from './IntrSegment3OrientedBox3';
-import { IntrSegment3Triangle3FI } from './IntrSegment3Triangle3';
-import { Line } from './Line';
-import { logAssert } from './Logger';
-import { OBBNode, OBBTree } from './OBBTree';
-import { OrientedBox } from './OrientedBox';
-import { Ray } from './Ray';
-import { Segment } from './Segment';
-import { Triangle } from './Triangle';
-import { Vector, add, div, dot, length, normalize, sub } from './Vector';
-import { cross, unitCross } from './Vector3';
+import { IntrLine3OrientedBox3TI } from './IntrLine3OrientedBox3.js';
+import { IntrLine3Triangle3FI } from './IntrLine3Triangle3.js';
+import { IntrRay3OrientedBox3TI } from './IntrRay3OrientedBox3.js';
+import { IntrRay3Triangle3FI } from './IntrRay3Triangle3.js';
+import { IntrSegment3OrientedBox3TI } from './IntrSegment3OrientedBox3.js';
+import { IntrSegment3Triangle3FI } from './IntrSegment3Triangle3.js';
+import { Line } from './Line.js';
+import { logAssert } from './Logger.js';
+import { OBBNode, OBBTree } from './OBBTree.js';
+import { OrientedBox } from './OrientedBox.js';
+import { Ray } from './Ray.js';
+import { Segment } from './Segment.js';
+import { Triangle } from './Triangle.js';
+import { Vector, add, div, dot, length, normalize, sub } from './Vector.js';
+import { cross, unitCross } from './Vector3.js';
 
 // The port of the upstream function-pointer type BoxQuery.
 type BoxQuery = (P: Vector, Q: Vector, box: OrientedBox) => boolean;

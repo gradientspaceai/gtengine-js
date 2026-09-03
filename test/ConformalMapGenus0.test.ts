@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { ConformalMapGenus0 } from '../src/ConformalMapGenus0';
-import { Vector, dot, length, normalize, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+import { ConformalMapGenus0 } from '../src/ConformalMapGenus0.js';
+import { Vector, dot, length, normalize, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 interface Mesh {
     positions: Vector[];

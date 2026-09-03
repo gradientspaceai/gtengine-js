@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { BasisFunctionInput } from '../src/BasisFunction';
-import { BSplineGeodesic } from '../src/BSplineGeodesic';
-import { BSplineSurface } from '../src/BSplineSurface';
-import { GVector } from '../src/GVector';
-import { Vector, add, length, mul, sub } from '../src/Vector';
+import { BasisFunctionInput } from '../src/BasisFunction.js';
+import { BSplineGeodesic } from '../src/BSplineGeodesic.js';
+import { BSplineSurface } from '../src/BSplineSurface.js';
+import { GVector } from '../src/GVector.js';
+import { Vector, add, length, mul, sub } from '../src/Vector.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

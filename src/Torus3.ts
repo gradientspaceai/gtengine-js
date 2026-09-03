@@ -45,8 +45,8 @@
 // buffer, and 'GetParameters' returns { u, v } instead of writing to output
 // references.
 
-import { logAssert } from './Logger';
-import { Vector, add, sub, mul, dot, negate } from './Vector';
+import { logAssert } from './Logger.js';
+import { Vector, add, sub, mul, dot, negate } from './Vector.js';
 
 export class Torus3 {
     // Public member access.

@@ -25,18 +25,18 @@
 // - The private helpers PrepareCircles and DoQueryParallelPlanes become
 //   module-private functions.
 
-import { AxisAngle } from './AxisAngle';
-import { BSRational } from './BSRational';
-import { Circle3 } from './Circle3';
-import type { DCPQuery } from './DCPQuery';
-import { logAssert } from './Logger';
-import { Matrix, mulMatrix } from './Matrix';
-import { RootsGeneralPolynomial } from './RootsGeneralPolynomial';
-import { Rotation } from './Rotation';
+import { AxisAngle } from './AxisAngle.js';
+import { BSRational } from './BSRational.js';
+import { Circle3 } from './Circle3.js';
+import type { DCPQuery } from './DCPQuery.js';
+import { logAssert } from './Logger.js';
+import { Matrix, mulMatrix } from './Matrix.js';
+import { RootsGeneralPolynomial } from './RootsGeneralPolynomial.js';
+import { Rotation } from './Rotation.js';
 import {
     Vector, add, div, dot, getOrthogonal, length, mul, negate, normalize, sub
-} from './Vector';
-import { cross, unitCross } from './Vector3';
+} from './Vector.js';
+import { cross, unitCross } from './Vector3.js';
 
 export interface DistCircle3Circle3Result {
     distance: number;

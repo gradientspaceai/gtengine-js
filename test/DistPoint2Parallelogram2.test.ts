@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { DistPoint2Parallelogram2 } from '../src/DistPoint2Parallelogram2';
-import { Parallelogram2 } from '../src/Parallelogram2';
-import { Vector, add, length, mul, sub } from '../src/Vector';
+import { DistPoint2Parallelogram2 } from '../src/DistPoint2Parallelogram2.js';
+import { Parallelogram2 } from '../src/Parallelogram2.js';
+import { Vector, add, length, mul, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

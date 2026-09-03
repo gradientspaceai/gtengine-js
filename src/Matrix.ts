@@ -43,9 +43,9 @@
 // Dimension mismatches (compile errors upstream for Matrix, LogError calls
 // for GMatrix) throw via logAssert/logError in both cases.
 
-import { GaussianElimination } from './GaussianElimination';
-import { logAssert, logError } from './Logger';
-import { Vector } from './Vector';
+import { GaussianElimination } from './GaussianElimination.js';
+import { logAssert, logError } from './Logger.js';
+import { Vector } from './Vector.js';
 
 export class Matrix {
     // The matrix elements in row-major order. The contents may be read and

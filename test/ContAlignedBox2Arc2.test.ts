@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { getContainerAlignedBox2Arc2 } from '../src/ContAlignedBox2Arc2';
-import { Arc2 } from '../src/Arc2';
-import { Vector } from '../src/Vector';
+import { getContainerAlignedBox2Arc2 } from '../src/ContAlignedBox2Arc2.js';
+import { Arc2 } from '../src/Arc2.js';
+import { Vector } from '../src/Vector.js';
 
 function v(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

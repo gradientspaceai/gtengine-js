@@ -1,18 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { AlignedBox } from '../src/AlignedBox';
+import { AlignedBox } from '../src/AlignedBox.js';
 import {
     IntrRay3AlignedBox3TI,
     IntrRay3AlignedBox3FI
-} from '../src/IntrRay3AlignedBox3';
+} from '../src/IntrRay3AlignedBox3.js';
 import {
     IntrRay3OrientedBox3TI,
     IntrRay3OrientedBox3FI,
     defaultIntrRay3OrientedBox3FIResult
-} from '../src/IntrRay3OrientedBox3';
-import { OrientedBox } from '../src/OrientedBox';
-import { Ray } from '../src/Ray';
-import { Vector, add, dot, mul, normalize, sub } from '../src/Vector';
-import { computeOrthogonalComplement3 } from '../src/Vector3';
+} from '../src/IntrRay3OrientedBox3.js';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Ray } from '../src/Ray.js';
+import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
+import { computeOrthogonalComplement3 } from '../src/Vector3.js';
 
 function vec(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

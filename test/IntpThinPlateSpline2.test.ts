@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     IntpThinPlateSpline2, intpThinPlateSpline2Kernel
-} from '../src/IntpThinPlateSpline2';
+} from '../src/IntpThinPlateSpline2.js';
 
 // ---------------------------------------------------------------------------
 // An independent implementation of the classical thin-plate spline, used to

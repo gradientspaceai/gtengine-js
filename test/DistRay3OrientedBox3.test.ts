@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { DistRay3OrientedBox3 } from '../src/DistRay3OrientedBox3';
-import { OrientedBox } from '../src/OrientedBox';
-import { Ray } from '../src/Ray';
-import { Vector, add, dot, length, mul, sub } from '../src/Vector';
+import { DistRay3OrientedBox3 } from '../src/DistRay3OrientedBox3.js';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Ray } from '../src/Ray.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

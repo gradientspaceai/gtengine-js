@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { Line } from '../src/Line';
-import { Triangle } from '../src/Triangle';
-import { Vector, add, mul, normalize } from '../src/Vector';
-import { dotPerp } from '../src/Vector2';
+import { Line } from '../src/Line.js';
+import { Triangle } from '../src/Triangle.js';
+import { Vector, add, mul, normalize } from '../src/Vector.js';
+import { dotPerp } from '../src/Vector2.js';
 import {
     IntrLine2Triangle2TI,
     IntrLine2Triangle2FI
-} from '../src/IntrLine2Triangle2';
+} from '../src/IntrLine2Triangle2.js';
 
 function line(px: number, py: number, dx: number, dy: number): Line {
     return Line.fromOriginDirection(Vector.fromArray([px, py]),

@@ -12,7 +12,7 @@
 // static_assert. This port takes the degree as a runtime argument validated
 // by logAssert; see exp2Estimate below.
 
-import { logAssert } from './Logger';
+import { logAssert } from './Logger.js';
 
 const C_EXP2_EST_COEFF: readonly (readonly number[])[] = [
     [   // degree 1

@@ -11,9 +11,9 @@
 // template is dimension-generic (Cone<N,Real>), and the port's Cone carries
 // its dimension at runtime, so a single function serves every N.
 
-import { Cone } from './Cone';
-import { logAssert } from './Logger';
-import { Vector, dot, sub } from './Vector';
+import { Cone } from './Cone.js';
+import { logAssert } from './Logger.js';
+import { Vector, dot, sub } from './Vector.js';
 
 // Test for containment of a point by a cone. The cone axis direction must be
 // unit length and the cone angle must have been set (see Cone.setAngle),

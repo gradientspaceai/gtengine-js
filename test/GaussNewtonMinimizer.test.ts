@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { GaussNewtonMinimizer } from '../src/GaussNewtonMinimizer';
-import { Matrix } from '../src/Matrix';
-import { Vector } from '../src/Vector';
+import { GaussNewtonMinimizer } from '../src/GaussNewtonMinimizer.js';
+import { Matrix } from '../src/Matrix.js';
+import { Vector } from '../src/Vector.js';
 
 // A deterministic pseudorandom generator so the randomized cross-checks are
 // reproducible.

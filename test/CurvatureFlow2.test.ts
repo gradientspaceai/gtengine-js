@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { CurvatureFlow2 } from '../src/CurvatureFlow2';
-import { PdeFilterScaleType } from '../src/PdeFilter';
+import { CurvatureFlow2 } from '../src/CurvatureFlow2.js';
+import { PdeFilterScaleType } from '../src/PdeFilter.js';
 
 const NEUMANN = Number.MAX_VALUE;
 

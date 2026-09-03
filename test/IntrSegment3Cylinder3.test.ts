@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { Cylinder3 } from '../src/Cylinder3';
+import { Cylinder3 } from '../src/Cylinder3.js';
 import {
     IntrSegment3Cylinder3FI,
     defaultIntrSegment3Cylinder3FIResult,
     intrSegment3Cylinder3FIDoQuery
-} from '../src/IntrSegment3Cylinder3';
-import { IntrLine3Cylinder3FI } from '../src/IntrLine3Cylinder3';
-import { Line } from '../src/Line';
-import { Segment } from '../src/Segment';
-import { Vector, add, dot, mul, normalize, sub } from '../src/Vector';
+} from '../src/IntrSegment3Cylinder3.js';
+import { IntrLine3Cylinder3FI } from '../src/IntrLine3Cylinder3.js';
+import { Line } from '../src/Line.js';
+import { Segment } from '../src/Segment.js';
+import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
 
 function vec(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

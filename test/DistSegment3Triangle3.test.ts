@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { DistPointTriangle } from '../src/DistPointTriangle';
-import { DistSegment3Triangle3 } from '../src/DistSegment3Triangle3';
+import { DistPointTriangle } from '../src/DistPointTriangle.js';
+import { DistSegment3Triangle3 } from '../src/DistSegment3Triangle3.js';
 import type { DistSegment3Triangle3Result }
-    from '../src/DistSegment3Triangle3';
-import { Segment } from '../src/Segment';
-import { Triangle } from '../src/Triangle';
-import { Vector, add, dot, mul, sub } from '../src/Vector';
+    from '../src/DistSegment3Triangle3.js';
+import { Segment } from '../src/Segment.js';
+import { Triangle } from '../src/Triangle.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

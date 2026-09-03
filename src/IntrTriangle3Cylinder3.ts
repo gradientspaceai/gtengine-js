@@ -23,13 +23,13 @@
 // the IntrCanonicalBox3Cylinder3 precedent (B69) and upstream issues
 // #187/#197, the port asserts that the cylinder is finite.
 
-import type { Cylinder3 } from './Cylinder3';
-import { logAssert } from './Logger';
-import type { TIQuery } from './TIQuery';
-import type { Triangle } from './Triangle';
-import { Vector, add, div, dot, mul, sub } from './Vector';
-import { dotPerp } from './Vector2';
-import { computeOrthogonalComplement3 } from './Vector3';
+import type { Cylinder3 } from './Cylinder3.js';
+import { logAssert } from './Logger.js';
+import type { TIQuery } from './TIQuery.js';
+import type { Triangle } from './Triangle.js';
+import { Vector, add, div, dot, mul, sub } from './Vector.js';
+import { dotPerp } from './Vector2.js';
+import { computeOrthogonalComplement3 } from './Vector3.js';
 
 // The result of IntrTriangle3Cylinder3TI.test.
 export interface IntrTriangle3Cylinder3TIResult {

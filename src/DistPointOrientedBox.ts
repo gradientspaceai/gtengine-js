@@ -20,11 +20,11 @@
 // DCPPoint2OrientedBox2/DCPPoint3OrientedBox3 are dropped since the
 // runtime-dimension Vector serves every N.
 
-import { CanonicalBox } from './CanonicalBox';
-import type { DCPQuery } from './DCPQuery';
-import { DistPointCanonicalBox } from './DistPointCanonicalBox';
-import type { OrientedBox } from './OrientedBox';
-import { Vector, add, dot, mul, sub } from './Vector';
+import { CanonicalBox } from './CanonicalBox.js';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistPointCanonicalBox } from './DistPointCanonicalBox.js';
+import type { OrientedBox } from './OrientedBox.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
 
 export interface DistPointOrientedBoxResult {
     distance: number;

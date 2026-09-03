@@ -31,10 +31,10 @@
 // upstream file name uses 'Disk2' although the query type is Circle2, which
 // is the ported Hypersphere with dimension 2.
 
-import type { Hypersphere } from './Hypersphere';
-import type { Sector2 } from './Sector2';
-import { Vector, sub, mul, dot, length } from './Vector';
-import type { TIQuery } from './TIQuery';
+import type { Hypersphere } from './Hypersphere.js';
+import type { Sector2 } from './Sector2.js';
+import { Vector, sub, mul, dot, length } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrDisk2Sector2TI.test.
 export interface IntrDisk2Sector2TIResult {

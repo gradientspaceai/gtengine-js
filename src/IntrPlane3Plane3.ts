@@ -8,15 +8,15 @@
 // a TIQuery and an FIQuery specialization, which become IntrPlane3Plane3TI
 // and IntrPlane3Plane3FI.
 
-import type { FIQuery } from './FIQuery';
-import { Hyperplane } from './Hyperplane';
-import type { Plane3 } from './Hyperplane';
-import { Line } from './Line';
-import type { Line3 } from './Line';
-import { logAssert } from './Logger';
-import { Vector, add, dot, mul } from './Vector';
-import { unitCross } from './Vector3';
-import type { TIQuery } from './TIQuery';
+import type { FIQuery } from './FIQuery.js';
+import { Hyperplane } from './Hyperplane.js';
+import type { Plane3 } from './Hyperplane.js';
+import { Line } from './Line.js';
+import type { Line3 } from './Line.js';
+import { logAssert } from './Logger.js';
+import { Vector, add, dot, mul } from './Vector.js';
+import { unitCross } from './Vector3.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrPlane3Plane3TI.test.
 export interface IntrPlane3Plane3TIResult {

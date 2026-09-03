@@ -26,14 +26,14 @@
 // line-triangle result type, re-exported here as the alias
 // DistSegment2Triangle2Result.
 
-import type { DCPQuery } from './DCPQuery';
-import { DistLine2Triangle2 } from './DistLine2Triangle2';
-import type { DistLine2Triangle2Result } from './DistLine2Triangle2';
-import { DistPointTriangle } from './DistPointTriangle';
-import { Line } from './Line';
-import type { Segment2 } from './Segment';
-import type { Triangle2 } from './Triangle';
-import { Vector, sub } from './Vector';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistLine2Triangle2 } from './DistLine2Triangle2.js';
+import type { DistLine2Triangle2Result } from './DistLine2Triangle2.js';
+import { DistPointTriangle } from './DistPointTriangle.js';
+import { Line } from './Line.js';
+import type { Segment2 } from './Segment.js';
+import type { Triangle2 } from './Triangle.js';
+import { Vector, sub } from './Vector.js';
 
 // Upstream reuses the line-triangle result type ('using Result = typename
 // LTQuery::Result').

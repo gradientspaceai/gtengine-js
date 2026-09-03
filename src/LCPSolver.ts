@@ -4,7 +4,7 @@
 // Distributed under the Boost Software License, Version 1.0.
 // https://www.boost.org/LICENSE_1_0.txt
 
-import { logError } from './Logger';
+import { logError } from './Logger.js';
 
 // A class for solving the Linear Complementarity Problem (LCP)
 //   w = q + M * z,  w^T * z = 0,  w >= 0,  z >= 0

@@ -4,10 +4,10 @@ import {
     IntrTriangle3Triangle3FI,
     defaultIntrTriangle3Triangle3FIResult,
     defaultIntrTriangle3Triangle3TIResult
-} from '../src/IntrTriangle3Triangle3';
-import { Triangle } from '../src/Triangle';
-import { Vector, add, dot, mul, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+} from '../src/IntrTriangle3Triangle3.js';
+import { Triangle } from '../src/Triangle.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 function vec(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

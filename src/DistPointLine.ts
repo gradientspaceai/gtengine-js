@@ -26,9 +26,9 @@
 //   the upstream aliases DCPPoint2Line2/DCPPoint3Line3 have no port; the one
 //   class serves every dimension.
 
-import type { DCPQuery } from './DCPQuery';
-import type { Line } from './Line';
-import { Vector, add, dot, mul, sub } from './Vector';
+import type { DCPQuery } from './DCPQuery.js';
+import type { Line } from './Line.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
 
 export interface DistPointLineResult {
     distance: number;

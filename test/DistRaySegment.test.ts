@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
     DistRaySegment, type DistRaySegmentResult
-} from '../src/DistRaySegment';
-import { Ray } from '../src/Ray';
-import { Segment } from '../src/Segment';
-import { Vector, add, dot, mul, sub } from '../src/Vector';
+} from '../src/DistRaySegment.js';
+import { Ray } from '../src/Ray.js';
+import { Segment } from '../src/Segment.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

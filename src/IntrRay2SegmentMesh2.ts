@@ -15,12 +15,12 @@
 // 'std::remove_if' followed by a copy of the surviving range is an
 // order-preserving filter.
 
-import type { FIQuery } from './FIQuery';
-import { IntrLine2SegmentMesh2FI } from './IntrLine2SegmentMesh2';
-import { Line } from './Line';
-import type { Ray2 } from './Ray';
-import type { SegmentMesh2 } from './SegmentMesh';
-import type { Vector } from './Vector';
+import type { FIQuery } from './FIQuery.js';
+import { IntrLine2SegmentMesh2FI } from './IntrLine2SegmentMesh2.js';
+import { Line } from './Line.js';
+import type { Ray2 } from './Ray.js';
+import type { SegmentMesh2 } from './SegmentMesh.js';
+import type { Vector } from './Vector.js';
 
 // One point at which the ray intersects a mesh segment.
 export interface IntrRay2SegmentMesh2Intersection {

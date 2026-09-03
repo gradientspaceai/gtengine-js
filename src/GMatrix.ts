@@ -15,7 +15,7 @@
 // mulMatrix, divMatrix, l1Norm, l2Norm, lInfinityNorm, inverse, determinant,
 // transpose, multiplyAB, multiplyABT, multiplyATB, multiplyATBT, multiplyMD,
 // multiplyDM, outerProduct, makeDiagonal) apply to GMatrix unchanged and are
-// NOT duplicated here; import them from './Matrix' (upstream GMatrix.h
+// NOT duplicated here; import them from './Matrix.js' (upstream GMatrix.h
 // re-implements them with identical algorithms). They accept GMatrix inputs
 // and return plain Matrix results; call GMatrix.fromMatrix(result) when a
 // resizable matrix is needed.
@@ -41,9 +41,9 @@
 // upstream ("Division by zero.") but the shared divMatrix() from Matrix.ts
 // returns the zero matrix (Matrix.h behavior).
 
-import { logError } from './Logger';
-import { Matrix } from './Matrix';
-import { Vector } from './Vector';
+import { logError } from './Logger.js';
+import { Matrix } from './Matrix.js';
+import { Vector } from './Vector.js';
 
 export class GMatrix extends Matrix {
     // Create a numRows-by-numCols matrix (default 0-by-0, matching the

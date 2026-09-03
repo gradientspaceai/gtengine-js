@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { Halfspace } from '../src/Halfspace';
-import { OrientedBox } from '../src/OrientedBox';
-import { Vector, dot, normalize } from '../src/Vector';
-import { IntrHalfspace3OrientedBox3TI } from '../src/IntrHalfspace3OrientedBox3';
+import { Halfspace } from '../src/Halfspace.js';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Vector, dot, normalize } from '../src/Vector.js';
+import { IntrHalfspace3OrientedBox3TI } from '../src/IntrHalfspace3OrientedBox3.js';
 
 function halfspace(nx: number, ny: number, nz: number, c: number): Halfspace {
     const n = Vector.fromArray([nx, ny, nz]);

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { Halfspace } from '../src/Halfspace';
-import { Vector, dot } from '../src/Vector';
+import { Halfspace } from '../src/Halfspace.js';
+import { Vector, dot } from '../src/Vector.js';
 
 describe('Halfspace construction', () => {
     it('the default constructor is x[N-1] >= 0', () => {

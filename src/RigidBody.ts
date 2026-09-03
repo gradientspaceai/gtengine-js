@@ -34,18 +34,18 @@
 //   |q|^2 and |q|^4 respectively and corrupts the integration. The port uses
 //   the normalized member. See the comment in setQOrientation.
 
-import { logAssert } from './Logger';
+import { logAssert } from './Logger.js';
 import {
     Matrix, mulMatrix, multiplyABT
-} from './Matrix';
-import { inverse3x3 } from './Matrix3x3';
-import { LinearSystem } from './LinearSystem';
+} from './Matrix.js';
+import { inverse3x3 } from './Matrix3x3.js';
+import { LinearSystem } from './LinearSystem.js';
 import {
     Quaternion, addQuaternion, mulQuaternion
-} from './Quaternion';
-import { Rotation } from './Rotation';
-import { Vector, add, dot, mul, normalize, sub } from './Vector';
-import { cross } from './Vector3';
+} from './Quaternion.js';
+import { Rotation } from './Rotation.js';
+import { Vector, add, dot, mul, normalize, sub } from './Vector.js';
+import { cross } from './Vector3.js';
 
 // The force and torque functionals. The first input is the simulation time.
 // The second input is the rigid body state.

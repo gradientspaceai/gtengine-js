@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { ConvexMesh3 } from '../src/ConvexMesh3';
+import { ConvexMesh3 } from '../src/ConvexMesh3.js';
 import type {
     ConvexMesh3Triangle, ConvexMesh3Vertex
-} from '../src/ConvexMesh3';
-import { Vector, dot, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+} from '../src/ConvexMesh3.js';
+import { Vector, dot, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 function vertex(x: number, y: number, z: number): ConvexMesh3Vertex {
     return Vector.fromArray([x, y, z]);

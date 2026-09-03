@@ -20,7 +20,7 @@
 // The samples array is aliased, not copied, matching the upstream
 // 'Real const* F' member.
 
-import { logAssert } from './Logger';
+import { logAssert } from './Logger.js';
 
 export class IntpBilinear2 {
     private mXBound: number;

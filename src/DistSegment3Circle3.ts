@@ -23,15 +23,15 @@
 // SegmentEndpointClosest and SelectClosestPoint become module-private
 // functions.
 
-import type { Circle3 } from './Circle3';
-import type { DCPQuery } from './DCPQuery';
-import { distLine3Circle3Execute } from './DistLine3Circle3';
+import type { Circle3 } from './Circle3.js';
+import type { DCPQuery } from './DCPQuery.js';
+import { distLine3Circle3Execute } from './DistLine3Circle3.js';
 import type { DistLine3Circle3Critical, DistLine3Circle3Result }
-    from './DistLine3Circle3';
-import { DistPoint3Circle3 } from './DistPoint3Circle3';
-import { Line } from './Line';
-import type { Segment3 } from './Segment';
-import { Vector, sub } from './Vector';
+    from './DistLine3Circle3.js';
+import { DistPoint3Circle3 } from './DistPoint3Circle3.js';
+import { Line } from './Line.js';
+import type { Segment3 } from './Segment.js';
+import { Vector, sub } from './Vector.js';
 
 // Upstream reuses the line-circle result type ('using Result = typename
 // LCQuery::Result').

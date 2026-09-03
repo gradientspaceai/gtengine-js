@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
     DistSegmentSegment, type DistSegmentSegmentResult
-} from '../src/DistSegmentSegment';
-import { Segment } from '../src/Segment';
-import { Vector, add, dot, mul, sub } from '../src/Vector';
+} from '../src/DistSegmentSegment.js';
+import { Segment } from '../src/Segment.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

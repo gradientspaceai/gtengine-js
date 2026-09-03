@@ -16,10 +16,10 @@
 // the code accumulates M = sum_i V[i]*V[i]^T (the correct normal-equation
 // matrix). The port implements the code, not the comment.
 
-import { Hypersphere } from './Hypersphere';
-import { Matrix } from './Matrix';
-import { SymmetricEigensolver } from './SymmetricEigensolver';
-import { Vector, dot } from './Vector';
+import { Hypersphere } from './Hypersphere.js';
+import { Matrix } from './Matrix.js';
+import { SymmetricEigensolver } from './SymmetricEigensolver.js';
+import { Vector, dot } from './Vector.js';
 
 export interface ApprQuadratic2Result {
     // The coefficients C[0..5] of the quadratic fit (a unit-length

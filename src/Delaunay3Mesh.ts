@@ -25,10 +25,10 @@
 // * The deprecated upstream specialization has a GetInvalidIndex() only in
 //   the replacement specialization; the port provides it, returning -1.
 
-import { logAssert } from './Logger';
-import { Vector } from './Vector';
-import { BSRational } from './BSRational';
-import { Delaunay3, Delaunay3SearchInfo } from './Delaunay3';
+import { logAssert } from './Logger.js';
+import { Vector } from './Vector.js';
+import { BSRational } from './BSRational.js';
+import { Delaunay3, Delaunay3SearchInfo } from './Delaunay3.js';
 
 // The port of Vector3<Rational>.
 type RationalPoint3 = [BSRational, BSRational, BSRational];

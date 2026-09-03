@@ -14,12 +14,12 @@
 // Port notes: see IntrIntervals.ts for the Intr* precedent. Upstream has only
 // a TIQuery specialization, which becomes IntrPlane3OrientedBox3TI.
 
-import { DistPointHyperplane } from './DistPointHyperplane';
-import { logAssert } from './Logger';
-import type { OrientedBox3 } from './OrientedBox';
-import type { Plane3 } from './Hyperplane';
-import { dot } from './Vector';
-import type { TIQuery } from './TIQuery';
+import { DistPointHyperplane } from './DistPointHyperplane.js';
+import { logAssert } from './Logger.js';
+import type { OrientedBox3 } from './OrientedBox.js';
+import type { Plane3 } from './Hyperplane.js';
+import { dot } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrPlane3OrientedBox3TI.test.
 export interface IntrPlane3OrientedBox3TIResult {

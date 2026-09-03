@@ -37,16 +37,16 @@
 // - Upstream's 'operator Matrix4x4<Real> const&' implicit conversion has no
 //   TypeScript equivalent; use 'getHMatrix()'.
 
-import { logAssert } from './Logger';
+import { logAssert } from './Logger.js';
 import {
     Matrix, mulMatrix, multiplyMD, transpose
-} from './Matrix';
-import { inverse4x4 } from './Matrix4x4';
-import { Quaternion } from './Quaternion';
-import { AxisAngle } from './AxisAngle';
-import { EulerAngles } from './EulerAngles';
-import { Rotation } from './Rotation';
-import { Vector, add, mul, hlift, hproject } from './Vector';
+} from './Matrix.js';
+import { inverse4x4 } from './Matrix4x4.js';
+import { Quaternion } from './Quaternion.js';
+import { AxisAngle } from './AxisAngle.js';
+import { EulerAngles } from './EulerAngles.js';
+import { Rotation } from './Rotation.js';
+import { Vector, add, mul, hlift, hproject } from './Vector.js';
 
 function vector4(x0: number, x1: number, x2: number, x3: number): Vector {
     return Vector.fromArray([x0, x1, x2, x3]);

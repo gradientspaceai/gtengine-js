@@ -17,9 +17,9 @@
 // upstream specialization 'DCPQuery<T, Vector<N,T>, Segment<N,T>>' becomes
 // the class DistPointSegment with the result type DistPointSegmentResult.
 
-import type { DCPQuery } from './DCPQuery';
-import type { Segment } from './Segment';
-import { Vector, add, dot, mul, sub } from './Vector';
+import type { DCPQuery } from './DCPQuery.js';
+import type { Segment } from './Segment.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
 
 export interface DistPointSegmentResult {
     distance: number;

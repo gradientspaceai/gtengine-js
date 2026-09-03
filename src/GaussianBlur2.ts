@@ -14,8 +14,8 @@
 // getMaximumTimeStep, as upstream. The C++ mBuffer[mDst][y][x] becomes
 // mBuffer[mDst].set(x, y, ...) per the Array2 port.
 
-import { PdeFilter2 } from './PdeFilter2';
-import { PdeFilterScaleType } from './PdeFilter';
+import { PdeFilter2 } from './PdeFilter2.js';
+import { PdeFilterScaleType } from './PdeFilter.js';
 
 export class GaussianBlur2 extends PdeFilter2 {
     // The largest time step for which the explicit Euler update is stable.

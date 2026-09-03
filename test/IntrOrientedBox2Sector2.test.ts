@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { OrientedBox } from '../src/OrientedBox';
-import { Sector2 } from '../src/Sector2';
-import { Vector, add, mul, normalize } from '../src/Vector';
-import { IntrOrientedBox2Sector2TI } from '../src/IntrOrientedBox2Sector2';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Sector2 } from '../src/Sector2.js';
+import { Vector, add, mul, normalize } from '../src/Vector.js';
+import { IntrOrientedBox2Sector2TI } from '../src/IntrOrientedBox2Sector2.js';
 
 function vec(a: number[]): Vector {
     return Vector.fromArray(a);

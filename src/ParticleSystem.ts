@@ -20,7 +20,7 @@
 //   upstream relies on that value semantics, so that no two entries of the
 //   position/velocity/temporary arrays ever alias one another.
 
-import { Vector, add, mul } from './Vector';
+import { Vector, add, mul } from './Vector.js';
 
 // Temporary storage for the Runge-Kutta differential equation solver (the
 // port of ParticleSystem::Temporary).

@@ -37,15 +37,15 @@
 // * The upstream 'void Insert(edge, std::vector<int32_t>& partitionedEdge)'
 //   becomes 'insert(edge): number[]' returning the partitioned edge.
 
-import { logAssert } from './Logger';
-import { BSNumber } from './BSNumber';
-import { Delaunay2 } from './Delaunay2';
-import { EdgeKey } from './EdgeKey';
-import { TriangleKey } from './TriangleKey';
-import { FeatureKey } from './FeatureKey';
-import type { ETManifoldMeshTriangle } from './ETManifoldMesh';
-import type { VETManifoldMeshVertex } from './VETManifoldMesh';
-import type { Vector } from './Vector';
+import { logAssert } from './Logger.js';
+import { BSNumber } from './BSNumber.js';
+import { Delaunay2 } from './Delaunay2.js';
+import { EdgeKey } from './EdgeKey.js';
+import { TriangleKey } from './TriangleKey.js';
+import { FeatureKey } from './FeatureKey.js';
+import type { ETManifoldMeshTriangle } from './ETManifoldMesh.js';
+import type { VETManifoldMeshVertex } from './VETManifoldMesh.js';
+import type { Vector } from './Vector.js';
 
 export class ConstrainedDelaunay2 extends Delaunay2 {
     // All edges inserted via the insert(...) call are stored for use by the

@@ -1,16 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { AlignedBox } from '../src/AlignedBox';
-import { Line } from '../src/Line';
-import { OrientedBox } from '../src/OrientedBox';
-import { Vector, add, mul, sub, dot, normalize } from '../src/Vector';
+import { AlignedBox } from '../src/AlignedBox.js';
+import { Line } from '../src/Line.js';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Vector, add, mul, sub, dot, normalize } from '../src/Vector.js';
 import {
     IntrLine2AlignedBox2TI,
     IntrLine2AlignedBox2FI
-} from '../src/IntrLine2AlignedBox2';
+} from '../src/IntrLine2AlignedBox2.js';
 import {
     IntrLine2OrientedBox2TI,
     IntrLine2OrientedBox2FI
-} from '../src/IntrLine2OrientedBox2';
+} from '../src/IntrLine2OrientedBox2.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

@@ -30,13 +30,13 @@
 //   - The three upstream 'Solve' overloads are distinguished by arity in C++;
 //     the port names them solve (general), solveMonic and solveDepressed.
 
-import { BSRational } from './BSRational';
-import { fma } from './Functions';
-import { PolynomialRoot, polynomialRootBisect } from './PolynomialRoot';
+import { BSRational } from './BSRational.js';
+import { fma } from './Functions.js';
+import { PolynomialRoot, polynomialRootBisect } from './PolynomialRoot.js';
 import {
     PolynomialRootRational, type RootsScalarOps, rootsNumberOps, rootsRationalOps,
     solveLinearGeneric, solveMonicLinearGeneric, sortRoots
-} from './RootsLinear';
+} from './RootsLinear.js';
 
 const HALF = BSRational.fromNumber(0.5);
 

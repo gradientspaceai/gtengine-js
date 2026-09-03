@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { Hypersphere } from '../src/Hypersphere';
-import { Triangle } from '../src/Triangle';
-import { Vector, add, dot, mul, sub } from '../src/Vector';
-import { DistPointTriangle } from '../src/DistPointTriangle';
+import { Hypersphere } from '../src/Hypersphere.js';
+import { Triangle } from '../src/Triangle.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { DistPointTriangle } from '../src/DistPointTriangle.js';
 import {
     IntrSphere3Triangle3FI,
     IntrSphere3Triangle3FIResultType
-} from '../src/IntrSphere3Triangle3';
+} from '../src/IntrSphere3Triangle3.js';
 
 function vec(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

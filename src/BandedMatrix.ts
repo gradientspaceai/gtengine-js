@@ -4,7 +4,7 @@
 // Distributed under the Boost Software License, Version 1.0.
 // https://www.boost.org/LICENSE_1_0.txt
 
-import { LexicoArray2 } from './LexicoArray2';
+import { LexicoArray2 } from './LexicoArray2.js';
 
 // A square matrix stored as a diagonal band plus 'numLBands' subdiagonal
 // bands and 'numUBands' superdiagonal bands. Entries outside the bands are

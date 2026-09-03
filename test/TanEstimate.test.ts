@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
     tanEstimate, tanEstimateRR, getTanEstimateMaxError
-} from '../src/TanEstimate';
-import { GTE_C_QUARTER_PI } from '../src/Constants';
+} from '../src/TanEstimate.js';
+import { GTE_C_QUARTER_PI } from '../src/Constants.js';
 
 const DEGREES = [3, 5, 7, 9, 11, 13] as const;
 

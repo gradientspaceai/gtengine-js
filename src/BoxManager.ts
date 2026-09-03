@@ -26,9 +26,9 @@
 //   different relative order than in the C++ build. The set of overlapping
 //   pairs is unaffected.
 
-import { AlignedBox } from './AlignedBox';
-import { EdgeKey } from './EdgeKey';
-import { IntrAlignedBox3AlignedBox3TI } from './IntrAlignedBox3AlignedBox3';
+import { AlignedBox } from './AlignedBox.js';
+import { EdgeKey } from './EdgeKey.js';
+import { IntrAlignedBox3AlignedBox3TI } from './IntrAlignedBox3AlignedBox3.js';
 
 // An endpoint of a box interval along one coordinate axis.
 interface Endpoint {

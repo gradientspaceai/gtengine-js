@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
     Mesh, MeshChannel, MeshDescription, MeshTopology
-} from '../src/Mesh';
-import { IndexAttribute } from '../src/IndexAttribute';
-import { VertexAttribute } from '../src/VertexAttribute';
-import { Vector, dot, length, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+} from '../src/Mesh.js';
+import { IndexAttribute } from '../src/IndexAttribute.js';
+import { VertexAttribute } from '../src/VertexAttribute.js';
+import { Vector, dot, length, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 // A minimal concrete Mesh used to drive the protected base-class algorithms.
 // The positions are supplied by a parametric function of the grid indices.

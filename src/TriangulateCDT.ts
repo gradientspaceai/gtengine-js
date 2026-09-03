@@ -74,14 +74,14 @@
 // those triangles, so each insertion finds the existing triangle and does
 // nothing. The loop is kept because it also builds tree.allTriangles.
 
-import { logAssert } from './Logger';
-import { ConstrainedDelaunay2 } from './ConstrainedDelaunay2';
-import { EdgeKey } from './EdgeKey';
-import { FeatureKey } from './FeatureKey';
-import { ETManifoldMesh } from './ETManifoldMesh';
-import { PolygonTree, PolygonTreeEx, PolygonTreeExNode } from './PolygonTree';
-import { TriangleKey } from './TriangleKey';
-import type { Vector } from './Vector';
+import { logAssert } from './Logger.js';
+import { ConstrainedDelaunay2 } from './ConstrainedDelaunay2.js';
+import { EdgeKey } from './EdgeKey.js';
+import { FeatureKey } from './FeatureKey.js';
+import { ETManifoldMesh } from './ETManifoldMesh.js';
+import { PolygonTree, PolygonTreeEx, PolygonTreeExNode } from './PolygonTree.js';
+import { TriangleKey } from './TriangleKey.js';
+import type { Vector } from './Vector.js';
 
 // The port of std::set<TriangleKey<true>>: membership by the primitive map
 // key, with iteration in the sorted order that std::set uses.

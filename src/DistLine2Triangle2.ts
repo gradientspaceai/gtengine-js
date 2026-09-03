@@ -24,11 +24,11 @@
 // private helpers LineContainsVertex, LineIntersectsTwoEdges and
 // NoCommonPoints become module-private functions.
 
-import type { DCPQuery } from './DCPQuery';
-import type { Line2 } from './Line';
-import type { Triangle2 } from './Triangle';
-import { Vector, add, dot, mul, sub } from './Vector';
-import { dotPerp, perp } from './Vector2';
+import type { DCPQuery } from './DCPQuery.js';
+import type { Line2 } from './Line.js';
+import type { Triangle2 } from './Triangle.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
+import { dotPerp, perp } from './Vector2.js';
 
 export interface DistLine2Triangle2Result {
     distance: number;

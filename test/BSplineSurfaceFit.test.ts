@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { BSplineSurfaceFit } from '../src/BSplineSurfaceFit';
-import { Vector } from '../src/Vector';
+import { BSplineSurfaceFit } from '../src/BSplineSurfaceFit.js';
+import { Vector } from '../src/Vector.js';
 
 function makeRandom(seed: number): () => number {
     let state = seed >>> 0;

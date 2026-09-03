@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { ApprParallelLines2 } from '../src/ApprParallelLines2';
-import { Vector, dot } from '../src/Vector';
+import { ApprParallelLines2 } from '../src/ApprParallelLines2.js';
+import { Vector, dot } from '../src/Vector.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

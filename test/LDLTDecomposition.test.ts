@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
     BlockLDLTDecomposition, LDLTDecomposition
-} from '../src/LDLTDecomposition';
-import type { LDLTBlockVector } from '../src/LDLTDecomposition';
+} from '../src/LDLTDecomposition.js';
+import type { LDLTBlockVector } from '../src/LDLTDecomposition.js';
 import {
     Matrix, multiplyAB, multiplyABT, mulMatrix, transpose
-} from '../src/Matrix';
-import { Vector, sub } from '../src/Vector';
+} from '../src/Matrix.js';
+import { Vector, sub } from '../src/Vector.js';
 
 function makeRng(seed: number): () => number {
     let state = seed >>> 0;

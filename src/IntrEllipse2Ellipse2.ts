@@ -34,19 +34,19 @@
 // - The private case handlers and root finders become module-private
 //   functions.
 
-import { AlignedBox } from './AlignedBox';
-import { fma, robustDOP, robustSOP } from './Functions';
-import type { Hyperellipsoid } from './Hyperellipsoid';
-import { logAssert } from './Logger';
-import { Matrix, multiplyAB, multiplyATB, mulMatrix, outerProduct } from './Matrix';
-import { trace2x2 } from './Matrix2x2';
-import { Polynomial1 } from './Polynomial1';
-import { RootsBisection } from './RootsBisection';
-import { RootsPolynomial } from './RootsPolynomial';
-import type { RootMultiplicity } from './RootsPolynomial';
-import { SymmetricEigensolver2x2 } from './SymmetricEigensolver2x2';
-import { Vector, sub } from './Vector';
-import type { TIQuery } from './TIQuery';
+import { AlignedBox } from './AlignedBox.js';
+import { fma, robustDOP, robustSOP } from './Functions.js';
+import type { Hyperellipsoid } from './Hyperellipsoid.js';
+import { logAssert } from './Logger.js';
+import { Matrix, multiplyAB, multiplyATB, mulMatrix, outerProduct } from './Matrix.js';
+import { trace2x2 } from './Matrix2x2.js';
+import { Polynomial1 } from './Polynomial1.js';
+import { RootsBisection } from './RootsBisection.js';
+import { RootsPolynomial } from './RootsPolynomial.js';
+import type { RootMultiplicity } from './RootsPolynomial.js';
+import { SymmetricEigensolver2x2 } from './SymmetricEigensolver2x2.js';
+import { Vector, sub } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The relationship of the two solid ellipses.
 export enum IntrEllipse2Ellipse2Classification {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { RootsBisection1 } from '../src/RootsBisection1';
+import { RootsBisection1 } from '../src/RootsBisection1.js';
 
 // Deterministic pseudorandom generator so failures are reproducible.
 function makeRng(seed: number): () => number {

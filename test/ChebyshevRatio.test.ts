@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
     chebyshevRatio, chebyshevRatioUsingCosAngle,
     chebyshevRatios, chebyshevRatiosUsingCosAngle
-} from '../src/ChebyshevRatio';
-import { GTE_C_PI } from '../src/Constants';
+} from '../src/ChebyshevRatio.js';
+import { GTE_C_PI } from '../src/Constants.js';
 
 describe('chebyshevRatio', () => {
     it('computes sin(t*A)/sin(A) for angles in (0,pi)', () => {

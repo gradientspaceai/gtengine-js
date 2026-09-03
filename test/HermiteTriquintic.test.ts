@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { HermiteTriquintic, HermiteTriquinticSample } from '../src/HermiteTriquintic';
+import { HermiteTriquintic, HermiteTriquinticSample } from '../src/HermiteTriquintic.js';
 
 // Polynomial helpers: value and derivative of sum_i c[i] x^i.
 function polyval(c: readonly number[], x: number): number {

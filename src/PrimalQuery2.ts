@@ -36,7 +36,7 @@
 // * The nested enum class OrderType becomes the exported enum
 //   PrimalQuery2OrderType (the flat library export requires unique names).
 
-import { Vector } from './Vector';
+import { Vector } from './Vector.js';
 
 // An extended classification of the relationship of a point to a line
 // segment. For noncollinear points, the value is

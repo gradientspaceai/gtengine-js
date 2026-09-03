@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { VTSManifoldMesh, VTSManifoldMeshVertex } from '../src/VTSManifoldMesh';
-import { TetrahedronKey } from '../src/TetrahedronKey';
-import { TriangleKey } from '../src/TriangleKey';
+import { VTSManifoldMesh, VTSManifoldMeshVertex } from '../src/VTSManifoldMesh.js';
+import { TetrahedronKey } from '../src/TetrahedronKey.js';
+import { TriangleKey } from '../src/TriangleKey.js';
 
 // A vertex with extra client data, used to exercise the VCreator callback.
 class TaggedVertex extends VTSManifoldMeshVertex {

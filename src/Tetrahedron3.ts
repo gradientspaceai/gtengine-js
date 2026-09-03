@@ -18,10 +18,10 @@
 // arrays; the accessors return them directly, as upstream returns const
 // references, so callers must not mutate them.
 
-import { logAssert } from './Logger';
-import { Hyperplane } from './Hyperplane';
-import { Vector, add, dot, mul, negate, sub } from './Vector';
-import { unitCross } from './Vector3';
+import { logAssert } from './Logger.js';
+import { Hyperplane } from './Hyperplane.js';
+import { Vector, add, dot, mul, negate, sub } from './Vector.js';
+import { unitCross } from './Vector3.js';
 
 // The vertex indices of the four faces, ordered counterclockwise when viewed
 // from outside the tetrahedron.

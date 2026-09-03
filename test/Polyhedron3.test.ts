@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { Polyhedron3 } from '../src/Polyhedron3';
-import { Vector } from '../src/Vector';
+import { Polyhedron3 } from '../src/Polyhedron3.js';
+import { Vector } from '../src/Vector.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

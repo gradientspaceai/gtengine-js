@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { AlignedBox } from '../src/AlignedBox';
-import { DistAlignedBox3OrientedBox3 } from '../src/DistAlignedBox3OrientedBox3';
-import { DistOrientedBox3OrientedBox3 } from '../src/DistOrientedBox3OrientedBox3';
-import { OrientedBox } from '../src/OrientedBox';
-import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+import { AlignedBox } from '../src/AlignedBox.js';
+import { DistAlignedBox3OrientedBox3 } from '../src/DistAlignedBox3OrientedBox3.js';
+import { DistOrientedBox3OrientedBox3 } from '../src/DistOrientedBox3OrientedBox3.js';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 function v(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

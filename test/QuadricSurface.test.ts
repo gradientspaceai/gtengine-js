@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { QuadricSurface, QuadricSurfaceClassification } from '../src/QuadricSurface';
-import { Matrix } from '../src/Matrix';
-import { Vector } from '../src/Vector';
+import { QuadricSurface, QuadricSurfaceClassification } from '../src/QuadricSurface.js';
+import { Matrix } from '../src/Matrix.js';
+import { Vector } from '../src/Vector.js';
 
 const C = QuadricSurfaceClassification;
 

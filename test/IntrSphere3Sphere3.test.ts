@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { Hypersphere } from '../src/Hypersphere';
-import { Vector, add, dot, mul, sub } from '../src/Vector';
+import { Hypersphere } from '../src/Hypersphere.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
 import {
     IntrSphere3Sphere3TI,
     IntrSphere3Sphere3FI,
     IntrSphere3Sphere3FIResultType
-} from '../src/IntrSphere3Sphere3';
+} from '../src/IntrSphere3Sphere3.js';
 
 function vec(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

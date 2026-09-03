@@ -9,6 +9,9 @@ Upstream baseline: `davideberly/GeometricTools` commit
   (`Vector3.h` → `src/Vector3.ts`). Flat directory, mirroring upstream.
 - Every source file is re-exported from `src/index.ts` (alphabetical order).
 - Tests live in `test/<Name>.test.ts` (vitest).
+- Relative imports always carry the `.js` extension (`from './Vector.js'`);
+  the build emits plain ESM that Node loads without a bundler, and
+  `moduleResolution: NodeNext` rejects extensionless specifiers.
 - Every ported file starts with the upstream banner adapted to the port:
 
 ```ts

@@ -15,7 +15,7 @@
 // 'number' Vector as usual, and the requirement is a statement about the
 // caller's queries, not about this container, which performs no arithmetic.
 
-import { Vector } from './Vector';
+import { Vector } from './Vector.js';
 
 // The upstream 'Vertex' alias: a 3D point of the mesh.
 export type ConvexMesh3Vertex = Vector;

@@ -37,15 +37,15 @@
 //     output parameter becomes a boolean return value (the new value of
 //     'odd').
 
-import { PointInPolygon2 } from './ContPointInPolygon2';
-import { Hyperplane, type Plane3 } from './Hyperplane';
-import { IntrRay3Plane3FI } from './IntrRay3Plane3';
-import { IntrRay3Triangle3TI } from './IntrRay3Triangle3';
-import { logAssert } from './Logger';
-import { Ray } from './Ray';
-import { Triangle } from './Triangle';
-import { Vector, dot, sub } from './Vector';
-import { computeOrthogonalComplement3 } from './Vector3';
+import { PointInPolygon2 } from './ContPointInPolygon2.js';
+import { Hyperplane, type Plane3 } from './Hyperplane.js';
+import { IntrRay3Plane3FI } from './IntrRay3Plane3.js';
+import { IntrRay3Triangle3TI } from './IntrRay3Triangle3.js';
+import { logAssert } from './Logger.js';
+import { Ray } from './Ray.js';
+import { Triangle } from './Triangle.js';
+import { Vector, dot, sub } from './Vector.js';
+import { computeOrthogonalComplement3 } from './Vector3.js';
 
 export enum PointInPolyhedron3FaceType {
     TRIANGLE = 0,

@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { Rectangle } from '../src/Rectangle';
-import { Segment } from '../src/Segment';
-import { Vector, add, dot, mul, sub, normalize } from '../src/Vector';
+import { Rectangle } from '../src/Rectangle.js';
+import { Segment } from '../src/Segment.js';
+import { Vector, add, dot, mul, sub, normalize } from '../src/Vector.js';
 import {
     IntrSegment3Rectangle3TI,
     IntrSegment3Rectangle3FI
-} from '../src/IntrSegment3Rectangle3';
+} from '../src/IntrSegment3Rectangle3.js';
 
 function vec(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

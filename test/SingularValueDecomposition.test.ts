@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { SingularValueDecomposition } from '../src/SingularValueDecomposition';
-import { SymmetricEigensolver } from '../src/SymmetricEigensolver';
+import { SingularValueDecomposition } from '../src/SingularValueDecomposition.js';
+import { SymmetricEigensolver } from '../src/SymmetricEigensolver.js';
 
 function makeRandom(seed: number): () => number {
     let state = seed >>> 0;

@@ -15,14 +15,14 @@
 // Port notes: see IntrIntervals.ts for the Intr* precedent. Upstream has only
 // a TIQuery specialization, so the port has only IntrOrientedBox3Cylinder3TI.
 
-import { CanonicalBox } from './CanonicalBox';
-import { Cylinder3 } from './Cylinder3';
-import { IntrCanonicalBox3Cylinder3TI } from './IntrCanonicalBox3Cylinder3';
-import { Line } from './Line';
-import { logAssert } from './Logger';
-import type { OrientedBox3 } from './OrientedBox';
-import { Vector, dot, sub } from './Vector';
-import type { TIQuery } from './TIQuery';
+import { CanonicalBox } from './CanonicalBox.js';
+import { Cylinder3 } from './Cylinder3.js';
+import { IntrCanonicalBox3Cylinder3TI } from './IntrCanonicalBox3Cylinder3.js';
+import { Line } from './Line.js';
+import { logAssert } from './Logger.js';
+import type { OrientedBox3 } from './OrientedBox.js';
+import { Vector, dot, sub } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrOrientedBox3Cylinder3TI.test.
 export interface IntrOrientedBox3Cylinder3TIResult {

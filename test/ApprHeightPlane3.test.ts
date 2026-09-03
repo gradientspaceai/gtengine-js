@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { ApprHeightPlane3 } from '../src/ApprHeightPlane3';
-import { Vector } from '../src/Vector';
+import { ApprHeightPlane3 } from '../src/ApprHeightPlane3.js';
+import { Vector } from '../src/Vector.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

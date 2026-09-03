@@ -30,17 +30,17 @@
 //     orders lexicographically by (parameter, triangleIndex) and keeps every
 //     hit, matching the OBBTreeOfTriangles port.
 
-import { BVTree } from './BVTree';
-import type { BVTreeBoundingVolume, BVTreeVolumeOps } from './BVTree';
-import { IntrLine3Triangle3FI } from './IntrLine3Triangle3';
-import { IntrRay3Triangle3FI } from './IntrRay3Triangle3';
-import { IntrSegment3Triangle3FI } from './IntrSegment3Triangle3';
-import { Line } from './Line';
-import { logAssert } from './Logger';
-import { Ray } from './Ray';
-import { Segment } from './Segment';
-import { Triangle } from './Triangle';
-import { Vector, add, div } from './Vector';
+import { BVTree } from './BVTree.js';
+import type { BVTreeBoundingVolume, BVTreeVolumeOps } from './BVTree.js';
+import { IntrLine3Triangle3FI } from './IntrLine3Triangle3.js';
+import { IntrRay3Triangle3FI } from './IntrRay3Triangle3.js';
+import { IntrSegment3Triangle3FI } from './IntrSegment3Triangle3.js';
+import { Line } from './Line.js';
+import { logAssert } from './Logger.js';
+import { Ray } from './Ray.js';
+import { Segment } from './Segment.js';
+import { Triangle } from './Triangle.js';
+import { Vector, add, div } from './Vector.js';
 
 // The result of a linear-component/triangle intersection: whether there is an
 // intersection, the intersection point and the parameter of the linear

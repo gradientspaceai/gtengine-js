@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { PdeFilter3 } from '../src/PdeFilter3';
-import { PdeFilterScaleType } from '../src/PdeFilter';
+import { PdeFilter3 } from '../src/PdeFilter3.js';
+import { PdeFilterScaleType } from '../src/PdeFilter.js';
 
 // Concrete subclass solving the linear heat equation
 //   u_t = u_xx + u_yy + u_zz

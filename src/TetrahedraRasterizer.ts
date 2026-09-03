@@ -19,7 +19,7 @@
 // tetrahedra bounding boxes against the region in place, so calling
 // rasterize() again with a larger region uses the previously clipped boxes.
 
-import { logError } from './Logger';
+import { logError } from './Logger.js';
 
 export class TetrahedraRasterizer {
     // Constructor arguments.

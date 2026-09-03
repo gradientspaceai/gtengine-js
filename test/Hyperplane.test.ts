@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { Hyperplane } from '../src/Hyperplane';
-import { Vector, dot, sub, add, mul, normalize, length } from '../src/Vector';
-import { cross } from '../src/Vector3';
+import { Hyperplane } from '../src/Hyperplane.js';
+import { Vector, dot, sub, add, mul, normalize, length } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 function makeRandom(seed: number): () => number {
     let a = seed >>> 0;

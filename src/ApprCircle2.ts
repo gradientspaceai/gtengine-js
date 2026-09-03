@@ -17,8 +17,8 @@
 // fitUsingLengths reads the incoming center as the initial guess for its
 // iteration.
 
-import { Hypersphere } from './Hypersphere';
-import { Vector, dot, length } from './Vector';
+import { Hypersphere } from './Hypersphere.js';
+import { Vector, dot, length } from './Vector.js';
 
 export class ApprCircle2 {
     // The return value is 'true' when the linear system of the algorithm is

@@ -44,12 +44,12 @@
 // RootsPolynomial.solveQuartic, which is already sorted ascending by root, so
 // the ordering of the reported intersections matches upstream.
 
-import type { Line } from './Line';
-import type { Torus3 } from './Torus3';
-import type { FIQuery } from './FIQuery';
-import { Vector, add, dot, mul, sub } from './Vector';
-import { Polynomial1 } from './Polynomial1';
-import { RootsPolynomial } from './RootsPolynomial';
+import type { Line } from './Line.js';
+import type { Torus3 } from './Torus3.js';
+import type { FIQuery } from './FIQuery.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
+import { Polynomial1 } from './Polynomial1.js';
+import { RootsPolynomial } from './RootsPolynomial.js';
 
 // The result of IntrLine3Torus3FI queries. The number of intersections is
 // between 0 and 4. Only the first 'numIntersections' entries of

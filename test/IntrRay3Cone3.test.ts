@@ -1,18 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { Cone } from '../src/Cone';
+import { Cone } from '../src/Cone.js';
 import {
     IntrLine3Cone3FI,
     IntrLine3Cone3FIResultType,
     intrLine3Cone3Convert,
     intrLine3Cone3ConvertPoint
-} from '../src/IntrLine3Cone3';
+} from '../src/IntrLine3Cone3.js';
 import {
     IntrRay3Cone3FI,
     defaultIntrRay3Cone3FIResult
-} from '../src/IntrRay3Cone3';
-import { Line } from '../src/Line';
-import { Ray } from '../src/Ray';
-import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector';
+} from '../src/IntrRay3Cone3.js';
+import { Line } from '../src/Line.js';
+import { Ray } from '../src/Ray.js';
+import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector.js';
 
 function ray(origin: number[], direction: number[]): Ray {
     const d = Vector.fromArray(direction);

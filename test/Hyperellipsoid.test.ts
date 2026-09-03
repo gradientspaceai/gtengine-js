@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
     Hyperellipsoid, hyperellipsoidNumCoefficients
-} from '../src/Hyperellipsoid';
-import { Matrix, multiplyAB, mulMatrix } from '../src/Matrix';
-import { Vector, dot, sub, add, mul, normalize } from '../src/Vector';
+} from '../src/Hyperellipsoid.js';
+import { Matrix, multiplyAB, mulMatrix } from '../src/Matrix.js';
+import { Vector, dot, sub, add, mul, normalize } from '../src/Vector.js';
 
 // A small deterministic pseudorandom generator (mulberry32) so the randomized
 // cross-checks are reproducible.

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { logEstimate, logEstimateRR, getLogEstimateMaxError } from '../src/LogEstimate';
-import { log2Estimate, log2EstimateRR, getLog2EstimateMaxError } from '../src/Log2Estimate';
-import { GTE_C_LN_2 } from '../src/Constants';
+import { logEstimate, logEstimateRR, getLogEstimateMaxError } from '../src/LogEstimate.js';
+import { log2Estimate, log2EstimateRR, getLog2EstimateMaxError } from '../src/Log2Estimate.js';
+import { GTE_C_LN_2 } from '../src/Constants.js';
 
 const DEGREES = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 

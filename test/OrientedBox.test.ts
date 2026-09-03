@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { OrientedBox } from '../src/OrientedBox';
-import { Vector, dot, sub } from '../src/Vector';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Vector, dot, sub } from '../src/Vector.js';
 
 // Numeric equality that treats -0 and +0 as equal, as the C++ comparisons do.
 function expectVector(v: Vector, expected: readonly number[]): void {

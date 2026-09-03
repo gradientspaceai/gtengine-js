@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { OBBNode } from '../src/OBBTree';
-import { OBBTreeOfSegments } from '../src/OBBTreeOfSegments';
-import type { OrientedBox } from '../src/OrientedBox';
-import { Vector, dot, length, sub } from '../src/Vector';
+import { OBBNode } from '../src/OBBTree.js';
+import { OBBTreeOfSegments } from '../src/OBBTreeOfSegments.js';
+import type { OrientedBox } from '../src/OrientedBox.js';
+import { Vector, dot, length, sub } from '../src/Vector.js';
 
 // Whether the point is inside or on the box, |Dot(X-C, U[j])| <= e[j].
 function boxContains(box: OrientedBox, p: Vector, eps: number = 1e-9): boolean {

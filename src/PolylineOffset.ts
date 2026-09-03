@@ -52,9 +52,9 @@
 //   is alive, because the directions and normals are precomputed from it in
 //   the constructor.
 
-import { logAssert } from './Logger';
-import { Vector, add, dot, mul, normalize, sub } from './Vector';
-import { perp } from './Vector2';
+import { logAssert } from './Logger.js';
+import { Vector, add, dot, mul, normalize, sub } from './Vector.js';
+import { perp } from './Vector2.js';
 
 export interface PolylineOffsetResult {
     // The offset polyline to the right of the segments (positive normal

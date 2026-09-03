@@ -21,22 +21,22 @@
 // The reported parameters are relative to the centered form of the segment,
 // C + t * D with |t| <= e, as upstream reports them.
 
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
-import type { AlignedBox } from './AlignedBox';
-import { Segment } from './Segment';
-import { Vector, add, mul, sub } from './Vector';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
+import type { AlignedBox } from './AlignedBox.js';
+import { Segment } from './Segment.js';
+import { Vector, add, mul, sub } from './Vector.js';
 import {
     IntrLine3AlignedBox3TI,
     IntrLine3AlignedBox3FI,
     defaultIntrLine3AlignedBox3TIResult,
     defaultIntrLine3AlignedBox3FIResult
-} from './IntrLine3AlignedBox3';
+} from './IntrLine3AlignedBox3.js';
 import type {
     IntrLine3AlignedBox3TIResult,
     IntrLine3AlignedBox3FIResult
-} from './IntrLine3AlignedBox3';
-import { IntrIntervalsFI } from './IntrIntervals';
+} from './IntrLine3AlignedBox3.js';
+import { IntrIntervalsFI } from './IntrIntervals.js';
 
 // The upstream derived TIQuery::Result adds no members.
 export type IntrSegment3AlignedBox3TIResult = IntrLine3AlignedBox3TIResult;

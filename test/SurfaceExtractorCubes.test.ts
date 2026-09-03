@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { SurfaceExtractorCubes } from '../src/SurfaceExtractorCubes';
-import { SurfaceExtractorTetrahedra } from '../src/SurfaceExtractorTetrahedra';
-import type { SurfaceExtractorTriangle } from '../src/SurfaceExtractor';
+import { SurfaceExtractorCubes } from '../src/SurfaceExtractorCubes.js';
+import { SurfaceExtractorTetrahedra } from '../src/SurfaceExtractorTetrahedra.js';
+import type { SurfaceExtractorTriangle } from '../src/SurfaceExtractor.js';
 
 // Sample an integer-valued function on a lexicographically ordered grid.
 function makeVoxels(xBound: number, yBound: number, zBound: number,

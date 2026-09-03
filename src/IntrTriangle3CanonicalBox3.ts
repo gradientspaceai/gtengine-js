@@ -15,17 +15,17 @@
 // module-private functions. The C++ output reference parameters of
 // GetTriangleProjection become a returned object literal.
 
-import { CanonicalBox } from './CanonicalBox';
-import type { Triangle } from './Triangle';
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
-import { Hyperplane } from './Hyperplane';
+import { CanonicalBox } from './CanonicalBox.js';
+import type { Triangle } from './Triangle.js';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
+import { Hyperplane } from './Hyperplane.js';
 import {
     IntrConvexPolygonHyperplaneConfiguration,
     IntrConvexPolygonHyperplaneFI
-} from './IntrConvexPolygonHyperplane';
-import { Vector, dot, sub } from './Vector';
-import { cross } from './Vector3';
+} from './IntrConvexPolygonHyperplane.js';
+import { Vector, dot, sub } from './Vector.js';
+import { cross } from './Vector3.js';
 
 // The result of IntrTriangle3CanonicalBox3TI.test.
 export interface IntrTriangle3CanonicalBox3TIResult {

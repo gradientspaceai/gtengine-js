@@ -32,11 +32,11 @@
 // input point lies on the second ellipse axis), upstream evaluates 0/0 and
 // returns NaN for D[1]. See the comment at the 'r < x0' test in maxProduct.
 
-import { logAssert } from './Logger';
-import { type Matrix2x2 } from './Matrix2x2';
-import { mulMatrix } from './Matrix';
-import { Vector, compMul, sub } from './Vector';
-import { dotPerp } from './Vector2';
+import { logAssert } from './Logger.js';
+import { type Matrix2x2 } from './Matrix2x2.js';
+import { mulMatrix } from './Matrix.js';
+import { Vector, compMul, sub } from './Vector.js';
+import { dotPerp } from './Vector2.js';
 
 // Compute the diagonal matrix D = diag(D[0],D[1]) of the minimum-area
 // ellipse with the specified center and orientation that contains the input

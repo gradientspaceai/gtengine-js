@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
     VETNonmanifoldMesh, VETNonmanifoldMeshVertex
-} from '../src/VETNonmanifoldMesh';
+} from '../src/VETNonmanifoldMesh.js';
 import {
     ETNonmanifoldMeshEdge, ETNonmanifoldMeshTriangle
-} from '../src/ETNonmanifoldMesh';
+} from '../src/ETNonmanifoldMesh.js';
 
 // A vertex with extra client data, used to exercise the VCreator callback.
 class TaggedVertex extends VETNonmanifoldMeshVertex {

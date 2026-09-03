@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { CanonicalBox } from '../src/CanonicalBox';
-import { Cylinder3 } from '../src/Cylinder3';
-import { IntrCanonicalBox3Cylinder3TI } from '../src/IntrCanonicalBox3Cylinder3';
-import { IntrOrientedBox3Cylinder3TI } from '../src/IntrOrientedBox3Cylinder3';
-import { Line } from '../src/Line';
-import { OrientedBox } from '../src/OrientedBox';
-import { Vector, add, mul, normalize } from '../src/Vector';
-import { computeOrthogonalComplement3 } from '../src/Vector3';
+import { CanonicalBox } from '../src/CanonicalBox.js';
+import { Cylinder3 } from '../src/Cylinder3.js';
+import { IntrCanonicalBox3Cylinder3TI } from '../src/IntrCanonicalBox3Cylinder3.js';
+import { IntrOrientedBox3Cylinder3TI } from '../src/IntrOrientedBox3Cylinder3.js';
+import { Line } from '../src/Line.js';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Vector, add, mul, normalize } from '../src/Vector.js';
+import { computeOrthogonalComplement3 } from '../src/Vector3.js';
 
 function vec(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

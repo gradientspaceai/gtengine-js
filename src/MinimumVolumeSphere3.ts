@@ -32,12 +32,12 @@
 // numSupport/support accessors, the deterministic minstd_rand0-style
 // shuffle, and the index tie-break in the uniqueness sort).
 
-import { getContainerSphere3 } from './ContSphere3';
-import { Hypersphere, type Sphere3 } from './Hypersphere';
-import { LinearSystem } from './LinearSystem';
-import { logAssert } from './Logger';
-import { Matrix } from './Matrix';
-import { Vector, add, dot, mul, sub } from './Vector';
+import { getContainerSphere3 } from './ContSphere3.js';
+import { Hypersphere, type Sphere3 } from './Hypersphere.js';
+import { LinearSystem } from './LinearSystem.js';
+import { logAssert } from './Logger.js';
+import { Matrix } from './Matrix.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
 
 // The result of the minimum-volume-sphere query. 'success' is upstream's
 // boolean return value: true when 'minimal' is the minimum-volume sphere,

@@ -20,11 +20,11 @@
 // fills the protected arrays; the port omits the optional arguments and does
 // the same.
 
-import { Arc2 } from './Arc2';
-import { BasisFunctionInput, UniqueKnot } from './BasisFunction';
-import { NURBSCurve } from './NURBSCurve';
-import { Vector, div, dot, sub } from './Vector';
-import { dotPerp, perp } from './Vector2';
+import { Arc2 } from './Arc2.js';
+import { BasisFunctionInput, UniqueKnot } from './BasisFunction.js';
+import { NURBSCurve } from './NURBSCurve.js';
+import { Vector, div, dot, sub } from './Vector.js';
+import { dotPerp, perp } from './Vector2.js';
 
 // Local helper for the 2-tuple literals used by the control points.
 function vector2(x: number, y: number): Vector {

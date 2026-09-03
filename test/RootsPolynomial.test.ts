@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { RootsPolynomial, type RootMultiplicity } from '../src/RootsPolynomial';
+import { RootsPolynomial, type RootMultiplicity } from '../src/RootsPolynomial.js';
 
 // Deterministic pseudorandom generator so failures are reproducible.
 function makeRng(seed: number): () => number {

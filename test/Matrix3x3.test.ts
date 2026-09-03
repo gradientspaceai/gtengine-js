@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest';
 import {
     inverse3x3, adjoint3x3, determinant3x3, trace3x3, doTransform3x3,
     setBasis3x3, getBasis3x3
-} from '../src/Matrix3x3';
+} from '../src/Matrix3x3.js';
 import {
     Matrix, inverse, determinant, multiplyAB, mulMatrix, transpose
-} from '../src/Matrix';
-import { Vector, dot } from '../src/Vector';
-import { cross } from '../src/Vector3';
+} from '../src/Matrix.js';
+import { Vector, dot } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 function expectMatrixClose(actual: Matrix, expected: Matrix,
     tolerance: number = 1e-12): void {

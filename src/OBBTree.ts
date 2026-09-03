@@ -54,11 +54,11 @@
 //     upstream eigenvector bug, so box axes on degenerate (rank-deficient)
 //     centroid sets can differ from the buggy upstream axes.
 
-import { BitHacks } from './BitHacks';
-import { logAssert } from './Logger';
-import { OrientedBox } from './OrientedBox';
-import { SymmetricEigensolver3x3 } from './SymmetricEigensolver3x3';
-import { Vector, dot, sub } from './Vector';
+import { BitHacks } from './BitHacks.js';
+import { logAssert } from './Logger.js';
+import { OrientedBox } from './OrientedBox.js';
+import { SymmetricEigensolver3x3 } from './SymmetricEigensolver3x3.js';
+import { Vector, dot, sub } from './Vector.js';
 
 // The port of the upstream struct OBBNode<T>.
 export class OBBNode {

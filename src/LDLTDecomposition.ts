@@ -38,11 +38,11 @@
 //   have BlockSize components, so the assertion rejects valid input whenever
 //   BlockSize != NumBlocks. The port checks blockSize.
 
-import { logAssert } from './Logger';
+import { logAssert } from './Logger.js';
 import {
     Matrix, inverse, mulMatrix, multiplyABT, subMatrix
-} from './Matrix';
-import { Vector, sub } from './Vector';
+} from './Matrix.js';
+import { Vector, sub } from './Vector.js';
 
 // An array of numBlocks*numBlocks blockSize-by-blockSize matrices, in
 // row-major order over the blocks.

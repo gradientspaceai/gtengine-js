@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { OdeEuler } from '../src/OdeEuler';
-import { OdeSolver } from '../src/OdeSolver';
-import { Vector } from '../src/Vector';
+import { OdeEuler } from '../src/OdeEuler.js';
+import { OdeSolver } from '../src/OdeSolver.js';
+import { Vector } from '../src/Vector.js';
 
 describe('OdeEuler', () => {
     it('is an OdeSolver whose step size is readable and writable', () => {

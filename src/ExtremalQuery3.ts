@@ -19,9 +19,9 @@
 //   an object { positiveDirection, negativeDirection } holding the indices of
 //   the extreme vertices in the polyhedron vertex array.
 
-import { Polyhedron3 } from './Polyhedron3';
-import { Vector, sub } from './Vector';
-import { unitCross } from './Vector3';
+import { Polyhedron3 } from './Polyhedron3.js';
+import { Vector, sub } from './Vector.js';
+import { unitCross } from './Vector3.js';
 
 // The result of ExtremalQuery3.getExtremeVertices: the indices, in the
 // polyhedron vertex array, of the vertices extreme in the specified

@@ -1,17 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { IntrLine3Triangle3FI } from '../src/IntrLine3Triangle3';
-import { IntrRay3Triangle3FI } from '../src/IntrRay3Triangle3';
-import { IntrSegment3Triangle3FI } from '../src/IntrSegment3Triangle3';
-import { Line } from '../src/Line';
-import { OBBNode, OBBTree } from '../src/OBBTree';
+import { IntrLine3Triangle3FI } from '../src/IntrLine3Triangle3.js';
+import { IntrRay3Triangle3FI } from '../src/IntrRay3Triangle3.js';
+import { IntrSegment3Triangle3FI } from '../src/IntrSegment3Triangle3.js';
+import { Line } from '../src/Line.js';
+import { OBBNode, OBBTree } from '../src/OBBTree.js';
 import {
     OBBTreeOfTriangles, OBBTreeOfTrianglesIntersection
-} from '../src/OBBTreeOfTriangles';
-import { Ray } from '../src/Ray';
-import { Segment } from '../src/Segment';
-import { Triangle } from '../src/Triangle';
-import { Vector, add, div, dot, length, mul, normalize, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+} from '../src/OBBTreeOfTriangles.js';
+import { Ray } from '../src/Ray.js';
+import { Segment } from '../src/Segment.js';
+import { Triangle } from '../src/Triangle.js';
+import { Vector, add, div, dot, length, mul, normalize, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

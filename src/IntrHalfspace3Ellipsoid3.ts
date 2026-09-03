@@ -10,13 +10,13 @@
 // Port notes: see IntrIntervals.ts for the Intr* precedent. Upstream has only
 // a TIQuery specialization, so the port has only IntrHalfspace3Ellipsoid3TI.
 
-import type { Ellipsoid3 } from './Hyperellipsoid';
-import type { Halfspace3 } from './Halfspace';
-import { logAssert } from './Logger';
-import { mulMatrix } from './Matrix';
-import type { Vector } from './Vector';
-import { dot } from './Vector';
-import type { TIQuery } from './TIQuery';
+import type { Ellipsoid3 } from './Hyperellipsoid.js';
+import type { Halfspace3 } from './Halfspace.js';
+import { logAssert } from './Logger.js';
+import { mulMatrix } from './Matrix.js';
+import type { Vector } from './Vector.js';
+import { dot } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrHalfspace3Ellipsoid3TI.test.
 export interface IntrHalfspace3Ellipsoid3TIResult {

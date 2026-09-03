@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MarchingCubes } from '../src/MarchingCubes';
+import { MarchingCubes } from '../src/MarchingCubes.js';
 
 describe('MarchingCubes', () => {
     const mc = new MarchingCubes();

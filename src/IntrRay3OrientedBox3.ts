@@ -19,21 +19,21 @@
 import {
     IntrRay3AlignedBox3TI,
     IntrRay3AlignedBox3FI
-} from './IntrRay3AlignedBox3';
+} from './IntrRay3AlignedBox3.js';
 import type {
     IntrRay3AlignedBox3TIResult,
     IntrRay3AlignedBox3FIResult
-} from './IntrRay3AlignedBox3';
+} from './IntrRay3AlignedBox3.js';
 import {
     defaultIntrLine3AlignedBox3TIResult,
     defaultIntrLine3AlignedBox3FIResult
-} from './IntrLine3AlignedBox3';
-import { logAssert } from './Logger';
-import type { OrientedBox3 } from './OrientedBox';
-import type { Ray3 } from './Ray';
-import { Vector, add, dot, mul, sub } from './Vector';
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
+} from './IntrLine3AlignedBox3.js';
+import { logAssert } from './Logger.js';
+import type { OrientedBox3 } from './OrientedBox.js';
+import type { Ray3 } from './Ray.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
 
 // The upstream derived Result structs add no members.
 export type IntrRay3OrientedBox3TIResult = IntrRay3AlignedBox3TIResult;

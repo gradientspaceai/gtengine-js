@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { CanonicalBox } from '../src/CanonicalBox';
-import { DistPlane3CanonicalBox3 } from '../src/DistPlane3CanonicalBox3';
-import { Hyperplane } from '../src/Hyperplane';
-import { Vector, dot, length, normalize, sub } from '../src/Vector';
+import { CanonicalBox } from '../src/CanonicalBox.js';
+import { DistPlane3CanonicalBox3 } from '../src/DistPlane3CanonicalBox3.js';
+import { Hyperplane } from '../src/Hyperplane.js';
+import { Vector, dot, length, normalize, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

@@ -13,14 +13,14 @@
 // Number.MAX_SAFE_INTEGER (the SIZE_MAX precedent of BVTree.ts), exported as
 // 'intrPlane3Circle3InfinitePoints'.
 
-import { Circle3 } from './Circle3';
-import type { FIQuery } from './FIQuery';
-import { Hyperplane } from './Hyperplane';
-import type { Plane3 } from './Hyperplane';
-import { IntrPlane3Plane3FI } from './IntrPlane3Plane3';
-import { logAssert } from './Logger';
-import { Vector, dot, mul, sub } from './Vector';
-import type { TIQuery } from './TIQuery';
+import { Circle3 } from './Circle3.js';
+import type { FIQuery } from './FIQuery.js';
+import { Hyperplane } from './Hyperplane.js';
+import type { Plane3 } from './Hyperplane.js';
+import { IntrPlane3Plane3FI } from './IntrPlane3Plane3.js';
+import { logAssert } from './Logger.js';
+import { Vector, dot, mul, sub } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The 'numIntersections' value that reports the entire circle as the set of
 // intersection (the port of std::numeric_limits<size_t>::max()).

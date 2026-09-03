@@ -24,9 +24,9 @@
 // O(n) cost of unshift/shift is not a concern relative to the clarity of
 // matching the upstream code.
 
-import { logAssert } from './Logger';
-import { Vector, sub } from './Vector';
-import { dotPerp } from './Vector2';
+import { logAssert } from './Logger.js';
+import { Vector, sub } from './Vector.js';
+import { dotPerp } from './Vector2.js';
 
 export class ConvexHullSimplePolygon {
     // The polygon must be counterclockwise ordered, because the Minkowski

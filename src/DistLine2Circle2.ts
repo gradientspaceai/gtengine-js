@@ -27,11 +27,11 @@
 // protected static helper 'DoQuery' becomes the module-private function
 // doQuery.
 
-import type { DCPQuery } from './DCPQuery';
-import type { Circle2 } from './Hypersphere';
-import type { Line2 } from './Line';
-import { Vector, add, dot, mul, normalize, sub } from './Vector';
-import { dotPerp } from './Vector2';
+import type { DCPQuery } from './DCPQuery.js';
+import type { Circle2 } from './Hypersphere.js';
+import type { Line2 } from './Line.js';
+import { Vector, add, dot, mul, normalize, sub } from './Vector.js';
+import { dotPerp } from './Vector2.js';
 
 export interface DistLine2Circle2Result {
     distance: number;

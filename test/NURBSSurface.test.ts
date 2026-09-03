@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { NURBSSurface } from '../src/NURBSSurface';
-import { BSplineSurface } from '../src/BSplineSurface';
-import { BasisFunctionInput, UniqueKnot } from '../src/BasisFunction';
-import { ParametricSurface } from '../src/ParametricSurface';
-import { Vector, length as vectorLength, sub } from '../src/Vector';
+import { NURBSSurface } from '../src/NURBSSurface.js';
+import { BSplineSurface } from '../src/BSplineSurface.js';
+import { BasisFunctionInput, UniqueKnot } from '../src/BasisFunction.js';
+import { ParametricSurface } from '../src/ParametricSurface.js';
+import { Vector, length as vectorLength, sub } from '../src/Vector.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

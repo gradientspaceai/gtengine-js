@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { BSplineVolume } from '../src/BSplineVolume';
-import { BasisFunctionInput, UniqueKnot } from '../src/BasisFunction';
-import { Vector } from '../src/Vector';
+import { BSplineVolume } from '../src/BSplineVolume.js';
+import { BasisFunctionInput, UniqueKnot } from '../src/BasisFunction.js';
+import { Vector } from '../src/Vector.js';
 
 function makeRandom(seed: number): () => number {
     let state = seed >>> 0;

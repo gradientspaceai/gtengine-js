@@ -39,18 +39,18 @@
 // functions. The C++ output reference parameters 'tFirst'/'tLast' become a
 // mutable holder object.
 
-import type { FIQuery } from './FIQuery';
-import { IntrSegment2Triangle2FI } from './IntrSegment2Triangle2';
-import { IntrTriangle2Triangle2FI } from './IntrTriangle2Triangle2';
-import { logAssert } from './Logger';
-import { Segment } from './Segment';
-import type { Segment3 } from './Segment';
-import type { TIQuery } from './TIQuery';
-import { Triangle } from './Triangle';
-import type { Triangle3 } from './Triangle';
-import { Vector, add, dot, mul, sub } from './Vector';
-import { dotPerp } from './Vector2';
-import { cross, unitCross } from './Vector3';
+import type { FIQuery } from './FIQuery.js';
+import { IntrSegment2Triangle2FI } from './IntrSegment2Triangle2.js';
+import { IntrTriangle2Triangle2FI } from './IntrTriangle2Triangle2.js';
+import { logAssert } from './Logger.js';
+import { Segment } from './Segment.js';
+import type { Segment3 } from './Segment.js';
+import type { TIQuery } from './TIQuery.js';
+import { Triangle } from './Triangle.js';
+import type { Triangle3 } from './Triangle.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
+import { dotPerp } from './Vector2.js';
+import { cross, unitCross } from './Vector3.js';
 
 // The result of IntrTriangle3Triangle3TI.test and .testDynamic.
 export interface IntrTriangle3Triangle3TIResult {

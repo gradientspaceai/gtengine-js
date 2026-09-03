@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { Cone } from '../src/Cone';
-import { GTE_C_HALF_PI, GTE_C_QUARTER_PI, GTE_C_TWO_PI } from '../src/Constants';
-import { Ray } from '../src/Ray';
-import { Vector, dot, normalize, sub } from '../src/Vector';
+import { Cone } from '../src/Cone.js';
+import { GTE_C_HALF_PI, GTE_C_QUARTER_PI, GTE_C_TWO_PI } from '../src/Constants.js';
+import { Ray } from '../src/Ray.js';
+import { Vector, dot, normalize, sub } from '../src/Vector.js';
 
 function V(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

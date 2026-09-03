@@ -4,8 +4,8 @@
 // Distributed under the Boost Software License, Version 1.0.
 // https://www.boost.org/LICENSE_1_0.txt
 
-import { logAssert, logError } from './Logger';
-import { Array2 } from './Array2';
+import { logAssert, logError } from './Logger.js';
+import { Array2 } from './Array2.js';
 
 // A unique knot value together with its multiplicity in the knot vector.
 export class UniqueKnot {

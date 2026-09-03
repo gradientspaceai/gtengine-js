@@ -21,8 +21,8 @@
 // C++; undefined -> NaN in TypeScript). The loop here uses the unpadded
 // coordinates the accessors document.
 
-import { PdeFilter3 } from './PdeFilter3';
-import { PdeFilterScaleType } from './PdeFilter';
+import { PdeFilter3 } from './PdeFilter3.js';
+import { PdeFilterScaleType } from './PdeFilter.js';
 
 export class GradientAnisotropic3 extends PdeFilter3 {
     // These are updated on each iteration, since they depend on the current

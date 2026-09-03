@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { PolygonWindingOrder } from '../src/PolygonWindingOrder';
-import { Vector } from '../src/Vector';
+import { PolygonWindingOrder } from '../src/PolygonWindingOrder.js';
+import { Vector } from '../src/Vector.js';
 
 function poly(points: [number, number][]): Vector[] {
     return points.map(p => Vector.fromArray(p));

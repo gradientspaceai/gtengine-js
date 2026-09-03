@@ -11,11 +11,11 @@
 // IntrSphere3Sphere3FIResultType, whose name is file-qualified because
 // src/index.ts star-exports every file.
 
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
-import type { Hypersphere } from './Hypersphere';
-import { Circle3 } from './Circle3';
-import { Vector, add, dot, mul, normalize, sub } from './Vector';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
+import type { Hypersphere } from './Hypersphere.js';
+import { Circle3 } from './Circle3.js';
+import { Vector, add, dot, mul, normalize, sub } from './Vector.js';
 
 // The type of intersection reported by IntrSphere3Sphere3FI. Upstream stores
 // these as raw integers, with -1 for the default-constructed result.

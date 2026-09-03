@@ -31,14 +31,14 @@
 // The typo is harmless (both parameters are already zero) and the redundant
 // re-initialization is dropped here; the default result factory covers it.
 
-import type { Arc2 } from './Arc2';
-import type { FIQuery } from './FIQuery';
-import { Hypersphere } from './Hypersphere';
-import { IntrLine2Circle2FI } from './IntrLine2Circle2';
-import { Line } from './Line';
-import type { Segment2 } from './Segment';
-import { Vector } from './Vector';
-import type { TIQuery } from './TIQuery';
+import type { Arc2 } from './Arc2.js';
+import type { FIQuery } from './FIQuery.js';
+import { Hypersphere } from './Hypersphere.js';
+import { IntrLine2Circle2FI } from './IntrLine2Circle2.js';
+import { Line } from './Line.js';
+import type { Segment2 } from './Segment.js';
+import { Vector } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrSegment2Arc2TI.test.
 export interface IntrSegment2Arc2TIResult {

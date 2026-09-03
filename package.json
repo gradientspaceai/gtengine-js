@@ -21,7 +21,9 @@
     "gen:index": "node scripts/gen-index.mjs",
     "update:status": "node scripts/update-status.mjs",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepack": "npm run build",
+    "test:fast": "vitest run --reporter=dot"
   },
   "keywords": [
     "geometry",
@@ -38,7 +40,9 @@
     "url": "https://github.com/gradientspaceai/gtengine-js.git"
   },
   "devDependencies": {
+    "fast-check": "^4.9.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"
-  }
+  },
+  "sideEffects": false
 }

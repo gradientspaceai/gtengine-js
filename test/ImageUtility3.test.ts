@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { Image3 } from '../src/Image3';
-import { ImageUtility3 } from '../src/ImageUtility3';
+import { Image3 } from '../src/Image3.js';
+import { ImageUtility3 } from '../src/ImageUtility3.js';
 
 type Voxel = readonly [number, number, number];
 

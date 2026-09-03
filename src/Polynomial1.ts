@@ -35,7 +35,7 @@
 //   SquareFreeFactorization can spin forever for floating-point Real; the
 //   port caps the iterations and throws instead (see the comment there).
 
-import { logAssert, logError } from './Logger';
+import { logAssert, logError } from './Logger.js';
 
 export class Polynomial1 {
     // The class is designed so that mCoefficient.length >= 1.

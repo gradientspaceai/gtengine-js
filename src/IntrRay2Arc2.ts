@@ -23,14 +23,14 @@
 // IntrRay2SegmentMesh2.h), which yields the same answers whenever the ray
 // origin is outside the disk and the correct answers when it is inside.
 
-import type { Arc2 } from './Arc2';
-import type { FIQuery } from './FIQuery';
-import { Hypersphere } from './Hypersphere';
-import { IntrLine2Circle2FI } from './IntrLine2Circle2';
-import { Line } from './Line';
-import type { Ray2 } from './Ray';
-import { Vector } from './Vector';
-import type { TIQuery } from './TIQuery';
+import type { Arc2 } from './Arc2.js';
+import type { FIQuery } from './FIQuery.js';
+import { Hypersphere } from './Hypersphere.js';
+import { IntrLine2Circle2FI } from './IntrLine2Circle2.js';
+import { Line } from './Line.js';
+import type { Ray2 } from './Ray.js';
+import { Vector } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrRay2Arc2TI.test.
 export interface IntrRay2Arc2TIResult {

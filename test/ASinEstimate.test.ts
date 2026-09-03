@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { asinEstimate, getASinEstimateMaxError } from '../src/ASinEstimate';
-import { acosEstimate, getACosEstimateMaxError } from '../src/ACosEstimate';
-import { GTE_C_HALF_PI } from '../src/Constants';
+import { asinEstimate, getASinEstimateMaxError } from '../src/ASinEstimate.js';
+import { acosEstimate, getACosEstimateMaxError } from '../src/ACosEstimate.js';
+import { GTE_C_HALF_PI } from '../src/Constants.js';
 
 const DEGREES = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 

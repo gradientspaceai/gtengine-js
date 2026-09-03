@@ -14,17 +14,17 @@
 // DoQuery. The upstream FIQuery Result adds no members to the line-triangle
 // result, so the port exports a type alias.
 
-import type { Ray } from './Ray';
-import type { Triangle } from './Triangle';
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
-import { Vector, add, mul } from './Vector';
+import type { Ray } from './Ray.js';
+import type { Triangle } from './Triangle.js';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
+import { Vector, add, mul } from './Vector.js';
 import {
     IntrLine2Triangle2FI,
     defaultIntrLine2Triangle2FIResult
-} from './IntrLine2Triangle2';
-import type { IntrLine2Triangle2FIResult } from './IntrLine2Triangle2';
-import { IntrIntervalsFI } from './IntrIntervals';
+} from './IntrLine2Triangle2.js';
+import type { IntrLine2Triangle2FIResult } from './IntrLine2Triangle2.js';
+import { IntrIntervalsFI } from './IntrIntervals.js';
 
 // The result of IntrRay2Triangle2TI queries.
 export interface IntrRay2Triangle2TIResult {

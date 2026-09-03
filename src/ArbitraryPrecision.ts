@@ -29,7 +29,7 @@ export {
   BSNumber,
   BSNumberRoundingMode,
   convertBSNumber,
-} from './BSNumber';
+} from './BSNumber.js';
 
 export {
   BSRational,
@@ -37,10 +37,10 @@ export {
   convertBSRationalToBSNumber,
   convertBSRationalToNumber,
   convertBSRationalToFloat32,
-} from './BSRational';
+} from './BSRational.js';
 
 export {
   BSPrecision,
   BSPrecisionParameters,
   BSPrecisionType,
-} from './BSPrecision';
+} from './BSPrecision.js';

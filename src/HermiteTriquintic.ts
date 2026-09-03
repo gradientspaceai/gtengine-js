@@ -20,7 +20,7 @@
 // basis polynomial evaluation reuses HermiteQuintic.p, exactly as upstream
 // reuses HermiteQuintic<T>::P.
 
-import { HermiteQuintic } from './HermiteQuintic';
+import { HermiteQuintic } from './HermiteQuintic.js';
 
 // Sample of a function at a lattice voxel: the function value f and the
 // derivatives through order (2,2,2). The default sample is all-zero.

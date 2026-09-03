@@ -16,8 +16,8 @@
 // mBuffer[mDst][y][x] becomes mBuffer[mDst].set(x, y, ...) per the Array2
 // port.
 
-import { PdeFilter2 } from './PdeFilter2';
-import { PdeFilterScaleType } from './PdeFilter';
+import { PdeFilter2 } from './PdeFilter2.js';
+import { PdeFilterScaleType } from './PdeFilter.js';
 
 export class CurvatureFlow2 extends PdeFilter2 {
     constructor(xBound: number, yBound: number, xSpacing: number, ySpacing: number,

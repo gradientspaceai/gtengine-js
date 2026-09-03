@@ -21,8 +21,8 @@
 // weights are zero, as upstream. C++ 'operator bool' has no TS equivalent; it
 // is ported as isConstructed().
 
-import { BasisFunction, BasisFunctionInput } from './BasisFunction';
-import { Vector } from './Vector';
+import { BasisFunction, BasisFunctionInput } from './BasisFunction.js';
+import { Vector } from './Vector.js';
 
 export class NURBSVolume {
     // The number of entries a 'jet' array must have: position X; first-order

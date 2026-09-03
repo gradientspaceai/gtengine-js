@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { hashCombine, hashValue, hashValueWithSeed } from '../src/HashCombine';
+import { hashCombine, hashValue, hashValueWithSeed } from '../src/HashCombine.js';
 
 describe('HashCombine', () => {
     it('hashCombine(0, 0) applies the magic constant', () => {

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { DistSegment2OrientedBox2 } from '../src/DistSegment2OrientedBox2';
-import { OrientedBox } from '../src/OrientedBox';
-import { Segment } from '../src/Segment';
-import { Vector, add, dot, length, mul, sub } from '../src/Vector';
+import { DistSegment2OrientedBox2 } from '../src/DistSegment2OrientedBox2.js';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Segment } from '../src/Segment.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

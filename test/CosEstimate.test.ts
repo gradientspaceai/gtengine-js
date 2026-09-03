@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
     cosEstimate, cosEstimateRR, getCosEstimateMaxError
-} from '../src/CosEstimate';
-import { GTE_C_HALF_PI } from '../src/Constants';
+} from '../src/CosEstimate.js';
+import { GTE_C_HALF_PI } from '../src/Constants.js';
 
 const DEGREES = [2, 4, 6, 8, 10] as const;
 

@@ -23,13 +23,13 @@
 // (ia,ib,ic) used upstream are (0,1,2) for a fixed z, (2,0,1) for a fixed y
 // and (1,2,0) for a fixed x; 'value' is the fixed coordinate, -1 or +1.
 
-import type { DCPQuery } from './DCPQuery';
-import { DistPoint2Parallelogram2 } from './DistPoint2Parallelogram2';
-import { Matrix, multiplyATB, mulMatrix } from './Matrix';
-import { inverse2x2 } from './Matrix2x2';
-import { inverse3x3 } from './Matrix3x3';
-import type { Parallelepiped3 } from './Parallelepiped3';
-import { Vector, add, dot, mul, sub } from './Vector';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistPoint2Parallelogram2 } from './DistPoint2Parallelogram2.js';
+import { Matrix, multiplyATB, mulMatrix } from './Matrix.js';
+import { inverse2x2 } from './Matrix2x2.js';
+import { inverse3x3 } from './Matrix3x3.js';
+import type { Parallelepiped3 } from './Parallelepiped3.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
 
 export interface DistPoint3Parallelepiped3Result {
     // The point closest[0] is the query point. The point closest[1] is the

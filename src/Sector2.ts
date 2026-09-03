@@ -15,9 +15,9 @@
 // comparison methods). The class is not templated on the dimension upstream,
 // so the default constructor takes no arguments and builds 2D vectors.
 
-import { GTE_C_PI } from './Constants';
-import { logAssert } from './Logger';
-import { Vector, sub, dot, length } from './Vector';
+import { GTE_C_PI } from './Constants.js';
+import { logAssert } from './Logger.js';
+import { Vector, sub, dot, length } from './Vector.js';
 
 export class Sector2 {
     // The cosine and sine of the angle are used in queries, so all of angle,

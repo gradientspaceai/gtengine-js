@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { IEEEBinary32, IEEEBinary64, IEEEClassification } from '../src/IEEEBinary';
+import { IEEEBinary32, IEEEBinary64, IEEEClassification } from '../src/IEEEBinary.js';
 
 describe('IEEEBinary32', () => {
     it('has the upstream-documented constants', () => {

@@ -40,8 +40,8 @@
 //   persistent members; see the comment on depthFirstSearch for the upstream
 //   bug this fixes.
 
-import { BSNumber } from './BSNumber';
-import { logAssert } from './Logger';
+import { BSNumber } from './BSNumber.js';
+import { logAssert } from './Logger.js';
 
 // A planar-graph vertex position (x, y).
 export type MinimalCycleBasisPosition = readonly [number, number];

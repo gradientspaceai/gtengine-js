@@ -21,10 +21,10 @@
 // upstream specialization 'DCPQuery<T, Ray<N,T>, Segment<N,T>>' becomes the
 // class DistRaySegment with the result type DistRaySegmentResult.
 
-import type { DCPQuery } from './DCPQuery';
-import type { Ray } from './Ray';
-import type { Segment } from './Segment';
-import { Vector, add, dot, mul, sub } from './Vector';
+import type { DCPQuery } from './DCPQuery.js';
+import type { Ray } from './Ray.js';
+import type { Segment } from './Segment.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
 
 export interface DistRaySegmentResult {
     distance: number;

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { Line } from '../src/Line';
-import { Torus3 } from '../src/Torus3';
-import { Vector, add, dot, mul, normalize, sub, length } from '../src/Vector';
-import { IntrLine3Torus3FI } from '../src/IntrLine3Torus3';
+import { Line } from '../src/Line.js';
+import { Torus3 } from '../src/Torus3.js';
+import { Vector, add, dot, mul, normalize, sub, length } from '../src/Vector.js';
+import { IntrLine3Torus3FI } from '../src/IntrLine3Torus3.js';
 
 function vec(a: number[]): Vector {
     return Vector.fromArray(a);

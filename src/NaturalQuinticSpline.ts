@@ -30,11 +30,11 @@
 //   allocate SUP_ORDER_QUINTIC = 6 entries so callers can request the
 //   fourth- and fifth-order derivatives.
 
-import { logAssert } from './Logger';
-import { Matrix } from './Matrix';
-import { inverse4x4 } from './Matrix4x4';
-import { ParametricCurve } from './ParametricCurve';
-import { Vector, add, mul, sub } from './Vector';
+import { logAssert } from './Logger.js';
+import { Matrix } from './Matrix.js';
+import { inverse4x4 } from './Matrix4x4.js';
+import { ParametricCurve } from './ParametricCurve.js';
+import { Vector, add, mul, sub } from './Vector.js';
 
 // A quintic polynomial segment: the six Vector coefficients of
 // p(u) = c[0] + u*(c[1] + u*(c[2] + u*(c[3] + u*(c[4] + u*c[5])))) for u in

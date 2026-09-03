@@ -30,12 +30,12 @@
 // qfFindIntervals and qfFindFiniteSemiInfinite) as literal transcriptions of
 // the IntrIntervals.ts logic with QFNumber comparisons.
 
-import type { Cone3 } from './Cone';
-import type { FIQuery } from './FIQuery';
-import type { Line3 } from './Line';
-import { logAssert, logError } from './Logger';
-import { QFNumber } from './QFNumber';
-import { Vector, dot, negate, sub } from './Vector';
+import type { Cone3 } from './Cone.js';
+import type { FIQuery } from './FIQuery.js';
+import type { Line3 } from './Line.js';
+import { logAssert, logError } from './Logger.js';
+import { QFNumber } from './QFNumber.js';
+import { Vector, dot, negate, sub } from './Vector.js';
 
 // A 3D point whose components are quadratic-field numbers (the port of
 // Vector3<QFNumber<Real,1>>).

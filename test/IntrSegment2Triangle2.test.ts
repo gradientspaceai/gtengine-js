@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { Segment } from '../src/Segment';
-import { Triangle } from '../src/Triangle';
-import { Vector, add, dot, mul, sub } from '../src/Vector';
+import { Segment } from '../src/Segment.js';
+import { Triangle } from '../src/Triangle.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
 import {
     IntrSegment2Triangle2TI,
     IntrSegment2Triangle2FI,
     defaultIntrSegment2Triangle2FIResult,
     intrSegment2Triangle2DoQuery
-} from '../src/IntrSegment2Triangle2';
+} from '../src/IntrSegment2Triangle2.js';
 
 function vec(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

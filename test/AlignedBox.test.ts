@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { AlignedBox } from '../src/AlignedBox';
-import { Vector } from '../src/Vector';
+import { AlignedBox } from '../src/AlignedBox.js';
+import { Vector } from '../src/Vector.js';
 
 describe('AlignedBox construction', () => {
     it('the default constructor sets min to -1 and max to +1', () => {

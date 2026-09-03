@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ApprPolynomialSpecial4 } from '../src/ApprPolynomialSpecial4';
-import { ApprQuery } from '../src/ApprQuery';
+import { ApprPolynomialSpecial4 } from '../src/ApprPolynomialSpecial4.js';
+import { ApprQuery } from '../src/ApprQuery.js';
 
 const grid = [-1, -0.5, 0, 0.5, 1];
 

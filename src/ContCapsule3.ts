@@ -19,16 +19,16 @@
 // fills an output reference; the port returns the capsule. The
 // number-of-points argument is dropped in favor of the array length.
 
-import { ApprOrthogonalLine3 } from './ApprOrthogonalLine3';
-import { Capsule, type Capsule3 } from './Capsule';
-import { DistPointLine } from './DistPointLine';
-import { DistPointSegment } from './DistPointSegment';
-import { Hypersphere, type Sphere3 } from './Hypersphere';
-import { Line } from './Line';
-import { logAssert } from './Logger';
-import { Segment } from './Segment';
-import { Vector, add, dot, mul, normalize, sub } from './Vector';
-import { computeOrthogonalComplement3 } from './Vector3';
+import { ApprOrthogonalLine3 } from './ApprOrthogonalLine3.js';
+import { Capsule, type Capsule3 } from './Capsule.js';
+import { DistPointLine } from './DistPointLine.js';
+import { DistPointSegment } from './DistPointSegment.js';
+import { Hypersphere, type Sphere3 } from './Hypersphere.js';
+import { Line } from './Line.js';
+import { logAssert } from './Logger.js';
+import { Segment } from './Segment.js';
+import { Vector, add, dot, mul, normalize, sub } from './Vector.js';
+import { computeOrthogonalComplement3 } from './Vector3.js';
 
 // Compute the axis of the capsule segment using least-squares fitting. The
 // radius is the maximum distance from the points to the axis. Hemispherical

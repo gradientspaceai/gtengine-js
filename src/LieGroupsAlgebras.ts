@@ -31,16 +31,16 @@
 import {
     Matrix, addMatrix, mulMatrix, multiplyAB, multiplyABT, hliftMatrix,
     hprojectMatrix
-} from './Matrix';
-import { inverse2x2 } from './Matrix2x2';
-import { inverse3x3, trace3x3 } from './Matrix3x3';
-import { inverse4x4 } from './Matrix4x4';
-import { GTE_C_PI } from './Constants';
-import { logAssert } from './Logger';
+} from './Matrix.js';
+import { inverse2x2 } from './Matrix2x2.js';
+import { inverse3x3, trace3x3 } from './Matrix3x3.js';
+import { inverse4x4 } from './Matrix4x4.js';
+import { GTE_C_PI } from './Constants.js';
+import { logAssert } from './Logger.js';
 import {
     rotC0Estimate, rotC1Estimate, rotC4Estimate
-} from './RotationEstimate';
-import { Vector, dot, mul, normalize } from './Vector';
+} from './RotationEstimate.js';
+import { Vector, dot, mul, normalize } from './Vector.js';
 
 // Compute sin(t)/t. For small |t| the closed form loses significant digits,
 // so a degree-16 polynomial estimate of sin(t)/t is used instead.

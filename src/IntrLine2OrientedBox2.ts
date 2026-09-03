@@ -20,21 +20,21 @@
 // protected doQuery. The result types are aliases of the aligned-box result
 // types, matching the empty derived Result upstream.
 
-import type { Line } from './Line';
-import type { OrientedBox } from './OrientedBox';
-import { Vector, add, sub, mul, dot } from './Vector';
+import type { Line } from './Line.js';
+import type { OrientedBox } from './OrientedBox.js';
+import { Vector, add, sub, mul, dot } from './Vector.js';
 import {
     IntrLine2AlignedBox2TI,
     IntrLine2AlignedBox2FI,
     defaultIntrLine2AlignedBox2TIResult,
     defaultIntrLine2AlignedBox2FIResult
-} from './IntrLine2AlignedBox2';
+} from './IntrLine2AlignedBox2.js';
 import type {
     IntrLine2AlignedBox2TIResult,
     IntrLine2AlignedBox2FIResult
-} from './IntrLine2AlignedBox2';
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
+} from './IntrLine2AlignedBox2.js';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
 
 // The upstream derived Result structs add no members.
 export type IntrLine2OrientedBox2TIResult = IntrLine2AlignedBox2TIResult;

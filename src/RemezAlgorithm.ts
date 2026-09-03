@@ -13,9 +13,9 @@
 // by the local extrema of E(x) on those subintervals. This is the machinery
 // used to generate the coefficient tables of the estimate-family functions.
 
-import { logAssert } from './Logger';
-import { GTE_C_HALF_PI } from './Constants';
-import { Polynomial1 } from './Polynomial1';
+import { logAssert } from './Logger.js';
+import { GTE_C_HALF_PI } from './Constants.js';
+import { Polynomial1 } from './Polynomial1.js';
 
 // The port of 'std::function<T(T const&)>'; follows the Minimize1Function
 // precedent of Minimize1.ts.

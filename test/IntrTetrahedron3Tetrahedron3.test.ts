@@ -3,10 +3,10 @@ import {
     IntrTetrahedron3Tetrahedron3TI,
     defaultIntrTetrahedron3Tetrahedron3TIResult,
     intrTetrahedron3Tetrahedron3InvalidIndex
-} from '../src/IntrTetrahedron3Tetrahedron3';
-import { Tetrahedron3 } from '../src/Tetrahedron3';
-import { Vector, add, dot, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+} from '../src/IntrTetrahedron3Tetrahedron3.js';
+import { Tetrahedron3 } from '../src/Tetrahedron3.js';
+import { Vector, add, dot, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 const V3 = (x: number, y: number, z: number) => Vector.fromArray([x, y, z]);
 const INVALID = intrTetrahedron3Tetrahedron3InvalidIndex;

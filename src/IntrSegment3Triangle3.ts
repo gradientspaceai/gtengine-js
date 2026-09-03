@@ -16,12 +16,12 @@
 // reported 'parameter' is the parameter s of the centered segment form, as
 // upstream.
 
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
-import type { Segment } from './Segment';
-import type { Triangle } from './Triangle';
-import { Vector, add, dot, mul, sub } from './Vector';
-import { cross, dotCross } from './Vector3';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
+import type { Segment } from './Segment.js';
+import type { Triangle } from './Triangle.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
+import { cross, dotCross } from './Vector3.js';
 
 // The result of IntrSegment3Triangle3TI queries.
 export interface IntrSegment3Triangle3TIResult {

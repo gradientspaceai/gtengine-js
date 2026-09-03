@@ -21,10 +21,10 @@
 //   undefined behavior there). The base-class constructor already requires a
 //   valid polyhedron, so this cannot be reached through a constructed query.
 
-import { ExtremalQuery3 } from './ExtremalQuery3';
-import type { ExtremalQuery3Result } from './ExtremalQuery3';
-import { Polyhedron3 } from './Polyhedron3';
-import { Vector, dot, sub } from './Vector';
+import { ExtremalQuery3 } from './ExtremalQuery3.js';
+import type { ExtremalQuery3Result } from './ExtremalQuery3.js';
+import { Polyhedron3 } from './Polyhedron3.js';
+import { Vector, dot, sub } from './Vector.js';
 
 export class ExtremalQuery3PRJ extends ExtremalQuery3 {
     private mCentroid: Vector;

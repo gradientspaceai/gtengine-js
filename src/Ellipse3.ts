@@ -20,8 +20,8 @@
 // its comparisons are lexicographic over the elements, as std::array's are.
 // 'extent' remains a 2-component Vector.
 
-import { logAssert } from './Logger';
-import { Vector } from './Vector';
+import { logAssert } from './Logger.js';
+import { Vector } from './Vector.js';
 
 export class Ellipse3 {
     // Public member access.

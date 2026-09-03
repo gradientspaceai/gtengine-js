@@ -17,9 +17,9 @@
 // through a reference and returning a bool. Matrix2x2<T> becomes a
 // 2-by-2 'Matrix' (the B56 fixed-size matrix precedent).
 
-import { Matrix } from './Matrix';
-import { Vector } from './Vector';
-import { computeOrthogonalComplement2 } from './Vector2';
+import { Matrix } from './Matrix.js';
+import { Vector } from './Vector.js';
+import { computeOrthogonalComplement2 } from './Vector2.js';
 
 export interface ImplicitCurve2Frame {
     tangent: Vector;

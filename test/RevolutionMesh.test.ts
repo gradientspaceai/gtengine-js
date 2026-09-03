@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { RevolutionMesh } from '../src/RevolutionMesh';
-import { MeshDescription, MeshTopology } from '../src/Mesh';
-import { ParametricCurve } from '../src/ParametricCurve';
-import { IndexAttribute } from '../src/IndexAttribute';
-import { VertexAttribute } from '../src/VertexAttribute';
-import { Vector } from '../src/Vector';
+import { RevolutionMesh } from '../src/RevolutionMesh.js';
+import { MeshDescription, MeshTopology } from '../src/Mesh.js';
+import { ParametricCurve } from '../src/ParametricCurve.js';
+import { IndexAttribute } from '../src/IndexAttribute.js';
+import { VertexAttribute } from '../src/VertexAttribute.js';
+import { Vector } from '../src/Vector.js';
 
 // A ParametricCurve whose derivatives are supplied in closed form. The
 // upstream RevolutionMesh accepts any ParametricCurve<2,Real>.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { DistPointHyperellipsoid } from '../src/DistPointHyperellipsoid';
-import { Hyperellipsoid } from '../src/Hyperellipsoid';
-import { Vector, add, dot, length, mul, sub } from '../src/Vector';
+import { DistPointHyperellipsoid } from '../src/DistPointHyperellipsoid.js';
+import { Hyperellipsoid } from '../src/Hyperellipsoid.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

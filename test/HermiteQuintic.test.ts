@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { HermiteQuintic, HermiteQuinticSample } from '../src/HermiteQuintic';
+import { HermiteQuintic, HermiteQuinticSample } from '../src/HermiteQuintic.js';
 
 describe('HermiteQuintic', () => {
     it('default constructor creates the identically zero polynomial', () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { approximateEllipseByArcs } from '../src/ApprEllipseByArcs';
-import { Vector, length, sub } from '../src/Vector';
+import { approximateEllipseByArcs } from '../src/ApprEllipseByArcs.js';
+import { Vector, length, sub } from '../src/Vector.js';
 
 function vec(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

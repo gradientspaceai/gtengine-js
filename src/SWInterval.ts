@@ -52,7 +52,7 @@
 // is ported as the static flag SWInterval.throwOnInvalid: enable it to trap
 // construction of an interval [e0, e1] with e0 > e1.
 
-import { logAssert } from './Logger';
+import { logAssert } from './Logger.js';
 
 // Scratch views for converting between floating-point values and their bit
 // patterns.

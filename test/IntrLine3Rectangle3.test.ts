@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
     IntrLine3Rectangle3TI,
     IntrLine3Rectangle3FI
-} from '../src/IntrLine3Rectangle3';
-import { Line } from '../src/Line';
-import { Rectangle } from '../src/Rectangle';
-import { Vector, add, dot, mul, normalize, sub } from '../src/Vector';
+} from '../src/IntrLine3Rectangle3.js';
+import { Line } from '../src/Line.js';
+import { Rectangle } from '../src/Rectangle.js';
+import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
 
 const ti = new IntrLine3Rectangle3TI();
 const fi = new IntrLine3Rectangle3FI();

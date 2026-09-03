@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { PolylineOffset } from '../src/PolylineOffset';
-import { Vector, dot, length as vectorLength, normalize, sub } from '../src/Vector';
+import { PolylineOffset } from '../src/PolylineOffset.js';
+import { Vector, dot, length as vectorLength, normalize, sub } from '../src/Vector.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

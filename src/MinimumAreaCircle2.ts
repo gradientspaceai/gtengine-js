@@ -39,12 +39,12 @@
 //   not stable, so upstream's choice of representative among equal points is
 //   unspecified).
 
-import { getContainerCircle2 } from './ContCircle2';
-import { Hypersphere, type Circle2 } from './Hypersphere';
-import { LinearSystem } from './LinearSystem';
-import { logAssert } from './Logger';
-import { Matrix } from './Matrix';
-import { Vector, add, dot, mul, sub } from './Vector';
+import { getContainerCircle2 } from './ContCircle2.js';
+import { Hypersphere, type Circle2 } from './Hypersphere.js';
+import { LinearSystem } from './LinearSystem.js';
+import { logAssert } from './Logger.js';
+import { Matrix } from './Matrix.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
 
 // The result of the minimum-area-circle query. 'success' is upstream's
 // boolean return value: true when 'minimal' is the minimum-area circle,

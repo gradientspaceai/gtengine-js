@@ -46,9 +46,9 @@
 // keys lexicographically. The vertex adjacency lists are built in the same
 // order as upstream so that ties among equal weights are broken identically.
 
-import { logAssert } from './Logger';
-import { MinHeap } from './MinHeap';
-import type { MinHeapRecord } from './MinHeap';
+import { logAssert } from './Logger.js';
+import { MinHeap } from './MinHeap.js';
+import type { MinHeapRecord } from './MinHeap.js';
 
 // The port of MinimumSpanningTree::Edge, a pair of vertex indices. The name
 // is prefixed because 'Edge' is used by several mesh classes of the library.

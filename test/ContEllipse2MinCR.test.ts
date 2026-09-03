@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { getContainerEllipse2MinCR } from '../src/ContEllipse2MinCR';
-import { Matrix } from '../src/Matrix';
-import { Vector, sub } from '../src/Vector';
+import { getContainerEllipse2MinCR } from '../src/ContEllipse2MinCR.js';
+import { Matrix } from '../src/Matrix.js';
+import { Vector, sub } from '../src/Vector.js';
 
 function v(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

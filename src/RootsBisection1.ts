@@ -30,7 +30,7 @@
 //   returns the iteration count, so the port returns
 //   { iterations, root, fAtRoot }.
 
-import { logAssert } from './Logger';
+import { logAssert } from './Logger.js';
 
 export interface RootsBisection1Result {
     // The status/iteration count described above.

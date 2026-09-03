@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MinimizeN } from '../src/MinimizeN';
+import { MinimizeN } from '../src/MinimizeN.js';
 
 // Powell's direction set method with maxLevel/maxBracket handed to Minimize1.
 const MAX_LEVEL = 8;

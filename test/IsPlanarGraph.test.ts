@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { IsPlanarGraph, OrderedEdge } from '../src/IsPlanarGraph';
+import { IsPlanarGraph, OrderedEdge } from '../src/IsPlanarGraph.js';
 
 type P2 = [number, number];
 type E2 = [number, number];

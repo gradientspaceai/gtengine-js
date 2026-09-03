@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { NaturalSplineCurve } from '../src/NaturalSplineCurve';
-import { Vector, sub, length as vectorLength } from '../src/Vector';
+import { NaturalSplineCurve } from '../src/NaturalSplineCurve.js';
+import { Vector, sub, length as vectorLength } from '../src/Vector.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

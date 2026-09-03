@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { RectanglePatchMesh } from '../src/RectanglePatchMesh';
-import { MeshDescription, MeshTopology } from '../src/Mesh';
-import { IndexAttribute } from '../src/IndexAttribute';
-import { VertexAttribute } from '../src/VertexAttribute';
-import { ParametricSurface } from '../src/ParametricSurface';
-import { Vector, dot, length, normalize, sub } from '../src/Vector';
-import { cross, unitCross } from '../src/Vector3';
+import { RectanglePatchMesh } from '../src/RectanglePatchMesh.js';
+import { MeshDescription, MeshTopology } from '../src/Mesh.js';
+import { IndexAttribute } from '../src/IndexAttribute.js';
+import { VertexAttribute } from '../src/VertexAttribute.js';
+import { ParametricSurface } from '../src/ParametricSurface.js';
+import { Vector, dot, length, normalize, sub } from '../src/Vector.js';
+import { cross, unitCross } from '../src/Vector3.js';
 
 function V(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

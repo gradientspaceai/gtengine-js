@@ -20,8 +20,8 @@
 // are selected by borderValue === Number.MAX_VALUE (upstream
 // std::numeric_limits<Real>::max()).
 
-import { Array3 } from './Array3';
-import { PdeFilter, PdeFilterScaleType } from './PdeFilter';
+import { Array3 } from './Array3.js';
+import { PdeFilter, PdeFilterScaleType } from './PdeFilter.js';
 
 export abstract class PdeFilter3 extends PdeFilter {
     // Image parameters.

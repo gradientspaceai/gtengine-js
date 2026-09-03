@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     exp2Estimate, exp2EstimateRR, getExp2EstimateMaxError
-} from '../src/Exp2Estimate';
+} from '../src/Exp2Estimate.js';
 
 const DEGREES = [1, 2, 3, 4, 5, 6, 7] as const;
 

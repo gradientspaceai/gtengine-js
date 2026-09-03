@@ -1,17 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { AlignedBox } from '../src/AlignedBox';
-import { OrientedBox } from '../src/OrientedBox';
-import { Line } from '../src/Line';
-import { Vector, add, dot, mul, normalize, sub } from '../src/Vector';
-import { computeOrthogonalComplement3 } from '../src/Vector3';
+import { AlignedBox } from '../src/AlignedBox.js';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Line } from '../src/Line.js';
+import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
+import { computeOrthogonalComplement3 } from '../src/Vector3.js';
 import {
     IntrLine3AlignedBox3TI,
     IntrLine3AlignedBox3FI
-} from '../src/IntrLine3AlignedBox3';
+} from '../src/IntrLine3AlignedBox3.js';
 import {
     IntrLine3OrientedBox3TI,
     IntrLine3OrientedBox3FI
-} from '../src/IntrLine3OrientedBox3';
+} from '../src/IntrLine3OrientedBox3.js';
 
 function vec(a: number[]): Vector {
     return Vector.fromArray(a);

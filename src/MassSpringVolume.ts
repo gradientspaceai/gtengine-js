@@ -21,8 +21,8 @@
 //   here), so the port is a concrete class; derive from it to supply nonzero
 //   external forces by overriding externalAcceleration.
 
-import { Vector, add, length as vectorLength, mul, sub } from './Vector';
-import { ParticleSystem } from './ParticleSystem';
+import { Vector, add, length as vectorLength, mul, sub } from './Vector.js';
+import { ParticleSystem } from './ParticleSystem.js';
 
 export class MassSpringVolume extends ParticleSystem {
     protected mNumSlices: number;

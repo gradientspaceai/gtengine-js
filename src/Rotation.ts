@@ -29,13 +29,13 @@
 // - toEulerAngles fixes an upstream defect for Euler-angle-sourced rotations;
 //   see the comment in that method.
 
-import { AxisAngle } from './AxisAngle';
-import { GTE_C_HALF_PI, GTE_C_PI } from './Constants';
-import { EulerAngles, EulerResult } from './EulerAngles';
-import { logAssert } from './Logger';
-import { Matrix, multiplyAB } from './Matrix';
-import { Quaternion } from './Quaternion';
-import { Vector, normalize } from './Vector';
+import { AxisAngle } from './AxisAngle.js';
+import { GTE_C_HALF_PI, GTE_C_PI } from './Constants.js';
+import { EulerAngles, EulerResult } from './EulerAngles.js';
+import { logAssert } from './Logger.js';
+import { Matrix, multiplyAB } from './Matrix.js';
+import { Quaternion } from './Quaternion.js';
+import { Vector, normalize } from './Vector.js';
 
 function assertDimension(n: number): void {
     logAssert(n === 3 || n === 4, 'Dimension must be 3 or 4.');

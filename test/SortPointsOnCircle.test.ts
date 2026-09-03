@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SortPointsOnCircle } from '../src/SortPointsOnCircle';
+import { SortPointsOnCircle } from '../src/SortPointsOnCircle.js';
 
 type Point2 = [number, number];
 

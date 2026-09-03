@@ -24,18 +24,18 @@
 // box center), so the numerical results are identical; only the final
 // rotation into world coordinates is applied here.
 
-import { AlignedBox } from './AlignedBox';
-import { DistPointOrientedBox } from './DistPointOrientedBox';
-import { Hypersphere } from './Hypersphere';
+import { AlignedBox } from './AlignedBox.js';
+import { DistPointOrientedBox } from './DistPointOrientedBox.js';
+import { Hypersphere } from './Hypersphere.js';
 import {
     IntrAlignedBox2Circle2FI,
     IntrAlignedBox2Circle2FIResultType
-} from './IntrAlignedBox2Circle2';
-import type { IntrAlignedBox2Circle2FIResult } from './IntrAlignedBox2Circle2';
-import { logAssert } from './Logger';
-import type { OrientedBox2 } from './OrientedBox';
-import { Vector, add, dot, mul, negate, sub } from './Vector';
-import type { TIQuery } from './TIQuery';
+} from './IntrAlignedBox2Circle2.js';
+import type { IntrAlignedBox2Circle2FIResult } from './IntrAlignedBox2Circle2.js';
+import { logAssert } from './Logger.js';
+import type { OrientedBox2 } from './OrientedBox.js';
+import { Vector, add, dot, mul, negate, sub } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrOrientedBox2Circle2TI.test.
 export interface IntrOrientedBox2Circle2TIResult {

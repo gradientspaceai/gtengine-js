@@ -12,10 +12,10 @@
 // only a TIQuery specialization for this pair of primitives, which becomes
 // IntrSphere3Frustum3TI with the result type IntrSphere3Frustum3TIResult.
 
-import type { TIQuery } from './TIQuery';
-import { DistPoint3Frustum3 } from './DistPoint3Frustum3';
-import type { Frustum3 } from './Frustum3';
-import type { Sphere3 } from './Hypersphere';
+import type { TIQuery } from './TIQuery.js';
+import { DistPoint3Frustum3 } from './DistPoint3Frustum3.js';
+import type { Frustum3 } from './Frustum3.js';
+import type { Sphere3 } from './Hypersphere.js';
 
 export interface IntrSphere3Frustum3TIResult {
     intersect: boolean;

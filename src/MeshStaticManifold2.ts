@@ -32,7 +32,7 @@
 //     output reference parameters. It also fixes an upstream bug; see the
 //     comment in that method.
 
-import { logAssert } from './Logger';
+import { logAssert } from './Logger.js';
 
 // The vertices are stored as an array of MeshStaticManifold2Vertex objects,
 // one per vertex index. If triangle[t0] = <v0,v1,v2>, then vertex[v0]

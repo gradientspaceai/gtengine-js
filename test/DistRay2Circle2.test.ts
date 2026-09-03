@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { DistPoint2Circle2 } from '../src/DistPoint2Circle2';
-import { DistRay2Circle2 } from '../src/DistRay2Circle2';
-import { Hypersphere } from '../src/Hypersphere';
-import { Ray } from '../src/Ray';
-import { Vector, add, dot, mul, sub } from '../src/Vector';
+import { DistPoint2Circle2 } from '../src/DistPoint2Circle2.js';
+import { DistRay2Circle2 } from '../src/DistRay2Circle2.js';
+import { Hypersphere } from '../src/Hypersphere.js';
+import { Ray } from '../src/Ray.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

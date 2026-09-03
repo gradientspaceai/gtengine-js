@@ -19,7 +19,7 @@
 //     this port always uses the exact implementation because robustSOP and
 //     robustDOP are meaningless without it.
 
-import { GTE_C_INV_PI, GTE_C_PI, GTE_C_LN_10 } from './Constants';
+import { GTE_C_INV_PI, GTE_C_PI, GTE_C_LN_10 } from './Constants.js';
 
 export function atandivpi(x: number): number {
     return Math.atan(x) * GTE_C_INV_PI;

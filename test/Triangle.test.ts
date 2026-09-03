@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { Triangle } from '../src/Triangle';
-import { Vector, sub, dot, length } from '../src/Vector';
+import { Triangle } from '../src/Triangle.js';
+import { Vector, sub, dot, length } from '../src/Vector.js';
 
 describe('Triangle construction', () => {
     it('the default constructor is the standard corner triangle', () => {

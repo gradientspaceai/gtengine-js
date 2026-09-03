@@ -16,13 +16,13 @@
 // constructed and writes it through an output parameter; the port returns the
 // circle/sphere, or null when the input points are linearly dependent.
 
-import { Circle3 } from './Circle3';
-import { Hypersphere, type Sphere3 } from './Hypersphere';
-import { LinearSystem } from './LinearSystem';
-import { logAssert } from './Logger';
-import { Matrix } from './Matrix';
-import { Vector, add, dot, length, mul, normalize, sub } from './Vector';
-import { cross, unitCross } from './Vector3';
+import { Circle3 } from './Circle3.js';
+import { Hypersphere, type Sphere3 } from './Hypersphere.js';
+import { LinearSystem } from './LinearSystem.js';
+import { logAssert } from './Logger.js';
+import { Matrix } from './Matrix.js';
+import { Vector, add, dot, length, mul, normalize, sub } from './Vector.js';
+import { cross, unitCross } from './Vector3.js';
 
 function assert3D(name: string, ...v: Vector[]): void {
     for (const u of v) {

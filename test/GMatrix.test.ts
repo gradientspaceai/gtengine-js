@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { GMatrix } from '../src/GMatrix';
+import { GMatrix } from '../src/GMatrix.js';
 import {
     Matrix, addMatrix, divMatrix, multiplyAB, determinant, inverse,
     transpose, mulMatrix
-} from '../src/Matrix';
-import { Vector } from '../src/Vector';
+} from '../src/Matrix.js';
+import { Vector } from '../src/Vector.js';
 
 describe('GMatrix construction and sizing', () => {
     it('the default constructor produces the 0-by-0 matrix', () => {

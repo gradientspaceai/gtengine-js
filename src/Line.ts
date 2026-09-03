@@ -13,8 +13,8 @@
 // named static factories that copy their Vector arguments, comparison
 // methods).
 
-import { logAssert } from './Logger';
-import { Vector } from './Vector';
+import { logAssert } from './Logger.js';
+import { Vector } from './Vector.js';
 
 export class Line {
     // Public member access. The direction must be unit length.

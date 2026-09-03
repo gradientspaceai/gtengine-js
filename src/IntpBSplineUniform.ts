@@ -45,8 +45,8 @@
 // - Upstream's dead local 'Polynomial1<Real> sm1' in ComputeBlendingMatrix
 //   is dropped.
 
-import { logError } from './Logger';
-import { Polynomial1 } from './Polynomial1';
+import { logError } from './Logger.js';
+import { Polynomial1 } from './Polynomial1.js';
 
 // Support for caching the intermediate tensor product of control points
 // with the blending matrices. A precached container has all elements

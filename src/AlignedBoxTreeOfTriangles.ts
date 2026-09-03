@@ -15,9 +15,9 @@
 // hit, including coincident ones; see the note about upstream issue #167 in
 // BVTreeOfTriangles.ts.
 
-import { AlignedBoxBV } from './AlignedBoxBV';
-import type { BVTreeVolumeOps } from './BVTree';
-import { BVTreeOfTriangles } from './BVTreeOfTriangles';
+import { AlignedBoxBV } from './AlignedBoxBV.js';
+import type { BVTreeVolumeOps } from './BVTree.js';
+import { BVTreeOfTriangles } from './BVTreeOfTriangles.js';
 
 const alignedBoxBVOps: BVTreeVolumeOps<AlignedBoxBV> = {
     create: () => new AlignedBoxBV(),

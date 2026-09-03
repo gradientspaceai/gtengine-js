@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { ApprTorus3 } from '../src/ApprTorus3';
-import type { ApprTorus3Parameters } from '../src/ApprTorus3';
-import { Vector, dot, normalize } from '../src/Vector';
-import { computeOrthogonalComplement3 } from '../src/Vector3';
+import { ApprTorus3 } from '../src/ApprTorus3.js';
+import type { ApprTorus3Parameters } from '../src/ApprTorus3.js';
+import { Vector, dot, normalize } from '../src/Vector.js';
+import { computeOrthogonalComplement3 } from '../src/Vector3.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

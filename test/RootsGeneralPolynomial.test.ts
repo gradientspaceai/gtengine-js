@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { BSRational } from '../src/BSRational';
-import { RootsGeneralPolynomial } from '../src/RootsGeneralPolynomial';
+import { BSRational } from '../src/BSRational.js';
+import { RootsGeneralPolynomial } from '../src/RootsGeneralPolynomial.js';
 
 // The coefficients, in increasing order of power, of the monic polynomial
 // with the given roots.

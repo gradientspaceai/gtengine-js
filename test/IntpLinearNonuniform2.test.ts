@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { IntpLinearNonuniform2 } from '../src/IntpLinearNonuniform2';
-import type { IntpLinearNonuniform2TriangleMesh } from '../src/IntpLinearNonuniform2';
-import { Vector } from '../src/Vector';
-import { computeBarycentrics2 } from '../src/Vector2';
+import { IntpLinearNonuniform2 } from '../src/IntpLinearNonuniform2.js';
+import type { IntpLinearNonuniform2TriangleMesh } from '../src/IntpLinearNonuniform2.js';
+import { Vector } from '../src/Vector.js';
+import { computeBarycentrics2 } from '../src/Vector2.js';
 
 // A minimal triangle mesh adapter that satisfies the interface required by
 // IntpLinearNonuniform2. The triangles are index triples into 'vertices'.

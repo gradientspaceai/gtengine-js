@@ -14,18 +14,18 @@
 // module-private accessor subclass. The ray-specific DoQuery helper is
 // exported as the module function 'intrRay3Capsule3FIDoQuery'.
 
-import type { Capsule3 } from './Capsule';
-import { DistRaySegment } from './DistRaySegment';
-import type { FIQuery } from './FIQuery';
-import { IntrIntervalsFI } from './IntrIntervals';
+import type { Capsule3 } from './Capsule.js';
+import { DistRaySegment } from './DistRaySegment.js';
+import type { FIQuery } from './FIQuery.js';
+import { IntrIntervalsFI } from './IntrIntervals.js';
 import {
     IntrLine3Capsule3FI,
     defaultIntrLine3Capsule3FIResult
-} from './IntrLine3Capsule3';
-import type { IntrLine3Capsule3FIResult } from './IntrLine3Capsule3';
-import type { Ray3 } from './Ray';
-import { Vector, add, mul } from './Vector';
-import type { TIQuery } from './TIQuery';
+} from './IntrLine3Capsule3.js';
+import type { IntrLine3Capsule3FIResult } from './IntrLine3Capsule3.js';
+import type { Ray3 } from './Ray.js';
+import { Vector, add, mul } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrRay3Capsule3TI.test.
 export interface IntrRay3Capsule3TIResult {

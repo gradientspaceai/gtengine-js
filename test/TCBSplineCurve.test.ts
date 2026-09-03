@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { TCBSplineCurve } from '../src/TCBSplineCurve';
-import { Vector, length as vectorLength } from '../src/Vector';
+import { TCBSplineCurve } from '../src/TCBSplineCurve.js';
+import { Vector, length as vectorLength } from '../src/Vector.js';
 
 function makeRandom(seed: number): () => number {
     let state = seed >>> 0;

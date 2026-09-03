@@ -20,21 +20,21 @@
 // (Line, OrientedBox) directly. The upstream Result structs add no members to
 // the aligned-box results, so the port exports type aliases.
 
-import type { Line } from './Line';
-import type { OrientedBox } from './OrientedBox';
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
-import { Vector, add, dot, mul, sub } from './Vector';
+import type { Line } from './Line.js';
+import type { OrientedBox } from './OrientedBox.js';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
 import {
     IntrLine3AlignedBox3TI,
     IntrLine3AlignedBox3FI,
     defaultIntrLine3AlignedBox3TIResult,
     defaultIntrLine3AlignedBox3FIResult
-} from './IntrLine3AlignedBox3';
+} from './IntrLine3AlignedBox3.js';
 import type {
     IntrLine3AlignedBox3TIResult,
     IntrLine3AlignedBox3FIResult
-} from './IntrLine3AlignedBox3';
+} from './IntrLine3AlignedBox3.js';
 
 // The result of IntrLine3OrientedBox3TI.test. Upstream adds no members to
 // the aligned-box result.

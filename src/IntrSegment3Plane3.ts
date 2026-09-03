@@ -20,16 +20,16 @@
 // centered form of the segment, that is, the segment is
 // center + t * direction for |t| <= extent with unit-length direction.
 
-import { DistPointHyperplane } from './DistPointHyperplane';
-import type { FIQuery } from './FIQuery';
+import { DistPointHyperplane } from './DistPointHyperplane.js';
+import type { FIQuery } from './FIQuery.js';
 import {
     defaultIntrLine3Plane3FIResult, intrLine3Plane3FIDoQuery
-} from './IntrLine3Plane3';
-import type { IntrLine3Plane3FIResult } from './IntrLine3Plane3';
-import type { Plane3 } from './Hyperplane';
-import type { Segment3 } from './Segment';
-import type { TIQuery } from './TIQuery';
-import { Vector, add, mul } from './Vector';
+} from './IntrLine3Plane3.js';
+import type { IntrLine3Plane3FIResult } from './IntrLine3Plane3.js';
+import type { Plane3 } from './Hyperplane.js';
+import type { Segment3 } from './Segment.js';
+import type { TIQuery } from './TIQuery.js';
+import { Vector, add, mul } from './Vector.js';
 
 // The result of IntrSegment3Plane3TI.test.
 export interface IntrSegment3Plane3TIResult {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { GaussianElimination } from '../src/GaussianElimination';
+import { GaussianElimination } from '../src/GaussianElimination.js';
 
 function makeRandom(seed: number): () => number {
     let state = seed >>> 0;

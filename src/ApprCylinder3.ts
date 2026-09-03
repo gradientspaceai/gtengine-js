@@ -29,20 +29,20 @@
 //   performed sequentially in the same partition order, so the results are
 //   deterministic and match a serialized execution of the upstream threads.
 
-import { GTE_C_HALF_PI, GTE_C_TWO_PI } from './Constants';
-import { ApprCircle2 } from './ApprCircle2';
-import { Cylinder3 } from './Cylinder3';
-import { Hypersphere } from './Hypersphere';
-import { logAssert } from './Logger';
+import { GTE_C_HALF_PI, GTE_C_TWO_PI } from './Constants.js';
+import { ApprCircle2 } from './ApprCircle2.js';
+import { Cylinder3 } from './Cylinder3.js';
+import { Hypersphere } from './Hypersphere.js';
+import { logAssert } from './Logger.js';
 import {
     Matrix, addMatrix, divMatrix, mulMatrix, negateMatrix, outerProduct,
     subMatrix
-} from './Matrix';
-import { trace3x3 } from './Matrix3x3';
-import { SymmetricEigensolver3x3 } from './SymmetricEigensolver3x3';
-import { Vector, add, dot, mul, normalize, sub } from './Vector';
-import { dotPerp } from './Vector2';
-import { computeOrthogonalComplement3 } from './Vector3';
+} from './Matrix.js';
+import { trace3x3 } from './Matrix3x3.js';
+import { SymmetricEigensolver3x3 } from './SymmetricEigensolver3x3.js';
+import { Vector, add, dot, mul, normalize, sub } from './Vector.js';
+import { dotPerp } from './Vector2.js';
+import { computeOrthogonalComplement3 } from './Vector3.js';
 
 // The port of the private ApprCylinder3::ConstructorType enum class.
 enum ConstructorType {

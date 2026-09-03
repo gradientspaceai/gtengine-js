@@ -18,7 +18,7 @@
 // arrays whose length is the sample count. The out-parameters of GetTails
 // become the return value { lower, upper }.
 
-import { logAssert } from './Logger';
+import { logAssert } from './Logger.js';
 
 export class Histogram {
     private mBuckets: number[];

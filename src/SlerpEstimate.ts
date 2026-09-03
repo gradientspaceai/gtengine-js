@@ -17,8 +17,8 @@
 // static_assert. This port takes the degree as a runtime argument validated
 // by logAssert.
 
-import { chebyshevRatioEstimate } from './ChebyshevRatioEstimate';
-import { logAssert } from './Logger';
+import { chebyshevRatioEstimate } from './ChebyshevRatioEstimate.js';
+import { logAssert } from './Logger.js';
 
 function assertInputs(q0: readonly number[], q1: readonly number[], degree: number): void {
     logAssert(q0.length >= 2, 'Invalid dimension.');

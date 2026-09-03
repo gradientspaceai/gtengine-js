@@ -62,10 +62,10 @@
 // normal N by value and negates it in place when s < 0; the port copies N
 // before negating so the caller's vector is not modified.
 
-import { Hypersphere } from './Hypersphere';
-import { logAssert } from './Logger';
-import { Vector, add, dot, mul, negate, sub } from './Vector';
-import { perp } from './Vector2';
+import { Hypersphere } from './Hypersphere.js';
+import { logAssert } from './Logger.js';
+import { Vector, add, dot, mul, negate, sub } from './Vector.js';
+import { perp } from './Vector2.js';
 
 export interface CircleThroughPointSpecifiedTangentAndRadiusResult {
     // The number of circles satisfying the constraints.

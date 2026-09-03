@@ -22,12 +22,12 @@
 // DistLine3OrientedBox3Result, which is structurally identical to the
 // canonical-box result that upstream aliases.
 
-import { CanonicalBox } from './CanonicalBox';
-import type { DCPQuery } from './DCPQuery';
-import { DistLine3CanonicalBox3 } from './DistLine3CanonicalBox3';
-import { Line, type Line3 } from './Line';
-import type { OrientedBox3 } from './OrientedBox';
-import { Vector, add, dot, mul, sub } from './Vector';
+import { CanonicalBox } from './CanonicalBox.js';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistLine3CanonicalBox3 } from './DistLine3CanonicalBox3.js';
+import { Line, type Line3 } from './Line.js';
+import type { OrientedBox3 } from './OrientedBox.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
 
 export interface DistLine3OrientedBox3Result {
     distance: number;

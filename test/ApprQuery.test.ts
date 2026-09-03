@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { ApprQuery } from '../src/ApprQuery';
+import { ApprQuery } from '../src/ApprQuery.js';
 
 // A miniature fitting query in the style of the Appr* files: fit the mean of
 // a set of 1D observations. The model parameter is the mean; the model error

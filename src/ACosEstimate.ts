@@ -13,7 +13,7 @@
 // static_assert. This port takes the degree as a runtime argument validated
 // by logAssert; see acosEstimate below.
 
-import { logAssert } from './Logger';
+import { logAssert } from './Logger.js';
 
 const C_ACOS_EST_COEFF: readonly (readonly number[])[] = [
     [   // degree 1

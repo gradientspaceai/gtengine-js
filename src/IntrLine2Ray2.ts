@@ -8,12 +8,12 @@
 //
 // Port notes: see IntrIntervals.ts for the Intr* precedent.
 
-import { Line } from './Line';
-import type { Ray } from './Ray';
-import { Vector } from './Vector';
-import { IntrLine2Line2FI } from './IntrLine2Line2';
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
+import { Line } from './Line.js';
+import type { Ray } from './Ray.js';
+import { Vector } from './Vector.js';
+import { IntrLine2Line2FI } from './IntrLine2Line2.js';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
 
 // The port of std::numeric_limits<int32_t>::max(), the 'numIntersections'
 // value meaning "the line and ray are collinear".

@@ -16,12 +16,12 @@
 // The nested 'Intersection' struct becomes the exported interface
 // IntrLine2SegmentMesh2Intersection.
 
-import type { FIQuery } from './FIQuery';
-import { IntrLine2Segment2FI } from './IntrLine2Segment2';
-import type { Line2 } from './Line';
-import { Segment } from './Segment';
-import type { SegmentMesh2 } from './SegmentMesh';
-import type { Vector } from './Vector';
+import type { FIQuery } from './FIQuery.js';
+import { IntrLine2Segment2FI } from './IntrLine2Segment2.js';
+import type { Line2 } from './Line.js';
+import { Segment } from './Segment.js';
+import type { SegmentMesh2 } from './SegmentMesh.js';
+import type { Vector } from './Vector.js';
 
 // One line-mesh intersection record.
 export interface IntrLine2SegmentMesh2Intersection {

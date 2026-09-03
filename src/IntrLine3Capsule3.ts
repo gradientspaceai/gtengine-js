@@ -19,13 +19,13 @@
 // specializations become IntrLine3Capsule3TI and IntrLine3Capsule3FI. The
 // protected DoQuery member becomes the protected doQuery() method.
 
-import type { Capsule } from './Capsule';
-import type { Line } from './Line';
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
-import { Vector, add, dot, mul, sub } from './Vector';
-import { computeOrthogonalComplement3 } from './Vector3';
-import { DistLineSegment } from './DistLineSegment';
+import type { Capsule } from './Capsule.js';
+import type { Line } from './Line.js';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
+import { computeOrthogonalComplement3 } from './Vector3.js';
+import { DistLineSegment } from './DistLineSegment.js';
 
 // The result of IntrLine3Capsule3TI queries.
 export interface IntrLine3Capsule3TIResult {

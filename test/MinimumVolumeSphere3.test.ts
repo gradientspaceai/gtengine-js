@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { MinimumVolumeSphere3 } from '../src/MinimumVolumeSphere3';
-import { Vector, sub, dot } from '../src/Vector';
+import { MinimumVolumeSphere3 } from '../src/MinimumVolumeSphere3.js';
+import { Vector, sub, dot } from '../src/Vector.js';
 
 function cross(u: Vector, v: Vector): Vector {
     return Vector.fromArray([

@@ -25,8 +25,8 @@
 // 0 <= x < mXBound and 0 <= y < mYBound that GetUx/GetUy document, which also
 // matches the division by mQuantity = xBound*yBound.
 
-import { PdeFilter2 } from './PdeFilter2';
-import { PdeFilterScaleType } from './PdeFilter';
+import { PdeFilter2 } from './PdeFilter2.js';
+import { PdeFilterScaleType } from './PdeFilter.js';
 
 export class GradientAnisotropic2 extends PdeFilter2 {
     // These are updated on each iteration, since they depend on the current

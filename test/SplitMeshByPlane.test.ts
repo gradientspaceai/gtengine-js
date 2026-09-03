@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { Hyperplane } from '../src/Hyperplane';
-import { SplitMeshByPlane } from '../src/SplitMeshByPlane';
-import type { SplitMeshByPlaneResult } from '../src/SplitMeshByPlane';
-import { Vector, dot, length, normalize, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+import { Hyperplane } from '../src/Hyperplane.js';
+import { SplitMeshByPlane } from '../src/SplitMeshByPlane.js';
+import type { SplitMeshByPlaneResult } from '../src/SplitMeshByPlane.js';
+import { Vector, dot, length, normalize, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 // A small deterministic pseudorandom generator (mulberry32) so the randomized
 // cross-checks are reproducible.

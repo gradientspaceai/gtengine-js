@@ -35,7 +35,7 @@
 //   extrapolates the boundary cell's cubic polynomial. The port preserves
 //   this behavior.
 
-import { logAssert } from './Logger';
+import { logAssert } from './Logger.js';
 
 export class IntpTricubic3 {
     private readonly mXBound: number;

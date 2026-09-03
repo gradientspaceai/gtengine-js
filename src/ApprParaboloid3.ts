@@ -23,11 +23,11 @@
 //   when the pointer is non-null, an optimization that matters only for the
 //   rational instantiation).
 
-import { LDLTDecomposition } from './LDLTDecomposition';
-import { LinearSystem } from './LinearSystem';
-import { logAssert } from './Logger';
-import { Matrix } from './Matrix';
-import { Vector } from './Vector';
+import { LDLTDecomposition } from './LDLTDecomposition.js';
+import { LinearSystem } from './LinearSystem.js';
+import { logAssert } from './Logger.js';
+import { Matrix } from './Matrix.js';
+import { Vector } from './Vector.js';
 
 // The result of ApprParaboloid3.fit. The paraboloid is
 //   z = u[0]*x^2 + u[1]*x*y + u[2]*y^2 + u[3]*x + u[4]*y + u[5]

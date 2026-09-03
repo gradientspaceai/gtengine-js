@@ -45,10 +45,10 @@
 // separating line that is returned is still the normalized floating-point
 // line of upstream.
 
-import { BSNumber } from './BSNumber';
-import { ConvexHull2 } from './ConvexHull2';
-import { Line, type Line2 } from './Line';
-import { Vector, normalize, sub } from './Vector';
+import { BSNumber } from './BSNumber.js';
+import { ConvexHull2 } from './ConvexHull2.js';
+import { Line, type Line2 } from './Line.js';
+import { Vector, normalize, sub } from './Vector.js';
 
 // The result of the separation query. 'separated' is upstream's boolean
 // return value: true if and only if 'separatingLine' separates the two point

@@ -24,8 +24,8 @@
 //     defined here because PolynomialRoot.ts (B114) ports only the
 //     floating-point instantiation.
 
-import { BSRational } from './BSRational';
-import { PolynomialRoot } from './PolynomialRoot';
+import { BSRational } from './BSRational.js';
+import { PolynomialRoot } from './PolynomialRoot.js';
 
 // The port of PolynomialRoot<Rational> from PolynomialRoot.h. As upstream,
 // the comparison operators use only the root estimate x.

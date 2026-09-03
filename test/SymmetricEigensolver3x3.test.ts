@@ -5,7 +5,7 @@ import {
     SortEigenstuff,
     type EigenTriple,
     type EigenBasis3
-} from '../src/SymmetricEigensolver3x3';
+} from '../src/SymmetricEigensolver3x3.js';
 
 // A simple deterministic pseudorandom generator so test runs are repeatable.
 function makeRandom(seed: number): () => number {

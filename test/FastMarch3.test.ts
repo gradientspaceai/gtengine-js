@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FastMarch3 } from '../src/FastMarch3';
+import { FastMarch3 } from '../src/FastMarch3.js';
 
 function idx(x: number, y: number, z: number, xBound: number, yBound: number): number {
     return x + xBound * (y + yBound * z);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { IntpTrilinear3 } from '../src/IntpTrilinear3';
+import { IntpTrilinear3 } from '../src/IntpTrilinear3.js';
 
 // Grid used by most of the tests. The bounds, origins and spacings are all
 // distinct so that a transposed index or a swapped spacing is caught.

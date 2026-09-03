@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { DistLine3Rectangle3 } from '../src/DistLine3Rectangle3';
-import { Line } from '../src/Line';
-import { Rectangle } from '../src/Rectangle';
-import { Vector, add, dot, mul, sub } from '../src/Vector';
+import { DistLine3Rectangle3 } from '../src/DistLine3Rectangle3.js';
+import { Line } from '../src/Line.js';
+import { Rectangle } from '../src/Rectangle.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

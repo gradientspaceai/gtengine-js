@@ -41,10 +41,10 @@
 //   value the upstream Inverse() returns for an invertible matrix. Both call
 //   sites are reached only when the matrix is invertible.
 
-import { logAssert } from './Logger';
-import { BSRational } from './BSRational';
-import { Matrix, mulMatrix } from './Matrix';
-import { Vector, add, dot } from './Vector';
+import { logAssert } from './Logger.js';
+import { BSRational } from './BSRational.js';
+import { Matrix, mulMatrix } from './Matrix.js';
+import { Vector, add, dot } from './Vector.js';
 
 // The classification of the solution set of the quadric equation.
 export enum QuadricSurfaceClassification {

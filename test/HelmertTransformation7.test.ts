@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { HelmertTransformation7 } from '../src/HelmertTransformation7';
-import { Matrix, mulMatrix, multiplyAB } from '../src/Matrix';
-import { Vector, add, length, mul, sub } from '../src/Vector';
+import { HelmertTransformation7 } from '../src/HelmertTransformation7.js';
+import { Matrix, mulMatrix, multiplyAB } from '../src/Matrix.js';
+import { Vector, add, length, mul, sub } from '../src/Vector.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

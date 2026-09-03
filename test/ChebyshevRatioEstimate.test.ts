@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
     chebyshevRatioEstimate, getChebyshevRatioEstimateMaxError,
     chebyshevRatioEstimateR, getChebyshevRatioEstimateRMaxError
-} from '../src/ChebyshevRatioEstimate';
+} from '../src/ChebyshevRatioEstimate.js';
 
 // Upstream-documented maximum errors for degrees 1..16 (angle in [0,pi/2]).
 const MAX_ERROR = [

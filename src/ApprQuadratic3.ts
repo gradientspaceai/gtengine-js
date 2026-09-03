@@ -16,10 +16,10 @@
 // the division already leaves exactly 1 there. The port preserves the
 // upstream code as written.
 
-import { Hypersphere } from './Hypersphere';
-import { Matrix } from './Matrix';
-import { SymmetricEigensolver } from './SymmetricEigensolver';
-import { Vector, dot } from './Vector';
+import { Hypersphere } from './Hypersphere.js';
+import { Matrix } from './Matrix.js';
+import { SymmetricEigensolver } from './SymmetricEigensolver.js';
+import { Vector, dot } from './Vector.js';
 
 export interface ApprQuadratic3Result {
     // The coefficients C[0..9] of the quadratic fit (a unit-length

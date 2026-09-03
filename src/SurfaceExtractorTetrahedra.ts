@@ -31,7 +31,7 @@ import {
     SurfaceExtractor,
     SurfaceExtractorTriangle,
     SurfaceExtractorVertex
-} from './SurfaceExtractor';
+} from './SurfaceExtractor.js';
 
 // An undirected edge of the extracted level surface, stored as the sorted
 // pair of vertex indices.

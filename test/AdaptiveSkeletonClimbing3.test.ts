@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
     AdaptiveSkeletonClimbing3,
     type AdaptiveSkeletonClimbing3Vertex
-} from '../src/AdaptiveSkeletonClimbing3';
-import { TriangleKey } from '../src/TriangleKey';
+} from '../src/AdaptiveSkeletonClimbing3.js';
+import { TriangleKey } from '../src/TriangleKey.js';
 
 type Vertex = AdaptiveSkeletonClimbing3Vertex;
 

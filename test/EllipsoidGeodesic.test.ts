@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { EllipsoidGeodesic } from '../src/EllipsoidGeodesic';
-import { GVector } from '../src/GVector';
-import { Vector, dot, length, sub } from '../src/Vector';
+import { EllipsoidGeodesic } from '../src/EllipsoidGeodesic.js';
+import { GVector } from '../src/GVector.js';
+import { Vector, dot, length, sub } from '../src/Vector.js';
 
 function gv(u: number, v: number): GVector {
     return GVector.fromArray([u, v]);

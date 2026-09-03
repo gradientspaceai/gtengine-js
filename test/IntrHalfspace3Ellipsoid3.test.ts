@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { Halfspace } from '../src/Halfspace';
-import { Hyperellipsoid } from '../src/Hyperellipsoid';
-import { IntrHalfspace3Ellipsoid3TI } from '../src/IntrHalfspace3Ellipsoid3';
-import { Vector, add, dot, mul, normalize } from '../src/Vector';
-import { computeOrthogonalComplement3 } from '../src/Vector3';
+import { Halfspace } from '../src/Halfspace.js';
+import { Hyperellipsoid } from '../src/Hyperellipsoid.js';
+import { IntrHalfspace3Ellipsoid3TI } from '../src/IntrHalfspace3Ellipsoid3.js';
+import { Vector, add, dot, mul, normalize } from '../src/Vector.js';
+import { computeOrthogonalComplement3 } from '../src/Vector3.js';
 
 function vec(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

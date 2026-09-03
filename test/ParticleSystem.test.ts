@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { ParticleSystem } from '../src/ParticleSystem';
-import { Vector, add, sub, mul, dot } from '../src/Vector';
+import { ParticleSystem } from '../src/ParticleSystem.js';
+import { Vector, add, sub, mul, dot } from '../src/Vector.js';
 
 // A system whose particles all feel the same constant acceleration (for
 // example gravity).

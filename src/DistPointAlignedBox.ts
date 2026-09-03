@@ -21,11 +21,11 @@
 // dimension aliases DCPPoint2AlignedBox2/DCPPoint3AlignedBox3 are dropped
 // since the runtime-dimension Vector serves every N.
 
-import type { AlignedBox } from './AlignedBox';
-import { CanonicalBox } from './CanonicalBox';
-import type { DCPQuery } from './DCPQuery';
-import { DistPointCanonicalBox } from './DistPointCanonicalBox';
-import { Vector, add, sub } from './Vector';
+import type { AlignedBox } from './AlignedBox.js';
+import { CanonicalBox } from './CanonicalBox.js';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistPointCanonicalBox } from './DistPointCanonicalBox.js';
+import { Vector, add, sub } from './Vector.js';
 
 export interface DistPointAlignedBoxResult {
     distance: number;

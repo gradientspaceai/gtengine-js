@@ -43,14 +43,14 @@
 // getContainerOrientedBox2 returns null on failure and the port raises an
 // error rather than reading an uninitialized box as upstream does.
 
-import { getContainerOrientedBox2 } from './ContOrientedBox2';
-import type { Ellipse2 } from './Hyperellipsoid';
-import { logAssert } from './Logger';
-import { Matrix, addMatrix, divMatrix, mulMatrix, outerProduct } from './Matrix';
-import { determinant2x2 } from './Matrix2x2';
-import { RootsPolynomial } from './RootsPolynomial';
-import { SymmetricEigensolver2x2 } from './SymmetricEigensolver2x2';
-import { Vector, add, dot, mul, normalize, sub } from './Vector';
+import { getContainerOrientedBox2 } from './ContOrientedBox2.js';
+import type { Ellipse2 } from './Hyperellipsoid.js';
+import { logAssert } from './Logger.js';
+import { Matrix, addMatrix, divMatrix, mulMatrix, outerProduct } from './Matrix.js';
+import { determinant2x2 } from './Matrix2x2.js';
+import { RootsPolynomial } from './RootsPolynomial.js';
+import { SymmetricEigensolver2x2 } from './SymmetricEigensolver2x2.js';
+import { Vector, add, dot, mul, normalize, sub } from './Vector.js';
 
 export class ApprEllipse2 {
     // If you want this function to compute the initial guess for the

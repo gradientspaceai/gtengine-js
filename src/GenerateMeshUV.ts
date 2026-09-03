@@ -41,9 +41,9 @@
 //   * operator() becomes generate(); the caller supplies the tcoords array,
 //     which is filled in place as upstream does.
 
-import { GTE_C_TWO_PI } from './Constants';
-import { ETManifoldMesh, ETManifoldMeshEdge } from './ETManifoldMesh';
-import { Vector, length, sub } from './Vector';
+import { GTE_C_TWO_PI } from './Constants.js';
+import { ETManifoldMesh, ETManifoldMeshEdge } from './ETManifoldMesh.js';
+import { Vector, length, sub } from './Vector.js';
 
 // The vertex graph record required to set up the sparse linear system of
 // equations that determines the texture coordinates. This is the port of the

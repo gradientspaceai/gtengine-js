@@ -9,10 +9,10 @@
 // Port notes: the Cont* naming precedent suffixes the query with the
 // container type, so InContainer becomes inContainerTetrahedron3.
 
-import { logAssert } from './Logger';
-import { Tetrahedron3 } from './Tetrahedron3';
-import { Vector, sub } from './Vector';
-import { dotCross } from './Vector3';
+import { logAssert } from './Logger.js';
+import { Tetrahedron3 } from './Tetrahedron3.js';
+import { Vector, sub } from './Vector.js';
+import { dotCross } from './Vector3.js';
 
 // Test for containment of a point by a tetrahedron. The test assumes the
 // vertices are ordered so that the triple scalar products below are

@@ -19,7 +19,7 @@
 // (see createJet). C++ 'operator bool' has no TS equivalent; it is ported as
 // the isConstructed() accessor.
 
-import { Vector, normalize } from './Vector';
+import { Vector, normalize } from './Vector.js';
 
 export abstract class ParametricSurface {
     // The number of entries a 'jet' array must have: position X;

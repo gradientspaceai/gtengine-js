@@ -13,17 +13,17 @@
 // change an inherited method signature. The ray-specific DoQuery helper is
 // exported as the module function 'intrRay2Circle2FIDoQuery'.
 
-import type { FIQuery } from './FIQuery';
-import type { Hypersphere } from './Hypersphere';
-import { IntrIntervalsFI } from './IntrIntervals';
+import type { FIQuery } from './FIQuery.js';
+import type { Hypersphere } from './Hypersphere.js';
+import { IntrIntervalsFI } from './IntrIntervals.js';
 import {
     IntrLine2Circle2FI,
     defaultIntrLine2Circle2FIResult
-} from './IntrLine2Circle2';
-import type { IntrLine2Circle2FIResult } from './IntrLine2Circle2';
-import type { Ray2 } from './Ray';
-import { Vector, add, mul } from './Vector';
-import type { TIQuery } from './TIQuery';
+} from './IntrLine2Circle2.js';
+import type { IntrLine2Circle2FIResult } from './IntrLine2Circle2.js';
+import type { Ray2 } from './Ray.js';
+import { Vector, add, mul } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrRay2Circle2TI.test.
 export interface IntrRay2Circle2TIResult {

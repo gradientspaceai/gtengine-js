@@ -23,11 +23,11 @@
 // aligned-box result that upstream aliases. The aligned-box 'DoQuery' helper
 // is the exported distLine2AlignedBox2DoQuery.
 
-import type { DCPQuery } from './DCPQuery';
-import { distLine2AlignedBox2DoQuery } from './DistLine2AlignedBox2';
-import type { Line2 } from './Line';
-import type { OrientedBox2 } from './OrientedBox';
-import { Vector, add, dot, mul, sub } from './Vector';
+import type { DCPQuery } from './DCPQuery.js';
+import { distLine2AlignedBox2DoQuery } from './DistLine2AlignedBox2.js';
+import type { Line2 } from './Line.js';
+import type { OrientedBox2 } from './OrientedBox.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
 
 export interface DistLine2OrientedBox2Result {
     distance: number;

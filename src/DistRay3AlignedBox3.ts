@@ -21,13 +21,13 @@
 // line-box result type, re-exported here as the alias
 // DistRay3AlignedBox3Result.
 
-import type { AlignedBox3 } from './AlignedBox';
-import type { DCPQuery } from './DCPQuery';
-import { DistLine3AlignedBox3 } from './DistLine3AlignedBox3';
-import type { DistLine3AlignedBox3Result } from './DistLine3AlignedBox3';
-import { DistPointAlignedBox } from './DistPointAlignedBox';
-import { Line } from './Line';
-import type { Ray3 } from './Ray';
+import type { AlignedBox3 } from './AlignedBox.js';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistLine3AlignedBox3 } from './DistLine3AlignedBox3.js';
+import type { DistLine3AlignedBox3Result } from './DistLine3AlignedBox3.js';
+import { DistPointAlignedBox } from './DistPointAlignedBox.js';
+import { Line } from './Line.js';
+import type { Ray3 } from './Ray.js';
 
 // Upstream reuses the line-box result type ('using Result = typename
 // AlignedQuery::Result').

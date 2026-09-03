@@ -30,9 +30,9 @@
 // - Vector3 becomes a size-3 Vector and Vector4 a size-4 Vector, per the
 //   runtime-dimension Vector precedent.
 
-import { AlignedBox } from './AlignedBox';
-import { Vector, dot, sub, hlift, computeExtremes } from './Vector';
-import { cross } from './Vector3';
+import { AlignedBox } from './AlignedBox.js';
+import { Vector, dot, sub, hlift, computeExtremes } from './Vector.js';
+import { cross } from './Vector3.js';
 
 export class ConvexPolyhedron3 {
     vertices: Vector[];

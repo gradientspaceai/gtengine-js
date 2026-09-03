@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { RootsBrentsMethod } from '../src/RootsBrentsMethod';
+import { RootsBrentsMethod } from '../src/RootsBrentsMethod.js';
 
 // Zero tolerances: iterate until F(t) is exactly zero or the bracket
 // collapses to consecutive floating-point numbers.

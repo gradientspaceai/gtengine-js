@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { AxisAngle } from '../src/AxisAngle';
-import { Vector } from '../src/Vector';
+import { AxisAngle } from '../src/AxisAngle.js';
+import { Vector } from '../src/Vector.js';
 
 describe('AxisAngle construction', () => {
     it('default constructor produces the 3D zero axis and zero angle', () => {

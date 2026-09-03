@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { Circle3 } from '../src/Circle3';
-import { Hyperplane } from '../src/Hyperplane';
+import { Circle3 } from '../src/Circle3.js';
+import { Hyperplane } from '../src/Hyperplane.js';
 import {
     IntrPlane3Circle3TI,
     IntrPlane3Circle3FI,
     defaultIntrPlane3Circle3FIResult,
     intrPlane3Circle3InfinitePoints
-} from '../src/IntrPlane3Circle3';
-import { Vector, dot, length, normalize, sub } from '../src/Vector';
+} from '../src/IntrPlane3Circle3.js';
+import { Vector, dot, length, normalize, sub } from '../src/Vector.js';
 
 function plane(normal: number[], origin: number[]): Hyperplane {
     const n = Vector.fromArray(normal);

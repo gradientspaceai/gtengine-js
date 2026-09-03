@@ -23,11 +23,11 @@
 // computeOrthogonalBasis; only the numInputs == 1 path is reachable from this
 // file, but the port keeps the other branch for fidelity.
 
-import type { Circle3 } from './Circle3';
-import type { DCPQuery } from './DCPQuery';
-import { logAssert } from './Logger';
-import { Vector, add, div, dot, getOrthogonal, length, mul, sub } from './Vector';
-import { cross } from './Vector3';
+import type { Circle3 } from './Circle3.js';
+import type { DCPQuery } from './DCPQuery.js';
+import { logAssert } from './Logger.js';
+import { Vector, add, div, dot, getOrthogonal, length, mul, sub } from './Vector.js';
+import { cross } from './Vector3.js';
 
 export interface DistPoint3Circle3Result {
     distance: number;

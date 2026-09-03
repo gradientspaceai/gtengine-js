@@ -23,13 +23,13 @@
 // line-rectangle result type, re-exported here as the alias
 // DistRay3Rectangle3Result.
 
-import type { DCPQuery } from './DCPQuery';
-import { DistLine3Rectangle3 } from './DistLine3Rectangle3';
-import type { DistLine3Rectangle3Result } from './DistLine3Rectangle3';
-import { DistPointRectangle } from './DistPointRectangle';
-import { Line } from './Line';
-import type { Ray3 } from './Ray';
-import type { Rectangle3 } from './Rectangle';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistLine3Rectangle3 } from './DistLine3Rectangle3.js';
+import type { DistLine3Rectangle3Result } from './DistLine3Rectangle3.js';
+import { DistPointRectangle } from './DistPointRectangle.js';
+import { Line } from './Line.js';
+import type { Ray3 } from './Ray.js';
+import type { Rectangle3 } from './Rectangle.js';
 
 // Upstream reuses the line-rectangle result type ('using Result = typename
 // LRQuery::Result').

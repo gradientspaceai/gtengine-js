@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
     RigidBody, RigidBodyContact, RigidBodyState
-} from '../src/RigidBody';
-import { AxisAngle } from '../src/AxisAngle';
+} from '../src/RigidBody.js';
+import { AxisAngle } from '../src/AxisAngle.js';
 import {
     Matrix, lInfinityNorm, mulMatrix, multiplyAB, multiplyABT, subMatrix
-} from '../src/Matrix';
-import { Quaternion } from '../src/Quaternion';
-import { Rotation } from '../src/Rotation';
-import { Vector, add, dot, mul, normalize, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+} from '../src/Matrix.js';
+import { Quaternion } from '../src/Quaternion.js';
+import { Rotation } from '../src/Rotation.js';
+import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

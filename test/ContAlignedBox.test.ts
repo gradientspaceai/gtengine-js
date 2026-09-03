@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { AlignedBox } from '../src/AlignedBox';
+import { AlignedBox } from '../src/AlignedBox.js';
 import {
     getContainerAlignedBox,
     inContainerAlignedBox,
     mergeContainersAlignedBox
-} from '../src/ContAlignedBox';
-import { Vector } from '../src/Vector';
+} from '../src/ContAlignedBox.js';
+import { Vector } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

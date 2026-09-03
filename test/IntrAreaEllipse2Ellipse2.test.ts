@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { Hyperellipsoid } from '../src/Hyperellipsoid';
-import { Vector } from '../src/Vector';
+import { Hyperellipsoid } from '../src/Hyperellipsoid.js';
+import { Vector } from '../src/Vector.js';
 import {
     AreaEllipse2Ellipse2,
     AreaEllipse2Ellipse2Configuration as Cfg,
     defaultAreaEllipse2Ellipse2Result
-} from '../src/IntrAreaEllipse2Ellipse2';
+} from '../src/IntrAreaEllipse2Ellipse2.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { Delaunay3, Delaunay3SearchInfo } from '../src/Delaunay3';
-import { Vector } from '../src/Vector';
-import { SWInterval } from '../src/SWInterval';
+import { Delaunay3, Delaunay3SearchInfo } from '../src/Delaunay3.js';
+import { Vector } from '../src/Vector.js';
+import { SWInterval } from '../src/SWInterval.js';
 
 const v3 = (x: number, y: number, z: number): Vector => Vector.fromArray([x, y, z]);
 

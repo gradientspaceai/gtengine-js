@@ -15,11 +15,11 @@
 // mutates it; ApprGaussian3::getParameters returns the fitter's own object,
 // so the port clones it.
 
-import { ApprGaussian3 } from './ApprGaussian3';
-import { DistPointRectangle } from './DistPointRectangle';
-import { logAssert } from './Logger';
-import { Lozenge3 } from './Lozenge3';
-import { Vector, add, dot, mul, sub } from './Vector';
+import { ApprGaussian3 } from './ApprGaussian3.js';
+import { DistPointRectangle } from './DistPointRectangle.js';
+import { logAssert } from './Logger.js';
+import { Lozenge3 } from './Lozenge3.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
 
 // Compute the plane of the lozenge rectangle using least-squares fit.
 // Parallel planes are chosen close enough together so that all the data

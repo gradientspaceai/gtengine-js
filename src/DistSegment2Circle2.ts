@@ -28,13 +28,13 @@
 // aliases. The two private static 'Update' overloads become the
 // module-private functions updateForSegment and updateForEndpoint.
 
-import type { DCPQuery } from './DCPQuery';
-import { DistLine2Circle2 } from './DistLine2Circle2';
-import { DistPoint2Circle2 } from './DistPoint2Circle2';
-import type { Circle2 } from './Hypersphere';
-import { Line } from './Line';
-import type { Segment2 } from './Segment';
-import { Vector, sub } from './Vector';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistLine2Circle2 } from './DistLine2Circle2.js';
+import { DistPoint2Circle2 } from './DistPoint2Circle2.js';
+import type { Circle2 } from './Hypersphere.js';
+import { Line } from './Line.js';
+import type { Segment2 } from './Segment.js';
+import { Vector, sub } from './Vector.js';
 
 export interface DistSegment2Circle2Result {
     distance: number;

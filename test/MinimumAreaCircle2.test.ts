@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { MinimumAreaCircle2 } from '../src/MinimumAreaCircle2';
-import { Vector, sub, dot } from '../src/Vector';
+import { MinimumAreaCircle2 } from '../src/MinimumAreaCircle2.js';
+import { Vector, sub, dot } from '../src/Vector.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

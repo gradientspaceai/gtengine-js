@@ -72,13 +72,13 @@
 //   the argument types, which erase to 'number' here; the ARBITRARY-topology
 //   constructor is therefore the static factory MeshDescription.arbitrary().
 
-import { IndexAttribute } from './IndexAttribute';
-import { logAssert } from './Logger';
-import { Matrix, multiplyAB, outerProduct } from './Matrix';
-import { inverse2x2 } from './Matrix2x2';
-import { Vector, add, dot, normalize, sub } from './Vector';
-import { computeOrthogonalComplement3, cross } from './Vector3';
-import { VertexAttribute } from './VertexAttribute';
+import { IndexAttribute } from './IndexAttribute.js';
+import { logAssert } from './Logger.js';
+import { Matrix, multiplyAB, outerProduct } from './Matrix.js';
+import { inverse2x2 } from './Matrix2x2.js';
+import { Vector, add, dot, normalize, sub } from './Vector.js';
+import { computeOrthogonalComplement3, cross } from './Vector3.js';
+import { VertexAttribute } from './VertexAttribute.js';
 
 export enum MeshTopology {
     ARBITRARY,

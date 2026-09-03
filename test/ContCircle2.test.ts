@@ -3,9 +3,9 @@ import {
     getContainerCircle2,
     inContainerCircle2,
     mergeContainersCircle2
-} from '../src/ContCircle2';
-import { Hypersphere, type Circle2 } from '../src/Hypersphere';
-import { Vector, length, sub } from '../src/Vector';
+} from '../src/ContCircle2.js';
+import { Hypersphere, type Circle2 } from '../src/Hypersphere.js';
+import { Vector, length, sub } from '../src/Vector.js';
 
 function v(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

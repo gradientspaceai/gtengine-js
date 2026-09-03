@@ -5,8 +5,8 @@
 // Distributed under the Boost Software License, Version 1.0.
 // https://www.boost.org/LICENSE_1_0.txt
 
-import { LexicoArray2 } from './LexicoArray2';
-import { logError } from './Logger';
+import { LexicoArray2 } from './LexicoArray2.js';
+import { logError } from './Logger.js';
 
 // Gaussian elimination with full pivoting. The input matrix M must be NxN.
 // The storage convention for element lookup is chosen by the 'rowMajor'

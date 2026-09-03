@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { Tetrahedron3 } from '../src/Tetrahedron3';
-import { Vector, add, dot, length, mul, sub } from '../src/Vector';
-import { cross, dotCross, unitCross } from '../src/Vector3';
+import { Tetrahedron3 } from '../src/Tetrahedron3.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import { cross, dotCross, unitCross } from '../src/Vector3.js';
 
 function V(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

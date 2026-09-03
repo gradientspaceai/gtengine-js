@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Histogram } from '../src/Histogram';
+import { Histogram } from '../src/Histogram.js';
 
 describe('Histogram', () => {
     it('constructs empty for incremental updates', () => {

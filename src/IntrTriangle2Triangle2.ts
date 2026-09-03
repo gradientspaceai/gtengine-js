@@ -19,13 +19,13 @@
 // query in the file comments, but the header contains no such code; the
 // remark is dropped.
 
-import type { Triangle } from './Triangle';
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
-import { Hyperplane } from './Hyperplane';
-import { IntrConvexPolygonHyperplaneFI } from './IntrConvexPolygonHyperplane';
-import { Vector, dot, sub } from './Vector';
-import { perp } from './Vector2';
+import type { Triangle } from './Triangle.js';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
+import { Hyperplane } from './Hyperplane.js';
+import { IntrConvexPolygonHyperplaneFI } from './IntrConvexPolygonHyperplane.js';
+import { Vector, dot, sub } from './Vector.js';
+import { perp } from './Vector2.js';
 
 // The result of IntrTriangle2Triangle2TI.test.
 export interface IntrTriangle2Triangle2TIResult {

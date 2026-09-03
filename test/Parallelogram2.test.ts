@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { Parallelogram2 } from '../src/Parallelogram2';
-import { Vector } from '../src/Vector';
-import { dotPerp } from '../src/Vector2';
+import { Parallelogram2 } from '../src/Parallelogram2.js';
+import { Vector } from '../src/Vector.js';
+import { dotPerp } from '../src/Vector2.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

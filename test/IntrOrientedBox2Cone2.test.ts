@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { Cone } from '../src/Cone';
-import { IntrRay2OrientedBox2TI } from '../src/IntrRay2OrientedBox2';
+import { Cone } from '../src/Cone.js';
+import { IntrRay2OrientedBox2TI } from '../src/IntrRay2OrientedBox2.js';
 import {
     IntrOrientedBox2Cone2TI,
     defaultIntrOrientedBox2Cone2TIResult
-} from '../src/IntrOrientedBox2Cone2';
-import { OrientedBox } from '../src/OrientedBox';
-import { Ray } from '../src/Ray';
-import { Vector, dot, normalize, sub } from '../src/Vector';
+} from '../src/IntrOrientedBox2Cone2.js';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Ray } from '../src/Ray.js';
+import { Vector, dot, normalize, sub } from '../src/Vector.js';
 
 function vec(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

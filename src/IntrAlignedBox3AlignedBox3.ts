@@ -14,9 +14,9 @@
 // upstream TIQuery/FIQuery specialization, suffixed TI/FI, with test()/find()
 // and exported <ClassName>Result types).
 
-import { AlignedBox } from './AlignedBox';
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
+import { AlignedBox } from './AlignedBox.js';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
 
 // The result of IntrAlignedBox3AlignedBox3TI.test.
 export interface IntrAlignedBox3AlignedBox3TIResult {

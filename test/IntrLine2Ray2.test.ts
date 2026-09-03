@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { Line } from '../src/Line';
-import { Ray } from '../src/Ray';
-import { Vector, add, mul, sub, dot, length } from '../src/Vector';
-import { IntrLine2Ray2TI, IntrLine2Ray2FI } from '../src/IntrLine2Ray2';
+import { Line } from '../src/Line.js';
+import { Ray } from '../src/Ray.js';
+import { Vector, add, mul, sub, dot, length } from '../src/Vector.js';
+import { IntrLine2Ray2TI, IntrLine2Ray2FI } from '../src/IntrLine2Ray2.js';
 
 const INT32_MAX = 2147483647;
 const MAX_T = Number.MAX_VALUE;

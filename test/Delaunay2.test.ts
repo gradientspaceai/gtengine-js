@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { Delaunay2, Delaunay2SearchInfo } from '../src/Delaunay2';
-import { Vector } from '../src/Vector';
+import { Delaunay2, Delaunay2SearchInfo } from '../src/Delaunay2.js';
+import { Vector } from '../src/Vector.js';
 
 const v2 = (x: number, y: number): Vector => Vector.fromArray([x, y]);
 

@@ -21,8 +21,8 @@
 // is also reachable as 'SegmentMesh.Topology'. 'std::array<size_t, 2>'
 // becomes the tuple type [number, number].
 
-import { logAssert } from './Logger';
-import { Vector } from './Vector';
+import { logAssert } from './Logger.js';
+import { Vector } from './Vector.js';
 
 // The comments for topology are based on the input vertices having L >= 2
 // elements ordered { V[0], V[1], ..., V[L-1] }.

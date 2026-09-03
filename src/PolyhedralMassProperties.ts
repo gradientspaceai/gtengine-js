@@ -12,9 +12,9 @@
 // output reference parameters mass, center and inertia become the fields of
 // the returned ComputeMassPropertiesResult.
 
-import { Matrix } from './Matrix';
-import { Vector, div } from './Vector';
-import { cross } from './Vector3';
+import { Matrix } from './Matrix.js';
+import { Vector, div } from './Vector.js';
+import { cross } from './Vector3.js';
 
 export interface ComputeMassPropertiesResult {
     // The volume of the polyhedron (the mass for a body of density 1).

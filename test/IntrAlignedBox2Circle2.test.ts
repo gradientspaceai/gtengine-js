@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { AlignedBox } from '../src/AlignedBox';
-import { Hypersphere } from '../src/Hypersphere';
-import { DistPointAlignedBox } from '../src/DistPointAlignedBox';
-import { Vector, add, mul } from '../src/Vector';
+import { AlignedBox } from '../src/AlignedBox.js';
+import { Hypersphere } from '../src/Hypersphere.js';
+import { DistPointAlignedBox } from '../src/DistPointAlignedBox.js';
+import { Vector, add, mul } from '../src/Vector.js';
 import {
     IntrAlignedBox2Circle2TI,
     IntrAlignedBox2Circle2FI,
     IntrAlignedBox2Circle2FIResultType as Type
-} from '../src/IntrAlignedBox2Circle2';
+} from '../src/IntrAlignedBox2Circle2.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

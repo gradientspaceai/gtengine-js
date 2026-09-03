@@ -33,9 +33,9 @@
 // module-private functions; ComputeIntersection's output references become
 // the fields of a returned object.
 
-import type { DCPQuery } from './DCPQuery';
-import type { Segment } from './Segment';
-import { Vector, add, dot, mul, sub } from './Vector';
+import type { DCPQuery } from './DCPQuery.js';
+import type { Segment } from './Segment.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
 
 export interface DistSegmentSegmentResult {
     distance: number;

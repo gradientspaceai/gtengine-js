@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { GradientAnisotropic2 } from '../src/GradientAnisotropic2';
-import { GaussianBlur2 } from '../src/GaussianBlur2';
-import { PdeFilterScaleType } from '../src/PdeFilter';
+import { GradientAnisotropic2 } from '../src/GradientAnisotropic2.js';
+import { GaussianBlur2 } from '../src/GaussianBlur2.js';
+import { PdeFilterScaleType } from '../src/PdeFilter.js';
 
 const NEUMANN = Number.MAX_VALUE;
 

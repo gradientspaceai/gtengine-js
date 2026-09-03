@@ -27,11 +27,11 @@
 // cylinder is finite, using the same message as the upstream assertion in
 // IntrCanonicalBox3Cylinder3.h. See also upstream issue #187.
 
-import type { Cylinder3 } from './Cylinder3';
-import type { Halfspace } from './Halfspace';
-import { logAssert } from './Logger';
-import { dot } from './Vector';
-import type { TIQuery } from './TIQuery';
+import type { Cylinder3 } from './Cylinder3.js';
+import type { Halfspace } from './Halfspace.js';
+import { logAssert } from './Logger.js';
+import { dot } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrHalfspace3Cylinder3TI.test.
 export interface IntrHalfspace3Cylinder3TIResult {

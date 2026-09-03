@@ -24,7 +24,7 @@
 //   - Number.MAX_VALUE is the Neumann marker for the border value, matching
 //     the upstream std::numeric_limits<Real>::max() test in PdeFilter.
 
-import { PdeFilter, PdeFilterScaleType } from './PdeFilter';
+import { PdeFilter, PdeFilterScaleType } from './PdeFilter.js';
 
 export abstract class PdeFilter1 extends PdeFilter {
     // Image parameters.

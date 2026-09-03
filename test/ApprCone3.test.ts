@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { ApprCone3 } from '../src/ApprCone3';
-import type { ApprCone3Parameters } from '../src/ApprCone3';
-import { Vector, dot, normalize, sub } from '../src/Vector';
-import { computeOrthogonalComplement3 } from '../src/Vector3';
+import { ApprCone3 } from '../src/ApprCone3.js';
+import type { ApprCone3Parameters } from '../src/ApprCone3.js';
+import { Vector, dot, normalize, sub } from '../src/Vector.js';
+import { computeOrthogonalComplement3 } from '../src/Vector3.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

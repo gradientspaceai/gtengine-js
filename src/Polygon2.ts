@@ -37,10 +37,10 @@
 // vertex indices becomes a sorted number[], so iteration order (which affects
 // the floating-point summation of computeVertexAverage) matches upstream.
 
-import { IntrSegment2Segment2TI } from './IntrSegment2Segment2';
-import { Segment } from './Segment';
-import { Vector, add, div, length, sub } from './Vector';
-import { dotPerp } from './Vector2';
+import { IntrSegment2Segment2TI } from './IntrSegment2Segment2.js';
+import { Segment } from './Segment.js';
+import { Vector, add, div, length, sub } from './Vector.js';
+import { dotPerp } from './Vector2.js';
 
 export class Polygon2 {
     private mVertexPool: readonly Vector[] | null;

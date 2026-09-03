@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
     ApprParaboloid3, apprParaboloid3SolveGaussian
-} from '../src/ApprParaboloid3';
-import { Matrix } from '../src/Matrix';
-import { Vector } from '../src/Vector';
+} from '../src/ApprParaboloid3.js';
+import { Matrix } from '../src/Matrix.js';
+import { Vector } from '../src/Vector.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { ApprOrthogonalLine2 } from '../src/ApprOrthogonalLine2';
-import { Vector, dot } from '../src/Vector';
+import { ApprOrthogonalLine2 } from '../src/ApprOrthogonalLine2.js';
+import { Vector, dot } from '../src/Vector.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

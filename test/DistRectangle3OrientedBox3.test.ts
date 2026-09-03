@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { DistRectangle3OrientedBox3 } from '../src/DistRectangle3OrientedBox3';
-import { OrientedBox } from '../src/OrientedBox';
-import { Rectangle } from '../src/Rectangle';
-import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+import { DistRectangle3OrientedBox3 } from '../src/DistRectangle3OrientedBox3.js';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Rectangle } from '../src/Rectangle.js';
+import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 function v(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

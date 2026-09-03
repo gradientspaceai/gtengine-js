@@ -18,8 +18,8 @@
 //   behavior, and keeps the caveat about the caller's data staying alive
 //   (and unmodified) for the lifetime of the object.
 
-import { logAssert } from './Logger';
-import { Vector } from './Vector';
+import { logAssert } from './Logger.js';
+import { Vector } from './Vector.js';
 
 export class PointInPolygon2 {
     // The port keeps a reference to the caller's array (see the port notes),

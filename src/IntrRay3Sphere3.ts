@@ -19,17 +19,17 @@
 // exported module function 'intrLine3Sphere3DoQuery', and the ray-sphere one
 // is exported here as 'intrRay3Sphere3DoQuery' for the same reason.
 
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
-import type { Hypersphere } from './Hypersphere';
-import type { Ray } from './Ray';
-import { Vector, add, dot, mul, sub } from './Vector';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
+import type { Hypersphere } from './Hypersphere.js';
+import type { Ray } from './Ray.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
 import {
     intrLine3Sphere3DoQuery,
     defaultIntrLine3Sphere3FIResult
-} from './IntrLine3Sphere3';
-import type { IntrLine3Sphere3FIResult } from './IntrLine3Sphere3';
-import { IntrIntervalsFI } from './IntrIntervals';
+} from './IntrLine3Sphere3.js';
+import type { IntrLine3Sphere3FIResult } from './IntrLine3Sphere3.js';
+import { IntrIntervalsFI } from './IntrIntervals.js';
 
 // The result of IntrRay3Sphere3TI queries.
 export interface IntrRay3Sphere3TIResult {

@@ -14,10 +14,10 @@
 // parameters 'bary' of ComputeBarycentrics and 'v0'/'v1' of
 // FastComputeOrthogonalComplement become fields of the returned objects.
 
-import { logAssert } from './Logger';
+import { logAssert } from './Logger.js';
 import {
     Vector, dot, length, mul, normalize, orthonormalize, sub
-} from './Vector';
+} from './Vector.js';
 
 function assertSize3(v: Vector): void {
     logAssert(v.size === 3, 'Vector3: vector must have size 3.');

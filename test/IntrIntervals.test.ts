@@ -3,7 +3,7 @@ import {
     IntrIntervalsTI,
     IntrIntervalsFI,
     IntrIntervalsFIResultType
-} from '../src/IntrIntervals';
+} from '../src/IntrIntervals.js';
 
 const ti = new IntrIntervalsTI();
 const fi = new IntrIntervalsFI();

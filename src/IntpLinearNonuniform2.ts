@@ -25,8 +25,8 @@
 // index triple (0,0,0); the port reports the failure as an invalid result
 // instead of interpolating from garbage indices.
 
-import { logAssert } from './Logger';
-import { Vector } from './Vector';
+import { logAssert } from './Logger.js';
+import { Vector } from './Vector.js';
 
 export interface IntpLinearNonuniform2TriangleMesh {
     // The index of the triangle containing P, or -1 when P is outside the

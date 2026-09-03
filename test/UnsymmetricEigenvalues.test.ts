@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { UnsymmetricEigenvalues } from '../src/UnsymmetricEigenvalues';
+import { UnsymmetricEigenvalues } from '../src/UnsymmetricEigenvalues.js';
 
 // Build the (row-major) companion matrix of the monic polynomial
 // x^n + c[n-1]*x^{n-1} + ... + c[1]*x + c[0]. Its eigenvalues are exactly

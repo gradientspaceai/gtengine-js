@@ -20,8 +20,8 @@
 // as std::array's are. 'GetCenteredForm' returns { center, direction, extent }
 // instead of writing to output references.
 
-import { logAssert } from './Logger';
-import { Vector, add, sub, mul, negate, normalize } from './Vector';
+import { logAssert } from './Logger.js';
+import { Vector, add, sub, mul, negate, normalize } from './Vector.js';
 
 // Lexicographic comparison of the two-element endpoint arrays (the port of
 // std::array's relational operators). Returns -1, 0 or +1.

@@ -26,14 +26,14 @@
 //     and the copy constructor and operator= become clone() and assign().
 //   - Upstream bug, FIXED here: see the comment in remove().
 
-import { FeatureKey } from './FeatureKey';
-import { logAssert } from './Logger';
-import { TetrahedronKey } from './TetrahedronKey';
-import { TriangleKey } from './TriangleKey';
+import { FeatureKey } from './FeatureKey.js';
+import { logAssert } from './Logger.js';
+import { TetrahedronKey } from './TetrahedronKey.js';
+import { TriangleKey } from './TriangleKey.js';
 import {
     TSManifoldMesh, TSManifoldMeshTetrahedron, TSManifoldMeshTriangle
-} from './TSManifoldMesh';
-import type { TSManifoldMeshSCreator, TSManifoldMeshTCreator } from './TSManifoldMesh';
+} from './TSManifoldMesh.js';
+import type { TSManifoldMeshSCreator, TSManifoldMeshTCreator } from './TSManifoldMesh.js';
 
 // The port of VTSManifoldMesh::Vertex.
 export class VTSManifoldMeshVertex {

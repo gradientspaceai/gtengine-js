@@ -24,14 +24,14 @@
 // type is the line-box result type, re-exported here as the alias
 // DistSegment3CanonicalBox3Result.
 
-import type { CanonicalBox3 } from './CanonicalBox';
-import type { DCPQuery } from './DCPQuery';
-import { DistLine3CanonicalBox3 } from './DistLine3CanonicalBox3';
-import type { DistLine3CanonicalBox3Result } from './DistLine3CanonicalBox3';
-import { DistPointCanonicalBox } from './DistPointCanonicalBox';
-import { Line } from './Line';
-import type { Segment3 } from './Segment';
-import { Vector, sub } from './Vector';
+import type { CanonicalBox3 } from './CanonicalBox.js';
+import type { DCPQuery } from './DCPQuery.js';
+import { DistLine3CanonicalBox3 } from './DistLine3CanonicalBox3.js';
+import type { DistLine3CanonicalBox3Result } from './DistLine3CanonicalBox3.js';
+import { DistPointCanonicalBox } from './DistPointCanonicalBox.js';
+import { Line } from './Line.js';
+import type { Segment3 } from './Segment.js';
+import { Vector, sub } from './Vector.js';
 
 // Upstream reuses the line-box result type ('using Result = typename
 // LBQuery::Result').

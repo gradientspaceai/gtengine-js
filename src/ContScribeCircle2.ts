@@ -13,12 +13,12 @@
 // circle was constructed and writes it through an output parameter; the port
 // returns the circle, or null when the input points are linearly dependent.
 
-import { Hypersphere, type Circle2 } from './Hypersphere';
-import { LinearSystem } from './LinearSystem';
-import { logAssert } from './Logger';
-import { Matrix } from './Matrix';
-import { Vector, add, dot, length, mul, sub } from './Vector';
-import { dotPerp } from './Vector2';
+import { Hypersphere, type Circle2 } from './Hypersphere.js';
+import { LinearSystem } from './LinearSystem.js';
+import { logAssert } from './Logger.js';
+import { Matrix } from './Matrix.js';
+import { Vector, add, dot, length, mul, sub } from './Vector.js';
+import { dotPerp } from './Vector2.js';
 
 // Circle circumscribing a triangle. Returns null when the input points are
 // linearly dependent (a degenerate triangle).

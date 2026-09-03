@@ -38,9 +38,9 @@
 // IntrOrientedBox3OrientedBox3TI with the result type
 // IntrOrientedBox3OrientedBox3TIResult.
 
-import type { TIQuery } from './TIQuery';
-import type { OrientedBox } from './OrientedBox';
-import { dot, sub } from './Vector';
+import type { TIQuery } from './TIQuery.js';
+import type { OrientedBox } from './OrientedBox.js';
+import { dot, sub } from './Vector.js';
 
 // The result of IntrOrientedBox3OrientedBox3TI queries.
 export interface IntrOrientedBox3OrientedBox3TIResult {

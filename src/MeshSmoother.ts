@@ -27,9 +27,9 @@
 //     still moved by update()). Callers should pass meshes in which every
 //     vertex belongs to a triangle.
 
-import { logAssert } from './Logger';
-import { Vector, add, dot, mul, normalize, sub } from './Vector';
-import { cross } from './Vector3';
+import { logAssert } from './Logger.js';
+import { Vector, add, dot, mul, normalize, sub } from './Vector.js';
+import { cross } from './Vector3.js';
 
 export class MeshSmoother {
     protected mNumVertices: number;

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { PointInPolygon2 } from '../src/ContPointInPolygon2';
-import { Vector } from '../src/Vector';
+import { PointInPolygon2 } from '../src/ContPointInPolygon2.js';
+import { Vector } from '../src/Vector.js';
 
 function v(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

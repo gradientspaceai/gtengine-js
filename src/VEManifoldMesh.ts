@@ -29,7 +29,7 @@
 // port reproduces that behavior rather than rolling the insertion back,
 // because callers of the graceful path may rely on the upstream state.
 
-import { logAssert, logError } from './Logger';
+import { logAssert, logError } from './Logger.js';
 
 // The port of VEManifoldMesh::Vertex.
 export class VEManifoldMeshVertex {

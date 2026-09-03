@@ -19,9 +19,9 @@
 // becomes the class DistPointCanonicalBox with the result type
 // DistPointCanonicalBoxResult.
 
-import type { CanonicalBox } from './CanonicalBox';
-import type { DCPQuery } from './DCPQuery';
-import { Vector } from './Vector';
+import type { CanonicalBox } from './CanonicalBox.js';
+import type { DCPQuery } from './DCPQuery.js';
+import { Vector } from './Vector.js';
 
 export interface DistPointCanonicalBoxResult {
     distance: number;

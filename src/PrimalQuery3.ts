@@ -29,7 +29,7 @@
 //   taking a point 'test', are merged into a single method whose first
 //   parameter is 'number | Vector'.
 
-import { Vector } from './Vector';
+import { Vector } from './Vector.js';
 
 export class PrimalQuery3 {
     private mNumVertices: number;

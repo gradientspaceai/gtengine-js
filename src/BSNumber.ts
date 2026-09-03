@@ -62,13 +62,13 @@
 // - Write/Read serialize the C++ block representation to a binary stream; the
 //   bigint storage has no such layout, so they are omitted.
 
-import { logAssert, logError } from './Logger';
-import { IEEEBinary32, IEEEBinary64 } from './IEEEBinary';
-import type { ArbitraryPrecisionNumber } from './TypeTraits';
+import { logAssert, logError } from './Logger.js';
+import { IEEEBinary32, IEEEBinary64 } from './IEEEBinary.js';
+import type { ArbitraryPrecisionNumber } from './TypeTraits.js';
 import {
     atandivpi, atan2divpi, clamp, cospi, exp10, invsqrt, isign, saturate,
     sign, sinpi, sqr
-} from './Functions';
+} from './Functions.js';
 
 // The number of bits of a nonnegative bigint; the port of
 // UInteger::GetNumBits(). The bit length of zero is 0.

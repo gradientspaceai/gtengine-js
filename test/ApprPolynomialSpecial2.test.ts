@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ApprPolynomialSpecial2 } from '../src/ApprPolynomialSpecial2';
-import { ApprQuery } from '../src/ApprQuery';
+import { ApprPolynomialSpecial2 } from '../src/ApprPolynomialSpecial2.js';
+import { ApprQuery } from '../src/ApprQuery.js';
 
 // Solve the 2x2 system A*X = B by Cramer's rule; an independent check.
 function solve2(A: number[][], B: number[]): number[] {

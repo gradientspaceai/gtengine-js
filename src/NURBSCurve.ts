@@ -17,9 +17,9 @@
 // weights become optional arguments; when omitted, the control points are zero
 // vectors and the weights are zero (as upstream).
 
-import { BasisFunction, BasisFunctionInput } from './BasisFunction';
-import { ParametricCurve } from './ParametricCurve';
-import { Vector } from './Vector';
+import { BasisFunction, BasisFunctionInput } from './BasisFunction.js';
+import { ParametricCurve } from './ParametricCurve.js';
+import { Vector } from './Vector.js';
 
 export class NURBSCurve extends ParametricCurve {
     protected mBasisFunction: BasisFunction;

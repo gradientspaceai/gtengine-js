@@ -20,8 +20,8 @@
 // methods). The class is not templated on the dimension upstream, so the
 // default constructor takes no arguments and builds a 3D axis line.
 
-import { logAssert } from './Logger';
-import { Line } from './Line';
+import { logAssert } from './Logger.js';
+import { Line } from './Line.js';
 
 export class Cylinder3 {
     // Public member access.

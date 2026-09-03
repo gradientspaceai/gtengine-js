@@ -3,12 +3,12 @@ import {
     NearestNeighborQuery,
     PositionSite,
     PositionDirectionSite
-} from '../src/NearestNeighborQuery';
+} from '../src/NearestNeighborQuery.js';
 import type {
     NearestNeighborNode,
     NearestNeighborSortedPoint
-} from '../src/NearestNeighborQuery';
-import { Vector } from '../src/Vector';
+} from '../src/NearestNeighborQuery.js';
+import { Vector } from '../src/Vector.js';
 
 // Deterministic LCG so the randomized cross-checks are reproducible.
 function makeRandom(seed: number): () => number {

@@ -1,15 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { AlignedBox } from '../src/AlignedBox';
-import { Ray } from '../src/Ray';
-import { Vector, add, mul, normalize } from '../src/Vector';
+import { AlignedBox } from '../src/AlignedBox.js';
+import { Ray } from '../src/Ray.js';
+import { Vector, add, mul, normalize } from '../src/Vector.js';
 import {
     IntrLine3AlignedBox3FI
-} from '../src/IntrLine3AlignedBox3';
-import { Line } from '../src/Line';
+} from '../src/IntrLine3AlignedBox3.js';
+import { Line } from '../src/Line.js';
 import {
     IntrRay3AlignedBox3TI,
     IntrRay3AlignedBox3FI
-} from '../src/IntrRay3AlignedBox3';
+} from '../src/IntrRay3AlignedBox3.js';
 
 function vec(a: number[]): Vector {
     return Vector.fromArray(a);

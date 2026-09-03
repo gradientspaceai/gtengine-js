@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
     MinimalCycleBasis
-} from '../src/MinimalCycleBasis';
+} from '../src/MinimalCycleBasis.js';
 import type {
     MinimalCycleBasisEdge, MinimalCycleBasisPosition, MinimalCycleBasisTree
-} from '../src/MinimalCycleBasis';
+} from '../src/MinimalCycleBasis.js';
 
 // A small deterministic pseudorandom generator (mulberry32) so the randomized
 // cross-checks are reproducible.

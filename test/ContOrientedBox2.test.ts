@@ -3,10 +3,10 @@ import {
     getContainerOrientedBox2,
     inContainerOrientedBox2,
     mergeContainersOrientedBox2
-} from '../src/ContOrientedBox2';
-import { OrientedBox, type OrientedBox2 } from '../src/OrientedBox';
-import { Vector, dot, sub } from '../src/Vector';
-import { ApprQuery } from '../src/ApprQuery';
+} from '../src/ContOrientedBox2.js';
+import { OrientedBox, type OrientedBox2 } from '../src/OrientedBox.js';
+import { Vector, dot, sub } from '../src/Vector.js';
+import { ApprQuery } from '../src/ApprQuery.js';
 
 function v(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

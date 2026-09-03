@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
     LevenbergMarquardtMinimizer
-} from '../src/LevenbergMarquardtMinimizer';
-import { Matrix } from '../src/Matrix';
-import { Vector } from '../src/Vector';
+} from '../src/LevenbergMarquardtMinimizer.js';
+import { Matrix } from '../src/Matrix.js';
+import { Vector } from '../src/Vector.js';
 
 // A deterministic pseudorandom generator so the randomized cross-checks are
 // reproducible.

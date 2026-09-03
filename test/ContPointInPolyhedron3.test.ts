@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
     PointInPolyhedron3, PointInPolyhedron3Face, PointInPolyhedron3FaceType
-} from '../src/ContPointInPolyhedron3';
-import { Hyperplane } from '../src/Hyperplane';
-import type { Plane3 } from '../src/Hyperplane';
-import { Vector, dot, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+} from '../src/ContPointInPolyhedron3.js';
+import { Hyperplane } from '../src/Hyperplane.js';
+import type { Plane3 } from '../src/Hyperplane.js';
+import { Vector, dot, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

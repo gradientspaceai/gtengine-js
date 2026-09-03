@@ -14,8 +14,8 @@
 // static_assert. This port takes the degree as a runtime argument validated
 // by logAssert; see sinEstimate below.
 
-import { GTE_C_HALF_PI, GTE_C_PI, GTE_C_TWO_PI } from './Constants';
-import { logAssert } from './Logger';
+import { GTE_C_HALF_PI, GTE_C_PI, GTE_C_TWO_PI } from './Constants.js';
+import { logAssert } from './Logger.js';
 
 const C_SIN_EST_COEFF: readonly (readonly number[])[] = [
     [   // degree 3

@@ -25,20 +25,20 @@
 // with a file-qualified name because src/index.ts star-exports every file).
 // The private static helpers become module-private functions.
 
-import { Cylinder3 } from './Cylinder3';
-import { Ellipse3 } from './Ellipse3';
-import type { FIQuery } from './FIQuery';
-import { Hyperellipsoid } from './Hyperellipsoid';
-import { Hyperplane } from './Hyperplane';
-import type { Plane3 } from './Hyperplane';
-import { IntrPlane3Plane3FI } from './IntrPlane3Plane3';
-import { Line } from './Line';
-import type { Line3 } from './Line';
-import { logAssert } from './Logger';
-import { Matrix, mulMatrix, outerProduct, subMatrix } from './Matrix';
-import { Vector, add, dot, length, mul, sub } from './Vector';
-import { computeOrthogonalComplement3, cross } from './Vector3';
-import type { TIQuery } from './TIQuery';
+import { Cylinder3 } from './Cylinder3.js';
+import { Ellipse3 } from './Ellipse3.js';
+import type { FIQuery } from './FIQuery.js';
+import { Hyperellipsoid } from './Hyperellipsoid.js';
+import { Hyperplane } from './Hyperplane.js';
+import type { Plane3 } from './Hyperplane.js';
+import { IntrPlane3Plane3FI } from './IntrPlane3Plane3.js';
+import { Line } from './Line.js';
+import type { Line3 } from './Line.js';
+import { logAssert } from './Logger.js';
+import { Matrix, mulMatrix, outerProduct, subMatrix } from './Matrix.js';
+import { Vector, add, dot, length, mul, sub } from './Vector.js';
+import { computeOrthogonalComplement3, cross } from './Vector3.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrPlane3Cylinder3TI.test.
 export interface IntrPlane3Cylinder3TIResult {

@@ -18,9 +18,9 @@
 // BandedMatrix.solveSystemMatrix(..., true). The Evaluate output pointer
 // becomes a returned array.
 
-import { logAssert } from './Logger';
-import { BasisFunction, BasisFunctionInput, UniqueKnot } from './BasisFunction';
-import { BandedMatrix } from './BandedMatrix';
+import { logAssert } from './Logger.js';
+import { BasisFunction, BasisFunctionInput, UniqueKnot } from './BasisFunction.js';
+import { BandedMatrix } from './BandedMatrix.js';
 
 export class BSplineCurveFit {
     // Input sample information.

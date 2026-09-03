@@ -19,13 +19,13 @@
 // coordinates, which upstream stores in a std::vector and points mTCoords at,
 // become a MeshChannel allocated by MeshChannel.allocate.
 
-import { GTE_C_TWO_PI } from './Constants';
-import { FrenetFrame3 } from './FrenetFrame';
-import { logAssert } from './Logger';
-import { Mesh, MeshChannel, MeshDescription, MeshTopology } from './Mesh';
-import { ParametricCurve } from './ParametricCurve';
-import { Vector, add, mul } from './Vector';
-import { unitCross } from './Vector3';
+import { GTE_C_TWO_PI } from './Constants.js';
+import { FrenetFrame3 } from './FrenetFrame.js';
+import { logAssert } from './Logger.js';
+import { Mesh, MeshChannel, MeshDescription, MeshTopology } from './Mesh.js';
+import { ParametricCurve } from './ParametricCurve.js';
+import { Vector, add, mul } from './Vector.js';
+import { unitCross } from './Vector3.js';
 
 // The port of the upstream std::array<Vector3<Real>, 4> frame, which is
 // (position, tangent, normal, binormal).

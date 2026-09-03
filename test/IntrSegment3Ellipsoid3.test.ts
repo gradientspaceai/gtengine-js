@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { Hyperellipsoid } from '../src/Hyperellipsoid';
+import { Hyperellipsoid } from '../src/Hyperellipsoid.js';
 import {
     IntrSegment3Ellipsoid3TI,
     IntrSegment3Ellipsoid3FI,
     defaultIntrSegment3Ellipsoid3FIResult,
     intrSegment3Ellipsoid3FIDoQuery
-} from '../src/IntrSegment3Ellipsoid3';
-import { Segment } from '../src/Segment';
-import { Vector, add, length, mul, sub } from '../src/Vector';
+} from '../src/IntrSegment3Ellipsoid3.js';
+import { Segment } from '../src/Segment.js';
+import { Vector, add, length, mul, sub } from '../src/Vector.js';
 
 function vec(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

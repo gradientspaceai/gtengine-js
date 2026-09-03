@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { CLODPolyline } from '../src/CLODPolyline';
-import { Vector } from '../src/Vector';
+import { CLODPolyline } from '../src/CLODPolyline.js';
+import { Vector } from '../src/Vector.js';
 
 function makeRandom(seed: number): () => number {
     let state = seed >>> 0;

@@ -33,7 +33,7 @@
 //     CurveExtractorVertex and CurveExtractorEdge because exported names must
 //     be unique across the library.
 
-import { logAssert } from './Logger';
+import { logAssert } from './Logger.js';
 
 // Compare the products a*b and c*d exactly, returning -1, 0 or +1. The
 // double products are used when they are exact; otherwise the comparison is

@@ -61,16 +61,16 @@
 // * The in/out reference parameters (C, N, r0, r1) become a single in/out
 //   ApprTorus3Parameters object, the same convention used by ApprSphere3.ts.
 
-import { ApprOrthogonalPlane3 } from './ApprOrthogonalPlane3';
-import { GaussNewtonMinimizer } from './GaussNewtonMinimizer';
-import type { GaussNewtonMinimizerResult } from './GaussNewtonMinimizer';
-import { LevenbergMarquardtMinimizer } from './LevenbergMarquardtMinimizer';
+import { ApprOrthogonalPlane3 } from './ApprOrthogonalPlane3.js';
+import { GaussNewtonMinimizer } from './GaussNewtonMinimizer.js';
+import type { GaussNewtonMinimizerResult } from './GaussNewtonMinimizer.js';
+import { LevenbergMarquardtMinimizer } from './LevenbergMarquardtMinimizer.js';
 import type {
     LevenbergMarquardtMinimizerResult
-} from './LevenbergMarquardtMinimizer';
-import { Matrix } from './Matrix';
-import { RootsPolynomial } from './RootsPolynomial';
-import { Vector, dot, sub } from './Vector';
+} from './LevenbergMarquardtMinimizer.js';
+import { Matrix } from './Matrix.js';
+import { RootsPolynomial } from './RootsPolynomial.js';
+import { Vector, dot, sub } from './Vector.js';
 
 // The torus parameters: the center C, the unit-length axis of symmetry N,
 // the radius r0 from the center and the radius r1 of the tube.

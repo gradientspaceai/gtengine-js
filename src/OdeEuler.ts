@@ -11,8 +11,8 @@
 // from OdeSolver<Vector>. Vector arithmetic uses the module functions of
 // Vector.ts because TypeScript has no operator overloading.
 
-import { OdeSolver, type OdeFunction } from './OdeSolver';
-import { Vector, add, mul } from './Vector';
+import { OdeSolver, type OdeFunction } from './OdeSolver.js';
+import { Vector, add, mul } from './Vector.js';
 
 export class OdeEuler extends OdeSolver<Vector> {
     constructor(tDelta: number, F: OdeFunction<Vector>) {

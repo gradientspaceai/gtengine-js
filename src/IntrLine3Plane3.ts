@@ -15,12 +15,12 @@
 // 'std::numeric_limits<int32_t>::max()' becomes the literal 2147483647 (the
 // precedent set by IntrLine2Line2.ts).
 
-import { DistPointHyperplane } from './DistPointHyperplane';
-import type { FIQuery } from './FIQuery';
-import type { Line3 } from './Line';
-import type { Plane3 } from './Hyperplane';
-import { Vector, add, dot, mul } from './Vector';
-import type { TIQuery } from './TIQuery';
+import { DistPointHyperplane } from './DistPointHyperplane.js';
+import type { FIQuery } from './FIQuery.js';
+import type { Line3 } from './Line.js';
+import type { Plane3 } from './Hyperplane.js';
+import { Vector, add, dot, mul } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 const INT32_MAX = 2147483647;
 

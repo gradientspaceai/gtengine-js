@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { Capsule } from '../src/Capsule';
-import { Segment } from '../src/Segment';
-import { Vector, add, sub, mul, dot, length } from '../src/Vector';
-import { IntrCapsule3Capsule3TI } from '../src/IntrCapsule3Capsule3';
+import { Capsule } from '../src/Capsule.js';
+import { Segment } from '../src/Segment.js';
+import { Vector, add, sub, mul, dot, length } from '../src/Vector.js';
+import { IntrCapsule3Capsule3TI } from '../src/IntrCapsule3Capsule3.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

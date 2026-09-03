@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { ApprGaussian2 } from '../src/ApprGaussian2';
-import { Vector, dot } from '../src/Vector';
+import { ApprGaussian2 } from '../src/ApprGaussian2.js';
+import { Vector, dot } from '../src/Vector.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { Line } from '../src/Line';
-import { Ray } from '../src/Ray';
-import { Rectangle } from '../src/Rectangle';
-import { Vector, add, dot, mul, normalize, sub } from '../src/Vector';
-import { IntrLine3Rectangle3FI } from '../src/IntrLine3Rectangle3';
+import { Line } from '../src/Line.js';
+import { Ray } from '../src/Ray.js';
+import { Rectangle } from '../src/Rectangle.js';
+import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
+import { IntrLine3Rectangle3FI } from '../src/IntrLine3Rectangle3.js';
 import {
     IntrRay3Rectangle3TI,
     IntrRay3Rectangle3FI
-} from '../src/IntrRay3Rectangle3';
+} from '../src/IntrRay3Rectangle3.js';
 
 function vec(a: number[]): Vector {
     return Vector.fromArray(a);

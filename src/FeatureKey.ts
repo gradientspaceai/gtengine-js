@@ -32,8 +32,8 @@
 // as a primitive Map/Set key; it is a port addition with no upstream
 // counterpart.
 
-import { logAssert } from './Logger';
-import { hashCombine } from './HashCombine';
+import { logAssert } from './Logger.js';
+import { hashCombine } from './HashCombine.js';
 
 export class FeatureKey {
     // The vertex indices of the feature. The length is the N of the upstream

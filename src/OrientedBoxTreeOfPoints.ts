@@ -20,10 +20,10 @@
 //     or null when the Gaussian fit fails. As upstream, a failed fit leaves
 //     the bounding volume unchanged.
 
-import { getContainerOrientedBox3 } from './ContOrientedBox3';
-import { BVTreeOfPoints } from './BVTreeOfPoints';
-import { OrientedBoxBV, orientedBoxBVOps } from './OrientedBoxBV';
-import { Vector } from './Vector';
+import { getContainerOrientedBox3 } from './ContOrientedBox3.js';
+import { BVTreeOfPoints } from './BVTreeOfPoints.js';
+import { OrientedBoxBV, orientedBoxBVOps } from './OrientedBoxBV.js';
+import { Vector } from './Vector.js';
 
 export class OrientedBoxTreeOfPoints extends BVTreeOfPoints<OrientedBoxBV> {
     constructor() {

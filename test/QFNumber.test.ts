@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { QFNumber, type QFCoefficient } from '../src/QFNumber';
+import { QFNumber, type QFCoefficient } from '../src/QFNumber.js';
 
 // Numeric evaluation of a quadratic field number (recursively for nested
 // coefficients), used as an independent cross-check.

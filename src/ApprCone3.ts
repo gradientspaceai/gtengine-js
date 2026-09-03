@@ -32,15 +32,15 @@
 //   same convention used by ApprSphere3.ts. The minimizer Result is the
 //   return value, as upstream.
 
-import { ApprHeightLine2 } from './ApprHeightLine2';
-import { GaussNewtonMinimizer } from './GaussNewtonMinimizer';
-import type { GaussNewtonMinimizerResult } from './GaussNewtonMinimizer';
-import { LevenbergMarquardtMinimizer } from './LevenbergMarquardtMinimizer';
+import { ApprHeightLine2 } from './ApprHeightLine2.js';
+import { GaussNewtonMinimizer } from './GaussNewtonMinimizer.js';
+import type { GaussNewtonMinimizerResult } from './GaussNewtonMinimizer.js';
+import { LevenbergMarquardtMinimizer } from './LevenbergMarquardtMinimizer.js';
 import type {
     LevenbergMarquardtMinimizerResult
-} from './LevenbergMarquardtMinimizer';
-import { Matrix } from './Matrix';
-import { Vector, dot, length, mul, normalize, sub } from './Vector';
+} from './LevenbergMarquardtMinimizer.js';
+import { Matrix } from './Matrix.js';
+import { Vector, dot, length, mul, normalize, sub } from './Vector.js';
 
 // The cone parameters. On input to the fitting methods these are the initial
 // guesses when useConeInputAsInitialGuess is true (in which case 'axis' is

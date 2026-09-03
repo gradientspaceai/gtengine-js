@@ -14,9 +14,9 @@
 // Gamma_{k,ij} = Dot(P_ij, P_k) of RiemannianGeodesic.ts (see issue #295),
 // which is exactly what upstream computes here.
 
-import { GVector } from './GVector';
-import { RiemannianGeodesic } from './RiemannianGeodesic';
-import { Vector, dot } from './Vector';
+import { GVector } from './GVector.js';
+import { RiemannianGeodesic } from './RiemannianGeodesic.js';
+import { Vector, dot } from './Vector.js';
 
 export class EllipsoidGeodesic extends RiemannianGeodesic {
     // The ellipsoid axis half-lengths.

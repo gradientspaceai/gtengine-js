@@ -31,9 +31,9 @@
 //   the const member getLength). TS has no const methods, so they are plain
 //   fields updated by getLength(), which preserves the lazy behavior.
 
-import { Integration } from './Integration';
-import { RootsBisection } from './RootsBisection';
-import { Vector, length as vectorLength, normalize } from './Vector';
+import { Integration } from './Integration.js';
+import { RootsBisection } from './RootsBisection.js';
+import { Vector, length as vectorLength, normalize } from './Vector.js';
 
 // The port of std::lower_bound on the strictly increasing time array: the
 // index of the first entry >= value, or times.length when there is none.

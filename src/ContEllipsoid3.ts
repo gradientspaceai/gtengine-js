@@ -16,15 +16,15 @@
 // and 'Rotation<3,Real>(quaternion)' becomes
 // 'Rotation.fromQuaternion(q).toMatrix()'.
 
-import { ApprGaussian3 } from './ApprGaussian3';
-import { Hyperellipsoid, type Ellipsoid3 } from './Hyperellipsoid';
-import { Line } from './Line';
-import { logAssert } from './Logger';
-import { Matrix } from './Matrix';
-import { projectEllipsoid3 } from './Projection';
-import { addQuaternion, negateQuaternion } from './Quaternion';
-import { Rotation } from './Rotation';
-import { Vector, add, dot, length, mul, normalize, sub } from './Vector';
+import { ApprGaussian3 } from './ApprGaussian3.js';
+import { Hyperellipsoid, type Ellipsoid3 } from './Hyperellipsoid.js';
+import { Line } from './Line.js';
+import { logAssert } from './Logger.js';
+import { Matrix } from './Matrix.js';
+import { projectEllipsoid3 } from './Projection.js';
+import { addQuaternion, negateQuaternion } from './Quaternion.js';
+import { Rotation } from './Rotation.js';
+import { Vector, add, dot, length, mul, normalize, sub } from './Vector.js';
 
 // The input points are fit with a Gaussian distribution. The center C of the
 // ellipsoid is chosen to be the mean of the distribution. The axes of the

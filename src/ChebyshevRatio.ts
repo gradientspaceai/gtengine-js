@@ -15,8 +15,8 @@
 // singularity is not removable, so some approximation must be used such as
 // those found in ChebyshevRatioEstimate.ts.
 
-import { GTE_C_PI } from './Constants';
-import { logError } from './Logger';
+import { GTE_C_PI } from './Constants.js';
+import { logError } from './Logger.js';
 
 // The angle must be in [0,pi).
 export function chebyshevRatio(t: number, angle: number): number {

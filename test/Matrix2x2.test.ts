@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest';
 import {
     makeRotation2x2, getRotationAngle2x2, inverse2x2, adjoint2x2,
     determinant2x2, trace2x2, doTransform2x2, setBasis2x2, getBasis2x2
-} from '../src/Matrix2x2';
+} from '../src/Matrix2x2.js';
 import {
     Matrix, inverse, determinant, multiplyAB, mulMatrix, subMatrix,
     lInfinityNorm
-} from '../src/Matrix';
-import { Vector } from '../src/Vector';
+} from '../src/Matrix.js';
+import { Vector } from '../src/Vector.js';
 
 function expectMatrixClose(actual: Matrix, expected: Matrix,
     tolerance: number = 1e-12): void {

@@ -25,11 +25,11 @@
 //     endpoints; it is merely conservative. The quirk is preserved; see
 //     upstream issue #103.
 
-import { logAssert } from './Logger';
-import { OBBTree } from './OBBTree';
-import { OrientedBox } from './OrientedBox';
-import { Vector, add, dot, mul, normalize, sub } from './Vector';
-import { computeOrthogonalComplement3 } from './Vector3';
+import { logAssert } from './Logger.js';
+import { OBBTree } from './OBBTree.js';
+import { OrientedBox } from './OrientedBox.js';
+import { Vector, add, dot, mul, normalize, sub } from './Vector.js';
+import { computeOrthogonalComplement3 } from './Vector3.js';
 
 export class OBBTreeOfSegments extends OBBTree {
     protected mVertices: Vector[];

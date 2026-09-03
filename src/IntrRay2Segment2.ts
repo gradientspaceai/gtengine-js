@@ -11,14 +11,14 @@
 // Port notes: see IntrIntervals.ts for the Intr* precedent. The two upstream
 // specializations become IntrRay2Segment2TI and IntrRay2Segment2FI.
 
-import { Line } from './Line';
-import type { Ray } from './Ray';
-import type { Segment } from './Segment';
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
-import { Vector, add, dot, mul, sub } from './Vector';
-import { IntrLine2Line2FI } from './IntrLine2Line2';
-import { IntrIntervalsFI } from './IntrIntervals';
+import { Line } from './Line.js';
+import type { Ray } from './Ray.js';
+import type { Segment } from './Segment.js';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
+import { Vector, add, dot, mul, sub } from './Vector.js';
+import { IntrLine2Line2FI } from './IntrLine2Line2.js';
+import { IntrIntervalsFI } from './IntrIntervals.js';
 
 // The port of std::numeric_limits<int32_t>::max().
 const INT32_MAX = 2147483647;

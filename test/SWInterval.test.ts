@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SWInterval, nextDown, nextUp } from '../src/SWInterval';
+import { SWInterval, nextDown, nextUp } from '../src/SWInterval.js';
 
 // Deterministic pseudorandom generator (LCG) for reproducible tests.
 function makeRandom(seed: number): () => number {

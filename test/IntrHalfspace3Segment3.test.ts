@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { Halfspace } from '../src/Halfspace';
-import { Segment } from '../src/Segment';
-import { Vector, dot, normalize } from '../src/Vector';
+import { Halfspace } from '../src/Halfspace.js';
+import { Segment } from '../src/Segment.js';
+import { Vector, dot, normalize } from '../src/Vector.js';
 import {
     IntrHalfspace3Segment3TI,
     IntrHalfspace3Segment3FI
-} from '../src/IntrHalfspace3Segment3';
+} from '../src/IntrHalfspace3Segment3.js';
 
 function halfspace(nx: number, ny: number, nz: number, c: number): Halfspace {
     const n = Vector.fromArray([nx, ny, nz]);

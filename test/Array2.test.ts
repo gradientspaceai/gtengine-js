@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Array2 } from '../src/Array2';
+import { Array2 } from '../src/Array2.js';
 
 describe('Array2', () => {
     it('reports its bounds', () => {

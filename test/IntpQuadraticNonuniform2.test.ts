@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { Delaunay2 } from '../src/Delaunay2';
-import { Delaunay2Mesh } from '../src/Delaunay2Mesh';
-import { IntpQuadraticNonuniform2 } from '../src/IntpQuadraticNonuniform2';
-import { PlanarMesh } from '../src/PlanarMesh';
-import { Vector } from '../src/Vector';
+import { Delaunay2 } from '../src/Delaunay2.js';
+import { Delaunay2Mesh } from '../src/Delaunay2Mesh.js';
+import { IntpQuadraticNonuniform2 } from '../src/IntpQuadraticNonuniform2.js';
+import { PlanarMesh } from '../src/PlanarMesh.js';
+import { Vector } from '../src/Vector.js';
 
 // A deterministic pseudorandom generator so the randomized checks are
 // reproducible.

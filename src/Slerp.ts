@@ -35,8 +35,8 @@
 // cosAH = sqrt((1 + cosA)/2) and qh = (q0 + q1)/(2*cosAH) for each pair, to
 // be passed to slerpUsingMidpoint.
 
-import { chebyshevRatiosUsingCosAngle } from './ChebyshevRatio';
-import { logAssert } from './Logger';
+import { chebyshevRatiosUsingCosAngle } from './ChebyshevRatio.js';
+import { logAssert } from './Logger.js';
 
 function assertDimensions(q0: readonly number[], q1: readonly number[]): void {
     logAssert(q0.length >= 2, 'Invalid dimension.');

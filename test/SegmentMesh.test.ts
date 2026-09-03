@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { SegmentMesh, SegmentMeshTopology } from '../src/SegmentMesh';
-import { Vector } from '../src/Vector';
+import { SegmentMesh, SegmentMeshTopology } from '../src/SegmentMesh.js';
+import { Vector } from '../src/Vector.js';
 
 // A vertex pool V[i] = (i, 2*i) so a vertex is identifiable by its contents.
 function pool(count: number): Vector[] {

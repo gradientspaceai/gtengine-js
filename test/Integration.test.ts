@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Integration } from '../src/Integration';
+import { Integration } from '../src/Integration.js';
 
 describe('Integration.trapezoidRule', () => {
     it('is exact for a linear integrand', () => {

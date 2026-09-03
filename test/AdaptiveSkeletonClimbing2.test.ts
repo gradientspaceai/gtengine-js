@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { AdaptiveSkeletonClimbing2 } from '../src/AdaptiveSkeletonClimbing2';
+import { AdaptiveSkeletonClimbing2 } from '../src/AdaptiveSkeletonClimbing2.js';
 
 // Build a (2^N+1)-by-(2^N+1) integer image from a function f(x, y).
 function makeImage(N: number, f: (x: number, y: number) => number): number[] {

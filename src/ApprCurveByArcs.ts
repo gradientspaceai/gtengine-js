@@ -22,11 +22,11 @@
 // PORTING.md. The 'static_assert(std::is_floating_point<T>)' has no port
 // (every numeric type is 'number').
 
-import { Arc2 } from './Arc2';
-import { logAssert } from './Logger';
-import { ParametricCurve } from './ParametricCurve';
-import { Vector, add, dot, length, mul, sub } from './Vector';
-import { dotPerp } from './Vector2';
+import { Arc2 } from './Arc2.js';
+import { logAssert } from './Logger.js';
+import { ParametricCurve } from './ParametricCurve.js';
+import { Vector, add, dot, length, mul, sub } from './Vector.js';
+import { dotPerp } from './Vector2.js';
 
 export interface ApproximateCurveByArcsResult {
     // The 2*numArcs+1 curve parameters. The even-indexed entries are the

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { ApprQuadratic3, ApprQuadraticSphere3 } from '../src/ApprQuadratic3';
-import { Hypersphere } from '../src/Hypersphere';
-import { Vector } from '../src/Vector';
+import { ApprQuadratic3, ApprQuadraticSphere3 } from '../src/ApprQuadratic3.js';
+import { Hypersphere } from '../src/Hypersphere.js';
+import { Vector } from '../src/Vector.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

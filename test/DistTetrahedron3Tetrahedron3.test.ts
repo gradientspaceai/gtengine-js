@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { inContainerTetrahedron3 } from '../src/ContTetrahedron3';
-import { DistPoint3Tetrahedron3 } from '../src/DistPoint3Tetrahedron3';
-import { DistTetrahedron3Tetrahedron3 } from '../src/DistTetrahedron3Tetrahedron3';
-import { Tetrahedron3 } from '../src/Tetrahedron3';
-import { Vector, add, length, mul, sub } from '../src/Vector';
+import { inContainerTetrahedron3 } from '../src/ContTetrahedron3.js';
+import { DistPoint3Tetrahedron3 } from '../src/DistPoint3Tetrahedron3.js';
+import { DistTetrahedron3Tetrahedron3 } from '../src/DistTetrahedron3Tetrahedron3.js';
+import { Tetrahedron3 } from '../src/Tetrahedron3.js';
+import { Vector, add, length, mul, sub } from '../src/Vector.js';
 
 function v(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

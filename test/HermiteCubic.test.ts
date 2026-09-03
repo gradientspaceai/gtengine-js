@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { HermiteCubic, HermiteCubicSample } from '../src/HermiteCubic';
+import { HermiteCubic, HermiteCubicSample } from '../src/HermiteCubic.js';
 
 describe('HermiteCubic', () => {
     it('default constructor creates the identically zero polynomial', () => {

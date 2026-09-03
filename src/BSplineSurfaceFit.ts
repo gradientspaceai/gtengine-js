@@ -19,10 +19,10 @@
 // BandedMatrix::SolveSystem<true>; the port uses a flat number[] with the
 // same row-major indexing.
 
-import { logAssert } from './Logger';
-import { BasisFunction, BasisFunctionInput, UniqueKnot } from './BasisFunction';
-import { BandedMatrix } from './BandedMatrix';
-import { Vector } from './Vector';
+import { logAssert } from './Logger.js';
+import { BasisFunction, BasisFunctionInput, UniqueKnot } from './BasisFunction.js';
+import { BandedMatrix } from './BandedMatrix.js';
+import { Vector } from './Vector.js';
 
 export class BSplineSurfaceFit {
     // Input sample information.

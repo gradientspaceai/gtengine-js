@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { OrientedBoxBV, orientedBoxBVOps } from '../src/OrientedBoxBV';
-import { BVTree, BVTreeNode } from '../src/BVTree';
-import { BVTreeOfPoints } from '../src/BVTreeOfPoints';
-import { OrientedBox } from '../src/OrientedBox';
-import { Vector, dot, sub } from '../src/Vector';
+import { OrientedBoxBV, orientedBoxBVOps } from '../src/OrientedBoxBV.js';
+import { BVTree, BVTreeNode } from '../src/BVTree.js';
+import { BVTreeOfPoints } from '../src/BVTreeOfPoints.js';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Vector, dot, sub } from '../src/Vector.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

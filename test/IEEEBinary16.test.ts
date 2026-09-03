@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { IEEEBinary16 } from '../src/IEEEBinary16';
-import { IEEEClassification } from '../src/IEEEBinary';
+import { IEEEBinary16 } from '../src/IEEEBinary16.js';
+import { IEEEClassification } from '../src/IEEEBinary.js';
 
 // An independent reference implementation of binary16, written from the IEEE
 // 754 definition rather than from the upstream bit manipulations.

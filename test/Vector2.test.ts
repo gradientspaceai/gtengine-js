@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
     perp, unitPerp, dotPerp, computeOrthogonalComplement2,
     computeBarycentrics2, IntrinsicsVector2
-} from '../src/Vector2';
-import { Vector, add, dot, length, mul } from '../src/Vector';
+} from '../src/Vector2.js';
+import { Vector, add, dot, length, mul } from '../src/Vector.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

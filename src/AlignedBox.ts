@@ -23,8 +23,8 @@
 // - Out-parameters become returned object literals ('GetCenteredForm') and
 //   filled output arrays become returned arrays ('GetVertices').
 
-import { logAssert } from './Logger';
-import { Vector, add, sub, mul } from './Vector';
+import { logAssert } from './Logger.js';
+import { Vector, add, sub, mul } from './Vector.js';
 
 export class AlignedBox {
     // Public member access. It is required that min[i] <= max[i].

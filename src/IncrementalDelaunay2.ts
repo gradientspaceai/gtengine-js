@@ -58,14 +58,14 @@
 // * The unused private ToTriangle() helper (dead code upstream) is not
 //   ported.
 
-import { BSNumber } from './BSNumber';
-import { ETManifoldMesh, ETManifoldMeshTriangle } from './ETManifoldMesh';
-import { logAssert, logError } from './Logger';
-import { MinHeap } from './MinHeap';
-import type { MinHeapRecord } from './MinHeap';
-import { SWInterval } from './SWInterval';
-import { Vector } from './Vector';
-import { VETManifoldMesh } from './VETManifoldMesh';
+import { BSNumber } from './BSNumber.js';
+import { ETManifoldMesh, ETManifoldMeshTriangle } from './ETManifoldMesh.js';
+import { logAssert, logError } from './Logger.js';
+import { MinHeap } from './MinHeap.js';
+import type { MinHeapRecord } from './MinHeap.js';
+import { SWInterval } from './SWInterval.js';
+import { Vector } from './Vector.js';
+import { VETManifoldMesh } from './VETManifoldMesh.js';
 
 // A rational 2D point, the port of Vector2<InputRational>.
 type RationalPoint2 = [BSNumber, BSNumber];

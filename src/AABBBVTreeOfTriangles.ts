@@ -24,18 +24,18 @@
 //     computeInteriorBoundingVolume/computeLeafBoundingVolume, as upstream.
 //     C++ assignments from a vertex copy, so the port clones explicitly.
 
-import { AlignedBox } from './AlignedBox';
+import { AlignedBox } from './AlignedBox.js';
 import type {
     BVTreeBoundingVolume, BVTreeSplittingAxis, BVTreeVolumeOps
-} from './BVTree';
-import { BVTreeOfTriangles } from './BVTreeOfTriangles';
-import { IntrLine3AlignedBox3TI } from './IntrLine3AlignedBox3';
-import { IntrRay3AlignedBox3TI } from './IntrRay3AlignedBox3';
-import { IntrSegment3AlignedBox3TI } from './IntrSegment3AlignedBox3';
-import { Line } from './Line';
-import { Ray } from './Ray';
-import { Segment } from './Segment';
-import { Vector, add, mul, sub } from './Vector';
+} from './BVTree.js';
+import { BVTreeOfTriangles } from './BVTreeOfTriangles.js';
+import { IntrLine3AlignedBox3TI } from './IntrLine3AlignedBox3.js';
+import { IntrRay3AlignedBox3TI } from './IntrRay3AlignedBox3.js';
+import { IntrSegment3AlignedBox3TI } from './IntrSegment3AlignedBox3.js';
+import { Line } from './Line.js';
+import { Ray } from './Ray.js';
+import { Segment } from './Segment.js';
+import { Vector, add, mul, sub } from './Vector.js';
 
 // The port of struct AABBBoundingVolume<T>. The default constructor is the
 // upstream 'box{}', which value-initializes an AlignedBox3<T> and so runs its

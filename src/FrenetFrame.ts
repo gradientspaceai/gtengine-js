@@ -18,11 +18,11 @@
 // ParametricCurve carries its dimension at runtime rather than as a template
 // parameter.
 
-import { logAssert } from './Logger';
-import { ParametricCurve } from './ParametricCurve';
-import { Vector, dot, length, normalize, mul, sub } from './Vector';
-import { perp, dotPerp } from './Vector2';
-import { cross } from './Vector3';
+import { logAssert } from './Logger.js';
+import { ParametricCurve } from './ParametricCurve.js';
+import { Vector, dot, length, normalize, mul, sub } from './Vector.js';
+import { perp, dotPerp } from './Vector2.js';
+import { cross } from './Vector3.js';
 
 export interface FrenetFrame2Result {
     position: Vector;

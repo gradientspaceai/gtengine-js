@@ -26,10 +26,10 @@
 // allocates zero-filled boxes of the correct runtime dimension for the same
 // reason.
 
-import { AlignedBox } from './AlignedBox';
-import type { DCPQuery } from './DCPQuery';
-import { IntrIntervalsFI } from './IntrIntervals';
-import { Vector } from './Vector';
+import { AlignedBox } from './AlignedBox.js';
+import type { DCPQuery } from './DCPQuery.js';
+import { IntrIntervalsFI } from './IntrIntervals.js';
+import { Vector } from './Vector.js';
 
 export interface DistAlignedBoxAlignedBoxResult {
     distance: number;

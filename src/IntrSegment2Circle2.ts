@@ -14,17 +14,17 @@
 // reported parameters are relative to the centered form of the segment,
 // C + t * D with |t| <= e, as upstream reports them.
 
-import type { FIQuery } from './FIQuery';
-import type { Hypersphere } from './Hypersphere';
-import { IntrIntervalsFI } from './IntrIntervals';
+import type { FIQuery } from './FIQuery.js';
+import type { Hypersphere } from './Hypersphere.js';
+import { IntrIntervalsFI } from './IntrIntervals.js';
 import {
     IntrLine2Circle2FI,
     defaultIntrLine2Circle2FIResult
-} from './IntrLine2Circle2';
-import type { IntrLine2Circle2FIResult } from './IntrLine2Circle2';
-import type { Segment2 } from './Segment';
-import { Vector, add, mul } from './Vector';
-import type { TIQuery } from './TIQuery';
+} from './IntrLine2Circle2.js';
+import type { IntrLine2Circle2FIResult } from './IntrLine2Circle2.js';
+import type { Segment2 } from './Segment.js';
+import { Vector, add, mul } from './Vector.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrSegment2Circle2TI.test.
 export interface IntrSegment2Circle2TIResult {

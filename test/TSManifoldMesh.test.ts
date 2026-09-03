@@ -3,9 +3,9 @@ import {
     TSManifoldMesh,
     TSManifoldMeshTriangle,
     TSManifoldMeshTetrahedron
-} from '../src/TSManifoldMesh';
-import { TriangleKey } from '../src/TriangleKey';
-import { TetrahedronKey } from '../src/TetrahedronKey';
+} from '../src/TSManifoldMesh.js';
+import { TriangleKey } from '../src/TriangleKey.js';
+import { TetrahedronKey } from '../src/TetrahedronKey.js';
 
 // The unordered vertex triples of the faces, in mesh iteration order.
 function faceTriples(mesh: TSManifoldMesh): number[][] {

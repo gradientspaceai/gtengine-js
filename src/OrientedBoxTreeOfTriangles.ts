@@ -13,10 +13,10 @@
 // hit, including coincident ones; see the note about upstream issue #167 in
 // BVTreeOfTriangles.ts.
 
-import { getContainerOrientedBox3 } from './ContOrientedBox3';
-import { BVTreeOfTriangles } from './BVTreeOfTriangles';
-import { OrientedBoxBV, orientedBoxBVOps } from './OrientedBoxBV';
-import { Vector } from './Vector';
+import { getContainerOrientedBox3 } from './ContOrientedBox3.js';
+import { BVTreeOfTriangles } from './BVTreeOfTriangles.js';
+import { OrientedBoxBV, orientedBoxBVOps } from './OrientedBoxBV.js';
+import { Vector } from './Vector.js';
 
 export class OrientedBoxTreeOfTriangles extends BVTreeOfTriangles<OrientedBoxBV> {
     constructor() {

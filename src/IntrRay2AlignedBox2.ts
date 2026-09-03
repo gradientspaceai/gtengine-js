@@ -20,22 +20,22 @@
 // the port exports type aliases. The ray-specific DoQuery members remain
 // available as the protected doQuery() methods.
 
-import type { AlignedBox } from './AlignedBox';
-import type { Ray } from './Ray';
-import type { TIQuery } from './TIQuery';
-import type { FIQuery } from './FIQuery';
-import { Vector, add, mul, sub } from './Vector';
+import type { AlignedBox } from './AlignedBox.js';
+import type { Ray } from './Ray.js';
+import type { TIQuery } from './TIQuery.js';
+import type { FIQuery } from './FIQuery.js';
+import { Vector, add, mul, sub } from './Vector.js';
 import {
     IntrLine2AlignedBox2TI,
     IntrLine2AlignedBox2FI,
     defaultIntrLine2AlignedBox2TIResult,
     defaultIntrLine2AlignedBox2FIResult
-} from './IntrLine2AlignedBox2';
+} from './IntrLine2AlignedBox2.js';
 import type {
     IntrLine2AlignedBox2TIResult,
     IntrLine2AlignedBox2FIResult
-} from './IntrLine2AlignedBox2';
-import { IntrIntervalsFI } from './IntrIntervals';
+} from './IntrLine2AlignedBox2.js';
+import { IntrIntervalsFI } from './IntrIntervals.js';
 
 // The port of std::numeric_limits<T>::max() for T = double.
 const MAX_T = Number.MAX_VALUE;

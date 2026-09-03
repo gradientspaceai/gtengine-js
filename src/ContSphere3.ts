@@ -16,9 +16,9 @@
 // Sphere3 is the 3D alias of Hypersphere, so the port asserts that the input
 // vectors have dimension 3, which the C++ Vector3<Real> type guarantees.
 
-import { Hypersphere, type Sphere3 } from './Hypersphere';
-import { logAssert } from './Logger';
-import { Vector, add, div, mul, sub, dot, length } from './Vector';
+import { Hypersphere, type Sphere3 } from './Hypersphere.js';
+import { logAssert } from './Logger.js';
+import { Vector, add, div, mul, sub, dot, length } from './Vector.js';
 
 // Compute the smallest bounding sphere whose center is the average of the
 // input points. Upstream reads points[0] unconditionally, so at least one

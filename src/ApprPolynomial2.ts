@@ -31,10 +31,10 @@
 // the same index arithmetic. The x-domain is an accumulating [min,max] pair
 // that upstream never resets between fits; the port preserves that.
 
-import { ApprQuery } from './ApprQuery';
-import { GMatrix } from './GMatrix';
-import { inverse, mulMatrix } from './Matrix';
-import { Vector } from './Vector';
+import { ApprQuery } from './ApprQuery.js';
+import { GMatrix } from './GMatrix.js';
+import { inverse, mulMatrix } from './Matrix.js';
+import { Vector } from './Vector.js';
 
 export class ApprPolynomial2 extends ApprQuery<readonly number[]> {
     private mDegree: number;

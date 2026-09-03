@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { FeatureKey } from '../src/FeatureKey';
-import { hashCombine } from '../src/HashCombine';
+import { FeatureKey } from '../src/FeatureKey.js';
+import { hashCombine } from '../src/HashCombine.js';
 
 // Deterministic pseudorandom generator so failures are reproducible.
 function makeRng(seed: number): () => number {

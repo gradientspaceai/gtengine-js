@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { Hyperplane } from '../src/Hyperplane';
-import { Vector, dot } from '../src/Vector';
+import { Hyperplane } from '../src/Hyperplane.js';
+import { Vector, dot } from '../src/Vector.js';
 import {
     IntrConvexPolygonHyperplaneConfiguration as Cfg,
     IntrConvexPolygonHyperplaneTI,
     IntrConvexPolygonHyperplaneFI
-} from '../src/IntrConvexPolygonHyperplane';
+} from '../src/IntrConvexPolygonHyperplane.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

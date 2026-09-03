@@ -1,17 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { AlignedBox } from '../src/AlignedBox';
+import { AlignedBox } from '../src/AlignedBox.js';
 import {
     IntrRay2AlignedBox2TI,
     IntrRay2AlignedBox2FI
-} from '../src/IntrRay2AlignedBox2';
+} from '../src/IntrRay2AlignedBox2.js';
 import {
     IntrRay2OrientedBox2TI,
     IntrRay2OrientedBox2FI,
     defaultIntrRay2OrientedBox2FIResult
-} from '../src/IntrRay2OrientedBox2';
-import { OrientedBox } from '../src/OrientedBox';
-import { Ray } from '../src/Ray';
-import { Vector, add, dot, mul, normalize, sub } from '../src/Vector';
+} from '../src/IntrRay2OrientedBox2.js';
+import { OrientedBox } from '../src/OrientedBox.js';
+import { Ray } from '../src/Ray.js';
+import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
 
 function vec(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);

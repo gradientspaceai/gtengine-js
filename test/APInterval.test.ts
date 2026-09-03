@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { APInterval, isInfinite } from '../src/APInterval';
-import { BSRational } from '../src/BSRational';
+import { APInterval, isInfinite } from '../src/APInterval.js';
+import { BSRational } from '../src/BSRational.js';
 
 // Convenience constructors for exact rationals.
 function r(numerator: number, denominator: number = 1): BSRational {

@@ -24,11 +24,11 @@
 // the active vertices are the first L entries of that array and the active
 // edges are the first 2*getNumEdges() entries of getEdges().
 
-import { DistPointSegment } from './DistPointSegment';
-import { logAssert } from './Logger';
-import { MinHeap } from './MinHeap';
-import { Segment } from './Segment';
-import { Vector, normalize, sub } from './Vector';
+import { DistPointSegment } from './DistPointSegment.js';
+import { logAssert } from './Logger.js';
+import { MinHeap } from './MinHeap.js';
+import { Segment } from './Segment.js';
+import { Vector, normalize, sub } from './Vector.js';
 
 export class CLODPolyline {
     // The polyline vertices.

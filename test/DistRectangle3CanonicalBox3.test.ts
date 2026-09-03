@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { CanonicalBox } from '../src/CanonicalBox';
+import { CanonicalBox } from '../src/CanonicalBox.js';
 import { DistRectangle3CanonicalBox3 }
-    from '../src/DistRectangle3CanonicalBox3';
+    from '../src/DistRectangle3CanonicalBox3.js';
 import type { DistRectangle3CanonicalBox3Result }
-    from '../src/DistRectangle3CanonicalBox3';
-import { Rectangle } from '../src/Rectangle';
-import { Vector, add, dot, mul, sub } from '../src/Vector';
+    from '../src/DistRectangle3CanonicalBox3.js';
+import { Rectangle } from '../src/Rectangle.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);

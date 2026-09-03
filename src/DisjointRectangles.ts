@@ -15,7 +15,7 @@
 // outputs. The nested Strip class becomes the DisjointRectanglesStrip
 // interface; getStrip returns a copy (upstream copies via assignment).
 
-import { DisjointIntervals } from './DisjointIntervals';
+import { DisjointIntervals } from './DisjointIntervals.js';
 
 // The rectangle set consists of y-strips of x-interval sets. This is the
 // port of the upstream nested class DisjointRectangles::Strip.

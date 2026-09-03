@@ -44,8 +44,8 @@
 // are performed on two quadratic field numbers that do not share the same
 // value d.
 
-import { logAssert, logError } from './Logger';
-import type { ArbitraryPrecisionNumber } from './TypeTraits';
+import { logAssert, logError } from './Logger.js';
+import type { ArbitraryPrecisionNumber } from './TypeTraits.js';
 
 // A coefficient of a quadratic field number: 'number' at recursion depth
 // N = 1, a nested QFNumber at depth N >= 2.

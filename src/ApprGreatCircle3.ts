@@ -17,11 +17,11 @@
 // ApprGreatArc3). Following the Appr* precedent, 'operator()' becomes
 // 'compute'.
 
-import { GTE_C_TWO_PI } from './Constants';
-import { logAssert } from './Logger';
-import { SymmetricEigensolver3x3 } from './SymmetricEigensolver3x3';
-import { Vector, add, dot, mul, normalize } from './Vector';
-import { computeOrthogonalComplement3 } from './Vector3';
+import { GTE_C_TWO_PI } from './Constants.js';
+import { logAssert } from './Logger.js';
+import { SymmetricEigensolver3x3 } from './SymmetricEigensolver3x3.js';
+import { Vector, add, dot, mul, normalize } from './Vector.js';
+import { computeOrthogonalComplement3 } from './Vector3.js';
 
 export class ApprGreatCircle3 {
     // The returned unit-length vector N defines the fitted great circle by

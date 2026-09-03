@@ -30,17 +30,17 @@
 // cylinder, the result reports an intersection with NaN parameters. Upstream
 // behaves identically; callers must pass a segment with distinct endpoints.
 
-import type { Cylinder3 } from './Cylinder3';
-import type { FIQuery } from './FIQuery';
+import type { Cylinder3 } from './Cylinder3.js';
+import type { FIQuery } from './FIQuery.js';
 import {
     IntrLine3Cylinder3FI,
     defaultIntrLine3Cylinder3FIResult
-} from './IntrLine3Cylinder3';
-import type { IntrLine3Cylinder3FIResult } from './IntrLine3Cylinder3';
-import { IntrIntervalsFI } from './IntrIntervals';
-import { logAssert } from './Logger';
-import type { Segment3 } from './Segment';
-import { Vector, add, mul } from './Vector';
+} from './IntrLine3Cylinder3.js';
+import type { IntrLine3Cylinder3FIResult } from './IntrLine3Cylinder3.js';
+import { IntrIntervalsFI } from './IntrIntervals.js';
+import { logAssert } from './Logger.js';
+import type { Segment3 } from './Segment.js';
+import { Vector, add, mul } from './Vector.js';
 
 // The upstream derived FIQuery::Result adds no members.
 export type IntrSegment3Cylinder3FIResult = IntrLine3Cylinder3FIResult;

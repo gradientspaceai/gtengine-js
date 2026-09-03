@@ -2,15 +2,15 @@ import { describe, it, expect } from 'vitest';
 import {
     IntrSegment3Triangle3TI,
     IntrSegment3Triangle3FI
-} from '../src/IntrSegment3Triangle3';
+} from '../src/IntrSegment3Triangle3.js';
 import {
     IntrLine3Triangle3FI
-} from '../src/IntrLine3Triangle3';
-import { Line } from '../src/Line';
-import { Segment } from '../src/Segment';
-import { Triangle } from '../src/Triangle';
-import { Vector, add, dot, mul, sub } from '../src/Vector';
-import { cross } from '../src/Vector3';
+} from '../src/IntrLine3Triangle3.js';
+import { Line } from '../src/Line.js';
+import { Segment } from '../src/Segment.js';
+import { Triangle } from '../src/Triangle.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 const ti = new IntrSegment3Triangle3TI();
 const fi = new IntrSegment3Triangle3FI();

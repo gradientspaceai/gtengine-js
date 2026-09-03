@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
     BSRational, convertBSRational, convertBSRationalToBSNumber,
     convertBSRationalToFloat32, convertBSRationalToNumber
-} from '../src/BSRational';
-import { BSNumber, BSNumberRoundingMode } from '../src/BSNumber';
-import { isArbitraryPrecision, hasDivisionOperator } from '../src/TypeTraits';
+} from '../src/BSRational.js';
+import { BSNumber, BSNumberRoundingMode } from '../src/BSNumber.js';
+import { isArbitraryPrecision, hasDivisionOperator } from '../src/TypeTraits.js';
 
 function makeRandom(seed: number): () => number {
     let state = seed >>> 0;

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { IntpVectorField2 } from '../src/IntpVectorField2';
-import { Vector } from '../src/Vector';
+import { IntpVectorField2 } from '../src/IntpVectorField2.js';
+import { Vector } from '../src/Vector.js';
 
 function makeRandom(seed: number): () => number {
     let s = seed >>> 0;

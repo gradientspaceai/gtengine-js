@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { ImplicitCurve2 } from '../src/ImplicitCurve2';
-import { Vector, dot, length } from '../src/Vector';
-import { dotPerp } from '../src/Vector2';
+import { ImplicitCurve2 } from '../src/ImplicitCurve2.js';
+import { Vector, dot, length } from '../src/Vector.js';
+import { dotPerp } from '../src/Vector2.js';
 
 // F(x,y) = x^2 + y^2 - r^2, the circle of radius r centered at the origin.
 class Circle2Implicit extends ImplicitCurve2 {

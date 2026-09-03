@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { Arc2 } from '../src/Arc2';
-import { Hypersphere } from '../src/Hypersphere';
-import { Vector, sub, length } from '../src/Vector';
-import { IntrCircle2Arc2FI } from '../src/IntrCircle2Arc2';
+import { Arc2 } from '../src/Arc2.js';
+import { Hypersphere } from '../src/Hypersphere.js';
+import { Vector, sub, length } from '../src/Vector.js';
+import { IntrCircle2Arc2FI } from '../src/IntrCircle2Arc2.js';
 
 const INT32_MAX = 2147483647;
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { SeparatePoints3 } from '../src/SeparatePoints3';
-import { Vector, dot } from '../src/Vector';
+import { SeparatePoints3 } from '../src/SeparatePoints3.js';
+import { Vector, dot } from '../src/Vector.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);

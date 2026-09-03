@@ -3,7 +3,7 @@ import {
     VEManifoldMesh,
     VEManifoldMeshVertex,
     VEManifoldMeshEdge
-} from '../src/VEManifoldMesh';
+} from '../src/VEManifoldMesh.js';
 
 // Build a closed polyline with the directed edges <0,1>, <1,2>, <2,0>.
 function makeTriangleLoop(): VEManifoldMesh {

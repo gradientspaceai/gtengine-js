@@ -31,13 +31,13 @@
 //   iterating the vertex-adjacent triangles in sorted key order so the hull
 //   does not depend on pointer-hash ordering.
 
-import { logAssert } from './Logger';
-import { Vector } from './Vector';
-import { BSNumber } from './BSNumber';
-import { SWInterval } from './SWInterval';
-import { VETManifoldMesh } from './VETManifoldMesh';
-import type { ETManifoldMeshTriangle } from './ETManifoldMesh';
-import { ConvexHull2 } from './ConvexHull2';
+import { logAssert } from './Logger.js';
+import { Vector } from './Vector.js';
+import { BSNumber } from './BSNumber.js';
+import { SWInterval } from './SWInterval.js';
+import { VETManifoldMesh } from './VETManifoldMesh.js';
+import type { ETManifoldMeshTriangle } from './ETManifoldMesh.js';
+import { ConvexHull2 } from './ConvexHull2.js';
 
 // A rational 3D point, the port of Vector3<Rational>.
 type RationalPoint3 = [BSNumber, BSNumber, BSNumber];

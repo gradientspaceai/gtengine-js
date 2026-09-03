@@ -11,11 +11,11 @@
 // Port notes: see IntrIntervals.ts for the Intr* precedent. Upstream has only
 // a TIQuery specialization, which becomes IntrPlane3Capsule3TI.
 
-import type { Capsule3 } from './Capsule';
-import { DistPointHyperplane } from './DistPointHyperplane';
-import { logAssert } from './Logger';
-import type { Plane3 } from './Hyperplane';
-import type { TIQuery } from './TIQuery';
+import type { Capsule3 } from './Capsule.js';
+import { DistPointHyperplane } from './DistPointHyperplane.js';
+import { logAssert } from './Logger.js';
+import type { Plane3 } from './Hyperplane.js';
+import type { TIQuery } from './TIQuery.js';
 
 // The result of IntrPlane3Capsule3TI.test.
 export interface IntrPlane3Capsule3TIResult {
