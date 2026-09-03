@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { check, fc, seededRandom } from './helpers/arbitraries.js';
 import { BSPrecision, BSPrecisionParameters, BSPrecisionType } from '../src/BSPrecision.js';
 
 function expectParams(
@@ -261,5 +262,221 @@ describe('BSPrecision documented query requirements (BSNumber)', () => {
         expectParams(p.bsn, -298, 257, 554, 18);
         const det = p.sub(p);
         expectParams(det.bsn, -298, 258, 557, 18);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (V05): property-based cross-checks of the upstream bounds
+// against exact bigint arithmetic.
+//
+// Model of the arbitrary-precision set described by Parameters
+// (minExponent, maxExponent, maxBits): the representable nonzero values are
+//   v = s * M * 2^p,  s in {-1,+1},  M a positive odd integer,
+//   p >= minExponent, bitlen(M) <= maxBits, p + bitlen(M) - 1 <= maxExponent.
+// That is, minExponent bounds the trailing set bit, maxExponent bounds the
+// leading set bit and maxBits bounds their span. BSPrecision's job is to
+// produce a set that contains the exact result of an operation.
+// ---------------------------------------------------------------------------
+describe('BSPrecision verification', () => {
+    interface PSet { minE: number; maxE: number; maxBits: number; }
+
+    const namedSets: PSet[] = [
+        { minE: -149, maxE: 127, maxBits: 24 },      // IS_FLOAT
+        { minE: -1074, maxE: 1023, maxBits: 53 },    // IS_DOUBLE
+        { minE: 0, maxE: 30, maxBits: 31 },          // IS_INT32
+        { minE: 0, maxE: 62, maxBits: 63 },          // IS_INT64
+        { minE: 0, maxE: 31, maxBits: 32 },          // IS_UINT32
+        { minE: 0, maxE: 63, maxBits: 64 }           // IS_UINT64
+    ];
+
+    // Small synthetic sets keep the bigint fuzzing fast while exercising the
+    // same branch structure as the native-type sets.
+    const smallSet: fc.Arbitrary<PSet> = fc.tuple(
+        fc.integer({ min: -30, max: 10 }),
+        fc.integer({ min: 1, max: 24 }),
+        fc.integer({ min: 0, max: 20 })
+    ).map(([minE, bits, span]) => ({ minE, maxE: minE + bits - 1 + span, maxBits: bits }));
+
+    const anySet: fc.Arbitrary<PSet> = fc.oneof(smallSet, fc.constantFrom(...namedSets));
+
+    const toBSP = (s: PSet): BSPrecision => new BSPrecision(s.minE, s.maxE, s.maxBits);
+
+    function bitLength(n: bigint): number {
+        let m = n < 0n ? -n : n;
+        let b = 0;
+        while (m > 0n) { m >>= 1n; ++b; }
+        return b;
+    }
+
+    /** Reduce M * 2^p to the canonical form with M odd. Returns null for zero. */
+    function normalize(M: bigint, p: number): { M: bigint; p: number } | null {
+        if (M === 0n) { return null; }
+        let m = M;
+        let e = p;
+        while ((m & 1n) === 0n) { m >>= 1n; ++e; }
+        return { M: m, p: e };
+    }
+
+    /** Draw a uniformly random member of the set using a seeded PRNG. */
+    function sampleSet(s: PSet, rand: () => number): { M: bigint; p: number } {
+        const bl = 1 + Math.floor(rand() * s.maxBits);
+        let M = 1n << BigInt(bl - 1);
+        for (let i = 1; i < bl - 1; ++i) {
+            if (rand() < 0.5) { M |= 1n << BigInt(i); }
+        }
+        if (bl > 1) { M |= 1n; }   // odd mantissa
+        const lo = s.minE;
+        const hi = s.maxE - bl + 1;
+        const p = lo + Math.floor(rand() * (hi - lo + 1));
+        return { M: rand() < 0.5 ? -M : M, p };
+    }
+
+    function inSet(v: { M: bigint; p: number }, p: BSPrecisionParameters): boolean {
+        const bits = bitLength(v.M);
+        return v.p >= p.minExponent
+            && v.p + bits - 1 <= p.maxExponent
+            && bits <= p.maxBits;
+    }
+
+    it('maxWords is ceil(maxBits/32) on every produced result', () => {
+        check(fc.tuple(anySet, anySet), ([a, b]) => {
+            const x = toBSP(a);
+            const y = toBSP(b);
+            for (const r of [x.add(y), x.sub(y), x.mul(y), x.div(y), x.equal(y)]) {
+                for (const p of [r.bsn, r.bsr]) {
+                    expect(p.maxWords).toBe(Math.ceil(p.maxBits / 32));
+                    expect(p.maxWords).toBe(p.getMaxWords());
+                }
+            }
+            return true;
+        });
+    });
+
+    it('mul and equal are symmetric in their operands', () => {
+        check(fc.tuple(anySet, anySet), ([a, b]) => {
+            const x = toBSP(a);
+            const y = toBSP(b);
+            expect(x.mul(y)).toEqual(y.mul(x));
+            expect(x.equal(y)).toEqual(y.equal(x));
+            return true;
+        });
+    });
+
+    // add is symmetric whenever the two operands have distinct maxExponent:
+    // both orderings then select the same "larger" operand. Ties are the
+    // upstream asymmetry pinned further below.
+    it('add is symmetric when the operand maxExponents differ', () => {
+        check(fc.tuple(anySet, anySet).filter(([a, b]) => a.maxE !== b.maxE), ([a, b]) => {
+            expect(toBSP(a).add(toBSP(b))).toEqual(toBSP(b).add(toBSP(a)));
+            return true;
+        });
+    });
+
+    it('sub aliases add and every comparison aliases equal', () => {
+        check(fc.tuple(anySet, anySet), ([a, b]) => {
+            const x = toBSP(a);
+            const y = toBSP(b);
+            expect(x.sub(y)).toEqual(x.add(y));
+            const e = x.equal(y);
+            expect(x.notEqual(y)).toEqual(e);
+            expect(x.lessThan(y)).toEqual(e);
+            expect(x.lessThanEqual(y)).toEqual(e);
+            expect(x.greaterThan(y)).toEqual(e);
+            expect(x.greaterThanEqual(y)).toEqual(e);
+            return true;
+        });
+    });
+
+    it('div zeroes bsn (BSNumber has no division) and reuses the mul bsr', () => {
+        check(fc.tuple(anySet, anySet), ([a, b]) => {
+            const q = toBSP(a).div(toBSP(b));
+            expect(q.bsn).toEqual(new BSPrecisionParameters());
+            expect(q.bsr).toEqual(toBSP(a).mul(toBSP(b)).bsr);
+            return true;
+        });
+    });
+
+    it('results never alias their operands or each other', () => {
+        const f = new BSPrecision(BSPrecisionType.IS_FLOAT);
+        const d = new BSPrecision(BSPrecisionType.IS_DOUBLE);
+        const r = f.add(d);
+        expect(r.bsn).not.toBe(f.bsn);
+        expect(r.bsn).not.toBe(d.bsn);
+        expect(r.bsn).not.toBe(r.bsr);
+        r.bsn.maxBits = -1;
+        expect(f.bsn.maxBits).toBe(24);
+        expect(d.bsn.maxBits).toBe(53);
+        expect(r.bsr.maxBits).not.toBe(-1);
+    });
+
+    // Exact cross-check: the product of any two members of the operand sets
+    // lies in the mul bsn set. The multiplication bound is exact in general.
+    it('mul bsn contains the exact bigint product for arbitrary operand sets', () => {
+        const rand = seededRandom(0x5a17c0de);
+        check(fc.tuple(anySet, anySet), ([a, b]) => {
+            const r = toBSP(a).mul(toBSP(b)).bsn;
+            for (let k = 0; k < 12; ++k) {
+                const x = sampleSet(a, rand);
+                const y = sampleSet(b, rand);
+                const prod = normalize(x.M * y.M, x.p + y.p);
+                expect(prod).not.toBeNull();
+                expect(inSet(prod as { M: bigint; p: number }, r)).toBe(true);
+            }
+            return true;
+        }, 60);
+    });
+
+    // The addition bound is only valid when both operands come from the SAME
+    // set (the documented usage: both operands are the same native type, or
+    // the same intermediate expression type). See the heterogeneous case
+    // below for the upstream limitation.
+    it('add bsn contains the exact bigint sum for identical operand sets', () => {
+        const rand = seededRandom(0x0add5eed);
+        check(anySet, a => {
+            const r = toBSP(a).add(toBSP(a)).bsn;
+            for (let k = 0; k < 12; ++k) {
+                const x = sampleSet(a, rand);
+                const y = sampleSet(a, rand);
+                const p = Math.min(x.p, y.p);
+                const M = (x.M << BigInt(x.p - p)) + (y.M << BigInt(y.p - p));
+                const sum = normalize(M, p);
+                if (sum === null) { continue; }   // exact cancellation
+                expect(inSet(sum, r)).toBe(true);
+            }
+            return true;
+        }, 60);
+    });
+
+    // Upstream limitation, preserved by the port: operator+ computes maxBits
+    // from the maxExponent of one operand and the minExponent of the OTHER,
+    // so when the operand with the larger maxExponent also has the smaller
+    // minExponent the bit count is under-estimated. Pinned here so a future
+    // "cleanup" of the formula has to be a deliberate deviation.
+    it('add bsn under-estimates maxBits for heterogeneous operand sets', () => {
+        const f = new BSPrecision(BSPrecisionType.IS_FLOAT);
+        const d = new BSPrecision(BSPrecisionType.IS_DOUBLE);
+        const r = d.add(f);
+        expect(r.bsn.minExponent).toBe(-1074);
+        expect(r.bsn.maxExponent).toBe(1023);
+        expect(r.bsn.maxBits).toBe(1173);   // 1023 - (-149) + 1
+
+        // A concrete exact sum needing more than 1173 bits: the smallest
+        // positive double (2^-1074) plus a float with leading exponent 127.
+        const x = { M: 1n, p: -1074 };   // in the IS_DOUBLE set
+        const y = { M: 1n, p: 127 };     // in the IS_FLOAT set
+        const sum = normalize((y.M << BigInt(y.p - x.p)) + x.M, x.p) as { M: bigint; p: number };
+        expect(bitLength(sum.M)).toBe(1202);   // 127 + 1074 + 1
+        expect(bitLength(sum.M)).toBeGreaterThan(r.bsn.maxBits);
+        expect(inSet(sum, r.bsn)).toBe(false);
+    });
+
+    // Same upstream defect seen from the other side: when the two operands
+    // tie on maxExponent, operator+ still pairs one operand's maxExponent
+    // with the other's minExponent, so a.add(b) != b.add(a).
+    it('add is asymmetric when the operand maxExponents tie', () => {
+        const a = new BSPrecision(-17, 20, 24);
+        const b = new BSPrecision(-5, 20, 12);
+        expect(a.add(b).bsn.maxBits).toBe(27);   // 20 - (-5) + 1, then +1 for overlap
+        expect(b.add(a).bsn.maxBits).toBe(38);   // 20 - (-17) + 1, no overlap bump
     });
 });
