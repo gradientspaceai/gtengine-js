@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { ApprOrthogonalLine3 } from '../src/ApprOrthogonalLine3.js';
-import { Vector, dot } from '../src/Vector.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { check, expectClose, fc, finite, rotationFrame, vector, wellScaledVector } from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -147,5 +148,129 @@ describe('ApprOrthogonalLine3', () => {
         expect(target.getParameters().origin.values[0]).toBeCloseTo(1, 12);
         source.getParameters().origin.values[0] = 33;
         expect(target.getParameters().origin.values[0]).toBeCloseTo(1, 12);
+    });
+});
+
+describe('ApprOrthogonalLine3 verification', () => {
+    const pointsArb = fc.array(wellScaledVector(3, -10, 10),
+        { minLength: 2, maxLength: 12 });
+
+    it('reports the mean as the origin and a unit-length direction', () => {
+        check(pointsArb, points => {
+            const fitter = new ApprOrthogonalLine3();
+            fitter.fit(points);
+            const line = fitter.getParameters();
+
+            const mean = [0, 0, 0];
+            for (const p of points) {
+                for (let d = 0; d < 3; ++d) { mean[d] += p.get(d); }
+            }
+            const invN = 1 / points.length;
+            for (let d = 0; d < 3; ++d) {
+                expectClose(line.origin.get(d), mean[d] * invN, 1e-9, 1e-9);
+            }
+            expectClose(dot(line.direction, line.direction), 1, 1e-12, 1e-12);
+        });
+    });
+
+    it('the model error is the squared distance to the fitted line', () => {
+        check(fc.tuple(pointsArb, vector(3, -20, 20)), ([points, q]) => {
+            const fitter = new ApprOrthogonalLine3();
+            fitter.fit(points);
+            const line = fitter.getParameters();
+
+            const diff = sub(q, line.origin);
+            const t = dot(diff, line.direction);
+            const d = sub(q, add(line.origin, mul(t, line.direction)));
+            const expected = dot(d, d);
+
+            // error() is |diff|^2 - dot^2, which cancels when q is far along
+            // the line, so the comparison is relative to |diff|^2.
+            const scale = dot(diff, diff);
+            expect(Math.abs(fitter.error(q) - expected))
+                .toBeLessThanOrEqual(1e-9 + 1e-9 * scale);
+        });
+    });
+
+    it('recovers a line its samples lie on', () => {
+        check(fc.tuple(vector(3, -8, 8), rotationFrame(3),
+            fc.array(finite(-10, 10), { minLength: 2, maxLength: 10 })
+                .filter(ts => Math.max(...ts) - Math.min(...ts) > 0.5)),
+            ([origin, frame, ts]) => {
+                const dir = frame[0];
+                const points = ts.map(t => add(origin, mul(t, dir)));
+                const fitter = new ApprOrthogonalLine3();
+                expect(fitter.fit(points)).toBe(true);
+                const line = fitter.getParameters();
+                expectClose(Math.abs(dot(line.direction, dir)), 1, 1e-7, 1e-7);
+                for (const p of points) {
+                    expectClose(fitter.error(p), 0, 1e-12, 0);
+                }
+            });
+    });
+
+    it('the total fit error is invariant under a rigid motion of the data',
+        () => {
+            // sum_i error(P_i) is the least-squares objective, a spectral
+            // quantity of the covariance and therefore a rigid invariant,
+            // unlike the fitted direction when the two largest eigenvalues
+            // are close.
+            check(fc.tuple(pointsArb, rotationFrame(3), vector(3, -10, 10)),
+                ([points, frame, t]) => {
+                    const move = (p: Vector): Vector => add(t,
+                        add(mul(p.get(0), frame[0]),
+                            add(mul(p.get(1), frame[1]),
+                                mul(p.get(2), frame[2]))));
+
+                    const f0 = new ApprOrthogonalLine3();
+                    const f1 = new ApprOrthogonalLine3();
+                    f0.fit(points);
+                    f1.fit(points.map(move));
+
+                    let e0 = 0, e1 = 0, scale = 0;
+                    for (const p of points) {
+                        e0 += f0.error(p);
+                        e1 += f1.error(move(p));
+                        scale += dot(p, p);
+                    }
+                    expect(Math.abs(e1 - e0))
+                        .toBeLessThanOrEqual(1e-7 + 1e-7 * scale);
+                });
+        });
+
+    it('reports a non-unique fit for isotropic and coincident data', () => {
+        // The six samples (+/-r,0,0), (0,+/-r,0), (0,0,+/-r) have covariance
+        // (r^2/3) * I, so the maximum eigenvalue is not simple. Integer
+        // coordinates keep the mean exactly zero, which is what makes the
+        // three eigenvalues bit-identical.
+        check(fc.integer({ min: 1, max: 8 }), r => {
+            const isotropic: Vector[] = [];
+            for (let d = 0; d < 3; ++d) {
+                for (const s of [r, -r]) {
+                    const p = new Vector(3);
+                    p.set(d, s);
+                    isotropic.push(p);
+                }
+            }
+            const coincident = [Vector.fromArray([r, r, r]),
+                Vector.fromArray([r, r, r])];
+            for (const points of [isotropic, coincident]) {
+                const fitter = new ApprOrthogonalLine3();
+                expect(fitter.fit(points)).toBe(false);
+                expectClose(dot(fitter.getParameters().direction,
+                    fitter.getParameters().direction), 1, 1e-12, 1e-12);
+            }
+        });
+    });
+
+    it('leaves the origin at the origin for an empty sample set', () => {
+        // Upstream multiplies by 1/numIndices here, so an empty set gives
+        // (NaN,NaN,NaN); the fit still reports failure. Pinned so the
+        // difference from ApprOrthogonalLine2 (which uses operator/=) stays
+        // visible.
+        const fitter = new ApprOrthogonalLine3();
+        expect(fitter.fit([])).toBe(false);
+        expect(fitter.getParameters().origin.values.every(Number.isNaN))
+            .toBe(true);
     });
 });

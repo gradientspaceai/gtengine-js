@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { ApprHeightLine2 } from '../src/ApprHeightLine2.js';
 import { Vector } from '../src/Vector.js';
+import { check, expectClose, expectVectorClose, fc, finite, vector } from './helpers/arbitraries.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -130,5 +131,129 @@ describe('ApprHeightLine2', () => {
         expect(target.getParameters().coefficients.values[0]).toBeCloseTo(2, 12);
         source.getParameters().average.values[0] = 77;
         expect(target.getParameters().average.values[0]).toBeCloseTo(0.5, 12);
+    });
+});
+
+describe('ApprHeightLine2 verification', () => {
+    // Distinct abscissas so the fit is well posed.
+    const xsArb = fc.array(finite(-10, 10), { minLength: 2, maxLength: 12 })
+        .map(xs => [...new Set(xs)])
+        .filter(xs => xs.length >= 2
+            && Math.max(...xs) - Math.min(...xs) > 0.1);
+
+    it('recovers the exact line of height data', () => {
+        check(fc.tuple(xsArb, finite(-5, 5), finite(-5, 5)),
+            ([xs, a, b]) => {
+                const points = xs.map(
+                    x => Vector.fromArray([x, a * x + b]));
+                const fitter = new ApprHeightLine2();
+                expect(fitter.fit(points)).toBe(true);
+                const p = fitter.getParameters();
+
+                // The parameters are ((xAvr,yAvr),(a,-1)).
+                expect(p.coefficients.get(1)).toBe(-1);
+                expectClose(p.coefficients.get(0), a, 1e-8, 1e-8);
+
+                const xAvr = xs.reduce((u, v) => u + v, 0) / xs.length;
+                expectClose(p.average.get(0), xAvr, 1e-9, 1e-9);
+                expectClose(p.average.get(1), a * xAvr + b, 1e-8, 1e-8);
+
+                // The error of every sample vanishes.
+                for (const q of points) {
+                    expectClose(fitter.error(q), 0, 1e-14, 0);
+                }
+            });
+    });
+
+    it('satisfies the least-squares normal equation', () => {
+        // The minimizer of sum_i [a*(x_i-xAvr) - (y_i-yAvr)]^2 satisfies
+        // sum_i [a*dx_i - dy_i] * dx_i = 0.
+        check(fc.tuple(xsArb, fc.array(finite(-10, 10),
+            { minLength: 2, maxLength: 12 })), ([xs, ys]) => {
+                const n = Math.min(xs.length, ys.length);
+                if (n < 2) { return; }
+                const points = Array.from({ length: n },
+                    (_, i) => Vector.fromArray([xs[i], ys[i]]));
+                const fitter = new ApprHeightLine2();
+                if (!fitter.fit(points)) { return; }
+                const p = fitter.getParameters();
+                const a = p.coefficients.get(0);
+
+                let residual = 0, scale = 0;
+                for (const q of points) {
+                    const dx = q.get(0) - p.average.get(0);
+                    const dy = q.get(1) - p.average.get(1);
+                    residual += (a * dx - dy) * dx;
+                    scale += Math.abs(a * dx * dx) + Math.abs(dy * dx);
+                }
+                expect(Math.abs(residual))
+                    .toBeLessThanOrEqual(1e-9 + 1e-9 * scale);
+            });
+    });
+
+    it('is equivariant under a translation of the samples', () => {
+        check(fc.tuple(xsArb, finite(-5, 5), finite(-5, 5), vector(2, -20, 20)),
+            ([xs, a, b, t]) => {
+                const points = xs.map(x => Vector.fromArray([x, a * x + b]));
+                const shifted = points.map(q => Vector.fromArray(
+                    [q.get(0) + t.get(0), q.get(1) + t.get(1)]));
+
+                const f0 = new ApprHeightLine2();
+                const f1 = new ApprHeightLine2();
+                expect(f0.fit(points)).toBe(true);
+                expect(f1.fit(shifted)).toBe(true);
+
+                // The slope is unchanged and the average translates.
+                expectClose(f1.getParameters().coefficients.get(0),
+                    f0.getParameters().coefficients.get(0), 1e-8, 1e-8);
+                expectClose(f1.getParameters().average.get(0),
+                    f0.getParameters().average.get(0) + t.get(0), 1e-8, 1e-8);
+                expectClose(f1.getParameters().average.get(1),
+                    f0.getParameters().average.get(1) + t.get(1), 1e-8, 1e-8);
+            });
+    });
+
+    it('fails and zeroes the parameters for vertical or empty data', () => {
+        // covar00 == 0 is the documented failure condition: every sample has
+        // the same abscissa. The abscissa is an integer and the sample count
+        // a power of two so that the average is exactly x -- upstream
+        // divides by multiplying with 1/n, which is inexact for other counts
+        // and leaves a covariance of the order of one ulp.
+        check(fc.tuple(fc.integer({ min: -8, max: 8 }),
+            fc.constantFrom(1, 2, 4, 8),
+            fc.array(finite(-10, 10), { minLength: 8, maxLength: 8 })),
+            ([x, n, ys]) => {
+                const points = ys.slice(0, n).map(
+                    y => Vector.fromArray([x, y]));
+                const fitter = new ApprHeightLine2();
+                expect(fitter.fit(points)).toBe(false);
+                const p = fitter.getParameters();
+                expect(p.average.values).toEqual([0, 0]);
+                expect(p.coefficients.values).toEqual([0, 0]);
+            });
+
+        const empty = new ApprHeightLine2();
+        expect(empty.fit([])).toBe(false);
+        expect(empty.getParameters().average.values).toEqual([0, 0]);
+    });
+
+    it('copyParameters deep-copies the parameters', () => {
+        check(fc.tuple(xsArb, finite(-5, 5), finite(-5, 5)), ([xs, a, b]) => {
+            const source = new ApprHeightLine2();
+            expect(source.fit(xs.map(
+                x => Vector.fromArray([x, a * x + b])))).toBe(true);
+            const target = new ApprHeightLine2();
+            target.copyParameters(source);
+
+            const s = source.getParameters();
+            const t = target.getParameters();
+            expect(t.average).not.toBe(s.average);
+            expect(t.coefficients).not.toBe(s.coefficients);
+            expectVectorClose(t.average, s.average, 0, 0);
+            expectVectorClose(t.coefficients, s.coefficients, 0, 0);
+
+            s.average.set(0, 4321);
+            expect(t.average.get(0)).not.toBe(4321);
+        });
     });
 });
