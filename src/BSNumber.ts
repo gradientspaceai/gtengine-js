@@ -264,9 +264,12 @@ export class BSNumber implements ArbitraryPrecisionNumber {
         return this.mSign;
     }
 
-    // In-place negation (upstream Negate).
+    // In-place negation (upstream Negate). Upstream mSign is an int32_t, for
+    // which -0 is 0; JavaScript's unary minus turns 0 into -0, which would
+    // leak out of getSign() (and out of the sign of a product), so the int32
+    // coercion is applied.
     negate(): void {
-        this.mSign = -this.mSign;
+        this.mSign = -this.mSign | 0;
     }
 
     setBiasedExponent(biasedExponent: number): void {
@@ -351,7 +354,7 @@ export class BSNumber implements ArbitraryPrecisionNumber {
     // omitted; unary operator- is negated().
     negated(): BSNumber {
         const result = this.clone();
-        result.mSign = -result.mSign;
+        result.mSign = -result.mSign | 0;   // int32 negation: -0 is 0
         return result;
     }
 
@@ -834,17 +837,45 @@ export class BSNumber implements ArbitraryPrecisionNumber {
 
     // The IEEE remainder: x - n*y where n is the integer nearest x/y, ties
     // resolved to the even n (the port of std::remainder).
+    //
+    // Upstream converts both operands to double and calls std::remainder,
+    // whose result is exact (r = x - n*y is always representable in the
+    // format). Forming n from the double quotient x/y instead loses that
+    // exactness as soon as |x/y| exceeds 2^53 -- for example the quotient
+    // 1e17/3 rounds to a double whose product with 3 is 1e17, giving a
+    // remainder of 0 where std::remainder gives 1. The quotient and the
+    // remainder are therefore computed with exact integer arithmetic.
     static remainder(x: BSNumber, y: BSNumber): BSNumber {
         const dx = x.toNumber();
         const dy = y.toNumber();
-        const ratio = dx / dy;
-        let n = Math.round(ratio);
-        if (Math.abs(ratio - Math.trunc(ratio)) === 0.5 && (n % 2 !== 0)) {
-            // Math.round breaks ties upward; std::remainder breaks them to
-            // the even integer.
-            n -= 1;
+        if (!Number.isFinite(dx) || !(dy === dy) || dy === 0) {
+            // std::remainder is NaN here; BSNumber has no NaN representation
+            // and upstream's conversion of a NaN yields zero.
+            return new BSNumber();
         }
-        return BSNumber.fromNumber(dx - n * dy);
+        if (!Number.isFinite(dy)) {
+            // std::remainder(x, +-infinity) = x.
+            return BSNumber.fromNumber(dx);
+        }
+
+        const bx = BSNumber.fromNumber(dx);
+        const by = BSNumber.fromNumber(dy);
+        if (bx.mSign === 0) {
+            return bx;
+        }
+
+        // Scale |x| and |y| to a common biased exponent so that the quotient
+        // is a ratio of integers, then round it to nearest with ties to even.
+        const e = Math.min(bx.mBiasedExponent, by.mBiasedExponent);
+        const aX = bx.mUInteger << BigInt(bx.mBiasedExponent - e);
+        const aY = by.mUInteger << BigInt(by.mBiasedExponent - e);
+        let q = aX / aY;
+        const twiceRemainder = 2n * (aX - q * aY);
+        if (twiceRemainder > aY || (twiceRemainder === aY && (q & 1n) === 1n)) {
+            q += 1n;
+        }
+        const n = BSNumber.fromBigInt(bx.mSign * by.mSign < 0 ? -q : q);
+        return bx.sub(n.mul(by));
     }
 
     static sin(x: BSNumber): BSNumber {
