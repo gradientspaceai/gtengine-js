@@ -18,6 +18,7 @@ export * from './APConversion';
 export * from './APInterval';
 export * from './ApprCircle2';
 export * from './ApprCone3';
+export * from './ApprCone3EllipseAndPoints';
 export * from './ApprCurveByArcs';
 export * from './ApprCylinder3';
 export * from './ApprEllipse2';
