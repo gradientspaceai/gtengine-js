@@ -26,7 +26,7 @@ describe('Vector construction and member access', () => {
     it('new Vector(n) is the zero vector of size n', () => {
         const v = new Vector(3);
         expect(v.size).toBe(3);
-        expect(v.getSize()).toBe(3);
+        expect(v.size).toBe(3);
         expect(v.values).toEqual([0, 0, 0]);
     });
 

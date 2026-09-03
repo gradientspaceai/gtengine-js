@@ -13,12 +13,12 @@
 //
 // Port notes: see IntrIntervals.ts for the Intr* precedent. Upstream derives
 // these queries from the Ray3-vs-AlignedBox3 queries to reuse their protected
-// DoQuery helpers; the port reaches those helpers through module-private
-// accessor subclasses (the precedent set by IntrSegment3OrientedBox3).
+// DoQuery helpers, which the port exports as the module functions
+// 'intrRay3AlignedBox3TIDoQuery' and 'intrRay3AlignedBox3FIDoQuery'.
 
 import {
-    IntrRay3AlignedBox3TI,
-    IntrRay3AlignedBox3FI
+    intrRay3AlignedBox3TIDoQuery,
+    intrRay3AlignedBox3FIDoQuery
 } from './IntrRay3AlignedBox3.js';
 import type {
     IntrRay3AlignedBox3TIResult,
@@ -50,21 +50,6 @@ export function defaultIntrRay3OrientedBox3FIResult():
     return defaultIntrLine3AlignedBox3FIResult();
 }
 
-// Expose the protected ray-versus-aligned-box helpers to this module.
-class RayBoxTIAccess extends IntrRay3AlignedBox3TI {
-    run(rayOrigin: Vector, rayDirection: Vector, boxExtent: Vector,
-        result: IntrRay3AlignedBox3TIResult): void {
-        this.doQuery(rayOrigin, rayDirection, boxExtent, result);
-    }
-}
-
-class RayBoxFIAccess extends IntrRay3AlignedBox3FI {
-    run(rayOrigin: Vector, rayDirection: Vector, boxExtent: Vector,
-        result: IntrRay3AlignedBox3FIResult): void {
-        this.doQuery(rayOrigin, rayDirection, boxExtent, result);
-    }
-}
-
 // Transform the ray to the oriented-box coordinate system.
 function transformRay(ray: Ray3, box: OrientedBox3):
     { rayOrigin: Vector, rayDirection: Vector } {
@@ -82,8 +67,6 @@ function transformRay(ray: Ray3, box: OrientedBox3):
 export class IntrRay3OrientedBox3TI implements
     TIQuery<Ray3, OrientedBox3, IntrRay3OrientedBox3TIResult> {
 
-    private readonly base = new RayBoxTIAccess();
-
     test(ray: Ray3, box: OrientedBox3): IntrRay3OrientedBox3TIResult {
         logAssert(box.dimension === 3,
             'IntrRay3OrientedBox3TI: mismatched sizes.');
@@ -91,7 +74,8 @@ export class IntrRay3OrientedBox3TI implements
         const { rayOrigin, rayDirection } = transformRay(ray, box);
 
         const result = defaultIntrRay3OrientedBox3TIResult();
-        this.base.run(rayOrigin, rayDirection, box.extent, result);
+        intrRay3AlignedBox3TIDoQuery(rayOrigin, rayDirection, box.extent,
+            result);
         return result;
     }
 }
@@ -100,8 +84,6 @@ export class IntrRay3OrientedBox3TI implements
 export class IntrRay3OrientedBox3FI implements
     FIQuery<Ray3, OrientedBox3, IntrRay3OrientedBox3FIResult> {
 
-    private readonly base = new RayBoxFIAccess();
-
     find(ray: Ray3, box: OrientedBox3): IntrRay3OrientedBox3FIResult {
         logAssert(box.dimension === 3,
             'IntrRay3OrientedBox3FI: mismatched sizes.');
@@ -109,7 +91,8 @@ export class IntrRay3OrientedBox3FI implements
         const { rayOrigin, rayDirection } = transformRay(ray, box);
 
         const result = defaultIntrRay3OrientedBox3FIResult();
-        this.base.run(rayOrigin, rayDirection, box.extent, result);
+        intrRay3AlignedBox3FIDoQuery(rayOrigin, rayDirection, box.extent,
+            result);
         if (result.intersect) {
             for (let i = 0; i < 2; ++i) {
                 result.point[i] = add(ray.origin,

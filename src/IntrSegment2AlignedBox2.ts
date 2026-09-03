@@ -13,11 +13,11 @@
 //
 // Port notes: see IntrIntervals.ts for the Intr* precedent. Upstream derives
 // these queries from the Line2-vs-AlignedBox2 queries to reuse the protected
-// DoQuery helpers; as in IntrLine2OrientedBox2, the port reaches those
-// helpers through module-private subclasses because a TypeScript subclass
-// cannot change an inherited method signature. The segment-specific DoQuery
-// helpers are exported as the module functions
-// 'intrSegment2AlignedBox2TIDoQuery' and 'intrSegment2AlignedBox2FIDoQuery'.
+// DoQuery helpers; the port calls the exported module functions
+// 'intrLine2AlignedBox2TIDoQuery' and 'intrLine2AlignedBox2FIDoQuery'
+// instead. The segment-specific DoQuery helpers are exported as the module
+// functions 'intrSegment2AlignedBox2TIDoQuery' and
+// 'intrSegment2AlignedBox2FIDoQuery'.
 
 import type { TIQuery } from './TIQuery.js';
 import type { FIQuery } from './FIQuery.js';
@@ -25,8 +25,8 @@ import type { AlignedBox } from './AlignedBox.js';
 import { Segment } from './Segment.js';
 import { Vector, add, mul, sub } from './Vector.js';
 import {
-    IntrLine2AlignedBox2TI,
-    IntrLine2AlignedBox2FI,
+    intrLine2AlignedBox2TIDoQuery,
+    intrLine2AlignedBox2FIDoQuery,
     defaultIntrLine2AlignedBox2TIResult,
     defaultIntrLine2AlignedBox2FIResult
 } from './IntrLine2AlignedBox2.js';
@@ -59,21 +59,6 @@ export function defaultIntrSegment2AlignedBox2FIResult(): IntrSegment2AlignedBox
     return { ...defaultIntrLine2AlignedBox2FIResult(), cdeParameter: [0, 0] };
 }
 
-// Expose the protected line-box helpers to this module.
-class TIHelper extends IntrLine2AlignedBox2TI {
-    runDoQuery(lineOrigin: Vector, lineDirection: Vector, boxExtent: Vector,
-        result: IntrLine2AlignedBox2TIResult): void {
-        this.doQuery(lineOrigin, lineDirection, boxExtent, result);
-    }
-}
-
-class FIHelper extends IntrLine2AlignedBox2FI {
-    runDoQuery(lineOrigin: Vector, lineDirection: Vector, boxExtent: Vector,
-        result: IntrLine2AlignedBox2FIResult): void {
-        this.doQuery(lineOrigin, lineDirection, boxExtent, result);
-    }
-}
-
 // Transform the segment to a centered form in the aligned-box coordinate
 // system.
 function transformSegment(segment: Segment, boxCenter: Vector):
@@ -98,14 +83,14 @@ export function intrSegment2AlignedBox2TIDoQuery(segOrigin: Vector,
         }
     }
 
-    new TIHelper().runDoQuery(segOrigin, segDirection, boxExtent, result);
+    intrLine2AlignedBox2TIDoQuery(segOrigin, segDirection, boxExtent, result);
 }
 
 // The port of the protected 'FIQuery::DoQuery'.
 export function intrSegment2AlignedBox2FIDoQuery(segOrigin: Vector,
     segDirection: Vector, segExtent: number, boxExtent: Vector,
     result: IntrSegment2AlignedBox2FIResult): void {
-    new FIHelper().runDoQuery(segOrigin, segDirection, boxExtent, result);
+    intrLine2AlignedBox2FIDoQuery(segOrigin, segDirection, boxExtent, result);
 
     if (result.intersect) {
         // The line containing the segment intersects the box; the t-interval

@@ -8,8 +8,8 @@
 //
 // Port notes: see IntrIntervals.ts for the Intr* precedent. Upstream derives
 // the FIQuery from the Line2-vs-Circle2 query to reuse the protected DoQuery
-// helper; as in IntrSegment3Cylinder3, the port reaches that helper through a
-// module-private accessor subclass. The segment-specific DoQuery helper is
+// helper, which the port exports as the module function
+// 'intrLine2Circle2FIDoQuery'. The segment-specific DoQuery helper is
 // exported as the module function 'intrSegment2Circle2FIDoQuery'. The
 // reported parameters are relative to the centered form of the segment,
 // C + t * D with |t| <= e, as upstream reports them.
@@ -18,7 +18,7 @@ import type { FIQuery } from './FIQuery.js';
 import type { Hypersphere } from './Hypersphere.js';
 import { IntrIntervalsFI } from './IntrIntervals.js';
 import {
-    IntrLine2Circle2FI,
+    intrLine2Circle2FIDoQuery,
     defaultIntrLine2Circle2FIResult
 } from './IntrLine2Circle2.js';
 import type { IntrLine2Circle2FIResult } from './IntrLine2Circle2.js';
@@ -45,19 +45,11 @@ export function defaultIntrSegment2Circle2FIResult():
     return defaultIntrLine2Circle2FIResult();
 }
 
-// Expose the protected line-circle helper to this module.
-class LineCircleFIAccess extends IntrLine2Circle2FI {
-    run(lineOrigin: Vector, lineDirection: Vector, circle: Hypersphere,
-        result: IntrLine2Circle2FIResult): void {
-        this.doQuery(lineOrigin, lineDirection, circle, result);
-    }
-}
-
 // The port of the protected 'FIQuery::DoQuery'.
 export function intrSegment2Circle2FIDoQuery(segOrigin: Vector,
     segDirection: Vector, segExtent: number, circle: Hypersphere,
     result: IntrSegment2Circle2FIResult): void {
-    new LineCircleFIAccess().run(segOrigin, segDirection, circle, result);
+    intrLine2Circle2FIDoQuery(segOrigin, segDirection, circle, result);
 
     if (result.intersect) {
         // The line containing the segment intersects the disk; the t-interval

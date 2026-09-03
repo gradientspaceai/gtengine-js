@@ -15,10 +15,11 @@
 // the oriented-box queries from the aligned-box queries only to reuse the
 // protected DoQuery members. In TypeScript the derived query cannot keep the
 // canonical test()/find() names while changing the second parameter type, so
-// the port reuses the base algorithm through a module-private subclass that
-// exposes DoQuery, and the public classes implement TIQuery/FIQuery for
-// (Line, OrientedBox) directly. The upstream Result structs add no members to
-// the aligned-box results, so the port exports type aliases.
+// the port calls the exported aligned-box module functions
+// 'intrLine3AlignedBox3TIDoQuery' and 'intrLine3AlignedBox3FIDoQuery', and the
+// public classes implement TIQuery/FIQuery for (Line, OrientedBox) directly.
+// The upstream Result structs add no members to the aligned-box results, so
+// the port exports type aliases.
 
 import type { Line } from './Line.js';
 import type { OrientedBox } from './OrientedBox.js';
@@ -26,8 +27,8 @@ import type { TIQuery } from './TIQuery.js';
 import type { FIQuery } from './FIQuery.js';
 import { Vector, add, dot, mul, sub } from './Vector.js';
 import {
-    IntrLine3AlignedBox3TI,
-    IntrLine3AlignedBox3FI,
+    intrLine3AlignedBox3TIDoQuery,
+    intrLine3AlignedBox3FIDoQuery,
     defaultIntrLine3AlignedBox3TIResult,
     defaultIntrLine3AlignedBox3FIResult
 } from './IntrLine3AlignedBox3.js';
@@ -43,21 +44,6 @@ export type IntrLine3OrientedBox3TIResult = IntrLine3AlignedBox3TIResult;
 // The result of IntrLine3OrientedBox3FI.find. Upstream adds no members to
 // the aligned-box result.
 export type IntrLine3OrientedBox3FIResult = IntrLine3AlignedBox3FIResult;
-
-// Accessors for the protected line-versus-aligned-box DoQuery members.
-class LineBoxTIAccess extends IntrLine3AlignedBox3TI {
-    run(origin: Vector, direction: Vector, extent: Vector,
-        result: IntrLine3AlignedBox3TIResult): void {
-        this.doQuery(origin, direction, extent, result);
-    }
-}
-
-class LineBoxFIAccess extends IntrLine3AlignedBox3FI {
-    run(origin: Vector, direction: Vector, extent: Vector,
-        result: IntrLine3AlignedBox3FIResult): void {
-        this.doQuery(origin, direction, extent, result);
-    }
-}
 
 // Transform the line to the oriented-box coordinate system.
 function toBoxCoordinates(line: Line, box: OrientedBox):
@@ -81,12 +67,10 @@ function toBoxCoordinates(line: Line, box: OrientedBox):
 export class IntrLine3OrientedBox3TI implements
     TIQuery<Line, OrientedBox, IntrLine3OrientedBox3TIResult> {
 
-    private readonly base = new LineBoxTIAccess();
-
     test(line: Line, box: OrientedBox): IntrLine3OrientedBox3TIResult {
         const { origin, direction } = toBoxCoordinates(line, box);
         const result = defaultIntrLine3AlignedBox3TIResult();
-        this.base.run(origin, direction, box.extent, result);
+        intrLine3AlignedBox3TIDoQuery(origin, direction, box.extent, result);
         return result;
     }
 }
@@ -95,12 +79,10 @@ export class IntrLine3OrientedBox3TI implements
 export class IntrLine3OrientedBox3FI implements
     FIQuery<Line, OrientedBox, IntrLine3OrientedBox3FIResult> {
 
-    private readonly base = new LineBoxFIAccess();
-
     find(line: Line, box: OrientedBox): IntrLine3OrientedBox3FIResult {
         const { origin, direction } = toBoxCoordinates(line, box);
         const result = defaultIntrLine3AlignedBox3FIResult();
-        this.base.run(origin, direction, box.extent, result);
+        intrLine3AlignedBox3FIDoQuery(origin, direction, box.extent, result);
         if (result.intersect) {
             for (let i = 0; i < 2; ++i) {
                 result.point[i] = add(line.origin,

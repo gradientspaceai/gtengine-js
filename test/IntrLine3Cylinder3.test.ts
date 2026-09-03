@@ -3,6 +3,10 @@ import { Cylinder3 } from '../src/Cylinder3.js';
 import { Line } from '../src/Line.js';
 import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
 import { IntrLine3Cylinder3FI } from '../src/IntrLine3Cylinder3.js';
+import {
+    intrLine3Cylinder3FIDoQuery,
+    defaultIntrLine3Cylinder3FIResult
+} from '../src/IntrLine3Cylinder3.js';
 
 function vec(a: number[]): Vector {
     return Vector.fromArray(a);
@@ -173,5 +177,31 @@ describe('IntrLine3Cylinder3', () => {
                 }
             }
         }
+    });
+});
+
+describe('intrLine3Cylinder3FIDoQuery', () => {
+    const c = cylinder([0, 0, 0], [0, 0, 1], 1, 2);
+
+    it('matches the class query but does not compute points', () => {
+        const l = line([-5, 0, 0], [1, 0, 0]);
+        const result = defaultIntrLine3Cylinder3FIResult();
+        intrLine3Cylinder3FIDoQuery(l.origin, l.direction, c, result);
+        const expected = new IntrLine3Cylinder3FI().find(l, c);
+        expect(result.intersect).toBe(expected.intersect);
+        expect(result.numIntersections).toBe(expected.numIntersections);
+        expect(result.parameter[0]).toBeCloseTo(expected.parameter[0], 12);
+        expect(result.parameter[1]).toBeCloseTo(expected.parameter[1], 12);
+        // DoQuery leaves 'point' at its default value.
+        expect(result.point[0].values).toEqual([0, 0, 0]);
+        expect(result.point[1].values).toEqual([0, 0, 0]);
+    });
+
+    it('reports no intersection for a line missing the cylinder', () => {
+        const result = defaultIntrLine3Cylinder3FIResult();
+        intrLine3Cylinder3FIDoQuery(vec([-5, 3, 0]), vec([1, 0, 0]), c,
+            result);
+        expect(result.intersect).toBe(false);
+        expect(result.numIntersections).toBe(0);
     });
 });

@@ -124,7 +124,8 @@ export class IntrLine3Ellipsoid3FI implements
 
     find(line: Line3, ellipsoid: Ellipsoid3): IntrLine3Ellipsoid3FIResult {
         const result = defaultIntrLine3Ellipsoid3FIResult();
-        this.doQuery(line.origin, line.direction, ellipsoid, result);
+        intrLine3Ellipsoid3FIDoQuery(line.origin, line.direction, ellipsoid,
+            result);
         if (result.intersect) {
             for (let i = 0; i < 2; ++i) {
                 result.point[i] = add(line.origin,
@@ -132,14 +133,5 @@ export class IntrLine3Ellipsoid3FI implements
             }
         }
         return result;
-    }
-
-    // The caller must ensure that on entry, 'result' is default constructed
-    // as if there is no intersection. If an intersection is found, the
-    // 'result' values are modified accordingly.
-    protected doQuery(lineOrigin: Vector, lineDirection: Vector,
-        ellipsoid: Ellipsoid3, result: IntrLine3Ellipsoid3FIResult): void {
-        intrLine3Ellipsoid3FIDoQuery(lineOrigin, lineDirection, ellipsoid,
-            result);
     }
 }

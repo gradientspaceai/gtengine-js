@@ -13,10 +13,11 @@
 //
 // Port notes: see IntrIntervals.ts for the Intr* precedent. The upstream
 // 'protected void DoQuery(...)' helpers (used by the Ray2/Segment2 versus
-// AlignedBox2 queries, which derive from these classes) become the protected
-// methods 'doQuery' that mutate the passed-in result, as upstream does. The
-// private static 'Clip' becomes the module-private function 'clip', which
-// takes the mutable [t0,t1] interval as an object.
+// AlignedBox2 queries, which derive from these classes) are exported as the
+// module functions 'intrLine2AlignedBox2TIDoQuery' and
+// 'intrLine2AlignedBox2FIDoQuery', which mutate the passed-in result as
+// upstream does. The private static 'Clip' becomes the module-private
+// function 'clip', which takes the mutable [t0,t1] interval as an object.
 
 import { AlignedBox } from './AlignedBox.js';
 import { Line } from './Line.js';
@@ -81,6 +82,56 @@ function clip(denom: number, numer: number, t: { t0: number, t1: number }): bool
     }
 }
 
+// The port of the protected 'TIQuery::DoQuery'. The caller must ensure that
+// on entry, 'result' is default constructed. The 'result' values are modified
+// in place.
+export function intrLine2AlignedBox2TIDoQuery(lineOrigin: Vector,
+    lineDirection: Vector, boxExtent: Vector,
+    result: IntrLine2AlignedBox2TIResult): void {
+    const LHS = Math.abs(dotPerp(lineDirection, lineOrigin));
+    const RHS =
+        boxExtent.values[0] * Math.abs(lineDirection.values[1]) +
+        boxExtent.values[1] * Math.abs(lineDirection.values[0]);
+    result.intersect = (LHS <= RHS);
+}
+
+// The port of the protected 'FIQuery::DoQuery'. The caller must ensure that
+// on entry, 'result' is default constructed. The 'result' values are modified
+// in place.
+export function intrLine2AlignedBox2FIDoQuery(lineOrigin: Vector,
+    lineDirection: Vector, boxExtent: Vector,
+    result: IntrLine2AlignedBox2FIResult): void {
+    // The line t-values are in the interval (-infinity,+infinity). Clip
+    // the line against all four planes of an aligned box in centered
+    // form. The result.numIntersections is
+    //   0, no intersection
+    //   1, intersect in a single point (t0 is line parameter of point)
+    //   2, intersect in a segment (line parameter interval is [t0,t1])
+    const t = { t0: -MAX_T, t1: MAX_T };
+    const o = lineOrigin.values;
+    const d = lineDirection.values;
+    const e = boxExtent.values;
+    if (clip(+d[0], -o[0] - e[0], t) &&
+        clip(-d[0], +o[0] - e[0], t) &&
+        clip(+d[1], -o[1] - e[1], t) &&
+        clip(-d[1], +o[1] - e[1], t)) {
+        result.intersect = true;
+        if (t.t1 > t.t0) {
+            result.numIntersections = 2;
+            result.parameter[0] = t.t0;
+            result.parameter[1] = t.t1;
+        } else {
+            result.numIntersections = 1;
+            result.parameter[0] = t.t0;
+            result.parameter[1] = t.t0;  // Used by derived classes.
+        }
+        return;
+    }
+
+    result.intersect = false;
+    result.numIntersections = 0;
+}
+
 export class IntrLine2AlignedBox2TI implements
     TIQuery<Line, AlignedBox, IntrLine2AlignedBox2TIResult> {
 
@@ -93,17 +144,9 @@ export class IntrLine2AlignedBox2TI implements
         const lineOrigin = sub(line.origin, boxCenter);
 
         const result = defaultIntrLine2AlignedBox2TIResult();
-        this.doQuery(lineOrigin, line.direction, boxExtent, result);
+        intrLine2AlignedBox2TIDoQuery(lineOrigin, line.direction, boxExtent,
+            result);
         return result;
-    }
-
-    protected doQuery(lineOrigin: Vector, lineDirection: Vector,
-        boxExtent: Vector, result: IntrLine2AlignedBox2TIResult): void {
-        const LHS = Math.abs(dotPerp(lineDirection, lineOrigin));
-        const RHS =
-            boxExtent.values[0] * Math.abs(lineDirection.values[1]) +
-            boxExtent.values[1] * Math.abs(lineDirection.values[0]);
-        result.intersect = (LHS <= RHS);
     }
 }
 
@@ -119,44 +162,12 @@ export class IntrLine2AlignedBox2FI implements
         const lineOrigin = sub(line.origin, boxCenter);
 
         const result = defaultIntrLine2AlignedBox2FIResult();
-        this.doQuery(lineOrigin, line.direction, boxExtent, result);
+        intrLine2AlignedBox2FIDoQuery(lineOrigin, line.direction, boxExtent,
+            result);
         for (let i = 0; i < result.numIntersections; ++i) {
             result.point[i] = add(line.origin,
                 mul(result.parameter[i], line.direction));
         }
         return result;
-    }
-
-    protected doQuery(lineOrigin: Vector, lineDirection: Vector,
-        boxExtent: Vector, result: IntrLine2AlignedBox2FIResult): void {
-        // The line t-values are in the interval (-infinity,+infinity). Clip
-        // the line against all four planes of an aligned box in centered
-        // form. The result.numIntersections is
-        //   0, no intersection
-        //   1, intersect in a single point (t0 is line parameter of point)
-        //   2, intersect in a segment (line parameter interval is [t0,t1])
-        const t = { t0: -MAX_T, t1: MAX_T };
-        const o = lineOrigin.values;
-        const d = lineDirection.values;
-        const e = boxExtent.values;
-        if (clip(+d[0], -o[0] - e[0], t) &&
-            clip(-d[0], +o[0] - e[0], t) &&
-            clip(+d[1], -o[1] - e[1], t) &&
-            clip(-d[1], +o[1] - e[1], t)) {
-            result.intersect = true;
-            if (t.t1 > t.t0) {
-                result.numIntersections = 2;
-                result.parameter[0] = t.t0;
-                result.parameter[1] = t.t1;
-            } else {
-                result.numIntersections = 1;
-                result.parameter[0] = t.t0;
-                result.parameter[1] = t.t0;  // Used by derived classes.
-            }
-            return;
-        }
-
-        result.intersect = false;
-        result.numIntersections = 0;
     }
 }

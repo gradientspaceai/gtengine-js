@@ -35,7 +35,7 @@
 import { getContainerSphere3 } from './ContSphere3.js';
 import { Hypersphere, type Sphere3 } from './Hypersphere.js';
 import { LinearSystem } from './LinearSystem.js';
-import { logAssert } from './Logger.js';
+import { logAssert, logError } from './Logger.js';
 import { Matrix } from './Matrix.js';
 import { Vector, add, dot, mul, sub } from './Vector.js';
 
@@ -101,7 +101,7 @@ export class MinimumVolumeSphere3 {
 
         // Function array to avoid a switch statement in the main loop.
         const update: Array<(i: number) => UpdateResult> = [
-            () => { throw new Error('unreachable'); },
+            () => logError('unreachable'),
             (i: number) => this.updateSupport1(i),
             (i: number) => this.updateSupport2(i),
             (i: number) => this.updateSupport3(i),

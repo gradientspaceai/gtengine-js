@@ -13,10 +13,11 @@
 //
 // Port notes: see IntrIntervals.ts for the Intr* precedent. The upstream
 // 'protected void DoQuery(...)' helpers (used by the Ray3/Segment3 versus
-// AlignedBox3 queries, which derive from these classes) become the protected
-// methods 'doQuery' that mutate the passed-in result, as upstream does. The
-// private static 'Clip' becomes the module-private function 'clip', which
-// takes the mutable [t0,t1] interval as an object.
+// AlignedBox3 queries, which derive from these classes) are exported as the
+// module functions 'intrLine3AlignedBox3TIDoQuery' and
+// 'intrLine3AlignedBox3FIDoQuery', which mutate the passed-in result as
+// upstream does. The private static 'Clip' becomes the module-private
+// function 'clip', which takes the mutable [t0,t1] interval as an object.
 
 import { AlignedBox } from './AlignedBox.js';
 import { Line } from './Line.js';
@@ -81,6 +82,70 @@ function clip(denom: number, numer: number, t: { t0: number, t1: number }): bool
     }
 }
 
+// The port of the protected 'TIQuery::DoQuery'. The caller must ensure that
+// on entry, 'result' is default constructed as if there is no intersection.
+// If an intersection is found, the 'result' values are modified accordingly.
+export function intrLine3AlignedBox3TIDoQuery(lineOrigin: Vector,
+    lineDirection: Vector, boxExtent: Vector,
+    result: IntrLine3AlignedBox3TIResult): void {
+    const WxD = cross(lineDirection, lineOrigin).values;
+    const absWdU = [
+        Math.abs(lineDirection.values[0]),
+        Math.abs(lineDirection.values[1]),
+        Math.abs(lineDirection.values[2])
+    ];
+    const e = boxExtent.values;
+
+    if (Math.abs(WxD[0]) > e[1] * absWdU[2] + e[2] * absWdU[1]) {
+        return;
+    }
+
+    if (Math.abs(WxD[1]) > e[0] * absWdU[2] + e[2] * absWdU[0]) {
+        return;
+    }
+
+    if (Math.abs(WxD[2]) > e[0] * absWdU[1] + e[1] * absWdU[0]) {
+        return;
+    }
+
+    result.intersect = true;
+}
+
+// The port of the protected 'FIQuery::DoQuery'. The caller must ensure that
+// on entry, 'result' is default constructed as if there is no intersection.
+// If an intersection is found, the 'result' values are modified accordingly.
+export function intrLine3AlignedBox3FIDoQuery(lineOrigin: Vector,
+    lineDirection: Vector, boxExtent: Vector,
+    result: IntrLine3AlignedBox3FIResult): void {
+    // The line t-values are in the interval (-infinity,+infinity). Clip
+    // the line against all six planes of an aligned box in centered form.
+    // The result.numIntersections is
+    //   0, no intersection
+    //   1, intersect in a single point (t0 is line parameter of point)
+    //   2, intersect in a segment (line parameter interval is [t0,t1])
+    const t = { t0: -MAX_T, t1: MAX_T };
+    const o = lineOrigin.values;
+    const d = lineDirection.values;
+    const e = boxExtent.values;
+    if (clip(+d[0], -o[0] - e[0], t) &&
+        clip(-d[0], +o[0] - e[0], t) &&
+        clip(+d[1], -o[1] - e[1], t) &&
+        clip(-d[1], +o[1] - e[1], t) &&
+        clip(+d[2], -o[2] - e[2], t) &&
+        clip(-d[2], +o[2] - e[2], t)) {
+        result.intersect = true;
+        if (t.t1 > t.t0) {
+            result.numIntersections = 2;
+            result.parameter[0] = t.t0;
+            result.parameter[1] = t.t1;
+        } else {
+            result.numIntersections = 1;
+            result.parameter[0] = t.t0;
+            result.parameter[1] = t.t0;
+        }
+    }
+}
+
 export class IntrLine3AlignedBox3TI implements
     TIQuery<Line, AlignedBox, IntrLine3AlignedBox3TIResult> {
 
@@ -93,36 +158,9 @@ export class IntrLine3AlignedBox3TI implements
         const lineOrigin = sub(line.origin, boxCenter);
 
         const result = defaultIntrLine3AlignedBox3TIResult();
-        this.doQuery(lineOrigin, line.direction, boxExtent, result);
+        intrLine3AlignedBox3TIDoQuery(lineOrigin, line.direction, boxExtent,
+            result);
         return result;
-    }
-
-    // The caller must ensure that on entry, 'result' is default constructed
-    // as if there is no intersection. If an intersection is found, the
-    // 'result' values are modified accordingly.
-    protected doQuery(lineOrigin: Vector, lineDirection: Vector,
-        boxExtent: Vector, result: IntrLine3AlignedBox3TIResult): void {
-        const WxD = cross(lineDirection, lineOrigin).values;
-        const absWdU = [
-            Math.abs(lineDirection.values[0]),
-            Math.abs(lineDirection.values[1]),
-            Math.abs(lineDirection.values[2])
-        ];
-        const e = boxExtent.values;
-
-        if (Math.abs(WxD[0]) > e[1] * absWdU[2] + e[2] * absWdU[1]) {
-            return;
-        }
-
-        if (Math.abs(WxD[1]) > e[0] * absWdU[2] + e[2] * absWdU[0]) {
-            return;
-        }
-
-        if (Math.abs(WxD[2]) > e[0] * absWdU[1] + e[1] * absWdU[0]) {
-            return;
-        }
-
-        result.intersect = true;
     }
 }
 
@@ -138,7 +176,8 @@ export class IntrLine3AlignedBox3FI implements
         const lineOrigin = sub(line.origin, boxCenter);
 
         const result = defaultIntrLine3AlignedBox3FIResult();
-        this.doQuery(lineOrigin, line.direction, boxExtent, result);
+        intrLine3AlignedBox3FIDoQuery(lineOrigin, line.direction, boxExtent,
+            result);
         if (result.intersect) {
             for (let i = 0; i < 2; ++i) {
                 result.point[i] = add(line.origin,
@@ -146,39 +185,5 @@ export class IntrLine3AlignedBox3FI implements
             }
         }
         return result;
-    }
-
-    // The caller must ensure that on entry, 'result' is default constructed
-    // as if there is no intersection. If an intersection is found, the
-    // 'result' values are modified accordingly.
-    protected doQuery(lineOrigin: Vector, lineDirection: Vector,
-        boxExtent: Vector, result: IntrLine3AlignedBox3FIResult): void {
-        // The line t-values are in the interval (-infinity,+infinity). Clip
-        // the line against all six planes of an aligned box in centered form.
-        // The result.numIntersections is
-        //   0, no intersection
-        //   1, intersect in a single point (t0 is line parameter of point)
-        //   2, intersect in a segment (line parameter interval is [t0,t1])
-        const t = { t0: -MAX_T, t1: MAX_T };
-        const o = lineOrigin.values;
-        const d = lineDirection.values;
-        const e = boxExtent.values;
-        if (clip(+d[0], -o[0] - e[0], t) &&
-            clip(-d[0], +o[0] - e[0], t) &&
-            clip(+d[1], -o[1] - e[1], t) &&
-            clip(-d[1], +o[1] - e[1], t) &&
-            clip(+d[2], -o[2] - e[2], t) &&
-            clip(-d[2], +o[2] - e[2], t)) {
-            result.intersect = true;
-            if (t.t1 > t.t0) {
-                result.numIntersections = 2;
-                result.parameter[0] = t.t0;
-                result.parameter[1] = t.t1;
-            } else {
-                result.numIntersections = 1;
-                result.parameter[0] = t.t0;
-                result.parameter[1] = t.t0;
-            }
-        }
     }
 }
