@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { check, fc } from './helpers/arbitraries.js';
 import { UniqueVerticesTriangles, defaultVertexKey } from '../src/UniqueVerticesTriangles.js';
 
 type P3 = [number, number, number];
@@ -278,5 +279,209 @@ describe('UniqueVerticesTriangles randomized round trip', () => {
         for (let i = 0; i < soup.length; ++i) {
             expect(cleaned.vertices[cleaned.indices[i]]).toEqual(soup[i]);
         }
+    });
+});
+
+describe('UniqueVerticesTriangles verification', () => {
+    type V = [number, number, number];
+
+    // Small integer coordinates so duplicates actually occur.
+    const vertexArb: fc.Arbitrary<V> = fc.tuple(
+        fc.integer({ min: 0, max: 3 }),
+        fc.integer({ min: 0, max: 3 }),
+        fc.integer({ min: 0, max: 3 })) as fc.Arbitrary<V>;
+
+    /** A soup of triangles: a positive multiple of three vertices. */
+    const soupArb = fc.array(vertexArb, { minLength: 3, maxLength: 30 })
+        .map(vs => vs.slice(0, 3 * Math.floor(vs.length / 3)))
+        .filter(vs => vs.length >= 3);
+
+    const key = (v: V) => defaultVertexKey(v);
+
+    /** An indexed mesh: a vertex pool plus a positive multiple of three indices. */
+    const meshArb = fc.array(vertexArb, { minLength: 1, maxLength: 12 })
+        .chain(vertices => fc.array(fc.integer({ min: 0, max: vertices.length - 1 }),
+            { minLength: 3, maxLength: 30 })
+            .map(indices => ({
+                vertices,
+                indices: indices.slice(0, 3 * Math.floor(indices.length / 3))
+            }))
+            .filter(m => m.indices.length >= 3));
+
+    it('generateIndexedTriangles meets every documented postcondition', () => {
+        check(soupArb, inVertices => {
+            const uvt = new UniqueVerticesTriangles<V>();
+            const { vertices, indices } = uvt.generateIndexedTriangles(inVertices);
+            // 2. indices.length = inVertices.length
+            expect(indices.length).toBe(inVertices.length);
+            // 3. 0 <= indices[i] < vertices.length
+            expect(indices.every(i => 0 <= i && i < vertices.length)).toBe(true);
+            // 1. vertices has unique vertices
+            expect(new Set(vertices.map(key)).size).toBe(vertices.length);
+            // The pool reproduces the input soup exactly.
+            expect(indices.map(i => key(vertices[i]!))).toEqual(inVertices.map(key));
+            return true;
+        });
+    });
+
+    it('the unique vertices are numbered in order of first occurrence', () => {
+        check(soupArb, inVertices => {
+            const uvt = new UniqueVerticesTriangles<V>();
+            const { vertices } = uvt.generateIndexedTriangles(inVertices);
+            // An independent computation of the same pool.
+            const seen = new Set<string | number>();
+            const expected: V[] = [];
+            for (const v of inVertices) {
+                const k = key(v);
+                if (!seen.has(k)) { seen.add(k); expected.push(v); }
+            }
+            return vertices.length === expected.length
+                && vertices.every((v, i) => key(v) === key(expected[i]!));
+        });
+    });
+
+    it('removeDuplicateVertices preserves the geometry each index refers to', () => {
+        check(meshArb, ({ vertices: inVertices, indices: inIndices }) => {
+            const uvt = new UniqueVerticesTriangles<V>();
+            const out = uvt.removeDuplicateVertices(inVertices, inIndices);
+            expect(out.indices.length).toBe(inIndices.length);
+            expect(new Set(out.vertices.map(key)).size).toBe(out.vertices.length);
+            expect(out.indices.every(i => 0 <= i && i < out.vertices.length)).toBe(true);
+            for (let i = 0; i < inIndices.length; ++i) {
+                expect(key(out.vertices[out.indices[i]!]!))
+                    .toBe(key(inVertices[inIndices[i]!]!));
+            }
+            return true;
+        });
+    });
+
+    it('removeUnusedVertices keeps exactly the referenced vertices, in old-index order', () => {
+        check(meshArb, ({ vertices: inVertices, indices: inIndices }) => {
+            const uvt = new UniqueVerticesTriangles<V>();
+            const out = uvt.removeUnusedVertices(inVertices, inIndices);
+            // Independent computation: the used old indices sorted ascending,
+            // matching upstream's std::set iteration order.
+            const used = [...new Set(inIndices)].sort((a, b) => a - b);
+            expect(out.vertices.length).toBe(used.length);
+            expect(out.vertices.map(key)).toEqual(used.map(i => key(inVertices[i]!)));
+            expect(out.indices.length).toBe(inIndices.length);
+            for (let i = 0; i < inIndices.length; ++i) {
+                expect(out.indices[i]).toBe(used.indexOf(inIndices[i]!));
+                expect(key(out.vertices[out.indices[i]!]!))
+                    .toBe(key(inVertices[inIndices[i]!]!));
+            }
+            // Postcondition 4: every output vertex is referenced.
+            expect(new Set(out.indices).size).toBe(out.vertices.length);
+            return true;
+        });
+    });
+
+    it('removeUnusedVertices keeps duplicates that are separately referenced', () => {
+        check(meshArb, ({ vertices: inVertices, indices: inIndices }) => {
+            const uvt = new UniqueVerticesTriangles<V>();
+            const out = uvt.removeUnusedVertices(inVertices, inIndices);
+            // It removes unused slots only; it never merges equal vertices.
+            return out.vertices.length === new Set(inIndices).size;
+        });
+    });
+
+    it('removeDuplicateAndUnusedVertices is the composition of the two steps', () => {
+        check(meshArb, ({ vertices: inVertices, indices: inIndices }) => {
+            const uvt = new UniqueVerticesTriangles<V>();
+            const both = uvt.removeDuplicateAndUnusedVertices(inVertices, inIndices);
+            const step1 = uvt.removeDuplicateVertices(inVertices, inIndices);
+            const step2 = uvt.removeUnusedVertices(step1.vertices, step1.indices);
+            expect(both.indices).toEqual(step2.indices);
+            expect(both.vertices.map(key)).toEqual(step2.vertices.map(key));
+            // The result is both duplicate-free and fully used, and it still
+            // describes the same geometry.
+            expect(new Set(both.vertices.map(key)).size).toBe(both.vertices.length);
+            expect(new Set(both.indices).size).toBe(both.vertices.length);
+            for (let i = 0; i < inIndices.length; ++i) {
+                expect(key(both.vertices[both.indices[i]!]!))
+                    .toBe(key(inVertices[inIndices[i]!]!));
+            }
+            return true;
+        });
+    });
+
+    it('removeDuplicateAndUnusedVertices is idempotent', () => {
+        check(meshArb, ({ vertices: inVertices, indices: inIndices }) => {
+            const uvt = new UniqueVerticesTriangles<V>();
+            const once = uvt.removeDuplicateAndUnusedVertices(inVertices, inIndices);
+            const twice = uvt.removeDuplicateAndUnusedVertices(once.vertices, once.indices);
+            return JSON.stringify(twice.indices) === JSON.stringify(once.indices)
+                && JSON.stringify(twice.vertices) === JSON.stringify(once.vertices);
+        });
+    });
+
+    it('the Triples variants are exactly the flat variants reshaped', () => {
+        check(meshArb, ({ vertices: inVertices, indices: inIndices }) => {
+            const uvt = new UniqueVerticesTriangles<V>();
+            const triples: number[][] = [];
+            for (let t = 0; t < inIndices.length / 3; ++t) {
+                triples.push([inIndices[3 * t]!, inIndices[3 * t + 1]!, inIndices[3 * t + 2]!]);
+            }
+            const reshape = (flat: number[]) => {
+                const out: number[][] = [];
+                for (let t = 0; t < flat.length / 3; ++t) {
+                    out.push([flat[3 * t]!, flat[3 * t + 1]!, flat[3 * t + 2]!]);
+                }
+                return out;
+            };
+            const dupFlat = uvt.removeDuplicateVertices(inVertices, inIndices);
+            const dupTri = uvt.removeDuplicateVerticesTriples(inVertices, triples);
+            expect(dupTri.triangles).toEqual(reshape(dupFlat.indices));
+            expect(dupTri.vertices.map(key)).toEqual(dupFlat.vertices.map(key));
+
+            const unusedFlat = uvt.removeUnusedVertices(inVertices, inIndices);
+            const unusedTri = uvt.removeUnusedVerticesTriples(inVertices, triples);
+            expect(unusedTri.triangles).toEqual(reshape(unusedFlat.indices));
+            expect(unusedTri.vertices.map(key)).toEqual(unusedFlat.vertices.map(key));
+
+            const bothFlat = uvt.removeDuplicateAndUnusedVertices(inVertices, inIndices);
+            const bothTri = uvt.removeDuplicateAndUnusedVerticesTriples(inVertices, triples);
+            expect(bothTri.triangles).toEqual(reshape(bothFlat.indices));
+            expect(bothTri.vertices.map(key)).toEqual(bothFlat.vertices.map(key));
+            return true;
+        });
+    });
+
+    it('generateIndexedTrianglesTriples round trips the triangle soup', () => {
+        check(soupArb, inVertices => {
+            const uvt = new UniqueVerticesTriangles<V>();
+            const { vertices, triangles } = uvt.generateIndexedTrianglesTriples(inVertices);
+            expect(triangles.length).toBe(inVertices.length / 3);
+            for (let t = 0; t < triangles.length; ++t) {
+                for (let j = 0; j < 3; ++j) {
+                    expect(key(vertices[triangles[t]![j]!]!))
+                        .toBe(key(inVertices[3 * t + j]!));
+                }
+            }
+            return true;
+        });
+    });
+
+    it('validation rejects malformed inputs only when enabled', () => {
+        check(fc.array(vertexArb, { minLength: 0, maxLength: 8 })
+            .filter(vs => vs.length === 0 || vs.length % 3 !== 0), inVertices => {
+                const quiet = new UniqueVerticesTriangles<V>();
+                expect(() => quiet.generateIndexedTriangles(inVertices)).not.toThrow();
+                const loud = new UniqueVerticesTriangles<V>();
+                loud.validate = true;
+                expect(() => loud.generateIndexedTriangles(inVertices)).toThrow();
+                return true;
+            });
+    });
+
+    it('a custom key function drives the equivalence used for duplicates', () => {
+        // Collapse vertices by their first coordinate only.
+        check(soupArb, inVertices => {
+            const uvt = new UniqueVerticesTriangles<V>(v => v[0]);
+            const { vertices, indices } = uvt.generateIndexedTriangles(inVertices);
+            const distinctFirst = new Set(inVertices.map(v => v[0]));
+            return vertices.length === distinctFirst.size
+                && indices.every((idx, i) => vertices[idx]![0] === inVertices[i]![0]);
+        });
     });
 });
