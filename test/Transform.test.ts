@@ -2,7 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { Transform, mulTransform } from '../src/Transform.js';
 import { Matrix, mulMatrix, multiplyAB, transpose } from '../src/Matrix.js';
 import { inverse4x4 } from '../src/Matrix4x4.js';
-import { Vector, normalize } from '../src/Vector.js';
+import { Vector, hlift, normalize } from '../src/Vector.js';
+import { GTE_C_PI } from '../src/Constants.js';
+import {
+    check, expectClose, expectVectorClose as expectVectorsClose, fc, finite,
+    invertibleMatrix, matrix, unitVector, vector
+} from './helpers/arbitraries.js';
 
 import { AxisAngle } from '../src/AxisAngle.js';
 import { EulerAngles } from '../src/EulerAngles.js';
@@ -607,3 +612,329 @@ function randomTransform(rand: () => number, kind: number): Transform {
     t.setTranslation(4 * rand(), 4 * rand(), 4 * rand());
     return t;
 }
+
+// ---------------------------------------------------------------------------
+// Verification wave (V02): property-based re-checks against Transform.h.
+// ---------------------------------------------------------------------------
+
+const arbRotation4 = () => fc.tuple(unitVector(3), finite(-GTE_C_PI, GTE_C_PI))
+    .map(([axis, angle]) => Rotation.fromAxisAngle(
+        new AxisAngle(hlift(axis, 0), angle)).toMatrix());
+
+const arbNonzeroScale = () => finite(-4, 4).filter(s => Math.abs(s) > 0.1);
+
+// Transforms of each structural kind: identity, rotation with uniform scale,
+// rotation with nonuniform scale, and a general (non-RS) matrix.
+const arbTransform = () => fc.oneof(
+    fc.constant(null).map(() => new Transform()),
+    fc.tuple(arbRotation4(), arbNonzeroScale(), vector(3, -5, 5))
+        .map(([R, s, t]) => {
+            const x = new Transform();
+            x.setRotation(R);
+            x.setUniformScale(s);
+            x.setTranslation(t);
+            return x;
+        }),
+    fc.tuple(arbRotation4(), arbNonzeroScale(), arbNonzeroScale(),
+        arbNonzeroScale(), vector(3, -5, 5))
+        .map(([R, s0, s1, s2, t]) => {
+            const x = new Transform();
+            x.setRotation(R);
+            x.setScale(s0, s1, s2);
+            x.setTranslation(t);
+            return x;
+        }),
+    fc.tuple(invertibleMatrix(3), vector(3, -5, 5)).map(([M3, t]) => {
+        const M = Matrix.identity(4, 4);
+        for (let r = 0; r < 3; ++r) {
+            for (let c = 0; c < 3; ++c) {
+                M.set(r, c, M3.get(r, c));
+            }
+        }
+        const x = new Transform();
+        x.setMatrix(M);
+        x.setTranslation(t);
+        return x;
+    }));
+
+describe('Transform verification', () => {
+    it('the homogeneous matrix is {{M*S, T}, {0, 1}}', () => {
+        check(arbTransform(), x => {
+            const H = x.getHMatrix();
+            // The affine structure is invariant.
+            expectClose(H.get(3, 0), 0, 0, 0);
+            expectClose(H.get(3, 1), 0, 0, 0);
+            expectClose(H.get(3, 2), 0, 0, 0);
+            expectClose(H.get(3, 3), 1, 0, 0);
+            expectVectorsClose(x.getTranslation(),
+                Vector.fromArray([H.get(0, 3), H.get(1, 3), H.get(2, 3)]),
+                0, 0);
+
+            const M = x.getMatrix();
+            for (let r = 0; r < 3; ++r) {
+                for (let c = 0; c < 3; ++c) {
+                    // For an RS transform column c of M is scaled by S[c]
+                    // (M = R*S under MAT_VEC); otherwise M is copied.
+                    const s = (x.isRSMatrix() ? x.getScale().get(c) : 1);
+                    expectClose(H.get(r, c), M.get(r, c) * s, 1e-12, 1e-12);
+                }
+            }
+        });
+    });
+
+    it('getHInverse inverts the homogeneous matrix and equals the inverse '
+        + 'transform', () => {
+            check(arbTransform(), x => {
+                const H = x.getHMatrix();
+                const Hinv = x.getHInverse();
+                expectMatrixClose(multiplyAB(Hinv, H), Matrix.identity(4, 4),
+                    1e-8);
+                expectMatrixClose(multiplyAB(H, Hinv), Matrix.identity(4, 4),
+                    1e-8);
+                // The last row is always (0,0,0,1): the inverse of an affine
+                // transform is affine. The identity and rotation-scale
+                // branches write those entries directly, so they are exact;
+                // the general branch obtains them from the cofactor formula
+                // of inverse4x4, which is exact only to round-off (and can
+                // produce a signed zero).
+                const exact = x.isIdentity() || x.isRSMatrix();
+                const tol = (exact ? 0 : 1e-12);
+                expectClose(Hinv.get(3, 0), 0, tol, 0);
+                expectClose(Hinv.get(3, 1), 0, tol, 0);
+                expectClose(Hinv.get(3, 2), 0, tol, 0);
+                expectClose(Hinv.get(3, 3), 1, tol, tol);
+
+                expectMatrixClose(x.inverse().getHMatrix(), Hinv, 1e-8);
+            }, 60);
+        });
+
+    it('the inverse transform undoes the forward transform on points', () => {
+        check(fc.tuple(arbTransform(), vector(3, -5, 5)), ([x, p]) => {
+            const P = hlift(p, 1);
+            const forward = mulTransform(x, P);
+            const back = mulTransform(x.inverse(), forward);
+            expectVectorsClose(back, P, 1e-7, 1e-7);
+
+            // Composing a transform with its inverse gives the identity.
+            const composed = mulTransform(x, x.inverse());
+            expectMatrixClose(composed.getHMatrix(), Matrix.identity(4, 4),
+                1e-7);
+        });
+    });
+
+    it('composition of transforms is composition of homogeneous matrices',
+        () => {
+            check(fc.tuple(arbTransform(), arbTransform()), ([a, b]) => {
+                const product = mulTransform(a, b);
+                expectMatrixClose(product.getHMatrix(),
+                    multiplyAB(a.getHMatrix(), b.getHMatrix()), 1e-9);
+
+                // The RS fast path (A uniform scale, both RS) must agree with
+                // the general path, and must keep the RS channels.
+                if (a.isUniformScale() && a.isRSMatrix() && b.isRSMatrix()
+                    && !a.isIdentity() && !b.isIdentity()) {
+                    expect(product.isRSMatrix()).toBe(true);
+                }
+            });
+        });
+
+    it('composition is associative through the homogeneous matrices', () => {
+        check(fc.tuple(arbTransform(), arbTransform(), arbTransform()),
+            ([a, b, c]) => {
+                const left = mulTransform(mulTransform(a, b), c);
+                const right = mulTransform(a, mulTransform(b, c));
+                expectMatrixClose(left.getHMatrix(), right.getHMatrix(), 1e-8);
+            });
+    });
+
+    it('the mixed products with vectors and 4x4 matrices use the homogeneous '
+        + 'matrix', () => {
+            check(fc.tuple(arbTransform(), vector(4, -5, 5), matrix(4, 4)),
+                ([x, v, M]) => {
+                    const H = x.getHMatrix();
+                    expectVectorsClose(mulTransform(x, v),
+                        mulMatrix(H, v) as Vector, 1e-12, 1e-12);
+                    expectVectorsClose(mulTransform(v, x),
+                        mulMatrix(v, H) as Vector, 1e-12, 1e-12);
+                    expectMatrixClose(mulTransform(x, M) as Matrix,
+                        multiplyAB(H, M), 1e-12);
+                    expectMatrixClose(mulTransform(M, x) as Matrix,
+                        multiplyAB(M, H), 1e-12);
+                }, 80);
+        });
+
+    it('a product with the identity transform returns a copy of the other '
+        + 'operand', () => {
+            check(arbTransform(), x => {
+                const id = new Transform();
+                for (const product of [mulTransform(id, x),
+                    mulTransform(x, id)]) {
+                    expectMatrixClose(product.getHMatrix(), x.getHMatrix(), 0);
+                    expect(product.isRSMatrix()).toBe(x.isRSMatrix());
+                    // A copy, not the same object: mutating the result must
+                    // not touch the operand.
+                    product.setTranslation(99, 99, 99);
+                    expect(x.getTranslation().get(0)).not.toBe(99);
+                }
+            }, 100);
+        });
+
+    it('every way of setting the rotation produces the same transform', () => {
+        check(fc.tuple(unitVector(3), finite(-GTE_C_PI + 1e-3,
+            GTE_C_PI - 1e-3), vector(3, -5, 5)), ([axis, angle, t]) => {
+                const R4 = Rotation.fromAxisAngle(
+                    new AxisAngle(hlift(axis, 0), angle)).toMatrix();
+                const R3 = new Matrix(3, 3);
+                for (let r = 0; r < 3; ++r) {
+                    for (let c = 0; c < 3; ++c) {
+                        R3.set(r, c, R4.get(r, c));
+                    }
+                }
+                const q = Rotation.fromMatrix(R4).toQuaternion();
+                const aa3 = new AxisAngle(axis, angle);
+                const aa4 = new AxisAngle(hlift(axis, 0), angle);
+                const euler = Rotation.fromMatrix(R4).toEulerAngles(0, 1, 2);
+
+                const reference = new Transform();
+                reference.setRotation(R4);
+                reference.setTranslation(t);
+                const H = reference.getHMatrix();
+
+                for (const rotation of [R3, q, aa3, aa4, euler]) {
+                    const x = new Transform();
+                    x.setRotation(rotation);
+                    x.setTranslation(t);
+                    expect(x.isRSMatrix()).toBe(true);
+                    expect(x.isIdentity()).toBe(false);
+                    expectMatrixClose(x.getHMatrix(), H, 1e-7);
+                }
+            }, 60);
+    });
+
+    it('the rotation getters recover the rotation that was set', () => {
+        check(fc.tuple(unitVector(3), finite(1e-2, GTE_C_PI - 1e-2)),
+            ([axis, angle]) => {
+                const R4 = Rotation.fromAxisAngle(
+                    new AxisAngle(hlift(axis, 0), angle)).toMatrix();
+                const x = new Transform();
+                x.setRotation(R4);
+
+                expectMatrixClose(x.getRotation(), R4, 0);
+
+                const R3 = x.getRotationMatrix3x3();
+                for (let r = 0; r < 3; ++r) {
+                    for (let c = 0; c < 3; ++c) {
+                        expectClose(R3.get(r, c), R4.get(r, c), 0, 0);
+                    }
+                }
+
+                const y = new Transform();
+                y.setRotation(x.getRotationQuaternion());
+                expectMatrixClose(y.getHMatrix(), x.getHMatrix(), 1e-8);
+
+                const z = new Transform();
+                z.setRotation(x.getRotationAxisAngle3());
+                expectMatrixClose(z.getHMatrix(), x.getHMatrix(), 1e-7);
+
+                const w = new Transform();
+                w.setRotation(x.getRotationAxisAngle4());
+                expectMatrixClose(w.getHMatrix(), x.getHMatrix(), 1e-7);
+
+                const e = new Transform();
+                e.setRotation(x.getRotationEulerAngles(2, 0, 1));
+                expectMatrixClose(e.getHMatrix(), x.getHMatrix(), 1e-7);
+            }, 60);
+    });
+
+    it('getNorm is the largest |scale| for RS transforms and the max row sum '
+        + 'otherwise', () => {
+            check(arbTransform(), x => {
+                if (x.isRSMatrix()) {
+                    const s = x.getScale();
+                    expectClose(x.getNorm(), Math.max(Math.abs(s.get(0)),
+                        Math.abs(s.get(1)), Math.abs(s.get(2))), 0, 0);
+                } else {
+                    const M = x.getMatrix();
+                    let expected = 0;
+                    for (let r = 0; r < 3; ++r) {
+                        expected = Math.max(expected, Math.abs(M.get(r, 0))
+                            + Math.abs(M.get(r, 1)) + Math.abs(M.get(r, 2)));
+                    }
+                    expectClose(x.getNorm(), expected, 0, 0);
+                }
+            });
+        });
+
+    it('the structural flags follow the documented setter rules', () => {
+        check(fc.tuple(arbRotation4(), arbNonzeroScale(), vector(3, -5, 5)),
+            ([R, s, t]) => {
+                const x = new Transform();
+                expect(x.isIdentity()).toBe(true);
+                expect(x.isRSMatrix()).toBe(true);
+                expect(x.isUniformScale()).toBe(true);
+
+                x.setTranslation(t);
+                expect(x.isIdentity()).toBe(false);
+                expect(x.isRSMatrix()).toBe(true);
+
+                x.setRotation(R);
+                expect(x.isRSMatrix()).toBe(true);
+
+                x.setScale(s, s, s);
+                // setScale always clears the uniform-scale hint, even when
+                // the three scales are equal.
+                expect(x.isUniformScale()).toBe(false);
+
+                x.setUniformScale(s);
+                expect(x.isUniformScale()).toBe(true);
+
+                x.makeUnitScale();
+                expect(x.isUniformScale()).toBe(true);
+                expectVectorsClose(x.getScale(), Vector.fromArray([1, 1, 1]),
+                    0, 0);
+
+                const general = Matrix.identity(4, 4);
+                general.set(0, 1, 2);
+                x.setMatrix(general);
+                expect(x.isRSMatrix()).toBe(false);
+                expect(x.isUniformScale()).toBe(false);
+                // The rotation-scale getters are unavailable in this state.
+                expect(() => x.getRotation()).toThrow();
+                expect(() => x.getScale()).toThrow();
+                expect(() => x.getUniformScale()).toThrow();
+                expect(() => x.makeUnitScale()).toThrow();
+                expect(() => x.setScale(1, 1, 1)).toThrow();
+                expect(() => x.setUniformScale(1)).toThrow();
+
+                x.makeIdentity();
+                expect(x.isIdentity()).toBe(true);
+                expect(x.isRSMatrix()).toBe(true);
+                expectMatrixClose(x.getHMatrix(), Matrix.identity(4, 4), 0);
+            }, 60);
+    });
+
+    it('no accessor aliases the internal state', () => {
+        check(arbTransform(), x => {
+            const before = x.getHMatrix();
+
+            x.getHMatrix().set(0, 0, 12345);
+            x.getMatrix().set(0, 0, 12345);
+            x.getHInverse().set(0, 0, 12345);
+            x.getTranslation().set(0, 12345);
+            x.getTranslationW0().set(0, 12345);
+            x.getTranslationW1().set(0, 12345);
+            if (x.isRSMatrix()) {
+                x.getRotation().set(0, 0, 12345);
+                x.getScale().set(0, 12345);
+                x.getScaleW1().set(0, 12345);
+            }
+
+            expectMatrixClose(x.getHMatrix(), before, 0);
+
+            // clone() is a deep copy.
+            const copy = x.clone();
+            copy.setTranslation(99, 99, 99);
+            expect(x.getTranslation().get(0)).not.toBe(99);
+        });
+    });
+});

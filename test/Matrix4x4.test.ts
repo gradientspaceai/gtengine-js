@@ -5,9 +5,16 @@ import {
     makePerspectiveProjection4x4, makeReflection4x4
 } from '../src/Matrix4x4.js';
 import {
-    Matrix, inverse, determinant, multiplyAB, mulMatrix
+    Matrix, inverse, determinant, multiplyAB, mulMatrix, lInfinityNorm
 } from '../src/Matrix.js';
-import { Vector, dot, normalize, sub } from '../src/Vector.js';
+import {
+    Vector, add, dot, hproject, length, mul, normalize, sub
+} from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, invertibleMatrix,
+    matrix, unitVector, vector
+} from './helpers/arbitraries.js';
 
 function expectMatrixClose(actual: Matrix, expected: Matrix,
     tolerance: number = 1e-12): void {
@@ -312,4 +319,182 @@ describe('Matrix4x4', () => {
         expect(() => makePerspectiveProjection4x4(new Vector(4),
             new Vector(2), new Vector(4))).toThrow();
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V02): property-based re-checks against Matrix4x4.h.
+// ---------------------------------------------------------------------------
+
+function vec4(x: number, y: number, z: number, w: number): Vector {
+    return Vector.fromArray([x, y, z, w]);
+}
+
+describe('Matrix4x4 verification', () => {
+    it('M*adjoint(M) = adjoint(M)*M = det(M)*I for every 4x4 matrix', () => {
+        check(matrix(4, 4), M => {
+            const det = determinant4x4(M);
+            const adj = adjoint4x4(M);
+            const expected = mulMatrix(Matrix.identity(4, 4), det) as Matrix;
+            // The cofactors are degree-3 polynomials in the entries, so the
+            // absolute error scales with the fourth power of the norm.
+            const scale = Math.max(1, lInfinityNorm(M) ** 4);
+            expectMatrixClose(multiplyAB(M, adj), expected, 1e-12 * scale);
+            expectMatrixClose(multiplyAB(adj, M), expected, 1e-12 * scale);
+        }, 100);
+    });
+
+    it('determinant4x4 and inverse4x4 agree with the generic Matrix versions',
+        () => {
+            check(invertibleMatrix(4), M => {
+                const scale = Math.max(1, lInfinityNorm(M) ** 4);
+                expectClose(determinant4x4(M), determinant(M), 1e-10 * scale,
+                    1e-10);
+                const { inverse: inv4, invertible } = inverse4x4(M);
+                expect(invertible).toBe(true);
+                const generic = inverse(M);
+                expect(generic.invertible).toBe(true);
+                expectMatrixClose(inv4, generic.inverse, 1e-6);
+                expectMatrixClose(multiplyAB(M, inv4), Matrix.identity(4, 4),
+                    1e-8);
+                expectMatrixClose(multiplyAB(inv4, M), Matrix.identity(4, 4),
+                    1e-8);
+            }, 60);
+        });
+
+    it('inverse4x4 of a rank-deficient matrix reports non-invertibility',
+        () => {
+            check(fc.tuple(matrix(4, 4), fc.integer({ min: 0, max: 3 })),
+                ([M, r]) => {
+                    // Duplicate a row to force a zero determinant.
+                    const other = (r + 1) % 4;
+                    for (let c = 0; c < 4; ++c) {
+                        M.set(r, c, M.get(other, c));
+                    }
+                    if (determinant4x4(M) !== 0) {
+                        return;   // rounding left a tiny nonzero determinant
+                    }
+                    const { inverse: inv, invertible } = inverse4x4(M);
+                    expect(invertible).toBe(false);
+                    expectMatrixClose(inv, new Matrix(4, 4), 0);
+                });
+        });
+
+    it('trace4x4 is transpose invariant; doTransform4x4 is associative and '
+        + 'uses the columns as basis vectors', () => {
+            check(fc.tuple(matrix(4, 4), matrix(4, 4), vector(4),
+                fc.integer({ min: 0, max: 3 })), ([A, B, V, i]) => {
+                    const At = new Matrix(4, 4);
+                    for (let r = 0; r < 4; ++r) {
+                        for (let c = 0; c < 4; ++c) {
+                            At.set(c, r, A.get(r, c));
+                        }
+                    }
+                    expectClose(trace4x4(A), trace4x4(At), 0, 0);
+
+                    expectVectorClose(doTransform4x4(doTransform4x4(A, B), V),
+                        doTransform4x4(A, doTransform4x4(B, V)), 1e-9, 1e-9);
+
+                    setBasis4x4(A, i, V);
+                    expectVectorClose(getBasis4x4(A, i), V, 0, 0);
+                    const unit = new Vector(4);
+                    unit.makeUnit(i);
+                    expectVectorClose(doTransform4x4(A, unit), V, 1e-12, 1e-12);
+                });
+        });
+
+    it('makeReflection4x4 is an involution fixing the plane and negating the '
+        + 'normal offset', () => {
+            check(fc.tuple(unitVector(3), vector(3, -5, 5), vector(3, -5, 5),
+                finite(-5, 5)), ([n3, p3, u3, s]) => {
+                    const N = vec4(n3.get(0), n3.get(1), n3.get(2), 0);
+                    const P = vec4(p3.get(0), p3.get(1), p3.get(2), 1);
+                    const M = makeReflection4x4(P, N);
+
+                    // An involution: M*M = I, hence det(M) = -1 (a reflection
+                    // reverses orientation).
+                    expectMatrixClose(multiplyAB(M, M), Matrix.identity(4, 4),
+                        1e-12);
+                    expectClose(determinant4x4(M), -1, 1e-12, 1e-12);
+
+                    // Points of the plane are fixed: X = P + (a tangent).
+                    const tangent = sub(u3, mul(n3, dot(n3, u3)));
+                    const X = vec4(p3.get(0) + tangent.get(0),
+                        p3.get(1) + tangent.get(1),
+                        p3.get(2) + tangent.get(2), 1);
+                    expectVectorClose(doTransform4x4(M, X), X, 1e-10, 1e-10);
+
+                    // Moving off the plane along the normal flips the offset.
+                    const Y = add(X, mul(N, s));
+                    const reflected = doTransform4x4(M, Y);
+                    expectVectorClose(reflected, sub(X, mul(N, s)), 1e-10,
+                        1e-10);
+                });
+        });
+
+    it('makeObliqueProjection4x4 maps every point of a projector line to the '
+        + 'same point of the plane', () => {
+            check(fc.tuple(unitVector(3), vector(3, -5, 5), unitVector(3),
+                vector(3, -5, 5), finite(-4, 4)),
+                ([n3, p3, d3, u3, s]) => {
+                    const dotND = dot(n3, d3);
+                    if (Math.abs(dotND) < 0.2) {
+                        return;   // the projection is ill-conditioned
+                    }
+                    const N = vec4(n3.get(0), n3.get(1), n3.get(2), 0);
+                    const P = vec4(p3.get(0), p3.get(1), p3.get(2), 1);
+                    const D = vec4(d3.get(0), d3.get(1), d3.get(2), 0);
+                    const M = makeObliqueProjection4x4(P, N, D);
+
+                    const U = vec4(u3.get(0), u3.get(1), u3.get(2), 1);
+                    const proj = (X: Vector): Vector => {
+                        const h = doTransform4x4(M, X);
+                        return mul(h, 1 / h.get(3));
+                    };
+
+                    // The image lies on the plane Dot(N, X - P) = 0.
+                    const X0 = proj(U);
+                    expectClose(dot(n3, sub(hproject(X0), p3)), 0, 1e-9, 1e-9);
+                    expectClose(X0.get(3), 1, 1e-12, 1e-12);
+
+                    // U and U + s*D project to the same point, since the
+                    // projection is along D.
+                    const X1 = proj(add(U, mul(D, s)));
+                    expectVectorClose(X1, X0, 1e-8, 1e-8);
+
+                    // The projection is idempotent on the plane.
+                    expectVectorClose(proj(X0), X0, 1e-8, 1e-8);
+                });
+        });
+
+    it('makePerspectiveProjection4x4 projects along rays through the eye onto '
+        + 'the plane', () => {
+            check(fc.tuple(unitVector(3), finite(-4, 4), vector(3, -5, 5),
+                vector(3, -5, 5)), ([n3, d, e3, u3]) => {
+                    // The plane is Dot(N,X) = d with origin point P = d*N.
+                    const p3 = mul(n3, d);
+                    const N = vec4(n3.get(0), n3.get(1), n3.get(2), 0);
+                    const P = vec4(p3.get(0), p3.get(1), p3.get(2), 1);
+                    const E = vec4(e3.get(0), e3.get(1), e3.get(2), 1);
+                    const V = sub(u3, e3);
+                    const denom = dot(n3, V);
+                    if (Math.abs(denom) < 0.25
+                        || Math.abs(d - dot(n3, e3)) < 0.25) {
+                        return;   // eye on the plane or ray parallel to it
+                    }
+
+                    const M = makePerspectiveProjection4x4(P, N, E);
+                    const U = vec4(u3.get(0), u3.get(1), u3.get(2), 1);
+                    const h = doTransform4x4(M, U);
+                    if (Math.abs(h.get(3)) < 1e-6) {
+                        return;
+                    }
+                    const X = hproject(mul(h, 1 / h.get(3)));
+
+                    // The image is on the plane ...
+                    expectClose(dot(n3, X), d, 1e-8, 1e-8);
+                    // ... and on the line through E and U.
+                    const cr = cross(sub(X, e3), V);
+                    expectClose(length(cr), 0, 1e-7, 1e-7);
+                });
+        });
 });
