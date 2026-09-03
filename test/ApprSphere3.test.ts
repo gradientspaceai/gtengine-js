@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { ApprSphere3 } from '../src/ApprSphere3.js';
 import { Hypersphere } from '../src/Hypersphere.js';
 import { Vector } from '../src/Vector.js';
+import { check, expectClose, expectVectorClose, fc, positive, rotationFrame, vector } from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -148,5 +149,143 @@ describe('ApprSphere3.fitUsingLengths', () => {
         for (let d = 0; d < 3; ++d) {
             expect(sphere.center.values[d]).toBeCloseTo(0, 12);
         }
+    });
+});
+
+describe('ApprSphere3 verification', () => {
+    // k well-spread samples on the sphere (a Fibonacci spiral). The samples
+    // span three dimensions, so the 3x3 system of the algebraic fit is well
+    // conditioned.
+    const spherePoints = (c: Vector, r: number, k: number): Vector[] => {
+        const golden = Math.PI * (3 - Math.sqrt(5));
+        const points: Vector[] = [];
+        for (let i = 0; i < k; ++i) {
+            const z = 1 - (2 * (i + 0.5)) / k;
+            const rho = Math.sqrt(Math.max(1 - z * z, 0));
+            const phi = golden * i;
+            points.push(Vector.fromArray([
+                c.get(0) + r * rho * Math.cos(phi),
+                c.get(1) + r * rho * Math.sin(phi),
+                c.get(2) + r * z]));
+        }
+        return points;
+    };
+
+    // The 6 samples c +/- r*axis[i] of an orthonormal frame. Their unit
+    // directions from c sum to zero, which makes c a fixed point of the
+    // fitUsingLengths iteration.
+    const symmetricPoints = (c: Vector, r: number, axis: Vector[]): Vector[] => {
+        const points: Vector[] = [];
+        for (const a of axis) {
+            for (const s of [r, -r]) {
+                points.push(Vector.fromArray([
+                    c.get(0) + s * a.get(0),
+                    c.get(1) + s * a.get(1),
+                    c.get(2) + s * a.get(2)]));
+            }
+        }
+        return points;
+    };
+
+    const sphereArb = fc.tuple(vector(3, -5, 5), positive(5, 0.5),
+        fc.integer({ min: 8, max: 24 }));
+
+    it('fitUsingSquaredLengths recovers a sphere its samples lie on', () => {
+        // sum_i (|X_i-C|^2 - r^2)^2 is zero at the true sphere, the global
+        // minimizer that the normal equations solve for.
+        check(sphereArb, ([c, r, k]) => {
+            const points = spherePoints(c, r, k);
+            const sphere = new Hypersphere(3);
+            expect(new ApprSphere3().fitUsingSquaredLengths(points, sphere))
+                .toBe(true);
+            expectVectorClose(sphere.center, c, 1e-8, 1e-8);
+            expectClose(sphere.radius, r, 1e-8, 1e-8);
+        });
+    });
+
+    it('fitUsingSquaredLengths is equivariant under translation', () => {
+        check(fc.tuple(sphereArb, vector(3, -20, 20)), ([[c, r, k], t]) => {
+            const points = spherePoints(c, r, k);
+            const shifted = points.map(p => Vector.fromArray([
+                p.get(0) + t.get(0), p.get(1) + t.get(1), p.get(2) + t.get(2)]));
+
+            const a = new Hypersphere(3);
+            const b = new Hypersphere(3);
+            const fitter = new ApprSphere3();
+            expect(fitter.fitUsingSquaredLengths(points, a)).toBe(true);
+            expect(fitter.fitUsingSquaredLengths(shifted, b)).toBe(true);
+            for (let i = 0; i < 3; ++i) {
+                expectClose(b.center.get(i), a.center.get(i) + t.get(i),
+                    1e-7, 1e-7);
+            }
+            expectClose(b.radius, a.radius, 1e-7, 1e-7);
+        });
+    });
+
+    it('fitUsingSquaredLengths fails and zeroes the sphere for coplanar and '
+        + 'coincident samples', () => {
+            // Samples in the z = 0 plane give M02 = M12 = M22 = 0 exactly, so
+            // the cofactor expansion of the determinant is exactly zero.
+            check(fc.tuple(fc.array(vector(2, -10, 10),
+                { minLength: 1, maxLength: 8 }), vector(3, -10, 10)),
+                ([flat, p]) => {
+                    const inPlane = flat.map(
+                        q => Vector.fromArray([q.get(0), q.get(1), 0]));
+                    const coincident = flat.map(() => p.clone());
+                    for (const points of [inPlane, coincident]) {
+                        const sphere = Hypersphere.fromCenterRadius(
+                            Vector.fromArray([7, 8, 9]), 10);
+                        expect(new ApprSphere3()
+                            .fitUsingSquaredLengths(points, sphere))
+                            .toBe(false);
+                        expect(sphere.center.values).toEqual([0, 0, 0]);
+                        expect(sphere.radius).toBe(0);
+                    }
+                });
+        });
+
+    it('fitUsingLengths keeps a symmetric exact fit at its fixed point',
+        () => {
+            check(fc.tuple(vector(3, -5, 5), positive(5, 0.5),
+                rotationFrame(3)), ([c, r, axis]) => {
+                    const points = symmetricPoints(c, r, axis);
+                    const sphere = new Hypersphere(3);
+                    const iterations = new ApprSphere3().fitUsingLengths(
+                        points, 8, true, sphere);
+                    expect(iterations).toBeLessThanOrEqual(8);
+                    expectVectorClose(sphere.center, c, 1e-8, 1e-8);
+                    expectClose(sphere.radius, r, 1e-8, 1e-8);
+                });
+        });
+
+    it('fitUsingLengths honors maxIterations and epsilon', () => {
+        check(sphereArb, ([c, r, k]) => {
+            const points = spherePoints(c, r, k);
+
+            // Zero iterations leaves the incoming sphere untouched.
+            const untouched = Hypersphere.fromCenterRadius(
+                Vector.fromArray([1, 2, 3]), 4);
+            expect(new ApprSphere3().fitUsingLengths(points, 0, false,
+                untouched)).toBe(0);
+            expect(untouched.center.values).toEqual([1, 2, 3]);
+            expect(untouched.radius).toBe(4);
+
+            // A huge epsilon stops after the first update, iteration 0.
+            const early = new Hypersphere(3);
+            expect(new ApprSphere3().fitUsingLengths(points, 25, true, early,
+                1e6)).toBe(0);
+        });
+    });
+
+    it('neither fit mutates its input samples', () => {
+        check(sphereArb, ([c, r, k]) => {
+            const points = spherePoints(c, r, k);
+            const before = points.map(p => [...p.values]);
+            const sphere = new Hypersphere(3);
+            const fitter = new ApprSphere3();
+            fitter.fitUsingSquaredLengths(points, sphere);
+            fitter.fitUsingLengths(points, 4, true, sphere);
+            expect(points.map(p => [...p.values])).toEqual(before);
+        });
     });
 });

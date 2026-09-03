@@ -38,8 +38,21 @@ export class ApprOrthogonalLine2 extends ApprQuery<Vector> {
                 mean.values[0] += p.values[0];
                 mean.values[1] += p.values[1];
             }
-            mean.values[0] /= numIndices;
-            mean.values[1] /= numIndices;
+            // Upstream is 'mean /= (Real)numIndices'. GTE's Vector
+            // operator/= multiplies by the reciprocal when the divisor is
+            // nonzero and zeroes the vector when it is zero. Reproducing the
+            // zero branch matters: with an empty index set upstream leaves
+            // the line origin at (0,0), whereas a plain division would store
+            // (NaN,NaN).
+            if (numIndices !== 0) {
+                const invSize = 1 / numIndices;
+                mean.values[0] *= invSize;
+                mean.values[1] *= invSize;
+            }
+            else {
+                mean.values[0] = 0;
+                mean.values[1] = 0;
+            }
 
             // Compute the covariance matrix of the points.
             let covar00 = 0, covar01 = 0, covar11 = 0;
