@@ -1285,7 +1285,7 @@
   "status": "ported"
  },
  "MinimumVolumeBox3Rational.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "MinimumVolumeSphere3.h": {
   "status": "ported"
