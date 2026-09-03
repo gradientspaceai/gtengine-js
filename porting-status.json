@@ -174,14 +174,16 @@
   "status": "ported"
  },
  "BSNumber.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 5
  },
  "BSplineCurve.h": {
   "status": "ported",
   "note": "porter: ParametricCurve.getTime is numerically weak across knot discontinuities (upstream design limitation, see upstream-bug issue from B40) — decide arc-length test strategy accordingly"
  },
  "BSplineCurveFit.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 5
  },
  "BSplineGeodesic.h": {
   "status": "ported"
@@ -190,19 +192,23 @@
   "status": "ported"
  },
  "BSplineSurface.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 5
  },
  "BSplineSurfaceFit.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 5
  },
  "BSplineVolume.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 5
  },
  "BSPPolygon2.h": {
   "status": "ported"
  },
  "BSPrecision.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 5
  },
  "BSRational.h": {
   "status": "ported"
@@ -1447,7 +1453,8 @@
   "status": "ported"
  },
  "QFNumber.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 5
  },
  "QuadricSurface.h": {
   "status": "ported"
@@ -1602,7 +1609,8 @@
   "status": "ported"
  },
  "SWInterval.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 5
  },
  "SymmetricEigensolver.h": {
   "status": "ported"
