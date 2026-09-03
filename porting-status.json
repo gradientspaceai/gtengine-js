@@ -1282,7 +1282,7 @@
   "status": "ported"
  },
  "MinimumVolumeBox3FloatingPoint.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "MinimumVolumeBox3Rational.h": {
   "status": "pending"

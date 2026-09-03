@@ -427,6 +427,7 @@ export * from './MinimumAreaBox2';
 export * from './MinimumAreaCircle2';
 export * from './MinimumSpanningTree';
 export * from './MinimumVolumeBox3';
+export * from './MinimumVolumeBox3FloatingPoint';
 export * from './MinimumVolumeSphere3';
 export * from './MinimumWidthPoints2';
 export * from './NaturalCubicSpline';
