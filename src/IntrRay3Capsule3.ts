@@ -10,16 +10,16 @@
 //
 // Port notes: see IntrIntervals.ts for the Intr* precedent. Upstream derives
 // the FIQuery from the Line3-vs-Capsule3 query to reuse the protected DoQuery
-// helper; as in IntrSegment3Cylinder3, the port reaches that helper through a
-// module-private accessor subclass. The ray-specific DoQuery helper is
-// exported as the module function 'intrRay3Capsule3FIDoQuery'.
+// helper, which the port exports as the module function
+// 'intrLine3Capsule3FIDoQuery'. The ray-specific DoQuery helper is exported
+// as the module function 'intrRay3Capsule3FIDoQuery'.
 
 import type { Capsule3 } from './Capsule.js';
 import { DistRaySegment } from './DistRaySegment.js';
 import type { FIQuery } from './FIQuery.js';
 import { IntrIntervalsFI } from './IntrIntervals.js';
 import {
-    IntrLine3Capsule3FI,
+    intrLine3Capsule3FIDoQuery,
     defaultIntrLine3Capsule3FIResult
 } from './IntrLine3Capsule3.js';
 import type { IntrLine3Capsule3FIResult } from './IntrLine3Capsule3.js';
@@ -45,21 +45,13 @@ export function defaultIntrRay3Capsule3FIResult(): IntrRay3Capsule3FIResult {
     return defaultIntrLine3Capsule3FIResult();
 }
 
-// Expose the protected line-capsule helper to this module.
-class LineCapsuleFIAccess extends IntrLine3Capsule3FI {
-    run(lineOrigin: Vector, lineDirection: Vector, capsule: Capsule3,
-        result: IntrLine3Capsule3FIResult): void {
-        this.doQuery(lineOrigin, lineDirection, capsule, result);
-    }
-}
-
 // The port of the protected 'FIQuery::DoQuery'. The caller must ensure that
 // on entry, 'result' is default constructed as if there is no intersection.
 // If an intersection is found, the 'result' values are modified accordingly.
 export function intrRay3Capsule3FIDoQuery(rayOrigin: Vector,
     rayDirection: Vector, capsule: Capsule3,
     result: IntrRay3Capsule3FIResult): void {
-    new LineCapsuleFIAccess().run(rayOrigin, rayDirection, capsule, result);
+    intrLine3Capsule3FIDoQuery(rayOrigin, rayDirection, capsule, result);
 
     if (result.intersect) {
         // The line containing the ray intersects the capsule; the t-interval

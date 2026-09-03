@@ -6,6 +6,12 @@ import {
     IntrLine3AlignedBox3TI,
     IntrLine3AlignedBox3FI
 } from '../src/IntrLine3AlignedBox3.js';
+import {
+    intrLine3AlignedBox3TIDoQuery,
+    intrLine3AlignedBox3FIDoQuery,
+    defaultIntrLine3AlignedBox3TIResult,
+    defaultIntrLine3AlignedBox3FIResult
+} from '../src/IntrLine3AlignedBox3.js';
 
 function box(min: number[], max: number[]): AlignedBox {
     return AlignedBox.fromMinMax(Vector.fromArray(min), Vector.fromArray(max));
@@ -154,5 +160,53 @@ describe('IntrLine3AlignedBox3', () => {
         }
         expect(numHit).toBeGreaterThan(30);
         expect(numMiss).toBeGreaterThan(50);
+    });
+});
+
+describe('intrLine3AlignedBox3 DoQuery helpers', () => {
+    // The helpers take the line in the box-centered coordinate system. The
+    // box below is centered at the origin, so no translation is needed.
+    const b = box([-2, -1, -3], [2, 1, 3]);
+    const extent = Vector.fromArray([2, 1, 3]);
+
+    it('the TI helper matches the class query', () => {
+        const cases: Array<[number[], number[]]> = [
+            [[0, 0, 0], [1, 0, 0]],
+            [[0, 5, 0], [1, 0, 0]],
+            [[-4, -3, 0], [1, 1, 0]],
+            [[0, 0, 8], [0, 0, -1]],
+            [[-2, 1, 3], [1, 0, 0]]
+        ];
+        for (const [p, d] of cases) {
+            const dir = Vector.fromArray(d);
+            normalize(dir);
+            const result = defaultIntrLine3AlignedBox3TIResult();
+            intrLine3AlignedBox3TIDoQuery(Vector.fromArray(p), dir, extent,
+                result);
+            const expected = new IntrLine3AlignedBox3TI().test(
+                line(p, [dir.values[0], dir.values[1], dir.values[2]]), b);
+            expect(result.intersect).toBe(expected.intersect);
+        }
+    });
+
+    it('the FI helper fills parameters but not points', () => {
+        const result = defaultIntrLine3AlignedBox3FIResult();
+        intrLine3AlignedBox3FIDoQuery(Vector.fromArray([0, 0, 0]),
+            Vector.fromArray([1, 0, 0]), extent, result);
+        expect(result.intersect).toBe(true);
+        expect(result.numIntersections).toBe(2);
+        expect(result.parameter[0]).toBeCloseTo(-2, 12);
+        expect(result.parameter[1]).toBeCloseTo(2, 12);
+        // DoQuery leaves 'point' at its default value.
+        expect(result.point[0].values).toEqual([0, 0, 0]);
+        expect(result.point[1].values).toEqual([0, 0, 0]);
+    });
+
+    it('the FI helper reports no intersection for a missing line', () => {
+        const result = defaultIntrLine3AlignedBox3FIResult();
+        intrLine3AlignedBox3FIDoQuery(Vector.fromArray([0, 5, 0]),
+            Vector.fromArray([1, 0, 0]), extent, result);
+        expect(result.intersect).toBe(false);
+        expect(result.numIntersections).toBe(0);
     });
 });

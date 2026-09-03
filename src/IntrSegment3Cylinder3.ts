@@ -9,10 +9,9 @@
 // Port notes: see IntrIntervals.ts for the Intr* precedent. Upstream provides
 // only an FIQuery specialization for this pair of primitives, which becomes
 // IntrSegment3Cylinder3FI, and derives it from the Line3-vs-Cylinder3 query
-// to reuse the protected DoQuery helper; as in IntrSegment3AlignedBox3, the
-// port reaches that helper through a module-private accessor subclass because
-// a TypeScript subclass cannot change an inherited method signature. The
-// segment-specific DoQuery helper is exported as the module function
+// to reuse the protected DoQuery helper, which the port exports as the module
+// function 'intrLine3Cylinder3FIDoQuery'. The segment-specific DoQuery helper
+// is exported as the module function
 // 'intrSegment3Cylinder3FIDoQuery'. The reported parameters are relative to
 // the centered form of the segment, C + t * D with |t| <= e, as upstream
 // reports them.
@@ -33,7 +32,7 @@
 import type { Cylinder3 } from './Cylinder3.js';
 import type { FIQuery } from './FIQuery.js';
 import {
-    IntrLine3Cylinder3FI,
+    intrLine3Cylinder3FIDoQuery,
     defaultIntrLine3Cylinder3FIResult
 } from './IntrLine3Cylinder3.js';
 import type { IntrLine3Cylinder3FIResult } from './IntrLine3Cylinder3.js';
@@ -51,21 +50,13 @@ export function defaultIntrSegment3Cylinder3FIResult():
     return defaultIntrLine3Cylinder3FIResult();
 }
 
-// Expose the protected line-cylinder helper to this module.
-class FIHelper extends IntrLine3Cylinder3FI {
-    runDoQuery(lineOrigin: Vector, lineDirection: Vector,
-        cylinder: Cylinder3, result: IntrLine3Cylinder3FIResult): void {
-        this.doQuery(lineOrigin, lineDirection, cylinder, result);
-    }
-}
-
 // The port of the protected 'FIQuery::DoQuery'. The caller must ensure that
 // on entry, 'result' is default constructed as if there is no intersection.
 // If an intersection is found, the 'result' values are modified accordingly.
 export function intrSegment3Cylinder3FIDoQuery(segOrigin: Vector,
     segDirection: Vector, segExtent: number, cylinder: Cylinder3,
     result: IntrSegment3Cylinder3FIResult): void {
-    new FIHelper().runDoQuery(segOrigin, segDirection, cylinder, result);
+    intrLine3Cylinder3FIDoQuery(segOrigin, segDirection, cylinder, result);
 
     if (result.intersect) {
         // The line containing the segment intersects the cylinder; the

@@ -8,6 +8,14 @@ import {
     IntrRay2AlignedBox2TI,
     IntrRay2AlignedBox2FI
 } from '../src/IntrRay2AlignedBox2.js';
+import {
+    intrRay2AlignedBox2TIDoQuery,
+    intrRay2AlignedBox2FIDoQuery
+} from '../src/IntrRay2AlignedBox2.js';
+import {
+    defaultIntrLine2AlignedBox2TIResult,
+    defaultIntrLine2AlignedBox2FIResult
+} from '../src/IntrLine2AlignedBox2.js';
 
 function vec(a: number[]): Vector {
     return Vector.fromArray(a);
@@ -147,5 +155,50 @@ describe('IntrRay2AlignedBox2', () => {
                 expect(result.parameter[1] - tHi).toBeLessThan(2e-3);
             }
         }
+    });
+});
+
+describe('intrRay2AlignedBox2 DoQuery helpers', () => {
+    // The helpers take the ray in the box-centered coordinate system. The box
+    // below is already centered at the origin, so no translation is needed.
+    const b = box([-2, -1], [2, 1]);
+    const extent = vec([2, 1]);
+
+    it('the TI helper agrees with the class query', () => {
+        const cases: Array<[number, number, number, number]> = [
+            [-5, 0, 1, 0],
+            [5, 0, 1, 0],
+            [0, 0, 0, 1],
+            [-5, 3, 1, 0],
+            [-4, -3, 1, 1]
+        ];
+        for (const [px, py, dx, dy] of cases) {
+            const d = vec([dx, dy]);
+            normalize(d);
+            const result = defaultIntrLine2AlignedBox2TIResult();
+            intrRay2AlignedBox2TIDoQuery(vec([px, py]), d, extent, result);
+            const expected = new IntrRay2AlignedBox2TI().test(
+                Ray.fromOriginDirection(vec([px, py]), d), b);
+            expect(result.intersect).toBe(expected.intersect);
+        }
+    });
+
+    it('the FI helper clips to the ray t-interval and leaves points alone', () => {
+        const result = defaultIntrLine2AlignedBox2FIResult();
+        intrRay2AlignedBox2FIDoQuery(vec([0, 0]), vec([1, 0]), extent, result);
+        expect(result.intersect).toBe(true);
+        expect(result.numIntersections).toBe(2);
+        // The ray starts inside the box, so t0 is clamped to 0.
+        expect(result.parameter[0]).toBeCloseTo(0, 12);
+        expect(result.parameter[1]).toBeCloseTo(2, 12);
+        expect(result.point[0].values).toEqual([0, 0]);
+        expect(result.point[1].values).toEqual([0, 0]);
+    });
+
+    it('the FI helper rejects a ray pointing away from the box', () => {
+        const result = defaultIntrLine2AlignedBox2FIResult();
+        intrRay2AlignedBox2FIDoQuery(vec([-5, 0]), vec([-1, 0]), extent,
+            result);
+        expect(result.intersect).toBe(false);
     });
 });

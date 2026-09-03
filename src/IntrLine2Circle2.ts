@@ -13,8 +13,9 @@
 //
 // Port notes: see IntrIntervals.ts for the Intr* precedent. The upstream
 // 'protected void DoQuery(...)' helper (used by the Ray2/Segment2 versus
-// Circle2 queries, which derive from this class) becomes the protected method
-// 'doQuery' that mutates the passed-in result, as upstream does.
+// Circle2 queries, which derive from this class) is exported as the module
+// function 'intrLine2Circle2FIDoQuery', which mutates the passed-in result as
+// upstream does.
 
 import type { Hypersphere } from './Hypersphere.js';
 import type { Line } from './Line.js';
@@ -51,6 +52,44 @@ export function defaultIntrLine2Circle2FIResult(): IntrLine2Circle2FIResult {
     };
 }
 
+// The port of the protected 'FIQuery::DoQuery'. The caller must ensure that
+// on entry, 'result' is default constructed. The 'result' values are modified
+// in place.
+export function intrLine2Circle2FIDoQuery(lineOrigin: Vector,
+    lineDirection: Vector, circle: Hypersphere,
+    result: IntrLine2Circle2FIResult): void {
+    // Intersection of the line P+t*D and the circle |X-C| = R. The line
+    // direction is unit length. The t-value is a real-valued root to the
+    // quadratic equation
+    //   0 = |t*D+P-C|^2 - R^2
+    //     = t^2 + 2*Dot(D,P-C)*t + |P-C|^2-R^2
+    //     = t^2 + 2*a1*t + a0
+    // If there are two distinct roots, the order is t0 < t1.
+    const diff = sub(lineOrigin, circle.center);
+    const a0 = dot(diff, diff) - circle.radius * circle.radius;
+    const a1 = dot(lineDirection, diff);
+    const discr = a1 * a1 - a0;
+    if (discr > 0) {
+        const root = Math.sqrt(discr);
+        result.intersect = true;
+        result.numIntersections = 2;
+        result.parameter[0] = -a1 - root;
+        result.parameter[1] = -a1 + root;
+    } else if (discr < 0) {
+        result.intersect = false;
+        result.numIntersections = 0;
+    } else {
+        // The line is tangent to the circle. Set the parameters to the
+        // same number because other queries involving linear components
+        // and circular components use interval-interval intersection
+        // tests which consume both parameters.
+        result.intersect = true;
+        result.numIntersections = 1;
+        result.parameter[0] = -a1;
+        result.parameter[1] = -a1;
+    }
+}
+
 export class IntrLine2Circle2TI implements
     TIQuery<Line, Hypersphere, IntrLine2Circle2TIResult> {
 
@@ -68,45 +107,11 @@ export class IntrLine2Circle2FI implements
 
     find(line: Line, circle: Hypersphere): IntrLine2Circle2FIResult {
         const result = defaultIntrLine2Circle2FIResult();
-        this.doQuery(line.origin, line.direction, circle, result);
+        intrLine2Circle2FIDoQuery(line.origin, line.direction, circle, result);
         for (let i = 0; i < result.numIntersections; ++i) {
             result.point[i] = add(line.origin,
                 mul(result.parameter[i], line.direction));
         }
         return result;
-    }
-
-    protected doQuery(lineOrigin: Vector, lineDirection: Vector,
-        circle: Hypersphere, result: IntrLine2Circle2FIResult): void {
-        // Intersection of the line P+t*D and the circle |X-C| = R. The line
-        // direction is unit length. The t-value is a real-valued root to the
-        // quadratic equation
-        //   0 = |t*D+P-C|^2 - R^2
-        //     = t^2 + 2*Dot(D,P-C)*t + |P-C|^2-R^2
-        //     = t^2 + 2*a1*t + a0
-        // If there are two distinct roots, the order is t0 < t1.
-        const diff = sub(lineOrigin, circle.center);
-        const a0 = dot(diff, diff) - circle.radius * circle.radius;
-        const a1 = dot(lineDirection, diff);
-        const discr = a1 * a1 - a0;
-        if (discr > 0) {
-            const root = Math.sqrt(discr);
-            result.intersect = true;
-            result.numIntersections = 2;
-            result.parameter[0] = -a1 - root;
-            result.parameter[1] = -a1 + root;
-        } else if (discr < 0) {
-            result.intersect = false;
-            result.numIntersections = 0;
-        } else {
-            // The line is tangent to the circle. Set the parameters to the
-            // same number because other queries involving linear components
-            // and circular components use interval-interval intersection
-            // tests which consume both parameters.
-            result.intersect = true;
-            result.numIntersections = 1;
-            result.parameter[0] = -a1;
-            result.parameter[1] = -a1;
-        }
     }
 }

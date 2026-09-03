@@ -84,10 +84,6 @@ export class Vector {
         return this.values.length;
     }
 
-    getSize(): number {
-        return this.values.length;
-    }
-
     get(i: number): number {
         return this.values[i];
     }

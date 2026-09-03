@@ -9,9 +9,8 @@
 // Port notes: see IntrIntervals.ts for the Intr* precedent. Upstream derives
 // FIQuery<Segment2,Triangle2> from FIQuery<Line2,Triangle2> only to reuse the
 // protected DoQuery; the derived Result adds no members, so the result type
-// is an alias of the line-triangle result type. As in IntrLine2OrientedBox2,
-// the protected line-triangle helper is reached through a module-private
-// subclass, since TypeScript cannot narrow an inherited method parameter.
+// is an alias of the line-triangle result type. The protected line-triangle
+// helper is the exported module function 'intrLine2Triangle2DoQuery'.
 
 import type { TIQuery } from './TIQuery.js';
 import type { FIQuery } from './FIQuery.js';
@@ -19,7 +18,7 @@ import type { Segment } from './Segment.js';
 import type { Triangle } from './Triangle.js';
 import { Vector, add, mul, sub } from './Vector.js';
 import {
-    IntrLine2Triangle2FI,
+    intrLine2Triangle2DoQuery,
     defaultIntrLine2Triangle2FIResult
 } from './IntrLine2Triangle2.js';
 import type { IntrLine2Triangle2FIResult } from './IntrLine2Triangle2.js';
@@ -43,21 +42,13 @@ export function defaultIntrSegment2Triangle2FIResult(): IntrSegment2Triangle2FIR
     return defaultIntrLine2Triangle2FIResult();
 }
 
-// Expose the protected line-triangle helper to this module.
-class FIHelper extends IntrLine2Triangle2FI {
-    runDoQuery(origin: Vector, direction: Vector, triangle: Triangle,
-        result: IntrLine2Triangle2FIResult): void {
-        this.doQuery(origin, direction, triangle, result);
-    }
-}
-
 // The port of the protected 'FIQuery::DoQuery'. The caller must ensure that
 // on entry, 'result' is default constructed as if there is no intersection.
 // If an intersection is found, the 'result' values are modified accordingly.
 export function intrSegment2Triangle2DoQuery(origin: Vector,
     direction: Vector, triangle: Triangle,
     result: IntrSegment2Triangle2FIResult): void {
-    new FIHelper().runDoQuery(origin, direction, triangle, result);
+    intrLine2Triangle2DoQuery(origin, direction, triangle, result);
 
     if (result.intersect) {
         // The line containing the segment intersects the triangle; the

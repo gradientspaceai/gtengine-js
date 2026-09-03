@@ -9,10 +9,9 @@
 // Port notes: see IntrIntervals.ts for the Intr* precedent. Upstream provides
 // only an FIQuery specialization for this pair of primitives, which becomes
 // IntrRay3Cylinder3FI, and derives it from the Line3-vs-Cylinder3 query to
-// reuse the protected DoQuery helper; as in IntrSegment3Cylinder3, the port
-// reaches that helper through a module-private accessor subclass. The
-// ray-specific DoQuery helper is exported as the module function
-// 'intrRay3Cylinder3FIDoQuery'.
+// reuse the protected DoQuery helper, which the port exports as the module
+// function 'intrLine3Cylinder3FIDoQuery'. The ray-specific DoQuery helper is
+// exported as the module function 'intrRay3Cylinder3FIDoQuery'.
 //
 // As in IntrLine3Cylinder3 and IntrSegment3Cylinder3, upstream has no
 // infinite-cylinder branch: it reads cylinder.height directly, so an infinite
@@ -25,7 +24,7 @@ import type { Cylinder3 } from './Cylinder3.js';
 import type { FIQuery } from './FIQuery.js';
 import { IntrIntervalsFI } from './IntrIntervals.js';
 import {
-    IntrLine3Cylinder3FI,
+    intrLine3Cylinder3FIDoQuery,
     defaultIntrLine3Cylinder3FIResult
 } from './IntrLine3Cylinder3.js';
 import type { IntrLine3Cylinder3FIResult } from './IntrLine3Cylinder3.js';
@@ -42,21 +41,13 @@ export function defaultIntrRay3Cylinder3FIResult():
     return defaultIntrLine3Cylinder3FIResult();
 }
 
-// Expose the protected line-cylinder helper to this module.
-class LineCylinderFIAccess extends IntrLine3Cylinder3FI {
-    run(lineOrigin: Vector, lineDirection: Vector, cylinder: Cylinder3,
-        result: IntrLine3Cylinder3FIResult): void {
-        this.doQuery(lineOrigin, lineDirection, cylinder, result);
-    }
-}
-
 // The port of the protected 'FIQuery::DoQuery'. The caller must ensure that
 // on entry, 'result' is default constructed as if there is no intersection.
 // If an intersection is found, the 'result' values are modified accordingly.
 export function intrRay3Cylinder3FIDoQuery(rayOrigin: Vector,
     rayDirection: Vector, cylinder: Cylinder3,
     result: IntrRay3Cylinder3FIResult): void {
-    new LineCylinderFIAccess().run(rayOrigin, rayDirection, cylinder, result);
+    intrLine3Cylinder3FIDoQuery(rayOrigin, rayDirection, cylinder, result);
 
     if (result.intersect) {
         // The line containing the ray intersects the cylinder; the t-interval

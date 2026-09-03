@@ -32,6 +32,7 @@
 
 import { Vector, add, sub, div, length } from './Vector.js';
 import { dotCross, cross } from './Vector3.js';
+import { logError } from './Logger.js';
 
 export class Polyhedron3 {
     private mVertexPool: Vector[] | null;
@@ -89,7 +90,7 @@ export class Polyhedron3 {
     // in that case).
     getVertices(): Vector[] {
         if (this.mVertexPool === null) {
-            throw new Error('Polyhedron3: the vertex pool is null.');
+            logError('Polyhedron3: the vertex pool is null.');
         }
         return this.mVertexPool;
     }

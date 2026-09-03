@@ -13,7 +13,7 @@ describe('GVector construction and sizing', () => {
 
     it('GVector(size) zero-fills', () => {
         const v = new GVector(3);
-        expect(v.getSize()).toBe(3);
+        expect(v.size).toBe(3);
         expect(v.values).toEqual([0, 0, 0]);
     });
 

@@ -10,8 +10,8 @@
 //
 // Port notes: see IntrIntervals.ts for the Intr* precedent. Upstream derives
 // the FIQuery from the Line3-vs-Capsule3 query to reuse the protected DoQuery
-// helper; as in IntrSegment3Cylinder3, the port reaches that helper through a
-// module-private accessor subclass. The segment-specific DoQuery helper is
+// helper, which the port exports as the module function
+// 'intrLine3Capsule3FIDoQuery'. The segment-specific DoQuery helper is
 // exported as the module function 'intrSegment3Capsule3FIDoQuery'. The
 // reported parameters are relative to the centered form of the segment,
 // C + t * D with |t| <= e, as upstream reports them.
@@ -21,7 +21,7 @@ import { DistSegmentSegment } from './DistSegmentSegment.js';
 import type { FIQuery } from './FIQuery.js';
 import { IntrIntervalsFI } from './IntrIntervals.js';
 import {
-    IntrLine3Capsule3FI,
+    intrLine3Capsule3FIDoQuery,
     defaultIntrLine3Capsule3FIResult
 } from './IntrLine3Capsule3.js';
 import type { IntrLine3Capsule3FIResult } from './IntrLine3Capsule3.js';
@@ -48,21 +48,13 @@ export function defaultIntrSegment3Capsule3FIResult():
     return defaultIntrLine3Capsule3FIResult();
 }
 
-// Expose the protected line-capsule helper to this module.
-class LineCapsuleFIAccess extends IntrLine3Capsule3FI {
-    run(lineOrigin: Vector, lineDirection: Vector, capsule: Capsule3,
-        result: IntrLine3Capsule3FIResult): void {
-        this.doQuery(lineOrigin, lineDirection, capsule, result);
-    }
-}
-
 // The port of the protected 'FIQuery::DoQuery'. The caller must ensure that
 // on entry, 'result' is default constructed as if there is no intersection.
 // If an intersection is found, the 'result' values are modified accordingly.
 export function intrSegment3Capsule3FIDoQuery(segOrigin: Vector,
     segDirection: Vector, segExtent: number, capsule: Capsule3,
     result: IntrSegment3Capsule3FIResult): void {
-    new LineCapsuleFIAccess().run(segOrigin, segDirection, capsule, result);
+    intrLine3Capsule3FIDoQuery(segOrigin, segDirection, capsule, result);
 
     if (result.intersect) {
         // The line containing the segment intersects the capsule; the

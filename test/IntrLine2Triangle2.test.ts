@@ -7,6 +7,10 @@ import {
     IntrLine2Triangle2TI,
     IntrLine2Triangle2FI
 } from '../src/IntrLine2Triangle2.js';
+import {
+    intrLine2Triangle2DoQuery,
+    defaultIntrLine2Triangle2FIResult
+} from '../src/IntrLine2Triangle2.js';
 
 function line(px: number, py: number, dx: number, dy: number): Line {
     return Line.fromOriginDirection(Vector.fromArray([px, py]),
@@ -166,5 +170,31 @@ describe('IntrLine2Triangle2', () => {
         }
         expect(numHit).toBeGreaterThan(50);
         expect(numMiss).toBeGreaterThan(50);
+    });
+});
+
+describe('intrLine2Triangle2DoQuery', () => {
+    const tri = triangle([0, 0], [4, 0], [0, 4]);
+
+    it('matches the class query but does not compute points', () => {
+        const l = line(-1, 1, 1, 0);
+        const result = defaultIntrLine2Triangle2FIResult();
+        intrLine2Triangle2DoQuery(l.origin, l.direction, tri, result);
+        const expected = new IntrLine2Triangle2FI().find(l, tri);
+        expect(result.intersect).toBe(expected.intersect);
+        expect(result.numIntersections).toBe(expected.numIntersections);
+        expect(result.parameter[0]).toBeCloseTo(expected.parameter[0], 12);
+        expect(result.parameter[1]).toBeCloseTo(expected.parameter[1], 12);
+        // DoQuery leaves 'point' at its default value.
+        expect(result.point[0].values).toEqual([0, 0]);
+        expect(result.point[1].values).toEqual([0, 0]);
+    });
+
+    it('reports no intersection for a line missing the triangle', () => {
+        const result = defaultIntrLine2Triangle2FIResult();
+        intrLine2Triangle2DoQuery(Vector.fromArray([-1, 5]),
+            Vector.fromArray([1, 0]), tri, result);
+        expect(result.intersect).toBe(false);
+        expect(result.numIntersections).toBe(0);
     });
 });

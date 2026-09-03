@@ -35,7 +35,7 @@
 // Port notes: see DistPointLine.ts for the Dist* family conventions. The
 // upstream specialization 'DCPQuery<T, Circle2<T>, Circle2<T>>' becomes the
 // class DistCircle2Circle2 with the result type DistCircle2Circle2Result. The
-// private helper 'DoQuery' becomes the private method doQuery.
+// private helper 'DoQuery' becomes the module-private function doQuery.
 
 import type { DCPQuery } from './DCPQuery.js';
 import type { Circle2 } from './Hypersphere.js';
@@ -70,30 +70,36 @@ function defaultResult(): DistCircle2Circle2Result {
     };
 }
 
-export class DistCircle2Circle2
-    implements DCPQuery<Circle2, Circle2, DistCircle2Circle2Result> {
-    compute(circle0: Circle2, circle1: Circle2): DistCircle2Circle2Result {
-        const result = defaultResult();
-        if (circle0.radius >= circle1.radius) {
-            this.doQuery(circle0, circle1, result);
+// The port of the private helper 'DoQuery'. The query requires
+// circle0.radius >= circle1.radius.
+function doQuery(circle0: Circle2, circle1: Circle2,
+    result: DistCircle2Circle2Result): void {
+    if (circle0.center.notEquals(circle1.center)) {
+        const delta = sub(circle1.center, circle0.center);
+        const lenDelta = length(delta);
+        const rSum = circle0.radius + circle1.radius;
+        let distance = lenDelta - rSum;
+        if (distance >= 0) {
+            // Configurations 1 or 2 for the case numClosestPairs = 1.
+            // Configuration 2 occurs when lenDelta equals rSum.
+            result.distance = distance;
+            result.sqrDistance = distance * distance;
+            result.numClosestPairs = 1;
+            normalize(delta);
+            result.closest[0][0] =
+                add(circle0.center, mul(circle0.radius, delta));
+            if (distance > 0) {
+                result.closest[0][1] =
+                    sub(circle1.center, mul(circle1.radius, delta));
+            }
+            else {
+                result.closest[0][1] = result.closest[0][0].clone();
+            }
         }
         else {
-            this.doQuery(circle1, circle0, result);
-        }
-        return result;
-    }
-
-    // The query requires circle0.radius >= circle1.radius.
-    private doQuery(circle0: Circle2, circle1: Circle2,
-        result: DistCircle2Circle2Result): void {
-        if (circle0.center.notEquals(circle1.center)) {
-            const delta = sub(circle1.center, circle0.center);
-            const lenDelta = length(delta);
-            const rSum = circle0.radius + circle1.radius;
-            let distance = lenDelta - rSum;
+            const rDif = circle0.radius - circle1.radius;
+            distance = rDif - lenDelta;
             if (distance >= 0) {
-                // Configurations 1 or 2 for the case numClosestPairs = 1.
-                // Configuration 2 occurs when lenDelta equals rSum.
                 result.distance = distance;
                 result.sqrDistance = distance * distance;
                 result.numClosestPairs = 1;
@@ -102,69 +108,64 @@ export class DistCircle2Circle2
                     add(circle0.center, mul(circle0.radius, delta));
                 if (distance > 0) {
                     result.closest[0][1] =
-                        sub(circle1.center, mul(circle1.radius, delta));
+                        add(circle1.center, mul(circle1.radius, delta));
                 }
                 else {
                     result.closest[0][1] = result.closest[0][0].clone();
                 }
             }
             else {
-                const rDif = circle0.radius - circle1.radius;
-                distance = rDif - lenDelta;
-                if (distance >= 0) {
-                    result.distance = distance;
-                    result.sqrDistance = distance * distance;
-                    result.numClosestPairs = 1;
-                    normalize(delta);
-                    result.closest[0][0] =
-                        add(circle0.center, mul(circle0.radius, delta));
-                    if (distance > 0) {
-                        result.closest[0][1] =
-                            add(circle1.center, mul(circle1.radius, delta));
-                    }
-                    else {
-                        result.closest[0][1] = result.closest[0][0].clone();
-                    }
-                }
-                else {
-                    // Let D = C1 - C0. The circles intersect at the points
-                    // X = C0 + u * D + v * Perp(D) for some u in (0,1). We
-                    // know r0^2 = |X-C0|^2 and r1^2 = |X-C1|^2, which leads to
-                    //   r0^2 = (u^2 + v^2) * |D|^2
-                    //   r1^2 = ((u-1)^2 + v^2) * |D|^2
-                    // The solutions are u = (1 + (r0^2 - r1^2)/|D|^2)/2 and
-                    // v = +/- (r0^2 / |D|^2 - u^2).
-                    const rSumDivLen = rSum / lenDelta;
-                    const rDifDivLen = rDif / lenDelta;
-                    const r0DivLen = circle0.radius / lenDelta;
-                    const u = 0.5 * (1 + rSumDivLen * rDifDivLen);
-                    const v = Math.sqrt(
-                        Math.max(r0DivLen * r0DivLen - u * u, 0));
+                // Let D = C1 - C0. The circles intersect at the points
+                // X = C0 + u * D + v * Perp(D) for some u in (0,1). We
+                // know r0^2 = |X-C0|^2 and r1^2 = |X-C1|^2, which leads to
+                //   r0^2 = (u^2 + v^2) * |D|^2
+                //   r1^2 = ((u-1)^2 + v^2) * |D|^2
+                // The solutions are u = (1 + (r0^2 - r1^2)/|D|^2)/2 and
+                // v = +/- (r0^2 / |D|^2 - u^2).
+                const rSumDivLen = rSum / lenDelta;
+                const rDifDivLen = rDif / lenDelta;
+                const r0DivLen = circle0.radius / lenDelta;
+                const u = 0.5 * (1 + rSumDivLen * rDifDivLen);
+                const v = Math.sqrt(
+                    Math.max(r0DivLen * r0DivLen - u * u, 0));
 
-                    result.distance = 0;
-                    result.sqrDistance = 0;
-                    result.numClosestPairs = 2;
-                    const temp0 = add(circle0.center, mul(u, delta));
-                    const temp1 = mul(v, perp(delta));
-                    result.closest[0][0] = add(temp0, temp1);
-                    result.closest[0][1] = result.closest[0][0].clone();
-                    result.closest[1][0] = sub(temp0, temp1);
-                    result.closest[1][1] = result.closest[1][0].clone();
-                }
+                result.distance = 0;
+                result.sqrDistance = 0;
+                result.numClosestPairs = 2;
+                const temp0 = add(circle0.center, mul(u, delta));
+                const temp1 = mul(v, perp(delta));
+                result.closest[0][0] = add(temp0, temp1);
+                result.closest[0][1] = result.closest[0][0].clone();
+                result.closest[1][0] = sub(temp0, temp1);
+                result.closest[1][1] = result.closest[1][0].clone();
             }
         }
-        else {
-            result.distance = Math.abs(circle0.radius - circle1.radius);
-            result.sqrDistance = result.distance * result.distance;
-            result.numClosestPairs = 2;
-            const offset0 = Vector.fromArray([circle0.radius, 0]);
-            const offset1 = Vector.fromArray([circle1.radius, 0]);
-            result.closest[0][0] = sub(circle0.center, offset0);
-            result.closest[0][1] = sub(circle1.center, offset1);
-            result.closest[1][0] = add(circle0.center, offset0);
-            result.closest[1][1] = add(circle1.center, offset1);
-            result.concentric = true;
-            result.cocircular = (circle0.radius === circle1.radius);
+    }
+    else {
+        result.distance = Math.abs(circle0.radius - circle1.radius);
+        result.sqrDistance = result.distance * result.distance;
+        result.numClosestPairs = 2;
+        const offset0 = Vector.fromArray([circle0.radius, 0]);
+        const offset1 = Vector.fromArray([circle1.radius, 0]);
+        result.closest[0][0] = sub(circle0.center, offset0);
+        result.closest[0][1] = sub(circle1.center, offset1);
+        result.closest[1][0] = add(circle0.center, offset0);
+        result.closest[1][1] = add(circle1.center, offset1);
+        result.concentric = true;
+        result.cocircular = (circle0.radius === circle1.radius);
+    }
+}
+
+export class DistCircle2Circle2
+    implements DCPQuery<Circle2, Circle2, DistCircle2Circle2Result> {
+    compute(circle0: Circle2, circle1: Circle2): DistCircle2Circle2Result {
+        const result = defaultResult();
+        if (circle0.radius >= circle1.radius) {
+            doQuery(circle0, circle1, result);
         }
+        else {
+            doQuery(circle1, circle0, result);
+        }
+        return result;
     }
 }

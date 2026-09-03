@@ -237,7 +237,7 @@ export class NearestNeighborQuery {
         logAssert(this.mMaxLevel > 0 && this.mMaxLevel <= 32, 'Invalid max level.');
 
         const numSites = sites.length;
-        this.mDimension = numSites > 0 ? sites[0].getPosition().getSize() : 0;
+        this.mDimension = numSites > 0 ? sites[0].getPosition().size : 0;
         for (let i = 0; i < numSites; ++i) {
             this.mSortedPoints[i] = { position: sites[i].getPosition(), index: i };
         }

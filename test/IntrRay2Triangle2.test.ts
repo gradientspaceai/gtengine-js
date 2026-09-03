@@ -8,6 +8,9 @@ import {
     IntrRay2Triangle2TI,
     IntrRay2Triangle2FI
 } from '../src/IntrRay2Triangle2.js';
+import { intrRay2Triangle2DoQuery } from '../src/IntrRay2Triangle2.js';
+import { defaultIntrLine2Triangle2FIResult }
+    from '../src/IntrLine2Triangle2.js';
 
 function vec(a: number[]): Vector {
     return Vector.fromArray(a);
@@ -162,5 +165,31 @@ describe('IntrRay2Triangle2', () => {
                 expect(result.parameter[1] - tHi).toBeLessThan(3e-3);
             }
         }
+    });
+});
+
+describe('intrRay2Triangle2DoQuery', () => {
+    const tri = Triangle.fromVertices(vec([0, 0]), vec([4, 0]), vec([0, 4]));
+
+    it('matches the class query but does not compute points', () => {
+        const r = ray([-1, 1], [1, 0]);
+        const result = defaultIntrLine2Triangle2FIResult();
+        intrRay2Triangle2DoQuery(r.origin, r.direction, tri, result);
+        const expected = new IntrRay2Triangle2FI().find(r, tri);
+        expect(result.intersect).toBe(expected.intersect);
+        expect(result.numIntersections).toBe(expected.numIntersections);
+        expect(result.parameter[0]).toBeCloseTo(expected.parameter[0], 12);
+        expect(result.parameter[1]).toBeCloseTo(expected.parameter[1], 12);
+        // DoQuery leaves 'point' at its default value.
+        expect(result.point[0].values).toEqual([0, 0]);
+        expect(result.point[1].values).toEqual([0, 0]);
+    });
+
+    it('rejects a ray whose supporting line hits behind the origin', () => {
+        const r = ray([-1, 1], [-1, 0]);
+        const result = defaultIntrLine2Triangle2FIResult();
+        intrRay2Triangle2DoQuery(r.origin, r.direction, tri, result);
+        expect(result.intersect).toBe(false);
+        expect(result.numIntersections).toBe(0);
     });
 });

@@ -6,6 +6,10 @@ import {
     IntrLine2Circle2TI,
     IntrLine2Circle2FI
 } from '../src/IntrLine2Circle2.js';
+import {
+    intrLine2Circle2FIDoQuery,
+    defaultIntrLine2Circle2FIResult
+} from '../src/IntrLine2Circle2.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -141,5 +145,40 @@ describe('IntrLine2Circle2', () => {
         expect(result.numIntersections).toBe(2);
         expect(result.parameter[0]).toBeLessThan(0);
         expect(result.parameter[1]).toBeGreaterThan(0);
+    });
+});
+
+describe('intrLine2Circle2FIDoQuery', () => {
+    it('matches the class query but does not compute points', () => {
+        const c = circle(0, 0, 1);
+        const l = line(-5, 0, 1, 0);
+        const result = defaultIntrLine2Circle2FIResult();
+        intrLine2Circle2FIDoQuery(l.origin, l.direction, c, result);
+        const expected = new IntrLine2Circle2FI().find(l, c);
+        expect(result.intersect).toBe(true);
+        expect(result.numIntersections).toBe(2);
+        expect(result.parameter[0]).toBeCloseTo(expected.parameter[0], 12);
+        expect(result.parameter[1]).toBeCloseTo(expected.parameter[1], 12);
+        // DoQuery leaves 'point' at its default value.
+        expect(result.point[0].values).toEqual([0, 0]);
+        expect(result.point[1].values).toEqual([0, 0]);
+    });
+
+    it('reports a tangent line as a single intersection', () => {
+        const result = defaultIntrLine2Circle2FIResult();
+        intrLine2Circle2FIDoQuery(v2(-5, 1), v2(1, 0), circle(0, 0, 1),
+            result);
+        expect(result.intersect).toBe(true);
+        expect(result.numIntersections).toBe(1);
+        expect(result.parameter[0]).toBeCloseTo(5, 12);
+        expect(result.parameter[1]).toBe(result.parameter[0]);
+    });
+
+    it('reports no intersection for a missing line', () => {
+        const result = defaultIntrLine2Circle2FIResult();
+        intrLine2Circle2FIDoQuery(v2(-5, 2), v2(1, 0), circle(0, 0, 1),
+            result);
+        expect(result.intersect).toBe(false);
+        expect(result.numIntersections).toBe(0);
     });
 });

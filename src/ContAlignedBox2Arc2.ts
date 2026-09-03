@@ -20,6 +20,7 @@
 import { AlignedBox } from './AlignedBox.js';
 import { Arc2 } from './Arc2.js';
 import { Vector, computeExtremes } from './Vector.js';
+import { logError } from './Logger.js';
 
 // Compute the smallest-area axis-aligned box containing the arc.
 //
@@ -51,7 +52,7 @@ export function getContainerAlignedBox2Arc2(arc: Arc2): AlignedBox {
     // arc endpoints, so computeExtremes cannot fail.
     const extremes = computeExtremes(points);
     if (extremes === null) {
-        throw new Error('getContainerAlignedBox2Arc2: unreachable.');
+        logError('getContainerAlignedBox2Arc2: unreachable.');
     }
     return AlignedBox.fromMinMax(extremes.vmin, extremes.vmax);
 }
