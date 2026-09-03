@@ -234,12 +234,24 @@ export class Matrix {
         return 0;
     }
 
+    // Equality is element-by-element, as std::array's operator==, not the
+    // "compare() === 0" of the ordering operators. The two differ only for
+    // NaN elements: 'NaN == NaN' is false, so a table with a NaN element is
+    // not equal to itself, while the lexicographic compare treats NaN as
+    // equivalent (neither < nor >).
     equals(mat: Matrix): boolean {
-        return this.compare(mat) === 0;
+        logAssert(this.mNumRows === mat.mNumRows
+            && this.mNumCols === mat.mNumCols, 'Matrix: mismatched sizes.');
+        for (let i = 0; i < this.values.length; ++i) {
+            if (!(this.values[i] === mat.values[i])) {
+                return false;
+            }
+        }
+        return true;
     }
 
     notEquals(mat: Matrix): boolean {
-        return this.compare(mat) !== 0;
+        return !this.equals(mat);
     }
 
     lessThan(mat: Matrix): boolean {
@@ -377,6 +389,14 @@ export function l2Norm(M: Matrix): number {
     return Math.sqrt(sum);
 }
 
+// Note: upstream has two versions of this function. Matrix.h seeds the
+// maximum with fabs(M[0]) and GMatrix.h seeds it with 0. They agree except
+// when element 0 is NaN, where Matrix.h returns NaN and GMatrix.h returns the
+// largest absolute value among the remaining elements (a NaN at any other
+// index is ignored by both, since 'absElement > maxAbsElement' is false for
+// NaN). The port has one shared implementation, GMatrix.h's, which also keeps
+// the norm of the empty 0-by-0 GMatrix equal to 0 rather than reading a
+// nonexistent element 0.
 export function lInfinityNorm(M: Matrix): number {
     let maxAbsElement = 0;
     for (let i = 0; i < M.numElements; ++i) {

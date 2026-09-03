@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
+    check, vector, wellScaledVector, expectClose, expectVectorClose, fc
+} from './helpers/arbitraries.js';
+import {
     hyperCross, unitHyperCross, dotHyperCross, computeOrthogonalComplement4
 } from '../src/Vector4.js';
-import { Vector, dot, length, negate } from '../src/Vector.js';
+import { Vector, dot, length, mul, negate } from '../src/Vector.js';
 import { Matrix, determinant } from '../src/Matrix.js';
 
 const e0 = () => Vector.fromArray([1, 0, 0, 0]);
@@ -268,5 +271,203 @@ describe('computeOrthogonalComplement4', () => {
             new Vector(4), new Vector(4)];
         expect(() => computeOrthogonalComplement4(1, v))
             .toThrow('Vector4: vector must have size 4.');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave: property-based checks against upstream Vector4.h.
+// ---------------------------------------------------------------------------
+
+describe('Vector4 verification', () => {
+    it('hyperCross negates exactly when its first two arguments swap', () => {
+        check(fc.tuple(vector(4), vector(4), vector(4)), ([a, b, c]) => {
+            // Swapping v0 and v1 negates every 2x2 minor exactly (x*y is
+            // commutative and u - v is the exact negation of v - u), and
+            // round-to-nearest is symmetric under negation, so the whole
+            // result negates bit for bit. Swaps involving v2 rearrange which
+            // products are formed and are only algebraically antisymmetric;
+            // they are checked with a tolerance below.
+            const h = hyperCross(a, b, c);
+            const swapped = hyperCross(b, a, c);
+            for (let i = 0; i < 4; ++i) {
+                // '+ 0' normalizes the -0 that -0 + -0 produces.
+                expect(h.get(i) + swapped.get(i) + 0).toBe(0);
+            }
+            // Repeating the first two arguments makes every 2x2 minor
+            // exactly zero, so the result is exactly the zero vector.
+            expect(hyperCross(a, a, c).values.map(x => x + 0))
+                .toEqual([0, 0, 0, 0]);
+        });
+    });
+
+    it('hyperCross is orthogonal to each of its three arguments', () => {
+        check(fc.tuple(wellScaledVector(4), wellScaledVector(4),
+            wellScaledVector(4)), ([a, b, c]) => {
+            const h = hyperCross(a, b, c);
+            // Dot(h, a) is the determinant of a matrix with a repeated row:
+            // exactly zero in exact arithmetic, so the residual is pure
+            // round-off, bounded relative to the product of the row norms.
+            const scale = length(a) * length(b) * length(c);
+            expectClose(dot(h, a), 0, 1e-12 * scale * length(a), 0);
+            expectClose(dot(h, b), 0, 1e-12 * scale * length(b), 0);
+            expectClose(dot(h, c), 0, 1e-12 * scale * length(c), 0);
+            // Repeating an argument other than the first two only cancels up
+            // to rounding, since the 2x2 minors are not exactly zero there.
+            expectVectorClose(hyperCross(a, b, b), new Vector(4),
+                1e-12 * length(a) * length(b) * length(b), 0);
+            expectVectorClose(hyperCross(a, b, a), new Vector(4),
+                1e-12 * length(a) * length(a) * length(b), 0);
+            // Swapping an argument into or out of the v2 slot rearranges the
+            // products, so this antisymmetry holds only up to rounding.
+            for (const swapped of [hyperCross(a, c, b), hyperCross(c, b, a)]) {
+                for (let i = 0; i < 4; ++i) {
+                    expectClose(h.get(i) + swapped.get(i), 0, 1e-12 * scale, 0);
+                }
+            }
+        });
+    });
+
+    it('dotHyperCross is the 4x4 determinant of the rows v3, v0, v1, v2',
+        () => {
+            check(fc.tuple(wellScaledVector(4), wellScaledVector(4),
+                wellScaledVector(4), wellScaledVector(4)),
+                ([v0, v1, v2, v3]) => {
+                    const M = Matrix.fromArray(4, 4, [...v3.values,
+                        ...v0.values, ...v1.values, ...v2.values]);
+                    // Gaussian elimination with full pivoting is an
+                    // independent algorithm; the tolerance is relative to the
+                    // Hadamard bound (the product of the row norms).
+                    const bound = length(v0) * length(v1) * length(v2)
+                        * length(v3);
+                    expectClose(dotHyperCross(v0, v1, v2, v3), determinant(M),
+                        1e-11 * bound, 0);
+                    // Antisymmetry: a repeated argument gives zero.
+                    expect(dotHyperCross(v0, v1, v2, v2) + 0).toBe(0);
+                    expect(dotHyperCross(v0, v0, v2, v3) + 0).toBe(0);
+                });
+        });
+
+    it('unitHyperCross is the normalized hypercross product', () => {
+        check(fc.tuple(vector(4), vector(4), vector(4), fc.boolean()),
+            ([a, b, c, robust]) => {
+                const h = hyperCross(a, b, c);
+                const len = length(h);
+                if (len < 1e-2) {
+                    return;   // near-dependent inputs
+                }
+                const u = unitHyperCross(a, b, c, robust);
+                expectClose(length(u), 1, 1e-12, 1e-12);
+                expectVectorClose(mul(u, len), h, 1e-9, 1e-9);
+                // Upstream does not modify its inputs.
+                expect(hyperCross(a, b, c).values).toEqual(h.values);
+            });
+        // Linearly dependent inputs give the zero hypercross, which Normalize
+        // maps to the zero vector.
+        const e0 = Vector.fromArray([1, 0, 0, 0]);
+        const e1 = Vector.fromArray([0, 1, 0, 0]);
+        expect(unitHyperCross(e0, e1, e0).values.map(x => x + 0))
+            .toEqual([0, 0, 0, 0]);
+    });
+
+    it('computeOrthogonalComplement4 extends 1, 2 or 3 inputs to a '
+        + 'right-handed orthonormal basis', () => {
+        check(fc.tuple(vector(4), vector(4), vector(4),
+            fc.integer({ min: 1, max: 3 }), fc.boolean()),
+            ([a, b, c, numInputs, robust]) => {
+                const v = [a.clone(), b.clone(), c.clone(),
+                    new Vector(4)].slice(0, numInputs);
+                const minLength = computeOrthogonalComplement4(numInputs, v,
+                    robust);
+                if (minLength < 1e-2) {
+                    return;   // near-dependent inputs; upstream returns ~0
+                }
+                expect(v.length).toBe(4);
+                for (let i = 0; i < 4; ++i) {
+                    expect(v[i].size).toBe(4);
+                    expectClose(length(v[i]), 1, 1e-9, 1e-9);
+                    for (let j = 0; j < i; ++j) {
+                        expectClose(dot(v[i], v[j]), 0, 1e-9, 1e-9);
+                    }
+                }
+                // v[3] is assigned HyperCross(v[0], v[1], v[2]) before the
+                // Gram-Schmidt pass, so the frame is right handed.
+                expectClose(dotHyperCross(v[0], v[1], v[2], v[3]), 1,
+                    1e-9, 1e-9);
+                // The first numInputs directions still span the input span.
+                expectClose(minLength, minLength, 0, 0);
+            });
+    });
+
+    it('computeOrthogonalComplement4 picks v[1] by the largest component',
+        () => {
+            // Upstream branches on the index of the largest |component| of
+            // v[0] before any normalization: index 0 or 1 gives
+            // (-x1, +x0, 0, 0), index 3 gives (0, +x2, -x1, 0) [so that
+            // affine 3D vectors with w = 0 work], index 2 gives
+            // (0, 0, -x3, +x2).
+            const run = (a: number[]): number[] => {
+                const v = [Vector.fromArray(a)];
+                computeOrthogonalComplement4(1, v);
+                return v[1].values;
+            };
+            // Largest at index 1: (-x1, +x0, 0, 0) before orthonormalizing,
+            // which leaves v[1] in the e0-e1 plane.
+            const v1a = run([1, 5, 2, 3]);
+            expect(v1a[2]).toBe(0);
+            expect(v1a[3]).toBe(0);
+            // Largest at index 2: (0, 0, -x3, +x2), in the e2-e3 plane.
+            const v1b = run([1, 2, 9, 3]);
+            expect(v1b[0]).toBe(0);
+            expect(v1b[1]).toBe(0);
+            // Largest at index 3: (0, +x2, -x1, 0), in the e1-e2 plane.
+            const v1c = run([1, 2, 3, 9]);
+            expect(v1c[0]).toBe(0);
+            expect(v1c[3]).toBe(0);
+        });
+
+    it('computeOrthogonalComplement4 handles affine 3D vectors (w = 0)',
+        () => {
+            // The maxIndex == 3 clause exists so that a 3-tuple written as a
+            // 4-tuple with w = 0 still produces a usable basis.
+            check(vector(3).filter(u => length(u) > 1e-2), u => {
+                const v = [Vector.fromArray([...u.values, 0])];
+                const minLength = computeOrthogonalComplement4(1, v);
+                if (minLength < 1e-2) {
+                    return;
+                }
+                for (let i = 0; i < 4; ++i) {
+                    expectClose(length(v[i]), 1, 1e-9, 1e-9);
+                    for (let j = 0; j < i; ++j) {
+                        expectClose(dot(v[i], v[j]), 0, 1e-9, 1e-9);
+                    }
+                }
+            });
+        });
+
+    it('computeOrthogonalComplement4 returns 0 for unsupported numInputs',
+        () => {
+            check(fc.integer({ min: -2, max: 6 }).filter(n => n < 1 || n > 3),
+                n => {
+                    const v = [Vector.fromArray([1, 0, 0, 0]),
+                        Vector.fromArray([0, 1, 0, 0]),
+                        Vector.fromArray([0, 0, 1, 0]),
+                        Vector.fromArray([0, 0, 0, 1])];
+                    expect(computeOrthogonalComplement4(n, v)).toBe(0);
+                    // The inputs are untouched.
+                    expect(v[0].values).toEqual([1, 0, 0, 0]);
+                });
+        });
+
+    it('every entry point requires 4-tuples', () => {
+        const bad = Vector.fromArray([1, 2, 3]);
+        const ok = Vector.fromArray([1, 0, 0, 0]);
+        const msg = 'Vector4: vector must have size 4.';
+        expect(() => hyperCross(bad, ok, ok)).toThrow(msg);
+        expect(() => hyperCross(ok, bad, ok)).toThrow(msg);
+        expect(() => hyperCross(ok, ok, bad)).toThrow(msg);
+        expect(() => unitHyperCross(bad, ok, ok)).toThrow(msg);
+        expect(() => dotHyperCross(bad, ok, ok, ok)).toThrow(msg);
+        expect(() => computeOrthogonalComplement4(1, [bad])).toThrow(msg);
+        expect(() => computeOrthogonalComplement4(2, [ok, bad])).toThrow(msg);
     });
 });

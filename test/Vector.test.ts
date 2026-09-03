@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-    check, finite, nonzero, vector, expectClose, expectVectorClose, fc
+    check, finite, nonzero, vector, wellScaledVector, expectClose,
+    expectVectorClose, fc
 } from './helpers/arbitraries.js';
 import {
     Vector, negate, add, sub, mul, div, compMul, compDiv,
@@ -314,10 +315,36 @@ describe('Vector verification', () => {
     it('length equals sqrt(dot(v, v)) and the robust path agrees', () => {
         check(vector(5), v => {
             expect(length(v)).toBe(Math.sqrt(dot(v, v)));
-            // The robust path rescales by the largest |component| before
-            // squaring, so it differs only by rounding of that scaling.
+        });
+        // The robust path rescales by the largest |component| before squaring,
+        // so it differs only by rounding of that scaling. It needs well-scaled
+        // components: see the upstream-quirk test below.
+        check(wellScaledVector(5), v => {
             expectClose(length(v, true), length(v, false), 1e-12, 1e-12);
         });
+    });
+
+    it('the robust path really avoids overflow for huge components', () => {
+        // This is what robust=true is for: Dot(v, v) overflows to infinity but
+        // the rescaled computation does not.
+        const big = Vector.fromArray([3e200, 4e200, 0]);
+        expect(length(big, false)).toBe(Infinity);
+        expectClose(length(big, true), 5e200, 0, 1e-12);
+        const u = big.clone();
+        expectClose(normalize(u, true), 5e200, 0, 1e-12);
+        expectVectorClose(u, Vector.fromArray([0.6, 0.8, 0]), 1e-12, 1e-12);
+    });
+
+    it('the robust path yields NaN for subnormal components (upstream)', () => {
+        // Upstream quirk, preserved: Length/Normalize with robust=true divide
+        // by maxAbsComp using operator/=, which multiplies by 1/maxAbsComp.
+        // When maxAbsComp < ~5.6e-309 that reciprocal overflows to infinity,
+        // so 0 * infinity = NaN. Reported as an upstream bug suspect.
+        const tiny = Vector.fromArray([0, 5e-324, 0]);
+        expect(length(tiny, false)).toBe(0);   // Dot underflows to 0
+        expect(Number.isNaN(length(tiny, true))).toBe(true);
+        const u = tiny.clone();
+        expect(Number.isNaN(normalize(u, true))).toBe(true);
     });
 
     it('normalize returns the input length and leaves a unit vector', () => {
@@ -366,7 +393,10 @@ describe('Vector verification', () => {
     });
 
     it('orthonormalize produces an orthonormal set and the minimum length', () => {
-        check(fc.tuple(fc.array(vector(4), { minLength: 4, maxLength: 4 }),
+        // Well-scaled components: the non-robust Normalize loses accuracy when
+        // Dot(v, v) underflows, and the robust one is NaN for subnormals.
+        check(fc.tuple(fc.array(wellScaledVector(4),
+            { minLength: 4, maxLength: 4 }),
             fc.boolean()), ([raw, robust]) => {
             const v = raw.map(x => x.clone());
             const minLength = orthonormalize(4, v, robust);
@@ -437,8 +467,11 @@ describe('Vector verification', () => {
                     lo = Math.min(lo, v.get(i));
                     hi = Math.max(hi, v.get(i));
                 }
-                expect(res.vmin.get(i)).toBe(lo);
-                expect(res.vmax.get(i)).toBe(hi);
+                // '+ 0' normalizes signed zeros: '0 > -0' is false in both
+                // C++ and JS, so the port keeps a -0 that Math.max would
+                // report as +0.
+                expect(res.vmin.get(i) + 0).toBe(lo + 0);
+                expect(res.vmax.get(i) + 0).toBe(hi + 0);
             }
         });
         expect(computeExtremes([])).toBeNull();

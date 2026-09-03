@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { check, finite, fc } from './helpers/arbitraries.js';
 import { GVector } from '../src/GVector.js';
 import {
     Vector, add, sub, mul, div, dot, length, normalize, orthonormalize, hlift
@@ -168,5 +169,133 @@ describe('GVector reuses the Vector module free functions', () => {
         const v1 = GVector.fromArray([1, 2, 3]);
         expect(() => add(v0, v1)).toThrow('mismatched sizes');
         expect(() => dot(v0, v1)).toThrow('mismatched sizes');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave: property-based checks against upstream GVector.h.
+// ---------------------------------------------------------------------------
+
+describe('GVector verification', () => {
+    it('setSize grows with zeros, keeps the prefix and truncates', () => {
+        // Upstream SetSize calls std::vector::resize, which preserves the
+        // leading elements and value-initializes any new ones.
+        check(fc.tuple(fc.array(finite(), { minLength: 0, maxLength: 8 }),
+            fc.integer({ min: 0, max: 10 })), ([vals, n]) => {
+            const v = GVector.fromArray(vals);
+            v.setSize(n);
+            expect(v.size).toBe(n);
+            for (let i = 0; i < n; ++i) {
+                expect(v.get(i)).toBe(i < vals.length ? vals[i] : 0);
+            }
+        });
+        expect(() => new GVector(0).setSize(-1)).toThrow('Invalid size.');
+        expect(() => new GVector(-1)).toThrow('Invalid size.');
+    });
+
+    it('comparisons follow std::vector, not the fixed-size Vector', () => {
+        // std::vector's relational operators are lexicographic over the
+        // common prefix with the shorter range ordered first; unlike
+        // Vector's, they accept mismatched sizes instead of throwing.
+        check(fc.tuple(fc.array(finite(), { minLength: 0, maxLength: 4 }),
+            fc.array(finite(), { minLength: 0, maxLength: 4 })),
+            ([a, b]) => {
+                const u = GVector.fromArray(a);
+                const w = GVector.fromArray(b);
+                let expected = 0;
+                const n = Math.min(a.length, b.length);
+                for (let i = 0; i < n && expected === 0; ++i) {
+                    expected = a[i] < b[i] ? -1 : (a[i] > b[i] ? 1 : 0);
+                }
+                if (expected === 0) {
+                    expected = a.length < b.length ? -1
+                        : (a.length > b.length ? 1 : 0);
+                }
+                expect(u.lessThan(w)).toBe(expected < 0);
+                expect(u.greaterThan(w)).toBe(expected > 0);
+                expect(u.equals(w)).toBe(expected === 0);
+                expect(u.notEquals(w)).toBe(expected !== 0);
+                expect(u.lessThanOrEqual(w)).toBe(expected <= 0);
+                expect(u.greaterThanOrEqual(w)).toBe(expected >= 0);
+            });
+    });
+
+    it('equals follows std::vector: a NaN component breaks self-equality', () => {
+        // Regression: the port compared lexicographically, which treats NaN
+        // as equivalent; C++ 'NaN == NaN' is false.
+        const v = GVector.fromArray([1, NaN]);
+        expect(v.equals(v)).toBe(false);
+        expect(v.notEquals(v)).toBe(true);
+        expect(v.equals(v.clone())).toBe(false);
+        expect(GVector.fromArray([1, 2]).equals(GVector.fromArray([1, 2])))
+            .toBe(true);
+    });
+
+    it('GVector(size, d) is the d-th standard basis vector', () => {
+        check(fc.tuple(fc.integer({ min: 0, max: 6 }),
+            fc.integer({ min: -2, max: 8 })), ([n, d]) => {
+            for (const v of [new GVector(n, d), GVector.unit(n, d)]) {
+                expect(v.size).toBe(n);
+                for (let i = 0; i < n; ++i) {
+                    expect(v.get(i)).toBe(i === d ? 1 : 0);
+                }
+            }
+        });
+    });
+
+    it('clone is deep and preserves the GVector type', () => {
+        check(fc.array(finite(), { minLength: 1, maxLength: 5 }), vals => {
+            const v = GVector.fromArray(vals);
+            const c = v.clone();
+            expect(c).toBeInstanceOf(GVector);
+            expect(c.values).toEqual(v.values);
+            c.set(0, c.get(0) + 1);
+            expect(v.get(0)).toBe(vals[0]);
+            // clone() of a resizable tuple must itself be resizable.
+            c.setSize(vals.length + 2);
+            expect(v.size).toBe(vals.length);
+        });
+    });
+
+    it('Vector.h free functions apply unchanged to GVector tuples', () => {
+        // Upstream GVector.h re-implements Dot/Length/Normalize/... with the
+        // same algorithms, so the shared implementations must agree.
+        check(fc.array(finite(), { minLength: 1, maxLength: 6 }), vals => {
+            const g = GVector.fromArray(vals);
+            const v = Vector.fromArray(vals);
+            expect(dot(g, g)).toBe(dot(v, v));
+            expect(length(g)).toBe(length(v));
+            expect(add(g, g).values).toEqual(add(v, v).values);
+            expect(sub(g, g).values).toEqual(sub(v, v).values);
+            expect(mul(g, 3).values).toEqual(mul(v, 3).values);
+            expect(hlift(g, 5).values).toEqual(hlift(v, 5).values);
+            const gn = g.clone(), vn = v.clone();
+            expect(normalize(gn)).toBe(normalize(vn));
+            expect(gn.values).toEqual(vn.values);
+        });
+    });
+
+    it('orthonormalize over GVector tuples yields an orthonormal set', () => {
+        check(fc.array(fc.array(finite(), { minLength: 3, maxLength: 3 }),
+            { minLength: 3, maxLength: 3 }), rows => {
+            const v = rows.map(r => GVector.fromArray(r));
+            const minLength = orthonormalize(3, v);
+            if (minLength < 1e-3) {
+                return;   // near-dependent inputs
+            }
+            for (let i = 0; i < 3; ++i) {
+                expect(Math.abs(length(v[i]) - 1)).toBeLessThan(1e-9);
+                for (let j = 0; j < i; ++j) {
+                    expect(Math.abs(dot(v[i], v[j]))).toBeLessThan(1e-9);
+                }
+            }
+        });
+    });
+
+    it('div of a GVector by zero yields zero (Vector.h, not GVector.h)', () => {
+        // Documented deviation: upstream GVector operator/= calls
+        // LogError("Division by zero."); the shared div() keeps Vector.h's
+        // behavior of producing the zero vector.
+        expect(div(GVector.fromArray([1, 2]), 0).values).toEqual([0, 0]);
     });
 });
