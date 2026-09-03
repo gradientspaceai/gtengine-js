@@ -28,6 +28,12 @@
 //   shared div() from Vector.ts returns the zero vector (Vector.h behavior).
 // - HProject/Project of a size<=1 tuple return an empty GVector upstream;
 //   the shared hproject()/project() throw as Vector.h's static_assert does.
+// - GVector.h's Dot accumulates from zero, so Dot of two empty tuples is 0;
+//   the shared dot() starts from v0[0]*v1[0] (Vector.h behavior) and yields
+//   NaN for an empty tuple. Likewise length()/normalize() read v[0].
+// - GVector.h's Orthonormalize and ComputeExtremes call LogError for invalid
+//   input; the shared orthonormalize() returns 0 and computeExtremes()
+//   returns null, as Vector.h's bool-returning versions do.
 
 import { logAssert } from './Logger.js';
 import { Vector } from './Vector.js';
@@ -102,12 +108,23 @@ export class GVector extends Vector {
         return n0 < n1 ? -1 : (n0 > n1 ? +1 : 0);
     }
 
+    // Equality is std::vector's operator==: equal sizes and element-by-element
+    // equality. As for Vector, this differs from "vectorCompare() === 0" only
+    // for NaN components, which compare unequal to themselves.
     override equals(vec: Vector): boolean {
-        return this.vectorCompare(vec) === 0;
+        if (this.values.length !== vec.values.length) {
+            return false;
+        }
+        for (let i = 0; i < this.values.length; ++i) {
+            if (!(this.values[i] === vec.values[i])) {
+                return false;
+            }
+        }
+        return true;
     }
 
     override notEquals(vec: Vector): boolean {
-        return this.vectorCompare(vec) !== 0;
+        return !this.equals(vec);
     }
 
     override lessThan(vec: Vector): boolean {

@@ -4,6 +4,7 @@
 import fc from 'fast-check';
 import { expect } from 'vitest';
 import { Vector, dot, length, normalize, orthonormalize } from '../../src/Vector.js';
+import { Matrix } from '../../src/Matrix.js';
 import { AlignedBox } from '../../src/AlignedBox.js';
 import { OrientedBox } from '../../src/OrientedBox.js';
 import { Line } from '../../src/Line.js';
@@ -27,12 +28,45 @@ export const nonzero = (min = -10, max = 10, eps = 1e-3): fc.Arbitrary<number> =
 export const positive = (max = 10, eps = 1e-3): fc.Arbitrary<number> =>
     finite(eps, max).filter(x => x > eps);
 
+/**
+ * Finite double in [min, max] with magnitudes below eps snapped to exactly 0.
+ * fast-check's double() samples the bit patterns of the range uniformly, so it
+ * produces subnormals (1e-320 and smaller) very often. Products of such values
+ * underflow, which makes relative error tolerances meaningless. Use this where
+ * a property compares two floating-point computations of the same quantity.
+ */
+export const wellScaled = (min = -10, max = 10, eps = 1e-3):
+    fc.Arbitrary<number> =>
+    finite(min, max).map(x => (Math.abs(x) < eps ? 0 : x));
+
 // ---- vectors ---------------------------------------------------------------
 
 /** Vector of dimension n with components in [min, max]. */
 export const vector = (n: number, min = -10, max = 10): fc.Arbitrary<Vector> =>
     fc.array(finite(min, max), { minLength: n, maxLength: n })
         .map(a => Vector.fromArray(a));
+
+/** Vector of dimension n whose components are wellScaled(min, max). */
+export const wellScaledVector = (n: number, min = -10, max = 10):
+    fc.Arbitrary<Vector> =>
+    fc.array(wellScaled(min, max), { minLength: n, maxLength: n })
+        .map(a => Vector.fromArray(a));
+
+// ---- matrices --------------------------------------------------------------
+
+/** numRows-by-numCols matrix with row-major elements in [min, max]. */
+export const matrix = (numRows: number, numCols: number, min = -10, max = 10):
+    fc.Arbitrary<Matrix> =>
+    fc.array(finite(min, max),
+        { minLength: numRows * numCols, maxLength: numRows * numCols })
+        .map(a => Matrix.fromArray(numRows, numCols, a));
+
+/** numRows-by-numCols matrix whose elements are wellScaled(min, max). */
+export const wellScaledMatrix = (numRows: number, numCols: number,
+    min = -10, max = 10): fc.Arbitrary<Matrix> =>
+    fc.array(wellScaled(min, max),
+        { minLength: numRows * numCols, maxLength: numRows * numCols })
+        .map(a => Matrix.fromArray(numRows, numCols, a));
 
 /** Unit-length vector of dimension n. */
 export const unitVector = (n: number): fc.Arbitrary<Vector> =>

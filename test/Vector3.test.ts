@@ -1,9 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import {
+    check, vector, wellScaledVector, expectClose, expectVectorClose, fc
+} from './helpers/arbitraries.js';
+import {
     cross, unitCross, dotCross, computeOrthogonalComplement3,
     fastComputeOrthogonalComplement, computeBarycentrics3, IntrinsicsVector3
 } from '../src/Vector3.js';
-import { Vector, add, dot, length, mul } from '../src/Vector.js';
+import {
+    Vector, add, dot, length, mul, normalize, sub
+} from '../src/Vector.js';
+import { Matrix, determinant } from '../src/Matrix.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -345,3 +351,270 @@ function expectRightHandedOrthonormalDirections(
     }
     expect(dotCross(d[0], d[1], d[2])).toBeCloseTo(1, 13);
 }
+
+// ---------------------------------------------------------------------------
+// Verification wave: property-based checks against upstream Vector3.h.
+// ---------------------------------------------------------------------------
+
+describe('Vector3 verification', () => {
+    it('cross is exactly antisymmetric', () => {
+        check(fc.tuple(vector(3), vector(3)), ([a, b]) => {
+            // Each component is a 2x2 determinant, so the swap negates
+            // exactly (IEEE subtraction is sign-symmetric).
+            const c = cross(a, b);
+            const cs = cross(b, a);
+            for (let i = 0; i < 3; ++i) {
+                expect(c.get(i) + cs.get(i)).toBe(0);
+            }
+            expect(cross(a, a).values.map(x => x + 0)).toEqual([0, 0, 0]);
+        });
+    });
+
+    it('cross is orthogonal to both factors and obeys Lagrange', () => {
+        // Well-scaled inputs: products of subnormals underflow, which makes
+        // relative tolerances meaningless.
+        check(fc.tuple(wellScaledVector(3), wellScaledVector(3)), ([a, b]) => {
+            const c = cross(a, b);
+            const scale = length(a) * length(b);
+            expectClose(dot(c, a), 0, 1e-13 * scale * length(a), 0);
+            expectClose(dot(c, b), 0, 1e-13 * scale * length(b), 0);
+            // Lagrange: |a x b|^2 = |a|^2 |b|^2 - (a.b)^2. The right side
+            // suffers cancellation when a and b are nearly parallel, so the
+            // tolerance is relative to the uncancelled magnitude.
+            expectClose(dot(c, c), dot(a, a) * dot(b, b) - dot(a, b) ** 2,
+                1e-12 * dot(a, a) * dot(b, b), 0);
+        });
+    });
+
+    it('cross of 4-tuples keeps the affine convention w = 0', () => {
+        // Upstream Cross<N> with N = 4 does MakeZero then writes only the
+        // first three components.
+        const a = Vector.fromArray([1, 2, 3, 7]);
+        const b = Vector.fromArray([4, 5, 6, 8]);
+        const c = cross(a, b);
+        expect(c.size).toBe(4);
+        expect(c.values).toEqual([-3, 6, -3, 0]);
+        expect(() => cross(Vector.fromArray([1, 2]), Vector.fromArray([3, 4])))
+            .toThrow('Dimension must be 3 or 4.');
+        expect(() => cross(a, Vector.fromArray([1, 2, 3])))
+            .toThrow('mismatched sizes');
+    });
+
+    it('dotCross is the 3x3 determinant and matches Matrix.determinant', () => {
+        check(fc.tuple(wellScaledVector(3), wellScaledVector(3),
+            wellScaledVector(3)), ([a, b, c]) => {
+            const M = Matrix.fromArray(3, 3, [...a.values, ...b.values,
+                ...c.values]);
+            // Rows are a, b, c; det = Dot(a, Cross(b, c)). Gaussian
+            // elimination with full pivoting is an independent algorithm, so
+            // the tolerance is relative to the row-norm product (Hadamard).
+            const scale = length(a) * length(b) * length(c);
+            expectClose(dotCross(a, b, c), determinant(M), 1e-11 * scale, 0);
+            // A repeated argument gives a singular matrix.
+            expect(dotCross(a, b, b) + 0).toBe(0);
+        });
+    });
+
+    it('unitCross is a unit vector along cross', () => {
+        check(fc.tuple(vector(3), vector(3), fc.boolean()), ([a, b, robust]) => {
+            const c = cross(a, b);
+            if (length(c) < 1e-2) {
+                return;   // near-parallel inputs
+            }
+            const u = unitCross(a, b, robust);
+            expectClose(length(u), 1, 1e-12, 1e-12);
+            expectVectorClose(mul(u, length(c)), c, 1e-9, 1e-9);
+        });
+        // Parallel inputs give the zero cross product, which Normalize maps
+        // to the zero vector.
+        expect(unitCross(Vector.fromArray([1, 2, 3]),
+            Vector.fromArray([2, 4, 6])).values.map(x => x + 0))
+            .toEqual([0, 0, 0]);
+    });
+
+    it('computeOrthogonalComplement3 builds a right-handed frame', () => {
+        check(fc.tuple(vector(3).filter(v => length(v) > 1e-2),
+            vector(3), fc.integer({ min: 1, max: 2 }), fc.boolean()),
+            ([v0, v1, numInputs, robust]) => {
+                const v = numInputs === 1 ? [v0.clone()]
+                    : [v0.clone(), v1.clone()];
+                const minLength = computeOrthogonalComplement3(numInputs, v,
+                    robust);
+                if (minLength < 1e-3) {
+                    return;   // near-dependent inputs
+                }
+                expect(v.length).toBe(3);
+                for (let i = 0; i < 3; ++i) {
+                    expectClose(length(v[i]), 1, 1e-9, 1e-9);
+                    for (let j = 0; j < i; ++j) {
+                        expectClose(dot(v[i], v[j]), 0, 1e-9, 1e-9);
+                    }
+                }
+                // Right handed: v2 = v0 x v1.
+                expectVectorClose(cross(v[0], v[1]), v[2], 1e-9, 1e-9);
+            });
+        expect(computeOrthogonalComplement3(0, [Vector.fromArray([1, 0, 0])]))
+            .toBe(0);
+        expect(computeOrthogonalComplement3(3, [Vector.fromArray([1, 0, 0])]))
+            .toBe(0);
+    });
+
+    it('computeOrthogonalComplement3 picks v1 by |v0[0]| > |v0[1]|', () => {
+        // Upstream branches on the first two components before normalizing.
+        const big0 = [Vector.fromArray([2, 1, 3])];
+        computeOrthogonalComplement3(1, big0);
+        // v[1] was { -v0[2], 0, +v0[0] } = (-3, 0, 2) before orthonormalize,
+        // which leaves it in the plane spanned by e0 and e2.
+        expect(Math.abs(dot(big0[1], Vector.fromArray([0, 1, 0]))))
+            .toBeLessThan(1e-12);
+
+        const big1 = [Vector.fromArray([1, 2, 3])];
+        computeOrthogonalComplement3(1, big1);
+        // v[1] was { 0, +v0[2], -v0[1] } = (0, 3, -2), in the e1-e2 plane.
+        expect(Math.abs(dot(big1[1], Vector.fromArray([1, 0, 0]))))
+            .toBeLessThan(1e-12);
+    });
+
+    it('fastComputeOrthogonalComplement matches the slow path', () => {
+        check(vector(3).filter(v => length(v) > 1e-2), raw => {
+            const v2 = raw.clone();
+            normalize(v2);
+            const { v0, v1 } = fastComputeOrthogonalComplement(v2);
+            for (const u of [v0, v1]) {
+                expectClose(length(u), 1, 1e-9, 1e-9);
+            }
+            expectClose(dot(v0, v1), 0, 1e-9, 1e-9);
+            expectClose(dot(v0, v2), 0, 1e-9, 1e-9);
+            expectClose(dot(v1, v2), 0, 1e-9, 1e-9);
+            // {v0, v1, v2} is right handed.
+            expectVectorClose(cross(v0, v1), v2, 1e-9, 1e-9);
+        });
+    });
+
+    it('fastComputeOrthogonalComplement handles both poles', () => {
+        // The v2[2] >= 0 and v2[2] < 0 branches meet the same requirements.
+        for (const z of [1, -1]) {
+            const v2 = Vector.fromArray([0, 0, z]);
+            const { v0, v1 } = fastComputeOrthogonalComplement(v2);
+            expectClose(length(v0), 1, 1e-12, 1e-12);
+            expectClose(length(v1), 1, 1e-12, 1e-12);
+            expectClose(dot(v0, v1), 0, 1e-12, 1e-12);
+            expectVectorClose(cross(v0, v1), v2, 1e-12, 1e-12);
+        }
+    });
+
+    it('computeBarycentrics3 reconstructs the point and sums to one', () => {
+        check(fc.tuple(vector(3), vector(3), vector(3), vector(3), vector(3)),
+            ([p, a, b, c, d]) => {
+                const r = computeBarycentrics3(p, a, b, c, d);
+                if (!r.valid) {
+                    expect(r.bary).toEqual([0, 0, 0, 0]);
+                    return;
+                }
+                const det = Math.abs(dotCross(sub(a, d), sub(b, d), sub(c, d)));
+                if (det < 1) {
+                    return;   // ill-conditioned: the division amplifies error
+                }
+                expectClose(r.bary[0] + r.bary[1] + r.bary[2] + r.bary[3], 1,
+                    1e-9, 1e-9);
+                const q = add(add(mul(a, r.bary[0]), mul(b, r.bary[1])),
+                    add(mul(c, r.bary[2]), mul(d, r.bary[3])));
+                expectVectorClose(q, p, 1e-6, 1e-6);
+            });
+    });
+
+    it('computeBarycentrics3 gives the unit coordinates at the vertices', () => {
+        const a = Vector.fromArray([0, 0, 0]);
+        const b = Vector.fromArray([2, 0, 0]);
+        const c = Vector.fromArray([0, 3, 0]);
+        const d = Vector.fromArray([0, 0, 4]);
+        const bary = (p: Vector) =>
+            computeBarycentrics3(p, a, b, c, d).bary.map(x => x + 0);
+        expect(bary(a)).toEqual([1, 0, 0, 0]);
+        expect(bary(b)).toEqual([0, 1, 0, 0]);
+        expect(bary(c)).toEqual([0, 0, 1, 0]);
+        expect(bary(d)).toEqual([0, 0, 0, 1]);
+        // Degenerate (coplanar) tetrahedron.
+        const e = Vector.fromArray([2, 3, 0]);
+        const r = computeBarycentrics3(a, a, b, c, e);
+        expect(r.valid).toBe(false);
+        expect(r.bary).toEqual([0, 0, 0, 0]);
+    });
+
+    it('IntrinsicsVector3 classifies the intrinsic dimension', () => {
+        const same = [Vector.fromArray([1, 2, 3]), Vector.fromArray([1, 2, 3])];
+        const i0 = new IntrinsicsVector3(same, 0);
+        expect(i0.dimension).toBe(0);
+        expect(i0.extreme).toEqual([0, 0, 0, 0]);
+
+        // The line and plane tests project out direction[0], which leaves a
+        // rounding residual, so they need a nonzero epsilon (the classifier
+        // compares maxDistance against epsilon * maxRange).
+        const line = [Vector.fromArray([0, 0, 0]), Vector.fromArray([1, 1, 1]),
+            Vector.fromArray([3, 3, 3])];
+        const i1 = new IntrinsicsVector3(line, 1e-12);
+        expect(i1.dimension).toBe(1);
+        expect(i1.extreme[2]).toBe(i1.extreme[1]);
+        expect(i1.extreme[3]).toBe(i1.extreme[1]);
+
+        const planar = [Vector.fromArray([0, 0, 0]), Vector.fromArray([4, 0, 0]),
+            Vector.fromArray([0, 3, 0]), Vector.fromArray([2, 2, 0])];
+        const i2 = new IntrinsicsVector3(planar, 1e-12);
+        expect(i2.dimension).toBe(2);
+        expect(i2.extreme[3]).toBe(i2.extreme[2]);
+
+        const tet = [Vector.fromArray([0, 0, 0]), Vector.fromArray([4, 0, 0]),
+            Vector.fromArray([0, 3, 0]), Vector.fromArray([0, 0, 5])];
+        const i3 = new IntrinsicsVector3(tet, 0);
+        expect(i3.dimension).toBe(3);
+        expect(i3.extremeCCW).toBe(
+            dot(i3.direction[2], sub(tet[i3.extreme[3]], i3.origin)) > 0);
+    });
+
+    it('IntrinsicsVector3 members agree with a brute-force computation', () => {
+        check(fc.array(wellScaledVector(3), { minLength: 1, maxLength: 10 }),
+            vs => {
+            // epsilon = 1e-3: with epsilon = 0 a point set that is collinear
+            // up to rounding still reaches the "planar" stage, where upstream
+            // normalizes a residual that is pure round-off and produces a
+            // meaningless direction[1]. That is faithful to upstream, but it
+            // makes the frame untestable; a real tolerance keeps the
+            // dimension-3 branch well conditioned.
+            const ins = new IntrinsicsVector3(vs, 1e-3);
+            for (let j = 0; j < 3; ++j) {
+                let lo = vs[0].get(j), hi = vs[0].get(j);
+                for (const v of vs) {
+                    lo = Math.min(lo, v.get(j));
+                    hi = Math.max(hi, v.get(j));
+                }
+                expect(ins.min[j]).toBe(lo);
+                expect(ins.max[j]).toBe(hi);
+            }
+            expect(ins.maxRange).toBe(Math.max(ins.max[0] - ins.min[0],
+                ins.max[1] - ins.min[1], ins.max[2] - ins.min[2]));
+            expect(ins.origin.values).toEqual(vs[ins.extreme[0]].values);
+            if (ins.dimension === 3) {
+                for (let i = 0; i < 3; ++i) {
+                    expectClose(length(ins.direction[i]), 1, 1e-9, 1e-9);
+                    for (let j = 0; j < i; ++j) {
+                        expectClose(dot(ins.direction[i], ins.direction[j]), 0,
+                            1e-9, 1e-9);
+                    }
+                }
+            }
+        });
+    });
+
+    it('IntrinsicsVector3 leaves the defaults for invalid inputs', () => {
+        for (const ins of [new IntrinsicsVector3([], 0),
+            new IntrinsicsVector3([Vector.fromArray([1, 2, 3])], -1)]) {
+            expect(ins.dimension).toBe(0);
+            expect(ins.maxRange).toBe(0);
+            expect(ins.min).toEqual([0, 0, 0]);
+            expect(ins.max).toEqual([0, 0, 0]);
+            expect(ins.origin.values).toEqual([0, 0, 0]);
+            expect(ins.extreme).toEqual([0, 0, 0, 0]);
+            expect(ins.extremeCCW).toBe(false);
+        }
+    });
+});

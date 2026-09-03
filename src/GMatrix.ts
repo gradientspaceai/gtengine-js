@@ -35,11 +35,18 @@
 // - Comparisons require equal dimensions: matrices of different dimensions
 //   are unequal and are ordered by neither < nor >, whereas the fixed-size
 //   Matrix comparisons throw on mismatched dimensions.
+// - getRow/getCol return a plain Vector where upstream returns GVector. The
+//   port's Vector already has a runtime dimension, so it serves upstream's
+//   GVector for every purpose except resizing and the std::vector comparison
+//   semantics, neither of which applies to an extracted row or column.
 //
-// Known deviation (documented rather than duplicated, since the free
-// function names are owned by Matrix.ts): 'M / scalar' with scalar 0 throws
-// upstream ("Division by zero.") but the shared divMatrix() from Matrix.ts
-// returns the zero matrix (Matrix.h behavior).
+// Known deviations (documented rather than duplicated, since the free
+// function names are owned by Matrix.ts):
+// - 'M / scalar' with scalar 0 throws upstream ("Division by zero.") but the
+//   shared divMatrix() from Matrix.ts returns the zero matrix (Matrix.h
+//   behavior).
+// - The shared lInfinityNorm() is GMatrix.h's version, which seeds the
+//   maximum with 0 (Matrix.h seeds with fabs(M[0])); see Matrix.ts.
 
 import { logError } from './Logger.js';
 import { Matrix } from './Matrix.js';
@@ -226,8 +233,20 @@ export class GMatrix extends Matrix {
         return 0;
     }
 
+    // Equality is upstream GMatrix's operator==: equal dimensions and
+    // std::vector element-by-element equality. As for Matrix, this differs
+    // from "elementCompare() === 0" only for NaN elements, which compare
+    // unequal to themselves.
     override equals(mat: Matrix): boolean {
-        return this.sameSize(mat) && this.elementCompare(mat) === 0;
+        if (!this.sameSize(mat)) {
+            return false;
+        }
+        for (let i = 0; i < this.values.length; ++i) {
+            if (!(this.values[i] === mat.values[i])) {
+                return false;
+            }
+        }
+        return true;
     }
 
     override notEquals(mat: Matrix): boolean {

@@ -1,9 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
+    check, vector, expectClose, expectVectorClose, fc
+} from './helpers/arbitraries.js';
+import {
     perp, unitPerp, dotPerp, computeOrthogonalComplement2,
     computeBarycentrics2, IntrinsicsVector2
 } from '../src/Vector2.js';
-import { Vector, add, dot, length, mul } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -209,5 +212,180 @@ describe('IntrinsicsVector2', () => {
         const badEps = new IntrinsicsVector2([v2(1, 2), v2(3, 4)], -1);
         expect(badEps.dimension).toBe(0);
         expect(badEps.origin.values).toEqual([0, 0]);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave: property-based checks against upstream Vector2.h.
+// ---------------------------------------------------------------------------
+
+describe('Vector2 verification', () => {
+    it('perp is the exact 90-degree clockwise rotation', () => {
+        check(vector(2), v => {
+            const p = perp(v);
+            // perp = (x1, -x0): exact component moves, so these are exact.
+            expect(p.values).toEqual([v.get(1), -v.get(0)]);
+            expect(dot(v, p)).toBe(0);
+            // perp(perp(v)) = -v.
+            expect(perp(p).values).toEqual([-v.get(0), -v.get(1)]);
+            expect(length(p)).toBe(length(v));
+        });
+    });
+
+    it('dotPerp is the 2x2 determinant and is antisymmetric', () => {
+        check(fc.tuple(vector(2), vector(2)), ([a, b]) => {
+            // Dot(v0, Perp(v1)) = x0*y1 - x1*y0 with v1 = (y0, y1).
+            expect(dotPerp(a, b)).toBe(a.get(0) * b.get(1) - a.get(1) * b.get(0));
+            // IEEE subtraction is sign-symmetric, so the swap is exact.
+            expect(dotPerp(b, a) + dotPerp(a, b)).toBe(0);
+            expect(dotPerp(a, a)).toBe(0);
+        });
+    });
+
+    it('unitPerp is a unit vector orthogonal to the input', () => {
+        check(fc.tuple(vector(2).filter(v => length(v) > 1e-2), fc.boolean()),
+            ([v, robust]) => {
+                const u = unitPerp(v, robust);
+                expectClose(length(u), 1, 1e-12, 1e-12);
+                // The two components are scaled by 1/L independently, so the
+                // cancellation is only up to rounding of |v|.
+                expectClose(dot(u, v), 0, 1e-12 * length(v), 0);
+                // The perpendicular points to the "right" of v.
+                expect(dotPerp(v, u)).toBeLessThan(0);
+            });
+        // Upstream Normalize sets the zero vector to zero.
+        expect(unitPerp(Vector.fromArray([0, 0])).values).toEqual([0, 0]);
+    });
+
+    it('computeOrthogonalComplement2 builds a right-handed frame', () => {
+        check(fc.tuple(vector(2).filter(v => length(v) > 1e-2), fc.boolean()),
+            ([v0, robust]) => {
+                const v = [v0.clone()];
+                const minLength = computeOrthogonalComplement2(1, v, robust);
+                expectClose(minLength, length(v0), 1e-9, 1e-9);
+                expect(v.length).toBe(2);
+                expectClose(length(v[0]), 1, 1e-9, 1e-9);
+                expectClose(length(v[1]), 1, 1e-9, 1e-9);
+                expectClose(dot(v[0], v[1]), 0, 1e-9, 1e-9);
+                // v[1] = -Perp(v[0]) = (-y, x), so det[v0 v1] = +1.
+                expectClose(dotPerp(v[0], v[1]), 1, 1e-9, 1e-9);
+            });
+        // Any numInputs other than 1 is rejected with a 0 return.
+        expect(computeOrthogonalComplement2(0, [Vector.fromArray([1, 0])]))
+            .toBe(0);
+        expect(computeOrthogonalComplement2(2, [Vector.fromArray([1, 0])]))
+            .toBe(0);
+    });
+
+    it('computeBarycentrics2 reconstructs the point and sums to one', () => {
+        check(fc.tuple(vector(2), vector(2), vector(2), vector(2)),
+            ([p, a, b, c]) => {
+                const r = computeBarycentrics2(p, a, b, c);
+                if (!r.valid) {
+                    expect(r.bary).toEqual([0, 0, 0]);
+                    return;
+                }
+                const det = Math.abs(dotPerp(sub(a, c), sub(b, c)));
+                if (det < 1e-3) {
+                    return;   // ill-conditioned: the division amplifies error
+                }
+                expectClose(r.bary[0] + r.bary[1] + r.bary[2], 1, 1e-9, 1e-9);
+                const q = add(add(mul(a, r.bary[0]), mul(b, r.bary[1])),
+                    mul(c, r.bary[2]));
+                expectVectorClose(q, p, 1e-6, 1e-6);
+            });
+    });
+
+    it('computeBarycentrics2 gives the unit coordinates at the vertices', () => {
+        const a = Vector.fromArray([0, 0]);
+        const b = Vector.fromArray([4, 0]);
+        const c = Vector.fromArray([0, 2]);
+        // '+ 0' normalizes the signed zeros that the divisions produce.
+        const bary = (p: Vector) =>
+            computeBarycentrics2(p, a, b, c).bary.map(x => x + 0);
+        expect(bary(a)).toEqual([1, 0, 0]);
+        expect(bary(b)).toEqual([0, 1, 0]);
+        expect(bary(c)).toEqual([0, 0, 1]);
+        // Degenerate (collinear) triangle: invalid with zeroed coordinates.
+        const d = Vector.fromArray([8, 0]);
+        const r = computeBarycentrics2(a, a, b, d);
+        expect(r.valid).toBe(false);
+        expect(r.bary).toEqual([0, 0, 0]);
+        // The epsilon test is |det| <= epsilon, i.e. strict rejection.
+        expect(computeBarycentrics2(a, a, b, c, 8).valid).toBe(false);
+        expect(computeBarycentrics2(a, a, b, c, 7.9).valid).toBe(true);
+    });
+
+    it('IntrinsicsVector2 classifies the intrinsic dimension', () => {
+        // d = 0: all points identical.
+        const same = [Vector.fromArray([3, -1]), Vector.fromArray([3, -1])];
+        const i0 = new IntrinsicsVector2(same, 0);
+        expect(i0.dimension).toBe(0);
+        expect(i0.extreme).toEqual([0, 0, 0]);
+        expect(i0.origin.values).toEqual([3, -1]);
+
+        // d = 1: collinear points.
+        const line = [Vector.fromArray([0, 0]), Vector.fromArray([1, 1]),
+            Vector.fromArray([2, 2]), Vector.fromArray([-1, -1])];
+        const i1 = new IntrinsicsVector2(line, 0);
+        expect(i1.dimension).toBe(1);
+        expect(i1.extreme[2]).toBe(i1.extreme[1]);
+
+        // d = 2: a genuine triangle; extremeCCW records the orientation of
+        // (V[e0], V[e1], V[e2]) relative to direction[1] = -Perp(direction[0]).
+        const tri = [Vector.fromArray([0, 0]), Vector.fromArray([4, 0]),
+            Vector.fromArray([0, 3])];
+        const i2 = new IntrinsicsVector2(tri, 0);
+        expect(i2.dimension).toBe(2);
+        expect(i2.extremeCCW).toBe(
+            dot(i2.direction[1], sub(tri[i2.extreme[2]], i2.origin)) > 0);
+        expect(i2.maxRange).toBe(4);
+    });
+
+    it('IntrinsicsVector2 members agree with a brute-force computation', () => {
+        check(fc.array(vector(2), { minLength: 1, maxLength: 10 }), vs => {
+            const ins = new IntrinsicsVector2(vs, 0);
+            // The bounding box is exact.
+            for (let j = 0; j < 2; ++j) {
+                let lo = vs[0].get(j), hi = vs[0].get(j);
+                for (const v of vs) {
+                    lo = Math.min(lo, v.get(j));
+                    hi = Math.max(hi, v.get(j));
+                }
+                expect(ins.min[j]).toBe(lo);
+                expect(ins.max[j]).toBe(hi);
+            }
+            expect(ins.maxRange).toBe(Math.max(ins.max[0] - ins.min[0],
+                ins.max[1] - ins.min[1]));
+            expect(ins.origin.values).toEqual(vs[ins.extreme[0]].values);
+            if (ins.dimension === 2) {
+                // direction[0] and direction[1] are an orthonormal frame.
+                expectClose(length(ins.direction[0]), 1, 1e-9, 1e-9);
+                expectClose(length(ins.direction[1]), 1, 1e-9, 1e-9);
+                expect(dot(ins.direction[0], ins.direction[1])).toBe(0);
+            }
+        });
+    });
+
+    it('IntrinsicsVector2 leaves the defaults for invalid inputs', () => {
+        // Upstream returns without touching the members when numVectors == 0
+        // or epsilon < 0.
+        for (const ins of [new IntrinsicsVector2([], 0),
+            new IntrinsicsVector2([Vector.fromArray([1, 2])], -1)]) {
+            expect(ins.dimension).toBe(0);
+            expect(ins.maxRange).toBe(0);
+            expect(ins.min).toEqual([0, 0]);
+            expect(ins.max).toEqual([0, 0]);
+            expect(ins.origin.values).toEqual([0, 0]);
+            expect(ins.extreme).toEqual([0, 0, 0]);
+            expect(ins.extremeCCW).toBe(false);
+        }
+    });
+
+    it('the size-2 requirement is enforced', () => {
+        expect(() => perp(Vector.fromArray([1, 2, 3])))
+            .toThrow('must have size 2');
+        expect(() => new IntrinsicsVector2([Vector.fromArray([1, 2, 3])], 0))
+            .toThrow('must have size 2');
     });
 });
