@@ -140,7 +140,13 @@ export class MeshStaticManifold3 {
     // Determine whether or not the unordered face (v0,v1,v2) exists.
     faceExists(v0: number, v1: number, v2: number): boolean {
         const numVertices = this.mVertices.length;
-        if (v0 < numVertices && v1 < numVertices && v2 < numVertices &&
+        // The upstream guard is 'v0 < mVertices.size()' on size_t arguments,
+        // so a negative index passed by a caller becomes a huge unsigned
+        // value and the guard rejects it. TypeScript numbers keep the sign,
+        // so the port tests the lower bound explicitly; without it a negative
+        // index would index past the start of the array and throw.
+        if (0 <= v0 && v0 < numVertices && 0 <= v1 && v1 < numVertices &&
+            0 <= v2 && v2 < numVertices &&
             v0 !== v1 && v0 !== v2 && v1 !== v2) {
             return this.getOrderedFace(v0, v1, v2) !== null
                 || this.getOrderedFace(v0, v2, v1) !== null;
@@ -181,7 +187,9 @@ export class MeshStaticManifold3 {
         exists: boolean;
     } {
         const numVertices = this.mVertices.length;
-        if (v0 < numVertices && v1 < numVertices && v2 < numVertices &&
+        // See faceExists for why the lower bound is tested explicitly.
+        if (0 <= v0 && v0 < numVertices && 0 <= v1 && v1 < numVertices &&
+            0 <= v2 && v2 < numVertices &&
             v0 !== v1 && v0 !== v2 && v1 !== v2) {
             // UPSTREAM BUG (MeshStaticManifold3.h, GetAdjacentTetrahedra),
             // the 3D form of the MeshStaticManifold2 bug documented in

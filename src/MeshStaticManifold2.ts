@@ -140,7 +140,13 @@ export class MeshStaticManifold2 {
 
     // Determine whether or not the undirected edge (v0,v1) exists.
     edgeExists(v0: number, v1: number): boolean {
-        if (v0 < this.mVertices.length && v1 < this.mVertices.length && v0 !== v1) {
+        // The upstream guard is 'v0 < mVertices.size()' on size_t arguments,
+        // so a negative index passed by a caller becomes a huge unsigned
+        // value and the guard rejects it. TypeScript numbers keep the sign,
+        // so the port tests the lower bound explicitly; without it a negative
+        // index would index past the start of the array and throw.
+        if (0 <= v0 && v0 < this.mVertices.length
+            && 0 <= v1 && v1 < this.mVertices.length && v0 !== v1) {
             return this.getDirectedEdge(v0, v1) !== null
                 || this.getDirectedEdge(v1, v0) !== null;
         }
@@ -178,7 +184,9 @@ export class MeshStaticManifold2 {
         adj1: number;
         exists: boolean;
     } {
-        if (v0 < this.mVertices.length && v1 < this.mVertices.length && v0 !== v1) {
+        // See edgeExists for why the lower bound is tested explicitly.
+        if (0 <= v0 && v0 < this.mVertices.length
+            && 0 <= v1 && v1 < this.mVertices.length && v0 !== v1) {
             // UPSTREAM BUG (MeshStaticManifold2.h, GetAdjacentTriangles).
             // Upstream looks up only one of the two directed edges and
             // returns components [2] and [3] of the single 4-tuple it finds.
