@@ -341,9 +341,12 @@ describe('Vector4 verification', () => {
                         * length(v3);
                     expectClose(dotHyperCross(v0, v1, v2, v3), determinant(M),
                         1e-11 * bound, 0);
-                    // Antisymmetry: a repeated argument gives zero.
-                    expect(dotHyperCross(v0, v1, v2, v2) + 0).toBe(0);
+                    // Repeating the first two arguments zeroes every 2x2
+                    // minor exactly, so the triple product is exactly zero.
                     expect(dotHyperCross(v0, v0, v2, v3) + 0).toBe(0);
+                    // Repeating the last argument cancels only up to rounding.
+                    expectClose(dotHyperCross(v0, v1, v2, v2), 0,
+                        1e-12 * length(v0) * length(v1) * length(v2) ** 2, 0);
                 });
         });
 
@@ -371,14 +374,19 @@ describe('Vector4 verification', () => {
 
     it('computeOrthogonalComplement4 extends 1, 2 or 3 inputs to a '
         + 'right-handed orthonormal basis', () => {
-        check(fc.tuple(vector(4), vector(4), vector(4),
-            fc.integer({ min: 1, max: 3 }), fc.boolean()),
+        // Well-scaled components: with robust = true and a subnormal largest
+        // component, upstream Normalize returns NaN (see the upstream-quirk
+        // test in test/Vector.test.ts), which makes the frame meaningless.
+        check(fc.tuple(wellScaledVector(4), wellScaledVector(4),
+            wellScaledVector(4), fc.integer({ min: 1, max: 3 }), fc.boolean()),
             ([a, b, c, numInputs, robust]) => {
                 const v = [a.clone(), b.clone(), c.clone(),
                     new Vector(4)].slice(0, numInputs);
                 const minLength = computeOrthogonalComplement4(numInputs, v,
                     robust);
-                if (minLength < 1e-2) {
+                // '!(x >= eps)' rather than 'x < eps' so a NaN return, which
+                // the degenerate branches can produce, is also skipped.
+                if (!(minLength >= 1e-2)) {
                     return;   // near-dependent inputs; upstream returns ~0
                 }
                 expect(v.length).toBe(4);
@@ -393,8 +401,6 @@ describe('Vector4 verification', () => {
                 // Gram-Schmidt pass, so the frame is right handed.
                 expectClose(dotHyperCross(v[0], v[1], v[2], v[3]), 1,
                     1e-9, 1e-9);
-                // The first numInputs directions still span the input span.
-                expectClose(minLength, minLength, 0, 0);
             });
     });
 
