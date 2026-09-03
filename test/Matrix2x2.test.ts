@@ -5,9 +5,14 @@ import {
 } from '../src/Matrix2x2.js';
 import {
     Matrix, inverse, determinant, multiplyAB, mulMatrix, subMatrix,
-    lInfinityNorm
+    lInfinityNorm, transpose
 } from '../src/Matrix.js';
 import { Vector } from '../src/Vector.js';
+import { GTE_C_PI } from '../src/Constants.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, invertibleMatrix,
+    matrix, nonzero, vector
+} from './helpers/arbitraries.js';
 
 function expectMatrixClose(actual: Matrix, expected: Matrix,
     tolerance: number = 1e-12): void {
@@ -184,4 +189,120 @@ describe('Matrix2x2', () => {
         expect(() => doTransform2x2(new Matrix(2, 2), new Matrix(3, 3)))
             .toThrow();
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V02): property-based re-checks against Matrix2x2.h.
+// ---------------------------------------------------------------------------
+
+describe('Matrix2x2 verification', () => {
+    it('makeRotation2x2 is orthogonal with determinant 1 and rotates by the '
+        + 'angle', () => {
+            check(fc.tuple(finite(-GTE_C_PI, GTE_C_PI), finite(-GTE_C_PI, GTE_C_PI)),
+                ([angle, phi]) => {
+                    const R = new Matrix(2, 2);
+                    makeRotation2x2(angle, R);
+
+                    // R*R^T = I and det(R) = 1.
+                    const shouldBeI = multiplyAB(R, transpose(R));
+                    expectMatrixClose(shouldBeI, Matrix.identity(2, 2), 1e-14);
+                    expectClose(determinant2x2(R), 1, 1e-14, 0);
+
+                    // R maps (cos phi, sin phi) to (cos(angle+phi),
+                    // sin(angle+phi)): an independent statement of what the
+                    // matrix means, which a transposed port would fail.
+                    const v = Vector.fromArray([Math.cos(phi), Math.sin(phi)]);
+                    const rv = doTransform2x2(R, v);
+                    expectClose(rv.get(0), Math.cos(angle + phi), 1e-14, 0);
+                    expectClose(rv.get(1), Math.sin(angle + phi), 1e-14, 0);
+                });
+        });
+
+    it('getRotationAngle2x2 inverts makeRotation2x2 on (-pi,pi]', () => {
+        check(finite(-GTE_C_PI + 1e-6, GTE_C_PI - 1e-6), angle => {
+            const R = new Matrix(2, 2);
+            makeRotation2x2(angle, R);
+            expectClose(getRotationAngle2x2(R), angle, 1e-14, 1e-14);
+        });
+    });
+
+    it('M*adjoint(M) = det(M)*I for every 2x2 matrix, singular included', () => {
+        check(matrix(2, 2), M => {
+            const det = determinant2x2(M);
+            const product = multiplyAB(M, adjoint2x2(M));
+            const expected = mulMatrix(Matrix.identity(2, 2), det) as Matrix;
+            // Absolute tolerance scaled by the matrix magnitude: the entries
+            // of the product are differences of products of the entries of M.
+            const scale = Math.max(1, lInfinityNorm(M) ** 2);
+            expectMatrixClose(product, expected, 1e-12 * scale);
+        });
+    });
+
+    it('determinant2x2 and inverse2x2 agree with the generic Matrix versions',
+        () => {
+            check(invertibleMatrix(2), M => {
+                expectClose(determinant2x2(M), determinant(M), 1e-12, 1e-12);
+                const { inverse: inv2, invertible } = inverse2x2(M);
+                expect(invertible).toBe(true);
+                // The generic inverse uses Gaussian elimination with full
+                // pivoting, an algorithm independent of the closed form.
+                const generic = inverse(M);
+                expect(generic.invertible).toBe(true);
+                expectMatrixClose(inv2, generic.inverse, 1e-8);
+                expectMatrixClose(multiplyAB(M, inv2), Matrix.identity(2, 2),
+                    1e-8);
+            });
+        });
+
+    it('inverse2x2 reports non-invertibility and returns zero for singular '
+        + 'matrices', () => {
+            check(fc.tuple(finite(), finite(), nonzero()), ([a, b, k]) => {
+                // The second row is k times the first, so the determinant is
+                // exactly zero only when the products cancel exactly; build
+                // the singular matrix from a rank-1 outer product instead.
+                const M = Matrix.fromArray(2, 2, [a, b, k * a, k * b]);
+                if (determinant2x2(M) !== 0) {
+                    return;   // rounding left a tiny nonzero determinant
+                }
+                const { inverse: inv, invertible } = inverse2x2(M);
+                expect(invertible).toBe(false);
+                expectMatrixClose(inv, new Matrix(2, 2), 0);
+            });
+        });
+
+    it('doTransform2x2 is associative: (A*B)*V = A*(B*V)', () => {
+        check(fc.tuple(matrix(2, 2), matrix(2, 2), vector(2)), ([A, B, V]) => {
+            const lhs = doTransform2x2(doTransform2x2(A, B), V);
+            const rhs = doTransform2x2(A, doTransform2x2(B, V));
+            expectVectorClose(lhs, rhs, 1e-10, 1e-10);
+        });
+    });
+
+    it('setBasis2x2/getBasis2x2 use the columns: M*unit(i) = basis(i)', () => {
+        check(fc.tuple(matrix(2, 2), vector(2), fc.integer({ min: 0, max: 1 })),
+            ([M, V, i]) => {
+                setBasis2x2(M, i, V);
+                expectVectorClose(getBasis2x2(M, i), V, 0, 0);
+                const unit = new Vector(2);
+                unit.makeUnit(i);
+                expectVectorClose(doTransform2x2(M, unit), V, 1e-12, 1e-12);
+            });
+    });
+
+    it('trace2x2 equals the sum of the eigenvalues and is transpose '
+        + 'invariant', () => {
+            check(matrix(2, 2), M => {
+                expectClose(trace2x2(M), trace2x2(transpose(M)), 0, 0);
+                // The eigenvalues of a 2x2 matrix are (tr +- sqrt(tr^2-4det))/2
+                // and always sum to the trace, even when complex.
+                const tr = trace2x2(M);
+                const det = determinant2x2(M);
+                const disc = tr * tr - 4 * det;
+                if (disc >= 0) {
+                    const s = Math.sqrt(disc);
+                    expectClose(((tr + s) / 2) + ((tr - s) / 2), tr, 1e-12,
+                        1e-12);
+                }
+            });
+        });
 });

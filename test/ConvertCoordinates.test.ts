@@ -4,6 +4,11 @@ import {
     Matrix, multiplyAB, mulMatrix, determinant, transpose
 } from '../src/Matrix.js';
 import { Vector } from '../src/Vector.js';
+import { determinant3x3 } from '../src/Matrix3x3.js';
+import {
+    check, expectVectorClose as expectVectorsClose, fc, invertibleMatrix,
+    vector
+} from './helpers/arbitraries.js';
 
 function expectVectorClose(actual: Vector, expected: readonly number[],
     tolerance: number = 1e-12): void {
@@ -280,5 +285,131 @@ describe('ConvertCoordinates', () => {
         expect(() => convert.vToU(new Vector(2))).toThrow();
         expect(() => convert.uToV(new Matrix(2, 2))).toThrow();
         expect(() => convert.vToU(new Matrix(4, 4))).toThrow();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V02): property-based re-checks against
+// ConvertCoordinates.h.
+// ---------------------------------------------------------------------------
+
+// The Cartesian point represented by the coordinates X of the system whose
+// basis vectors are the columns of the basis matrix.
+function cartesian(basis: Matrix, X: Vector): Vector {
+    return mulMatrix(basis, X) as Vector;
+}
+
+// Apply the transformation matrix A to the coordinate vector X under the
+// stated multiplication convention.
+function apply(A: Matrix, X: Vector, vectorOnRight: boolean): Vector {
+    return (vectorOnRight
+        ? mulMatrix(A, X) as Vector
+        : mulMatrix(X, A) as Vector);
+}
+
+describe('ConvertCoordinates verification', () => {
+    it('uToV and vToU preserve the Cartesian point and invert each other',
+        () => {
+            check(fc.tuple(fc.constantFrom(2, 3, 4), fc.boolean(), fc.boolean())
+                .chain(([n, vorU, vorV]) => fc.tuple(fc.constant(n),
+                    invertibleMatrix(n), invertibleMatrix(n), vector(n),
+                    fc.constant(vorU), fc.constant(vorV))),
+                ([n, U, V, X, vorU, vorV]) => {
+                    const convert = new ConvertCoordinates(n);
+                    expect(convert.compute(U, vorU, V, vorV)).toBe(true);
+
+                    // The defining property: X and Y = C^{-1}X denote the
+                    // same Cartesian point.
+                    const Y = convert.uToV(X);
+                    expectVectorsClose(cartesian(V, Y), cartesian(U, X), 1e-6,
+                        1e-6);
+
+                    // Round trip.
+                    expectVectorsClose(convert.vToU(Y), X, 1e-6, 1e-6);
+                    expectVectorsClose(convert.uToV(convert.vToU(X)), X, 1e-6,
+                        1e-6);
+
+                    // C and its inverse really are inverses of each other.
+                    expectMatrixClose(
+                        multiplyAB(convert.getC(), convert.getInverseC()),
+                        Matrix.identity(n, n), 1e-6);
+                }, 40);
+        });
+
+    it('uToV of a transformation acts on the V-coordinates as the original '
+        + 'acts on the U-coordinates, for all four conventions', () => {
+            check(fc.tuple(fc.constantFrom(2, 3), fc.boolean(), fc.boolean())
+                .chain(([n, vorU, vorV]) => fc.tuple(fc.constant(n),
+                    invertibleMatrix(n), invertibleMatrix(n),
+                    invertibleMatrix(n), vector(n), fc.constant(vorU),
+                    fc.constant(vorV))),
+                ([n, U, V, A, X, vorU, vorV]) => {
+                    const convert = new ConvertCoordinates(n);
+                    expect(convert.compute(U, vorU, V, vorV)).toBe(true);
+                    expect(convert.isVectorOnRightU()).toBe(vorU);
+                    expect(convert.isVectorOnRightV()).toBe(vorV);
+
+                    const B = convert.uToV(A);
+                    const Y = convert.uToV(X);
+
+                    // Transform in each system, then compare the Cartesian
+                    // points. This is the whole contract of the matrix
+                    // conversion table, including its transposes.
+                    const XT = apply(A, X, vorU);
+                    const YT = apply(B, Y, vorV);
+                    expectVectorsClose(cartesian(V, YT), cartesian(U, XT), 1e-5,
+                        1e-5);
+
+                    // vToU undoes uToV on transformations too.
+                    expectMatrixClose(convert.vToU(B), A, 1e-6);
+                }, 40);
+        });
+
+    it('the handedness flags report the signs of the determinants', () => {
+        check(fc.tuple(invertibleMatrix(3), invertibleMatrix(3)), ([U, V]) => {
+            const convert = new ConvertCoordinates(3);
+            expect(convert.compute(U, true, V, true)).toBe(true);
+            expect(convert.isRightHandedU()).toBe(determinant(U) > 0);
+            expect(convert.isRightHandedV()).toBe(determinant(V) > 0);
+
+            // Swapping two columns of U reverses its handedness.
+            const swapped = U.clone();
+            swapped.setCol(0, U.getCol(1));
+            swapped.setCol(1, U.getCol(0));
+            expect(convert.compute(swapped, true, V, true)).toBe(true);
+            expect(convert.isRightHandedU()).toBe(!(determinant(U) > 0));
+        });
+    });
+
+    it('a singular U or V leaves the converter in its identity state', () => {
+        check(fc.tuple(invertibleMatrix(3), vector(3), vector(3)),
+            ([V, u, w]) => {
+                // A rank-deficient matrix whose third basis vector is zero.
+                // A zero column makes the elimination pivot exactly zero, so
+                // the singularity is detected without depending on round-off
+                // (duplicate columns need not cancel exactly in floating
+                // point).
+                const U = new Matrix(3, 3);
+                U.setCol(0, u);
+                U.setCol(1, w);
+                expect(Math.abs(determinant3x3(U))).toBe(0);
+
+                const convert = new ConvertCoordinates(3);
+                // Seed the converter with a valid conversion first, so the
+                // test observes the documented reset rather than the
+                // constructor's state.
+                expect(convert.compute(V, false, V, false)).toBe(true);
+                expect(convert.compute(U, false, V, false)).toBe(false);
+                expectMatrixClose(convert.getC(), Matrix.identity(3, 3), 0);
+                expectMatrixClose(convert.getInverseC(), Matrix.identity(3, 3),
+                    0);
+                expect(convert.isVectorOnRightU()).toBe(true);
+                expect(convert.isVectorOnRightV()).toBe(true);
+                expect(convert.isRightHandedU()).toBe(true);
+                expect(convert.isRightHandedV()).toBe(true);
+
+                // A singular V is rejected as well.
+                expect(convert.compute(V, false, U, false)).toBe(false);
+            });
     });
 });

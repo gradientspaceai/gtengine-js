@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { GTE_C_PI } from '../src/Constants.js';
-import { Matrix, addMatrix, mulMatrix } from '../src/Matrix.js';
+import { AxisAngle } from '../src/AxisAngle.js';
+import {
+    Matrix, addMatrix, determinant, mulMatrix, multiplyAB, multiplyATB
+} from '../src/Matrix.js';
+import { Rotation } from '../src/Rotation.js';
 import {
     rotC0Estimate, rotC1Estimate, rotC2Estimate, rotC3Estimate,
     rotC4Estimate, getRotC0EstimateMaxError, getRotC1EstimateMaxError,
@@ -8,7 +12,10 @@ import {
     getRotC4EstimateMaxError, rotationEstimate, rotationDerivativeEstimate,
     rotationAndDerivativeEstimate
 } from '../src/RotationEstimate.js';
-import { Vector, length } from '../src/Vector.js';
+import { Vector, length, mul } from '../src/Vector.js';
+import {
+    check, expectClose, fc, finite, unitVector
+} from './helpers/arbitraries.js';
 
 const DEGREES = [4, 6, 8, 10, 12, 14, 16] as const;
 
@@ -476,5 +483,159 @@ describe('rotationDerivativeEstimate', () => {
                 }
             }
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V02): property-based re-checks against
+// RotationEstimate.h.
+// ---------------------------------------------------------------------------
+
+const arbT = () => finite(0, GTE_C_PI);
+const arbDegree = () => fc.constantFrom(...DEGREES);
+
+// A rotation vector p with |p| <= pi.
+const arbRotationVector = () => fc.tuple(unitVector(3), finite(0, GTE_C_PI))
+    .map(([axis, t]) => mul(axis, t));
+
+describe('RotationEstimate verification', () => {
+    it('every rotc estimate stays within its verified minimax error at every '
+        + 'sampled point', () => {
+            check(fc.tuple(arbT(), arbDegree()), ([t, degree]) => {
+                for (const f of FUNCTIONS) {
+                    const error = Math.abs(f.estimate(t, degree) - f.exact(t));
+                    // 2e-15 of slack for evaluating the polynomial and the
+                    // reference series in double precision.
+                    expect(error, `${f.name} degree ${degree} at t=${t}`)
+                        .toBeLessThanOrEqual(
+                            1.05 * TRUE_MAX_ERROR[f.name][degree] + 2e-15);
+                }
+            });
+        });
+
+    it('every rotc estimate is even in t and independent of the sign of t',
+        () => {
+            check(fc.tuple(finite(-GTE_C_PI, GTE_C_PI), arbDegree()),
+                ([t, degree]) => {
+                    for (const f of FUNCTIONS) {
+                        // The Horner loop squares t before use, so the two
+                        // evaluations must agree bit for bit.
+                        expect(f.estimate(-t, degree))
+                            .toBe(f.estimate(t, degree));
+                    }
+                });
+        });
+
+    it('rotationEstimate approximates the exact Rodrigues rotation and is '
+        + 'nearly orthonormal at every degree', () => {
+            check(fc.tuple(arbRotationVector(), arbDegree()),
+                ([p, degree]) => {
+                    const R = rotationEstimate(p, degree);
+
+                    // |R_est - R| <= |da|*|S| + |db|*|S^2| with |S| entries
+                    // bounded by t <= pi.
+                    const bound = 20 * (TRUE_MAX_ERROR.rotc0[degree]
+                        + TRUE_MAX_ERROR.rotc1[degree]) + 1e-14;
+                    expect(maxAbsDifference(R, exactRotation(p)))
+                        .toBeLessThanOrEqual(bound);
+
+                    // R^T*R = I to the same order (a near-rotation).
+                    const RtR = multiplyATB(R, R);
+                    expect(maxAbsDifference(RtR, Matrix.identity(3, 3)))
+                        .toBeLessThanOrEqual(4 * bound);
+                    expectClose(determinant(R), 1, 4 * bound, 4 * bound);
+                });
+        });
+
+    it('rotationEstimate agrees with the Rotation.h axis-angle conversion',
+        () => {
+            check(arbRotationVector().filter(p => length(p) > 1e-6), p => {
+                // An independent implementation of the same rotation: the
+                // exact Rodrigues formula of Rotation.ts, with t = |p| and
+                // the axis p/t.
+                const t = length(p);
+                const axis = mul(p, 1 / t);
+                const exact = Rotation.fromAxisAngle(new AxisAngle(axis, t))
+                    .toMatrix();
+                const bound = 20 * (TRUE_MAX_ERROR.rotc0[16]
+                    + TRUE_MAX_ERROR.rotc1[16]) + 1e-13;
+                expect(maxAbsDifference(rotationEstimate(p, 16), exact))
+                    .toBeLessThanOrEqual(bound);
+            });
+        });
+
+    it('the derivative estimate satisfies the Euler identity '
+        + 'sum_i p_i * dR/dp_i = S*R', () => {
+            // Differentiating R(lambda*p) = exp(lambda*S) at lambda = 1 gives
+            // sum_i p_i * dR/dp_i = S*R. For the exact rotc functions this is
+            // an identity relating all four of rotc0..rotc3; for the
+            // estimates it holds to within their approximation errors, so it
+            // is a joint check on the four coefficient tables and on the
+            // derivative formula.
+            check(fc.tuple(arbRotationVector(), arbDegree()),
+                ([p, degree]) => {
+                    const { R, Rder } = rotationAndDerivativeEstimate(p,
+                        degree);
+                    let lhs = new Matrix(3, 3);
+                    for (let i = 0; i < 3; ++i) {
+                        lhs = addMatrix(lhs,
+                            mulMatrix(p.get(i), Rder[i]) as Matrix);
+                    }
+                    const rhs = multiplyAB(skew(p), R);
+                    const bound = 50 * (TRUE_MAX_ERROR.rotc0[degree]
+                        + TRUE_MAX_ERROR.rotc1[degree]
+                        + TRUE_MAX_ERROR.rotc2[degree]
+                        + TRUE_MAX_ERROR.rotc3[degree]) + 1e-13;
+                    expect(maxAbsDifference(lhs, rhs))
+                        .toBeLessThanOrEqual(bound);
+                });
+        });
+
+    it('the derivative estimate matches central differences of the exact '
+        + 'rotation', () => {
+            const h = 1e-5;
+            check(arbRotationVector().filter(p => length(p) > 0.05), p => {
+                const Rder = rotationDerivativeEstimate(p, 16);
+                for (let i = 0; i < 3; ++i) {
+                    const pPlus = p.clone();
+                    pPlus.values[i] += h;
+                    const pMinus = p.clone();
+                    pMinus.values[i] -= h;
+                    const Rp = exactRotation(pPlus);
+                    const Rm = exactRotation(pMinus);
+                    for (let e = 0; e < 9; ++e) {
+                        const fd = (Rp.values[e] - Rm.values[e]) / (2 * h);
+                        // O(h^2) truncation plus O(eps/h) round-off.
+                        expect(Math.abs(fd - Rder[i].values[e]))
+                            .toBeLessThanOrEqual(1e-8);
+                    }
+                }
+            }, 100);
+        });
+
+    it('rotationAndDerivativeEstimate returns exactly what the separate '
+        + 'functions return', () => {
+            check(fc.tuple(arbRotationVector(), arbDegree()), ([p, degree]) => {
+                const { R, Rder } = rotationAndDerivativeEstimate(p, degree);
+                expect(R.values).toEqual(rotationEstimate(p, degree).values);
+                const separate = rotationDerivativeEstimate(p, degree);
+                for (let i = 0; i < 3; ++i) {
+                    expect(Rder[i].values).toEqual(separate[i].values);
+                }
+            });
+        });
+
+    it('the results never alias each other or a shared buffer', () => {
+        check(fc.tuple(arbRotationVector(), arbDegree()), ([p, degree]) => {
+            const { R, Rder } = rotationAndDerivativeEstimate(p, degree);
+            const objects = [R, ...Rder];
+            for (let i = 0; i < objects.length; ++i) {
+                for (let j = i + 1; j < objects.length; ++j) {
+                    expect(objects[i].values).not.toBe(objects[j].values);
+                }
+            }
+            R.set(0, 0, 12345);
+            expect(rotationEstimate(p, degree).get(0, 0)).not.toBe(12345);
+        });
     });
 });

@@ -10,7 +10,10 @@ import {
 } from '../src/Projection.js';
 import { Rotation } from '../src/Rotation.js';
 import { Vector, add, dot, mul, sub } from '../src/Vector.js';
-import { cross } from '../src/Vector3.js';
+import { computeOrthogonalComplement3, cross } from '../src/Vector3.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, line, unitVector, vector
+} from './helpers/arbitraries.js';
 
 function makeRandom(seed: number): () => number {
     let state = seed >>> 0;
@@ -422,3 +425,199 @@ function orthogonalComplementU(N: Vector): number[] {
     const inv = 1 / Math.sqrt(dot(v[1], v[1]));
     return [v[1].values[0] * inv, v[1].values[1] * inv, v[1].values[2] * inv];
 }
+
+// ---------------------------------------------------------------------------
+// Verification wave (V02): property-based re-checks against Projection.h.
+// ---------------------------------------------------------------------------
+
+// An orthonormal frame of 3-vectors, used as the axes of an ellipsoid.
+const arbAxes3 = () => unitVector(3).chain(axis =>
+    finite(0, 2 * GTE_C_PI).map(angle => {
+        const R = Rotation.fromAxisAngle(new AxisAngle(axis, angle)).toMatrix();
+        return [R.getCol(0), R.getCol(1), R.getCol(2)];
+    }));
+
+const arbEllipsoid3 = () => fc.tuple(vector(3, -5, 5), arbAxes3(),
+    fc.array(finite(0.25, 3), { minLength: 3, maxLength: 3 }))
+    .map(([c, axes, e]) => Hyperellipsoid.fromCenterAxisExtent(c, axes,
+        Vector.fromArray(e)));
+
+// The quadratic s^2*a + 2*s*b + c whose roots are the parameters at which the
+// line E + s*D meets the ellipsoid, built directly from the center/axes/
+// extents representation (independent of the A/B/C coefficient form that
+// perspectiveProject uses).
+function rayEllipsoidQuadratic(ellipsoid: Hyperellipsoid, E: Vector,
+    D: Vector): { a: number, b: number, c: number } {
+    let a = 0, b = 0, c = 0;
+    const delta = sub(E, ellipsoid.center);
+    for (let i = 0; i < 3; ++i) {
+        const inv = 1 / ellipsoid.extent.get(i);
+        const f = dot(ellipsoid.axis[i], delta) * inv;
+        const g = dot(ellipsoid.axis[i], D) * inv;
+        a += g * g;
+        b += f * g;
+        c += f * f;
+    }
+    return { a, b, c: c - 1 };
+}
+
+describe('Projection verification', () => {
+    it('projectEllipsoid3 brackets the ellipsoid exactly (brute force over '
+        + 'the boundary)', () => {
+            check(fc.tuple(arbEllipsoid3(), line(3)), ([ellipsoid, ln]) => {
+                const { smin, smax } = projectEllipsoid3(ellipsoid, ln);
+                expect(smax).toBeGreaterThanOrEqual(smin);
+
+                // The interval is centered on the projection of the center.
+                const center = dot(ln.direction,
+                    sub(ellipsoid.center, ln.origin));
+                expectClose(0.5 * (smin + smax), center, 1e-9, 1e-9);
+
+                // No boundary point projects outside [smin,smax], and the
+                // extremes are attained.
+                let lo = Number.POSITIVE_INFINITY;
+                let hi = Number.NEGATIVE_INFINITY;
+                for (const X of ellipsoidBoundaryPoints(ellipsoid, 12)) {
+                    const s = dot(ln.direction, sub(X, ln.origin));
+                    lo = Math.min(lo, s);
+                    hi = Math.max(hi, s);
+                    expect(s).toBeLessThanOrEqual(smax + 1e-9);
+                    expect(s).toBeGreaterThanOrEqual(smin - 1e-9);
+                }
+                // The sampling is coarse, so it only approaches the extremes.
+                expect(hi).toBeGreaterThan(smax - 0.05 * (smax - smin) - 1e-9);
+                expect(lo).toBeLessThan(smin + 0.10 * (smax - smin) + 1e-9);
+            }, 10);
+        });
+
+    it('projectEllipse2 brackets the ellipse exactly (brute force over the '
+        + 'boundary)', () => {
+            check(fc.tuple(vector(2, -5, 5), finite(0, 2 * GTE_C_PI),
+                finite(0.25, 3), finite(0.25, 3), line(2)),
+                ([c, angle, e0, e1, ln]) => {
+                    const cs = Math.cos(angle), sn = Math.sin(angle);
+                    const ellipse = Hyperellipsoid.fromCenterAxisExtent(c,
+                        [Vector.fromArray([cs, sn]),
+                            Vector.fromArray([-sn, cs])],
+                        Vector.fromArray([e0, e1]));
+                    const { smin, smax } = projectEllipse2(ellipse, ln);
+                    expect(smax).toBeGreaterThanOrEqual(smin);
+
+                    let lo = Number.POSITIVE_INFINITY;
+                    let hi = Number.NEGATIVE_INFINITY;
+                    for (const X of ellipseBoundaryPoints(ellipse, 180)) {
+                        const s = dot(ln.direction, sub(X, ln.origin));
+                        lo = Math.min(lo, s);
+                        hi = Math.max(hi, s);
+                        expect(s).toBeLessThanOrEqual(smax + 1e-9);
+                        expect(s).toBeGreaterThanOrEqual(smin - 1e-9);
+                    }
+                    expectClose(hi, smax, 1e-3, 1e-3);
+                    expectClose(lo, smin, 1e-3, 1e-3);
+                }, 20);
+        });
+
+    it('projectEllipsoid3 is invariant to the line origin and reverses with '
+        + 'the direction', () => {
+            check(fc.tuple(arbEllipsoid3(), line(3), finite(-5, 5)),
+                ([ellipsoid, ln, t]) => {
+                    const base = projectEllipsoid3(ellipsoid, ln);
+
+                    // Sliding the origin along the direction shifts the
+                    // interval by -t.
+                    const moved = Line.fromOriginDirection(
+                        add(ln.origin, mul(ln.direction, t)), ln.direction);
+                    const shifted = projectEllipsoid3(ellipsoid, moved);
+                    expectClose(shifted.smin, base.smin - t, 1e-9, 1e-9);
+                    expectClose(shifted.smax, base.smax - t, 1e-9, 1e-9);
+
+                    // Reversing the direction reflects the interval.
+                    const flipped = projectEllipsoid3(ellipsoid,
+                        Line.fromOriginDirection(ln.origin,
+                            mul(ln.direction, -1)));
+                    expectClose(flipped.smin, -base.smax, 1e-9, 1e-9);
+                    expectClose(flipped.smax, -base.smin, 1e-9, 1e-9);
+                }, 60);
+        });
+
+    it('perspectiveProject returns the silhouette: every point of the '
+        + 'projected ellipse is on a line through the eye tangent to the '
+        + 'ellipsoid', () => {
+            check(fc.tuple(arbEllipsoid3(), unitVector(3), finite(8, 15),
+                finite(20, 40), finite(0, 2 * GTE_C_PI)),
+                ([ellipsoid, dir, eyeDist, planeDist, spin]) => {
+                    // Place the eye away from the ellipsoid along 'dir' and
+                    // the view plane beyond the ellipsoid, so the projection
+                    // is a genuine ellipse.
+                    const E = add(ellipsoid.center, mul(dir, eyeDist));
+                    const N = mul(dir, -1);   // points from the eye to the plane
+                    const n = planeDist;
+
+                    // Any right-handed {U,V,N} frame; spin it so the test is
+                    // not tied to one choice of frame.
+                    const basis = [N.clone(), new Vector(3), new Vector(3)];
+                    computeOrthogonalComplement3(1, basis);
+                    const U = add(mul(basis[1], Math.cos(spin)),
+                        mul(basis[2], Math.sin(spin)));
+                    const V = cross(N, U);
+
+                    const { ellipse, isEllipse } =
+                        perspectiveProject(ellipsoid, E, N, U, V, n);
+                    expect(isEllipse).toBe(true);
+
+                    // K is the point of the plane closest to the eye.
+                    const K = add(E, mul(N, n));
+                    for (let i = 0; i < 16; ++i) {
+                        const phi = (2 * GTE_C_PI * i) / 16;
+                        const y0 = ellipse.center.get(0)
+                            + ellipse.extent.get(0) * Math.cos(phi)
+                                * ellipse.axis[0].get(0)
+                            + ellipse.extent.get(1) * Math.sin(phi)
+                                * ellipse.axis[1].get(0);
+                        const y1 = ellipse.center.get(1)
+                            + ellipse.extent.get(0) * Math.cos(phi)
+                                * ellipse.axis[0].get(1)
+                            + ellipse.extent.get(1) * Math.sin(phi)
+                                * ellipse.axis[1].get(1);
+                        const X = add(K, add(mul(U, y0), mul(V, y1)));
+
+                        // The line E + s*(X - E) must be tangent to the
+                        // ellipsoid: its quadratic has a double root.
+                        const q = rayEllipsoidQuadratic(ellipsoid, E,
+                            sub(X, E));
+                        const disc = q.b * q.b - q.a * q.c;
+                        const scale = Math.abs(q.b * q.b)
+                            + Math.abs(q.a * q.c);
+                        // Relative tolerance: the discriminant is a
+                        // difference of nearly equal products, so only its
+                        // magnitude relative to those products is meaningful.
+                        expect(Math.abs(disc)).toBeLessThanOrEqual(
+                            1e-7 * Math.max(scale, 1e-30));
+                    }
+                }, 15);
+        });
+
+    it('perspectiveProject agrees with the plane overload', () => {
+        check(fc.tuple(arbEllipsoid3(), unitVector(3), finite(8, 15),
+            finite(20, 40)), ([ellipsoid, dir, eyeDist, planeDist]) => {
+                const E = add(ellipsoid.center, mul(dir, eyeDist));
+                const N = mul(dir, -1);
+                const n = planeDist;
+                // Dot(N,X) = d with n = d - Dot(N,E).
+                const d = n + dot(N, E);
+                const plane = Hyperplane.fromNormalConstant(N, d);
+
+                const basis = [N.clone(), new Vector(3), new Vector(3)];
+                computeOrthogonalComplement3(1, basis);
+                const explicit = perspectiveProject(ellipsoid, E, N, basis[1],
+                    basis[2], n);
+                const viaPlane = perspectiveProject(ellipsoid, E, plane);
+
+                expect(viaPlane.isEllipse).toBe(explicit.isEllipse);
+                expectVectorClose(viaPlane.ellipse.center,
+                    explicit.ellipse.center, 1e-7, 1e-7);
+                expectVectorClose(viaPlane.ellipse.extent,
+                    explicit.ellipse.extent, 1e-7, 1e-7);
+            }, 25);
+    });
+});

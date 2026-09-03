@@ -7,6 +7,9 @@ import {
 import { Vector, dot, length, normalize } from '../src/Vector.js';
 import { slerp, slerpUsingCosAngle, slerpUsingMidpoint } from '../src/Slerp.js';
 import { Matrix, mulMatrix } from '../src/Matrix.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, unitVector, vector
+} from './helpers/arbitraries.js';
 
 function expectQuaternionClose(actual: Vector, expected: readonly number[],
     tolerance: number = 1e-13): void {
@@ -448,5 +451,148 @@ describe('Quaternion', () => {
             const q = axisAngle([0, 1, 0], 0.9);
             expectQuaternionClose(slerpQuaternion(0.3, q, q), q.values, 1e-13);
         });
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V02): property-based re-checks against Quaternion.h.
+// ---------------------------------------------------------------------------
+
+const arbQuaternion = (min = -5, max = 5) =>
+    vector(4, min, max).map(v => Quaternion.fromArray(v.values));
+
+const arbUnitQuaternion = () =>
+    unitVector(4).map(v => Quaternion.fromArray(v.values));
+
+describe('Quaternion verification', () => {
+    it('the Hamilton product is associative and distributes over addition',
+        () => {
+            check(fc.tuple(arbQuaternion(), arbQuaternion(), arbQuaternion()),
+                ([q0, q1, q2]) => {
+                    const left = mulQuaternion(mulQuaternion(q0, q1), q2);
+                    const right = mulQuaternion(q0, mulQuaternion(q1, q2));
+                    expectVectorClose(left, right, 1e-10, 1e-10);
+
+                    const dist = mulQuaternion(q0, addQuaternion(q1, q2));
+                    const sum = addQuaternion(mulQuaternion(q0, q1),
+                        mulQuaternion(q0, q2));
+                    expectVectorClose(dist, sum, 1e-10, 1e-10);
+                });
+        });
+
+    it('the product norm is multiplicative and the conjugate anti-commutes',
+        () => {
+            check(fc.tuple(arbQuaternion(), arbQuaternion()), ([q0, q1]) => {
+                // |q0*q1| = |q0|*|q1| (the quaternions are a composition
+                // algebra); this catches a sign error in any single term of
+                // the product formula.
+                expectClose(length(mulQuaternion(q0, q1)),
+                    length(q0) * length(q1), 1e-10, 1e-10);
+
+                // conj(q0*q1) = conj(q1)*conj(q0).
+                expectVectorClose(conjugate(mulQuaternion(q0, q1)),
+                    mulQuaternion(conjugate(q1), conjugate(q0)), 1e-10, 1e-10);
+            });
+        });
+
+    it('inverseQuaternion is a two-sided inverse, and is the conjugate for '
+        + 'unit quaternions', () => {
+            check(arbQuaternion().filter(q => length(q) > 1e-2), q => {
+                const inv = inverseQuaternion(q);
+                expectVectorClose(mulQuaternion(q, inv), Quaternion.identity(),
+                    1e-9, 1e-9);
+                expectVectorClose(mulQuaternion(inv, q), Quaternion.identity(),
+                    1e-9, 1e-9);
+            });
+
+            check(arbUnitQuaternion(), q => {
+                expectVectorClose(inverseQuaternion(q), conjugate(q), 1e-12,
+                    1e-12);
+            });
+        });
+
+    it('inverseQuaternion and divQuaternion return zero for the degenerate '
+        + 'inputs, as upstream', () => {
+            expectVectorClose(inverseQuaternion(Quaternion.zero()),
+                Quaternion.zero(), 0, 0);
+            check(arbQuaternion(), q => {
+                expectVectorClose(divQuaternion(q, 0), Quaternion.zero(), 0, 0);
+            });
+        });
+
+    it('rotate agrees with the quaternion sandwich q*(0,u)*conj(q)', () => {
+        check(fc.tuple(arbUnitQuaternion(), vector(3, -5, 5)), ([q, u]) => {
+            // The independent computation is upstream's "original
+            // implementation" that the Eisele form replaces.
+            const uq = new Quaternion(u.get(0), u.get(1), u.get(2), 0);
+            const sandwich = mulQuaternion(mulQuaternion(q, uq), conjugate(q));
+            const rotated = rotate(q, u);
+            for (let i = 0; i < 3; ++i) {
+                expectClose(rotated.get(i), sandwich.get(i), 1e-10, 1e-10);
+            }
+            // A rotation is an isometry.
+            expectClose(length(rotated), length(u), 1e-10, 1e-10);
+        });
+    });
+
+    it('rotate is a homomorphism and treats a 4-tuple as (u,w) with w carried '
+        + 'through', () => {
+            check(fc.tuple(arbUnitQuaternion(), arbUnitQuaternion(),
+                vector(3, -5, 5), finite(-3, 3)), ([q0, q1, u, w]) => {
+                    // R(q0*q1) = R(q0)*R(q1).
+                    const lhs = rotate(mulQuaternion(q0, q1), u);
+                    const rhs = rotate(q0, rotate(q1, u));
+                    expectVectorClose(lhs, rhs, 1e-10, 1e-10);
+
+                    // The 4-tuple overload rotates (u0,u1,u2) and leaves the
+                    // last component alone.
+                    const u4 = Vector.fromArray([u.get(0), u.get(1), u.get(2), w]);
+                    const r4 = rotate(q0, u4);
+                    const r3 = rotate(q0, u);
+                    for (let i = 0; i < 3; ++i) {
+                        expectClose(r4.get(i), r3.get(i), 1e-12, 1e-12);
+                    }
+                    expectClose(r4.get(3), w, 0, 0);
+                });
+        });
+
+    it('slerpQuaternion stays on the unit sphere, hits its endpoints and '
+        + 'takes the short arc', () => {
+            check(fc.tuple(arbUnitQuaternion(), arbUnitQuaternion(),
+                finite(0, 1)), ([q0, q1, t]) => {
+                    const cosA = dot(q0, q1);
+                    if (Math.abs(cosA) > 1 - 1e-6) {
+                        return;   // (anti)parallel: the arc is degenerate
+                    }
+                    const q = slerpQuaternion(t, q0, q1);
+                    expectClose(length(q), 1, 1e-8, 1e-8);
+
+                    expectVectorClose(slerpQuaternion(0, q0, q1), q0, 1e-9,
+                        1e-9);
+                    // At t = 1 the result is q1 up to the sign flip that
+                    // slerpQuaternion applies for an obtuse angle.
+                    const end = slerpQuaternion(1, q0, q1);
+                    const sign = (cosA >= 0 ? 1 : -1);
+                    expectVectorClose(end, mulQuaternion(q1, sign), 1e-9, 1e-9);
+
+                    // The interpolant is always in the closed half-space of
+                    // q0, i.e. the short arc is taken.
+                    expect(dot(q, q0)).toBeGreaterThanOrEqual(-1e-9);
+                });
+        });
+
+    it('slerpQuaternion has constant angular speed', () => {
+        check(fc.tuple(arbUnitQuaternion(), arbUnitQuaternion(),
+            finite(0, 0.5)), ([q0, q1, t]) => {
+                const cosA = Math.abs(dot(q0, q1));
+                if (cosA > 1 - 1e-3 || cosA < 1e-3) {
+                    return;   // ill-conditioned angle extraction
+                }
+                const angle = Math.acos(cosA);
+                const q = slerpQuaternion(t, q0, q1);
+                // The angle between q0 and slerp(t) is t times the total.
+                const cs = Math.min(1, Math.max(-1, Math.abs(dot(q0, q))));
+                expectClose(Math.acos(cs), t * angle, 1e-7, 1e-7);
+            });
     });
 });

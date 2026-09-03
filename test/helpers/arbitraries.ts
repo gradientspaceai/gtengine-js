@@ -4,7 +4,7 @@
 import fc from 'fast-check';
 import { expect } from 'vitest';
 import { Vector, dot, length, normalize, orthonormalize } from '../../src/Vector.js';
-import { Matrix } from '../../src/Matrix.js';
+import { Matrix, determinant, lInfinityNorm } from '../../src/Matrix.js';
 import { AlignedBox } from '../../src/AlignedBox.js';
 import { OrientedBox } from '../../src/OrientedBox.js';
 import { Line } from '../../src/Line.js';
@@ -27,6 +27,17 @@ export const nonzero = (min = -10, max = 10, eps = 1e-3): fc.Arbitrary<number> =
 /** Strictly positive double in (eps, max]. */
 export const positive = (max = 10, eps = 1e-3): fc.Arbitrary<number> =>
     finite(eps, max).filter(x => x > eps);
+
+/**
+ * Double in [min, max] drawn from a uniform grid of `steps` values. Unlike
+ * wellScaled below, this generator has no dynamic range at all, which matters
+ * when a property needs *conditioning* rather than just non-subnormal inputs:
+ * filtering wellScaled matrices on a scale-relative determinant rejects most
+ * draws and makes generation several times slower.
+ */
+export const scaled = (min = -10, max = 10,
+    steps = 4096): fc.Arbitrary<number> =>
+    fc.integer({ min: 0, max: steps }).map(i => min + (i * (max - min)) / steps);
 
 /**
  * Finite double in [min, max] with magnitudes below eps snapped to exactly 0.
@@ -67,6 +78,23 @@ export const wellScaledMatrix = (numRows: number, numCols: number,
     fc.array(wellScaled(min, max),
         { minLength: numRows * numCols, maxLength: numRows * numCols })
         .map(a => Matrix.fromArray(numRows, numCols, a));
+
+/**
+ * n-by-n matrix that is invertible with a comfortable margin. The acceptance
+ * test is scale relative -- |det(M)| >= minRelDet * ||M||_inf^n -- because an
+ * absolute threshold also admits badly scaled matrices whose determinant
+ * carries no significant digits, and properties about inverses are then
+ * meaningless. Raise minRelDet for better-conditioned matrices.
+ */
+export const invertibleMatrix = (n: number, minRelDet = 1e-3,
+    min = -10, max = 10): fc.Arbitrary<Matrix> =>
+    fc.array(scaled(min, max), { minLength: n * n, maxLength: n * n })
+        .map(a => Matrix.fromArray(n, n, a))
+        .filter(m => {
+            const norm = lInfinityNorm(m);
+            return norm >= 1e-3
+                && Math.abs(determinant(m)) >= minRelDet * Math.pow(norm, n);
+        });
 
 /** Unit-length vector of dimension n. */
 export const unitVector = (n: number): fc.Arbitrary<Vector> =>

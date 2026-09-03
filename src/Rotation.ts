@@ -28,6 +28,9 @@
 //   library (see Matrix3x3.ts, Quaternion.ts).
 // - toEulerAngles fixes an upstream defect for Euler-angle-sourced rotations;
 //   see the comment in that method.
+// - convertMatrixToAxisAngle fixes an upstream defect for rotation matrices
+//   whose angle is numerically indistinguishable from pi; see the comment in
+//   that function.
 
 import { AxisAngle } from './AxisAngle.js';
 import { GTE_C_HALF_PI, GTE_C_PI } from './Constants.js';
@@ -35,7 +38,7 @@ import { EulerAngles, EulerResult } from './EulerAngles.js';
 import { logAssert } from './Logger.js';
 import { Matrix, multiplyAB } from './Matrix.js';
 import { Quaternion } from './Quaternion.js';
-import { Vector, normalize } from './Vector.js';
+import { Vector, dot, normalize } from './Vector.js';
 
 function assertDimension(n: number): void {
     logAssert(n === 3 || n === 4, 'Dimension must be 3 or 4.');
@@ -173,13 +176,41 @@ function convertMatrixToAxisAngle(r: Matrix, n: number): AxisAngle {
     const a = new AxisAngle(new Vector(n), Math.acos(cs));
 
     if (a.angle > 0) {
-        if (a.angle < GTE_C_PI) {
+        // UPSTREAM BUG (Rotation.h, Convert(Matrix, AxisAngle)): the
+        // 'angle < pi' branch extracts the axis from R - Transpose(R), whose
+        // entries are 2*sin(angle)*S. A rotation by (very nearly) pi has a
+        // symmetric matrix, so those differences can underflow while acos
+        // still reports an angle slightly below pi, and normalizing the
+        // underflowed vector does not produce a unit-length axis. Two
+        // examples, both from unit quaternions: (0,0,-1,0) gives an exactly
+        // zero antisymmetric part, hence a zero axis; a quaternion very near
+        // (0,1,0,0) gives components around 1e-162, whose squares are
+        // denormal, hence an axis of length 0.707. Either way upstream
+        // returns something that is not a rotation axis, and converting it
+        // back does not reproduce the input rotation.
+        //
+        // The port validates the result instead of trusting it: if the
+        // normalized axis is not actually unit length, the extraction
+        // underflowed and the symmetric ('angle = pi') formula -- which is
+        // well conditioned exactly there -- is used. A well-conditioned
+        // input normalizes to within an ulp of 1 and is therefore
+        // unaffected, so this changes no result that upstream computes
+        // correctly.
+        let symmetric = a.angle >= GTE_C_PI;
+        if (!symmetric) {
             // The angle is in (0,pi).
             a.axis.values[0] = r.get(2, 1) - r.get(1, 2);
             a.axis.values[1] = r.get(0, 2) - r.get(2, 0);
             a.axis.values[2] = r.get(1, 0) - r.get(0, 1);
             normalize(a.axis);
-        } else {
+            // A vector normalized without underflow satisfies Dot(v,v) = 1 to
+            // within a few ulps, so the 1e-12 threshold is four orders of
+            // magnitude above round-off: it fires only on the underflowed
+            // extractions described above.
+            symmetric = Math.abs(dot(a.axis, a.axis) - 1) > 1e-12;
+        }
+
+        if (symmetric) {
             // The angle is pi, in which case R is symmetric and
             // R+I = 2*(I+S^2) = 2*U*U^T, where U = (u0,u1,u2) is the
             // unit-length direction of the rotation axis. Determine the

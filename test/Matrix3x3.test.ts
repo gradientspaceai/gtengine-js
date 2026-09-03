@@ -4,10 +4,14 @@ import {
     setBasis3x3, getBasis3x3
 } from '../src/Matrix3x3.js';
 import {
-    Matrix, inverse, determinant, multiplyAB, mulMatrix, transpose
+    Matrix, inverse, determinant, multiplyAB, mulMatrix, transpose,
+    lInfinityNorm
 } from '../src/Matrix.js';
 import { Vector, dot } from '../src/Vector.js';
 import { cross } from '../src/Vector3.js';
+import {
+    check, expectClose, expectVectorClose, fc, invertibleMatrix, matrix, vector
+} from './helpers/arbitraries.js';
 
 function expectMatrixClose(actual: Matrix, expected: Matrix,
     tolerance: number = 1e-12): void {
@@ -178,5 +182,120 @@ describe('Matrix3x3', () => {
         expect(() => doTransform3x3(new Matrix(3, 3), new Vector(4))).toThrow();
         expect(() => doTransform3x3(new Matrix(3, 3), new Matrix(2, 2)))
             .toThrow();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V02): property-based re-checks against Matrix3x3.h.
+// ---------------------------------------------------------------------------
+
+describe('Matrix3x3 verification', () => {
+    it('M*adjoint(M) = adjoint(M)*M = det(M)*I for every 3x3 matrix', () => {
+        check(matrix(3, 3), M => {
+            const det = determinant3x3(M);
+            const adj = adjoint3x3(M);
+            const expected = mulMatrix(Matrix.identity(3, 3), det) as Matrix;
+            // The entries are sums of triple products of entries bounded by
+            // 10, so the absolute round-off scales with the cube of the norm.
+            const scale = Math.max(1, lInfinityNorm(M) ** 3);
+            expectMatrixClose(multiplyAB(M, adj), expected, 1e-12 * scale);
+            expectMatrixClose(multiplyAB(adj, M), expected, 1e-12 * scale);
+        });
+    });
+
+    it('determinant3x3 equals the scalar triple product of the rows', () => {
+        check(matrix(3, 3), M => {
+            const triple = dot(M.getRow(0), cross(M.getRow(1), M.getRow(2)));
+            expectClose(determinant3x3(M), triple, 1e-12, 1e-12);
+        });
+    });
+
+    it('inverse3x3 agrees with Gaussian elimination and inverts M', () => {
+        check(invertibleMatrix(3), M => {
+            // The generic determinant and inverse use Gaussian elimination
+            // with full pivoting, an algorithm independent of the closed
+            // forms under test. (The comparison needs the well-scaled
+            // generator: the elimination divides by pivots, so a matrix of
+            // denormal entries makes its determinant meaningless.)
+            const scale = Math.max(1, lInfinityNorm(M) ** 3);
+            expectClose(determinant3x3(M), determinant(M), 1e-10 * scale,
+                1e-10);
+
+            const { inverse: inv3, invertible } = inverse3x3(M);
+            expect(invertible).toBe(true);
+            const generic = inverse(M);
+            expect(generic.invertible).toBe(true);
+            expectMatrixClose(inv3, generic.inverse, 1e-6);
+            expectMatrixClose(multiplyAB(M, inv3), Matrix.identity(3, 3), 1e-8);
+            expectMatrixClose(multiplyAB(inv3, M), Matrix.identity(3, 3), 1e-8);
+        });
+    });
+
+    it('inverse3x3 of a rank-deficient matrix reports non-invertibility',
+        () => {
+            check(fc.tuple(vector(3), vector(3)), ([u, v]) => {
+                // A rank-2 matrix whose third row repeats the first.
+                const M = Matrix.fromArray(3, 3, [
+                    u.get(0), u.get(1), u.get(2),
+                    v.get(0), v.get(1), v.get(2),
+                    u.get(0), u.get(1), u.get(2)
+                ]);
+                if (determinant3x3(M) !== 0) {
+                    return;   // rounding left a tiny nonzero determinant
+                }
+                const { inverse: inv, invertible } = inverse3x3(M);
+                expect(invertible).toBe(false);
+                expectMatrixClose(inv, new Matrix(3, 3), 0);
+            });
+        });
+
+    it('adjoint3x3 is the transpose of the cofactor matrix', () => {
+        check(matrix(3, 3), M => {
+            const adj = adjoint3x3(M);
+            for (let r = 0; r < 3; ++r) {
+                for (let c = 0; c < 3; ++c) {
+                    // cofactor(c,r) computed from the 2x2 minor.
+                    const rows = [0, 1, 2].filter(i => i !== c);
+                    const cols = [0, 1, 2].filter(j => j !== r);
+                    const minor = M.get(rows[0], cols[0]) * M.get(rows[1], cols[1])
+                        - M.get(rows[0], cols[1]) * M.get(rows[1], cols[0]);
+                    const sign = ((c + r) % 2 === 0 ? 1 : -1);
+                    expectClose(adj.get(r, c), sign * minor, 1e-12, 1e-12);
+                }
+            }
+        });
+    });
+
+    it('doTransform3x3 is associative and agrees with the row-dot form', () => {
+        check(fc.tuple(matrix(3, 3), matrix(3, 3), vector(3)), ([A, B, V]) => {
+            expectVectorClose(doTransform3x3(doTransform3x3(A, B), V),
+                doTransform3x3(A, doTransform3x3(B, V)), 1e-9, 1e-9);
+            const MV = doTransform3x3(A, V);
+            for (let r = 0; r < 3; ++r) {
+                expectClose(MV.get(r), dot(A.getRow(r), V), 1e-12, 1e-12);
+            }
+        });
+    });
+
+    it('setBasis3x3/getBasis3x3 use the columns: M*unit(i) = basis(i)', () => {
+        check(fc.tuple(matrix(3, 3), vector(3), fc.integer({ min: 0, max: 2 })),
+            ([M, V, i]) => {
+                setBasis3x3(M, i, V);
+                expectVectorClose(getBasis3x3(M, i), V, 0, 0);
+                const unit = new Vector(3);
+                unit.makeUnit(i);
+                expectVectorClose(doTransform3x3(M, unit), V, 1e-12, 1e-12);
+            });
+    });
+
+    it('trace3x3 is transpose invariant and similarity invariant', () => {
+        check(fc.tuple(matrix(3, 3), invertibleMatrix(3)), ([M, P]) => {
+            expectClose(trace3x3(M), trace3x3(transpose(M)), 0, 0);
+            // tr(P^{-1}*M*P) = tr(M). The similarity transform amplifies
+            // round-off by the condition number of P, hence the loose bound.
+            const { inverse: invP } = inverse3x3(P);
+            const similar = multiplyAB(multiplyAB(invP, M), P);
+            expectClose(trace3x3(similar), trace3x3(M), 1e-6, 1e-6);
+        });
     });
 });
