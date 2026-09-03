@@ -130,15 +130,18 @@
  },
  "Array2.h": {
   "status": "ported",
-  "notes": "Ported to a flat-storage class; C++ pointer indirection a[i1][i0] becomes a.get(i0,i1)/a.set(i0,i1,v); copy/move machinery not ported; storage may alias a caller-owned flat array."
+  "notes": "Ported to a flat-storage class; C++ pointer indirection a[i1][i0] becomes a.get(i0,i1)/a.set(i0,i1,v); copy/move machinery not ported; storage may alias a caller-owned flat array.",
+  "verified": 15
  },
  "Array3.h": {
   "status": "ported",
-  "notes": "Ported to a flat-storage class; C++ a[i2][i1][i0] becomes a.get(i0,i1,i2); see Array2.h notes."
+  "notes": "Ported to a flat-storage class; C++ a[i2][i1][i0] becomes a.get(i0,i1,i2); see Array2.h notes.",
+  "verified": 15
  },
  "Array4.h": {
   "status": "ported",
-  "notes": "Ported to a flat-storage class; C++ a[i3][i2][i1][i0] becomes a.get(i0,i1,i2,i3); see Array2.h notes."
+  "notes": "Ported to a flat-storage class; C++ a[i3][i2][i1][i0] becomes a.get(i0,i1,i2,i3); see Array2.h notes.",
+  "verified": 15
  },
  "ASinEstimate.h": {
   "status": "ported"
@@ -164,7 +167,8 @@
   "note": "porter: ParametricCurve.getTime is numerically weak across knot discontinuities (upstream design limitation, see upstream-bug issue from B40) — decide arc-length test strategy accordingly"
  },
  "BitHacks.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 15
  },
  "BoxManager.h": {
   "status": "ported"
@@ -249,7 +253,8 @@
   "status": "ported"
  },
  "Constants.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 15
  },
  "ConstrainedDelaunay2.h": {
   "status": "ported"
@@ -342,7 +347,8 @@
   "status": "ported"
  },
  "CurveExtractor.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 15
  },
  "CurveExtractorSquares.h": {
   "status": "ported"
@@ -358,7 +364,8 @@
  },
  "DCPQuery.h": {
   "status": "ported",
-  "notes": "Empty primary template ported as interface DCPQuery<Type0,Type1,Result> with compute(); Real template parameter dropped (always number); each Dist* file exports a concrete implementing class named after its file."
+  "notes": "Empty primary template ported as interface DCPQuery<Type0,Type1,Result> with compute(); Real template parameter dropped (always number); each Dist* file exports a concrete implementing class named after its file.",
+  "verified": 15
  },
  "Delaunay2.h": {
   "status": "ported"
@@ -665,7 +672,8 @@
  },
  "FIQuery.h": {
   "status": "ported",
-  "notes": "Empty primary template ported as interface FIQuery<Type0,Type1,Result> with find(); concrete Intr* classes use an FI suffix (e.g. IntrRay3Sphere3FI) since TI and FI specializations share one upstream file."
+  "notes": "Empty primary template ported as interface FIQuery<Type0,Type1,Result> with find(); concrete Intr* classes use an FI suffix (e.g. IntrRay3Sphere3FI) since TI and FI specializations share one upstream file.",
+  "verified": 15
  },
  "FPInterval.h": {
   "status": "ported"
@@ -677,7 +685,8 @@
   "status": "ported"
  },
  "Functions.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 15
  },
  "GaussianBlur2.h": {
   "status": "ported"
@@ -711,7 +720,8 @@
  },
  "HashCombine.h": {
   "status": "ported",
-  "notes": "Restricted to number values; 32-bit unsigned seeds (C++ size_t hashes are implementation-defined); returns the new seed instead of mutating an out-parameter; std::hash<double> replaced by folding the IEEE binary64 bits."
+  "notes": "Restricted to number values; 32-bit unsigned seeds (C++ size_t hashes are implementation-defined); returns the new seed instead of mutating an out-parameter; std::hash<double> replaced by folding the IEEE binary64 bits.",
+  "verified": 15
  },
  "HelmertTransformation7.h": {
   "status": "ported"
@@ -748,7 +758,8 @@
  },
  "IEEEBinary.h": {
   "status": "ported",
-  "notes": "Template collapsed to concrete IEEEBinary32 (uint32 encoding as number) and IEEEBinary64 (bigint encoding); union ported as encoding field + number accessor; ambiguous C++ constructor overloads replaced by fromEncoding/fromNumber/fromParts factories; nested Classification enum exported as IEEEClassification."
+  "notes": "Template collapsed to concrete IEEEBinary32 (uint32 encoding as number) and IEEEBinary64 (bigint encoding); union ported as encoding field + number accessor; ambiguous C++ constructor overloads replaced by fromEncoding/fromNumber/fromParts factories; nested Classification enum exported as IEEEClassification.",
+  "verified": 15
  },
  "IEEEBinary16.h": {
   "status": "ported"
@@ -1190,7 +1201,8 @@
  },
  "LexicoArray2.h": {
   "status": "ported",
-  "notes": "Four template specializations collapsed to one class with a runtime rowMajor flag and runtime dimensions; operator() ported as get/set."
+  "notes": "Four template specializations collapsed to one class with a runtime rowMajor flag and runtime dimensions; operator() ported as get/set.",
+  "verified": 15
  },
  "LieGroupsAlgebras.h": {
   "status": "ported"
@@ -1209,7 +1221,8 @@
  },
  "Logger.h": {
   "status": "ported",
-  "notes": "Macros ported as logAssert/logError throwing Error with the caller message; the C++ file(function,line) prefix is omitted because JS Error stack traces carry source locations."
+  "notes": "Macros ported as logAssert/logError throwing Error with the caller message; the C++ file(function,line) prefix is omitted because JS Error stack traces carry source locations.",
+  "verified": 15
  },
  "Lozenge3.h": {
   "status": "ported"
@@ -1251,14 +1264,17 @@
   "status": "ported"
  },
  "MeshStaticManifold2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 15
  },
  "MeshStaticManifold3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 15
  },
  "MinHeap.h": {
   "status": "ported",
-  "notes": "Faithful port including update/remove-by-record; out-parameters replaced by {key,value}|null returns and insert returning the record or null; ValueType defaults to number with an optional lessThan comparator (a<=b derived as !(b<a)); record key/value are undefined until first insert (upstream leaves them uninitialized)."
+  "notes": "Faithful port including update/remove-by-record; out-parameters replaced by {key,value}|null returns and insert returning the record or null; ValueType defaults to number with an optional lessThan comparator (a<=b derived as !(b<a)); record key/value are undefined until first insert (upstream leaves them uninitialized).",
+  "verified": 15
  },
  "MinimalCycleBasis.h": {
   "status": "ported"
@@ -1626,7 +1642,8 @@
  },
  "TIQuery.h": {
   "status": "ported",
-  "notes": "Empty primary template ported as interface TIQuery<Type0,Type1,Result> with test(); concrete Intr* classes use a TI suffix (e.g. IntrRay3Sphere3TI)."
+  "notes": "Empty primary template ported as interface TIQuery<Type0,Type1,Result> with test(); concrete Intr* classes use a TI suffix (e.g. IntrRay3Sphere3TI).",
+  "verified": 15
  },
  "Torus3.h": {
   "status": "ported"
@@ -1654,7 +1671,8 @@
  },
  "TypeTraits.h": {
   "status": "ported",
-  "notes": "Compile-time traits ported as runtime predicates isArbitraryPrecision(x)/hasDivisionOperator(x) plus the ArbitraryPrecisionNumber marker interface that BSNumber/BSRational/QFNumber will implement; SFINAE helper aliases (TraitSelector, IsFPType, IsAPType, IsDivisionType, IsNotDivisionType) omitted as compile-time-only machinery."
+  "notes": "Compile-time traits ported as runtime predicates isArbitraryPrecision(x)/hasDivisionOperator(x) plus the ArbitraryPrecisionNumber marker interface that BSNumber/BSRational/QFNumber will implement; SFINAE helper aliases (TraitSelector, IsFPType, IsAPType, IsDivisionType, IsNotDivisionType) omitted as compile-time-only machinery.",
+  "verified": 15
  },
  "UIntegerALU32.h": {
   "status": "omitted",
@@ -1672,7 +1690,8 @@
   "status": "ported"
  },
  "UniqueVerticesTriangles.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 15
  },
  "UnsymmetricEigenvalues.h": {
   "status": "ported"
