@@ -997,7 +997,7 @@
   "status": "ported"
  },
  "IntrOrientedBox3Cone3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrOrientedBox3Cylinder3.h": {
   "status": "ported"
@@ -1066,7 +1066,7 @@
   "status": "ported"
  },
  "IntrRay3Cone3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrRay3Cylinder3.h": {
   "status": "ported"
@@ -1078,7 +1078,7 @@
   "status": "ported"
  },
  "IntrRay3Plane3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrRay3Rectangle3.h": {
   "status": "ported"
@@ -1117,7 +1117,7 @@
   "status": "ported"
  },
  "IntrSegment3Cone3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrSegment3Cylinder3.h": {
   "status": "ported"
@@ -1129,7 +1129,7 @@
   "status": "ported"
  },
  "IntrSegment3Plane3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrSegment3Rectangle3.h": {
   "status": "ported"
@@ -1159,7 +1159,7 @@
   "status": "ported"
  },
  "IntrTriangle3AlignedBox3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrTriangle3CanonicalBox3.h": {
   "status": "ported"
@@ -1168,10 +1168,10 @@
   "status": "ported"
  },
  "IntrTriangle3OrientedBox3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "IntrTriangle3Triangle3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "InvSqrtEstimate.h": {
   "status": "ported"
