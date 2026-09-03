@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { check, finite, fc } from './helpers/arbitraries.js';
+import { Array3 } from '../src/Array3.js';
 import { Array4 } from '../src/Array4.js';
 
 describe('Array4', () => {
@@ -68,5 +70,123 @@ describe('Array4', () => {
         const a = new Array4<number>(1, 2, 1, 2);
         a.fill(-1);
         expect(a.data()).toEqual([-1, -1, -1, -1]);
+    });
+});
+
+describe('Array4 verification', () => {
+    it('flat index equals i0 + b0 * (i1 + b1 * (i2 + b2 * i3))', () => {
+        check(fc.tuple(fc.integer({ min: 1, max: 4 }), fc.integer({ min: 1, max: 4 }),
+            fc.integer({ min: 1, max: 4 }), fc.integer({ min: 1, max: 4 })),
+            ([b0, b1, b2, b3]) => {
+                const a = new Array4<number>(b0, b1, b2, b3);
+                a.fill(0);
+                for (let i3 = 0; i3 < b3; ++i3) {
+                    for (let i2 = 0; i2 < b2; ++i2) {
+                        for (let i1 = 0; i1 < b1; ++i1) {
+                            for (let i0 = 0; i0 < b0; ++i0) {
+                                a.set(i0, i1, i2, i3, i0 + b0 * (i1 + b1 * (i2 + b2 * i3)));
+                            }
+                        }
+                    }
+                }
+                const flat = a.data();
+                for (let k = 0; k < b0 * b1 * b2 * b3; ++k) {
+                    if (flat[k] !== k) { return false; }
+                }
+                return true;
+            });
+    });
+
+    it('get/set round trips over the whole index space', () => {
+        check(fc.tuple(fc.integer({ min: 1, max: 3 }), fc.integer({ min: 1, max: 3 }),
+            fc.integer({ min: 1, max: 3 }), fc.integer({ min: 1, max: 3 }),
+            fc.array(finite(), { minLength: 81, maxLength: 81 })),
+            ([b0, b1, b2, b3, vals]) => {
+                const a = new Array4<number>(b0, b1, b2, b3);
+                a.fill(Number.NaN);
+                const idx = (i0: number, i1: number, i2: number, i3: number) =>
+                    i0 + b0 * (i1 + b1 * (i2 + b2 * i3));
+                for (let i3 = 0; i3 < b3; ++i3) {
+                    for (let i2 = 0; i2 < b2; ++i2) {
+                        for (let i1 = 0; i1 < b1; ++i1) {
+                            for (let i0 = 0; i0 < b0; ++i0) {
+                                a.set(i0, i1, i2, i3, vals[idx(i0, i1, i2, i3)]!);
+                            }
+                        }
+                    }
+                }
+                for (let i3 = 0; i3 < b3; ++i3) {
+                    for (let i2 = 0; i2 < b2; ++i2) {
+                        for (let i1 = 0; i1 < b1; ++i1) {
+                            for (let i0 = 0; i0 < b0; ++i0) {
+                                if (!Object.is(a.get(i0, i1, i2, i3), vals[idx(i0, i1, i2, i3)])) {
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                }
+                return true;
+            });
+    });
+
+    it('a cuboid of an Array4 matches the corresponding Array3', () => {
+        check(fc.tuple(fc.integer({ min: 1, max: 3 }), fc.integer({ min: 1, max: 3 }),
+            fc.integer({ min: 1, max: 3 }), fc.integer({ min: 1, max: 3 })),
+            ([b0, b1, b2, b3]) => {
+                const a = new Array4<number>(b0, b1, b2, b3);
+                a.fill(0);
+                for (let i3 = 0; i3 < b3; ++i3) {
+                    for (let i2 = 0; i2 < b2; ++i2) {
+                        for (let i1 = 0; i1 < b1; ++i1) {
+                            for (let i0 = 0; i0 < b0; ++i0) {
+                                a.set(i0, i1, i2, i3, 1000 * i3 + 100 * i2 + 10 * i1 + i0);
+                            }
+                        }
+                    }
+                }
+                const flat = a.data();
+                const stride = b0 * b1 * b2;
+                for (let i3 = 0; i3 < b3; ++i3) {
+                    const cuboid = new Array3<number>(b0, b1, b2,
+                        flat.slice(stride * i3, stride * (i3 + 1)));
+                    for (let i2 = 0; i2 < b2; ++i2) {
+                        for (let i1 = 0; i1 < b1; ++i1) {
+                            for (let i0 = 0; i0 < b0; ++i0) {
+                                if (cuboid.get(i0, i1, i2) !== a.get(i0, i1, i2, i3)) {
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                }
+                return true;
+            });
+    });
+
+    it('caller-owned storage stays aliased in both directions', () => {
+        check(fc.tuple(fc.integer({ min: 1, max: 3 }), fc.integer({ min: 1, max: 3 }),
+            fc.integer({ min: 1, max: 3 }), fc.integer({ min: 1, max: 3 }), finite()),
+            ([b0, b1, b2, b3, v]) => {
+                const objects = new Array<number>(b0 * b1 * b2 * b3).fill(0);
+                const a = new Array4<number>(b0, b1, b2, b3, objects);
+                const i0 = b0 - 1, i1 = b1 - 1, i2 = b2 - 1, i3 = b3 - 1;
+                a.set(i0, i1, i2, i3, v);
+                if (!Object.is(objects[i0 + b0 * (i1 + b1 * (i2 + b2 * i3))], v)) { return false; }
+                objects[0] = v + 1;
+                return Object.is(a.get(0, 0, 0, 0), v + 1);
+            });
+    });
+
+    it('fill covers exactly the product of the four bounds', () => {
+        check(fc.tuple(fc.integer({ min: 0, max: 4 }), fc.integer({ min: 0, max: 4 }),
+            fc.integer({ min: 0, max: 4 }), fc.integer({ min: 0, max: 4 })),
+            ([b0, b1, b2, b3]) => {
+                const a = new Array4<number>(b0, b1, b2, b3);
+                a.fill(9);
+                const flat = a.data();
+                if (flat.length !== b0 * b1 * b2 * b3) { return false; }
+                return flat.every(x => x === 9);
+            });
     });
 });

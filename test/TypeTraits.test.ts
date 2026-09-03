@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { check, finite, fc } from './helpers/arbitraries.js';
 import {
     isArbitraryPrecision, hasDivisionOperator,
     type ArbitraryPrecisionNumber
@@ -48,5 +49,38 @@ describe('TypeTraits', () => {
         expect(hasDivisionOperator(null)).toBe(false);
         expect(hasDivisionOperator({})).toBe(false);
         expect(hasDivisionOperator('3')).toBe(false);
+    });
+});
+
+describe('TypeTraits verification', () => {
+    it('no number is arbitrary precision, and every number divides', () => {
+        check(fc.oneof(finite(-1e6, 1e6), fc.constantFrom(0, -0, NaN, Infinity, -Infinity)),
+            x => isArbitraryPrecision(x) === false && hasDivisionOperator(x) === true);
+    });
+
+    it('the marker interface drives both traits for arbitrary-precision values', () => {
+        check(fc.boolean(), div => {
+            const value: ArbitraryPrecisionNumber = {
+                isArbitraryPrecision: true, hasDivisionOperator: div
+            };
+            return isArbitraryPrecision(value) && hasDivisionOperator(value) === div;
+        });
+    });
+
+    it('values without the marker are neither arbitrary precision nor divisible', () => {
+        check(fc.oneof(fc.string(), fc.boolean(), fc.constant(null), fc.constant(undefined),
+            fc.array(finite()), fc.bigInt(),
+            fc.record({ isArbitraryPrecision: fc.constant(false) })),
+            x => isArbitraryPrecision(x) === false && hasDivisionOperator(x) === false);
+    });
+
+    it('isArbitraryPrecision is a pure predicate (no mutation of the argument)', () => {
+        check(fc.boolean(), div => {
+            const value = { isArbitraryPrecision: true as const, hasDivisionOperator: div };
+            const before = JSON.stringify(value);
+            isArbitraryPrecision(value);
+            hasDivisionOperator(value);
+            return JSON.stringify(value) === before;
+        });
     });
 });

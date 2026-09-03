@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { check, fc } from './helpers/arbitraries.js';
 import { BitHacks } from '../src/BitHacks.js';
 
 // Independent reference implementations used for cross-checks.
@@ -205,5 +206,122 @@ describe('BitHacks rounding to powers of two', () => {
             expect(BitHacks.roundDownToPowerOfTwo(value)).toBe(2 ** Math.floor(Math.log2(value)));
             expect(BitHacks.roundUpToPowerOfTwo(value)).toBe(2 ** Math.ceil(Math.log2(value)));
         }
+    });
+});
+
+describe('BitHacks verification', () => {
+    const uint32 = fc.integer({ min: 0, max: 0xFFFFFFFF });
+    const int32 = fc.integer({ min: -0x80000000, max: 0x7FFFFFFF });
+    const uint64 = fc.bigInt({ min: 0n, max: (1n << 64n) - 1n });
+
+    function setBitIndices(v: number): number[] {
+        const out: number[] = [];
+        for (let i = 0; i < 32; ++i) {
+            if (((v >>> i) & 1) !== 0) { out.push(i); }
+        }
+        return out;
+    }
+
+    it('getLeadingBit equals 31 - clz32 for every nonzero uint32', () => {
+        check(uint32, v => BitHacks.getLeadingBit(v) === refLeadingBit(v));
+    });
+
+    it('getTrailingBit equals the linear bit scan for every uint32', () => {
+        check(uint32, v => BitHacks.getTrailingBit(v) === refTrailingBit(v));
+    });
+
+    it('int32 inputs behave as their two-complement uint32 pattern', () => {
+        // Upstream's int32_t overloads static_cast to uint32_t, a no-op on
+        // the bit pattern; the port relies on JavaScript's ToUint32.
+        check(int32, v => {
+            const u = v >>> 0;
+            return BitHacks.getLeadingBit(v) === BitHacks.getLeadingBit(u)
+                && BitHacks.getTrailingBit(v) === BitHacks.getTrailingBit(u)
+                && BitHacks.isPowerOfTwo(v) === BitHacks.isPowerOfTwo(u)
+                && BitHacks.roundDownToPowerOfTwo(v) === BitHacks.roundDownToPowerOfTwo(u)
+                && BitHacks.roundUpToPowerOfTwo(v) === BitHacks.roundUpToPowerOfTwo(u);
+        });
+    });
+
+    it('isPowerOfTwo is exactly popcount == 1', () => {
+        check(uint32, v => BitHacks.isPowerOfTwo(v) === (setBitIndices(v).length === 1));
+    });
+
+    it('log2OfPowerOfTwo is the bitwise OR of the set bit indices', () => {
+        // The five De Bruijn-free masks in upstream test index bits 0..4 of
+        // the set positions, so the result is the OR of every set index. For
+        // a power of two that OR is the single index, i.e. the base-2
+        // logarithm; this property additionally pins the mask constants.
+        check(uint32, v => {
+            let expected = 0;
+            for (const i of setBitIndices(v)) { expected |= i; }
+            return BitHacks.log2OfPowerOfTwo(v) === expected;
+        });
+    });
+
+    it('log2OfPowerOfTwo inverts 2^e for every exponent', () => {
+        check(fc.integer({ min: 0, max: 31 }), e =>
+            BitHacks.log2OfPowerOfTwo((1 << e) >>> 0) === e);
+    });
+
+    it('roundDownToPowerOfTwo keeps only the leading bit', () => {
+        check(uint32, v => {
+            const down = BitHacks.roundDownToPowerOfTwo(v);
+            if (v === 0) { return down === 0; }
+            return down === 2 ** BitHacks.getLeadingBit(v) && down <= v && 2 * down > v;
+        });
+    });
+
+    it('roundUpToPowerOfTwo is the least power of two >= value (2^32 at the top)', () => {
+        check(uint32, v => {
+            const up = BitHacks.roundUpToPowerOfTwo(v);
+            if (v === 0) { return up === 1; }
+            if (up < v) { return false; }
+            // up is a power of two and up/2 < v.
+            return Number.isInteger(Math.log2(up)) && up / 2 < v;
+        });
+    });
+
+    it('roundUp equals roundDown exactly on the powers of two', () => {
+        check(uint32, v => {
+            const up = BitHacks.roundUpToPowerOfTwo(v);
+            const down = BitHacks.roundDownToPowerOfTwo(v);
+            if (v === 0) { return up === 1 && down === 0; }
+            return BitHacks.isPowerOfTwo(v) ? up === down : up === 2 * down;
+        });
+    });
+
+    it('values above 2^31 round up to 2^32', () => {
+        check(fc.integer({ min: 0x80000001, max: 0xFFFFFFFF }), v =>
+            BitHacks.roundUpToPowerOfTwo(v) === 4294967296);
+    });
+
+    it('the 64-bit variants agree with a bigint bit scan', () => {
+        check(uint64, u => {
+            let leading = 0, trailing = 0;
+            if (u !== 0n) {
+                for (let b = 63; b >= 0; --b) {
+                    if (((u >> BigInt(b)) & 1n) === 1n) { leading = b; break; }
+                }
+                for (let b = 0; b < 64; ++b) {
+                    if (((u >> BigInt(b)) & 1n) === 1n) { trailing = b; break; }
+                }
+            }
+            return BitHacks.getLeadingBit64(u) === leading
+                && BitHacks.getTrailingBit64(u) === trailing;
+        });
+    });
+
+    it('the 64-bit variants reduce to the 32-bit ones on the low word', () => {
+        check(uint32, v => BitHacks.getLeadingBit64(BigInt(v)) === BitHacks.getLeadingBit(v)
+            && BitHacks.getTrailingBit64(BigInt(v)) === BitHacks.getTrailingBit(v));
+    });
+
+    it('negative bigints are reinterpreted as uint64 (the int64_t overload)', () => {
+        check(fc.bigInt({ min: -(1n << 63n), max: -1n }), v => {
+            const u = BigInt.asUintN(64, v);
+            return BitHacks.getLeadingBit64(v) === BitHacks.getLeadingBit64(u)
+                && BitHacks.getTrailingBit64(v) === BitHacks.getTrailingBit64(u);
+        });
     });
 });
