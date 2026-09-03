@@ -21,7 +21,9 @@ runtime utilities such as thread/mutex wrappers, `std::atomic` helpers and the
 `BSNumber`/`BSRational` implementation). Every ported file has a Vitest test
 file; the suite currently runs 550 test files and ~6700 tests.
 
-See [PORTING.md](PORTING.md) for conventions and
+See [docs/API.md](docs/API.md) for the public API conventions,
+[PORTING.md](PORTING.md) for porting rules, [VERIFYING.md](VERIFYING.md) for the
+verification wave in progress, and
 [porting-status.json](porting-status.json) for a machine-readable per-file
 manifest. The port was done in 135 dependency-ordered batches; the closed
 [`port-batch` issues](https://github.com/gradientspaceai/gtengine-js/issues?q=label%3Aport-batch)
