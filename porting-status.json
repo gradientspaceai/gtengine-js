@@ -297,7 +297,7 @@
   "status": "ported"
  },
  "ContPointInPolyhedron3.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "ContScribeCircle2.h": {
   "status": "ported"
@@ -1356,13 +1356,13 @@
   "status": "ported"
  },
  "OrientedBoxTreeOfPoints.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "OrientedBoxTreeOfSegments.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "OrientedBoxTreeOfTriangles.h": {
-  "status": "pending"
+  "status": "ported"
  },
  "Parallelepiped3.h": {
   "status": "ported"
