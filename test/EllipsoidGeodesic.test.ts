@@ -195,3 +195,211 @@ describe('EllipsoidGeodesic on a general ellipsoid', () => {
             .toBeGreaterThan(0);
     });
 });
+
+// ---------------------------------------------------------------------------
+// Independent verification pass (VERIFYING.md). EllipsoidGeodesic.h was read
+// line by line against src/EllipsoidGeodesic.ts. The class contributes only
+// ComputePosition, ComputeMetric and ComputeChristoffel1, so the properties
+// below check each of those against a definition that does not reuse the
+// implementation: the implicit ellipsoid equation, the Gram matrix of the
+// numerically differentiated surface, and the textbook formula
+// Gamma_{k,ij} = (dg_{ki}/dx_j + dg_{kj}/dx_i - dg_{ij}/dx_k)/2.
+import {
+    check, fc, expectClose
+} from './helpers/arbitraries.js';
+
+// Exposes the protected pipeline so the tensors can be inspected.
+class EllipsoidProbe extends EllipsoidGeodesic {
+    prepare(point: GVector): void {
+        this.computeMetric(point);
+        this.computeChristoffel1(point);
+        this.computeMetricInverse();
+        this.computeChristoffel2();
+    }
+
+    metricAt(point: GVector): number[][] {
+        this.computeMetric(point);
+        return [[this.mMetric.get(0, 0), this.mMetric.get(0, 1)],
+            [this.mMetric.get(1, 0), this.mMetric.get(1, 1)]];
+    }
+
+    christoffel1(k: number, i: number, j: number): number {
+        return this.mChristoffel1[k].get(i, j);
+    }
+
+    christoffel2(k: number, i: number, j: number): number {
+        return this.mChristoffel2[k].get(i, j);
+    }
+
+    metricInverse(i: number, j: number): number {
+        return this.mMetricInverse.get(i, j);
+    }
+}
+
+// Extents bounded away from zero: the metric of a degenerate ellipsoid is
+// singular and the Christoffel symbols of the second kind do not exist.
+const extents = fc.tuple(
+    fc.double({ min: 0.5, max: 3, noNaN: true, noDefaultInfinity: true }),
+    fc.double({ min: 0.5, max: 3, noNaN: true, noDefaultInfinity: true }),
+    fc.double({ min: 0.5, max: 3, noNaN: true, noDefaultInfinity: true }));
+
+// (u, v) with v away from the poles, where dP/du degenerates and the metric
+// becomes singular.
+const uv = fc.tuple(
+    fc.double({ min: -3, max: 3, noNaN: true, noDefaultInfinity: true }),
+    fc.double({ min: 0.4, max: Math.PI - 0.4, noNaN: true,
+        noDefaultInfinity: true }));
+
+describe('EllipsoidGeodesic verification', () => {
+    it('places every parameter point on the ellipsoid', () => {
+        check(fc.tuple(extents, uv), ([[a, b, c], [u, v]]) => {
+            const eg = new EllipsoidGeodesic(a, b, c);
+            const p = eg.computePosition(GVector.fromArray([u, v]));
+            expectClose((p.values[0] / a) ** 2 + (p.values[1] / b) ** 2 +
+                (p.values[2] / c) ** 2, 1, 1e-12, 1e-12);
+        });
+    });
+
+    it('metric equals the Gram matrix of the surface derivatives', () => {
+        // dP/du and dP/dv by centered differences of ComputePosition, an
+        // independent route to g_{ij} = Dot(P_i, P_j).
+        check(fc.tuple(extents, uv), ([[a, b, c], [u, v]]) => {
+            const probe = new EllipsoidProbe(a, b, c);
+            const g = probe.metricAt(GVector.fromArray([u, v]));
+            const h = 1e-5;
+            const der = (k: number): Vector => {
+                const plus = [u, v], minus = [u, v];
+                plus[k] += h;
+                minus[k] -= h;
+                const p = probe.computePosition(GVector.fromArray(plus));
+                const m = probe.computePosition(GVector.fromArray(minus));
+                return Vector.fromArray([0, 1, 2].map(i =>
+                    (p.values[i] - m.values[i]) / (2 * h)));
+            };
+            const d = [der(0), der(1)];
+            for (let i = 0; i < 2; ++i) {
+                for (let j = 0; j < 2; ++j) {
+                    expectClose(g[i][j], dot(d[i], d[j]), 1e-8, 1e-8);
+                }
+            }
+        });
+    });
+
+    it('Christoffel symbols of the first kind satisfy the metric identity', () => {
+        // Gamma_{k,ij} = (dg_{ki}/dx_j + dg_{kj}/dx_i - dg_{ij}/dx_k)/2, with
+        // the metric derivatives taken by centered differences of the metric
+        // that ComputeMetric produces.
+        check(fc.tuple(extents, uv), ([[a, b, c], [u, v]]) => {
+            const probe = new EllipsoidProbe(a, b, c);
+            probe.prepare(GVector.fromArray([u, v]));
+            const h = 1e-4;
+            const dg = (k: number): number[][] => {
+                const plus = [u, v], minus = [u, v];
+                plus[k] += h;
+                minus[k] -= h;
+                const gp = new EllipsoidProbe(a, b, c)
+                    .metricAt(GVector.fromArray(plus));
+                const gm = new EllipsoidProbe(a, b, c)
+                    .metricAt(GVector.fromArray(minus));
+                return [[(gp[0][0] - gm[0][0]) / (2 * h),
+                    (gp[0][1] - gm[0][1]) / (2 * h)],
+                [(gp[1][0] - gm[1][0]) / (2 * h),
+                    (gp[1][1] - gm[1][1]) / (2 * h)]];
+            };
+            const d = [dg(0), dg(1)];
+            for (let k = 0; k < 2; ++k) {
+                for (let i = 0; i < 2; ++i) {
+                    for (let j = 0; j < 2; ++j) {
+                        expectClose(probe.christoffel1(k, i, j),
+                            0.5 * (d[j][k][i] + d[i][k][j] - d[k][i][j]),
+                            1e-5, 1e-5);
+                    }
+                }
+            }
+        });
+    });
+
+    it('Christoffel symbols of the second kind raise the first index', () => {
+        // Gamma^{i2}_{i0 i1} = g^{i2 j} Gamma_{j,i0 i1}, with the inverse of
+        // the 2x2 metric written out in closed form rather than reusing the
+        // GaussianElimination path the class calls.
+        check(fc.tuple(extents, uv), ([[a, b, c], [u, v]]) => {
+            const probe = new EllipsoidProbe(a, b, c);
+            const g = probe.metricAt(GVector.fromArray([u, v]));
+            probe.prepare(GVector.fromArray([u, v]));
+            const det = g[0][0] * g[1][1] - g[0][1] * g[1][0];
+            const ginv = [[g[1][1] / det, -g[0][1] / det],
+                [-g[1][0] / det, g[0][0] / det]];
+            for (let i = 0; i < 2; ++i) {
+                for (let j = 0; j < 2; ++j) {
+                    expectClose(probe.metricInverse(i, j), ginv[i][j],
+                        1e-9, 1e-9);
+                }
+            }
+            for (let k = 0; k < 2; ++k) {
+                for (let i = 0; i < 2; ++i) {
+                    for (let j = 0; j < 2; ++j) {
+                        const expected = ginv[k][0] * probe.christoffel1(0, i, j)
+                            + ginv[k][1] * probe.christoffel1(1, i, j);
+                        expectClose(probe.christoffel2(k, i, j), expected,
+                            1e-9, 1e-9);
+                    }
+                }
+            }
+        });
+    });
+
+    it('scales every length with a uniform scaling of the extents', () => {
+        check(fc.tuple(extents, uv, uv,
+            fc.double({ min: 0.25, max: 4, noNaN: true,
+                noDefaultInfinity: true })),
+        ([[a, b, c], [u0, v0], [u1, v1], s]) => {
+            const p0 = GVector.fromArray([u0, v0]);
+            const p1 = GVector.fromArray([u1, v1]);
+            if (Math.abs(u1 - u0) + Math.abs(v1 - v0) < 1e-2) { return; }
+            const base = new EllipsoidGeodesic(a, b, c);
+            const scaled = new EllipsoidGeodesic(s * a, s * b, s * c);
+            expectClose(scaled.computeSegmentLength(p0, p1),
+                s * base.computeSegmentLength(p0, p1), 1e-10, 1e-10);
+        });
+    });
+
+    it('gives exact arc lengths along the great circles of a unit sphere', () => {
+        // On the unit sphere the metric is diag(sin(v)^2, 1). A meridian
+        // segment has integrand |dv| and an equator segment has integrand
+        // |du|, both constant, so the trapezoid rule is exact.
+        check(fc.tuple(uv, fc.double({ min: -1, max: 1, noNaN: true,
+            noDefaultInfinity: true })), ([[u, v], d]) => {
+            if (Math.abs(d) < 1e-3) { return; }
+            const eg = new EllipsoidGeodesic(1, 1, 1);
+            const vEnd = Math.min(Math.max(v + d, 0.05), Math.PI - 0.05);
+            expectClose(eg.computeSegmentLength(GVector.fromArray([u, v]),
+                GVector.fromArray([u, vEnd])), Math.abs(vEnd - v),
+            1e-12, 1e-12);
+            const halfPi = Math.PI / 2;
+            expectClose(eg.computeSegmentLength(
+                GVector.fromArray([u, halfPi]),
+                GVector.fromArray([u + d, halfPi])), Math.abs(d),
+            1e-12, 1e-12);
+        });
+    });
+
+    it('bounds the metric length below by the great-circle distance', () => {
+        // The metric length of the straight parameter segment is the length of
+        // a curve on the unit sphere joining the two surface points, so it is
+        // at least the geodesic (great-circle) distance between them.
+        check(fc.tuple(uv, uv), ([[u0, v0], [u1, v1]]) => {
+            if (Math.abs(u1 - u0) + Math.abs(v1 - v0) < 1e-2) { return; }
+            const eg = new EllipsoidGeodesic(1, 1, 1);
+            const p0 = GVector.fromArray([u0, v0]);
+            const p1 = GVector.fromArray([u1, v1]);
+            const q0 = eg.computePosition(p0);
+            const q1 = eg.computePosition(p1);
+            const great = Math.acos(Math.min(1, Math.max(-1, dot(q0, q1))));
+            // The trapezoid rule under-resolves a strongly curved integrand,
+            // so allow the quadrature error of 16 samples.
+            expect(eg.computeSegmentLength(p0, p1))
+                .toBeGreaterThan(great - 1e-2);
+        });
+    });
+});
