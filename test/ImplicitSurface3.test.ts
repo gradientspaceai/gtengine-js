@@ -420,6 +420,22 @@ const quadricArb = fc.tuple(
 const quadricAndPoint = fc.tuple(quadricArb, wellScaledVector(3, -3, 3))
     .filter(([q, p]) => length(q.getGradient(p)) > 1e-2);
 
+// A surface whose gradient is identically zero, used to exercise the
+// zero-gradient branch of getPrincipalInformation exactly.
+class CriticalPoint extends ImplicitSurface3 {
+    constructor(readonly base: Quadric) { super(); }
+    f(p: Vector): number { return this.base.f(p); }
+    fx(_p: Vector): number { return 0; }
+    fy(_p: Vector): number { return 0; }
+    fz(_p: Vector): number { return 0; }
+    fxx(p: Vector): number { return this.base.fxx(p); }
+    fxy(p: Vector): number { return this.base.fxy(p); }
+    fxz(p: Vector): number { return this.base.fxz(p); }
+    fyy(p: Vector): number { return this.base.fyy(p); }
+    fyz(p: Vector): number { return this.base.fyz(p); }
+    fzz(p: Vector): number { return this.base.fzz(p); }
+}
+
 function matVec3(M: Matrix, v: Vector): Vector {
     const r = new Vector(3);
     for (let i = 0; i < 3; ++i) {
@@ -603,16 +619,12 @@ describe('ImplicitSurface3 verification', () => {
     });
 
     it('reports invalid with zero outputs wherever the gradient vanishes', () => {
-        // The gradient 2 M p + b vanishes at p when b = -2 M p, so build that
-        // quadric rather than inverting M.
+        // A critical point of a quadric cannot be produced exactly in
+        // floating point (the reconstruction b = -2 M p rounds), so the branch
+        // is exercised with a surface whose first-order partials are exactly
+        // zero while the Hessian is arbitrary.
         check(fc.tuple(quadricArb, wellScaledVector(3, -3, 3)), ([q, p]) => {
-            const b: number[] = [0, 0, 0];
-            for (let i = 0; i < 3; ++i) {
-                let s = 0;
-                for (let j = 0; j < 3; ++j) { s += 2 * q.M[i][j] * p.values[j]; }
-                b[i] = -s;
-            }
-            const critical = new Quadric(q.M, b, q.c);
+            const critical = new CriticalPoint(q);
             expect(length(critical.getGradient(p))).toBe(0);
             const info = critical.getPrincipalInformation(p);
             expect(info.valid).toBe(false);
@@ -620,6 +632,10 @@ describe('ImplicitSurface3 verification', () => {
             expect(info.curvature1).toBe(0);
             expect(info.direction0.values).toEqual([0, 0, 0]);
             expect(info.direction1.values).toEqual([0, 0, 0]);
+            // The frame is still computed, but from a zero gradient, so
+            // ComputeOrthogonalComplement leaves everything zero.
+            const frame = critical.getFrame(p);
+            expect(frame.normal.values).toEqual([0, 0, 0]);
         });
     });
 

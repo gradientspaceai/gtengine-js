@@ -213,6 +213,9 @@ export class RevolutionMesh extends Mesh {
     }
 
     protected override updatePositions(): void {
+        // Upstream has no such guard: when the Mesh constructor fails it sets
+        // mCurve to nullptr and returns, and a later Update() dereferences the
+        // null pointer. The port returns instead of throwing.
         if (this.mCurve === null) {
             return;
         }

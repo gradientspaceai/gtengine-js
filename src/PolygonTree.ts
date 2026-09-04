@@ -80,8 +80,11 @@ export class PolygonTreeExNode {
 // A tree of nested polygons with extra information about the polygon. The
 // point locations are specified separately to the triangulators.
 //
-// The element nodes[0] is the root of the tree with nodes[0].parent = -1
-// (unused). If nodes[0] has C children, then nodes[0].minChild = 1 and
+// The element nodes[0] is the root of the tree. Upstream documents its parent
+// as -1; the member is a size_t, so the triangulators store
+// std::numeric_limits<size_t>::max(), which the port writes as
+// PolygonTreeEx.INVALID (the default-constructed value is 0 on both sides).
+// If nodes[0] has C children, then nodes[0].minChild = 1 and
 // nodes[0].supChild = 1 + C. Generally, nodes[i] is a node with parent
 // nodes[p], where p = nodes[i].parent, and children nodes[c], where
 // nodes[i].minChild <= c < nodes[i].supChild. If nodes[i].minChild >=

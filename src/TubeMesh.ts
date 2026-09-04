@@ -194,6 +194,9 @@ export class TubeMesh extends Mesh {
     }
 
     protected override updatePositions(): void {
+        // Upstream has no such guard: when the Mesh constructor fails it sets
+        // mMedial to nullptr and returns, and a later Update() dereferences the
+        // null pointer. The port returns instead of throwing.
         if (this.mMedial === null) {
             return;
         }
