@@ -3,7 +3,8 @@ import { BasisFunctionInput } from '../src/BasisFunction.js';
 import { BSplineGeodesic } from '../src/BSplineGeodesic.js';
 import { BSplineSurface } from '../src/BSplineSurface.js';
 import { GVector } from '../src/GVector.js';
-import { Vector, add, length, mul, sub } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import { check, expectClose, fc } from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -224,5 +225,183 @@ describe('BSplineGeodesic on a curved patch', () => {
                 .toBeCloseTo(bg1.computeSegmentLength(gv(u0, v0), gv(u1, v1)),
                     8);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Independent verification pass (VERIFYING.md). The translation hazard here
+// is the mapping of the jet slots to the derivatives: jet[1],jet[2] are
+// dX/du,dX/dv and jet[3],jet[4],jet[5] are d2X/du2,d2X/dudv,d2X/dv2, and
+// computeChristoffel1 must read them as der00,der01,der11. That mapping is
+// pinned by the first-kind Christoffel identity
+//   d(g_ij)/du_k = <X_ik, X_j> + <X_i, X_jk> = C[j](i,k) + C[i](j,k),
+// checked against central differences of the metric, which uses none of the
+// same code.
+// ---------------------------------------------------------------------------
+
+// Exposes the protected metric and Christoffel state for the checks below.
+class ProbeGeodesic extends BSplineGeodesic {
+    metricAt(u: number, v: number): number[][] {
+        this.computeMetric(gv(u, v));
+        return [[this.mMetric.get(0, 0), this.mMetric.get(0, 1)],
+            [this.mMetric.get(1, 0), this.mMetric.get(1, 1)]];
+    }
+
+    // The first-kind Christoffel symbols at the point of the previous
+    // metricAt call (upstream caches the jet in computeMetric).
+    christoffelAt(u: number, v: number): number[][][] {
+        this.computeMetric(gv(u, v));
+        this.computeChristoffel1(gv(u, v));
+        return this.mChristoffel1.map(m => [[m.get(0, 0), m.get(0, 1)],
+            [m.get(1, 0), m.get(1, 1)]]);
+    }
+
+    // computeChristoffel1 ignores its argument and uses the cached jet.
+    christoffelWithCacheFrom(cacheU: number, cacheV: number,
+        argU: number, argV: number): number[][][] {
+        this.computeMetric(gv(cacheU, cacheV));
+        this.computeChristoffel1(gv(argU, argV));
+        return this.mChristoffel1.map(m => [[m.get(0, 0), m.get(0, 1)],
+            [m.get(1, 0), m.get(1, 1)]]);
+    }
+}
+
+describe('BSplineGeodesic verification', () => {
+    // A bicubic Bezier patch (4x4 controls, degree 3, no interior knots), so
+    // the surface is a polynomial and central differences are accurate.
+    function bicubic(seed: number): BSplineSurface {
+        const rand = (() => {
+            let state = seed >>> 0;
+            return () => {
+                state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+                return state / 4294967296;
+            };
+        })();
+        const input = [new BasisFunctionInput(4, 3),
+            new BasisFunctionInput(4, 3)];
+        const controls: Vector[] = [];
+        for (let i1 = 0; i1 < 4; ++i1) {
+            for (let i0 = 0; i0 < 4; ++i0) {
+                // A graph over a regular (u,v) grid, so the patch is regular
+                // and its metric is well conditioned.
+                controls.push(v3(i0 / 3, i1 / 3, rand() * 1.5 - 0.75));
+            }
+        }
+        return new BSplineSurface(3, input, controls);
+    }
+
+    const sample = fc.tuple(fc.integer({ min: 1, max: 1 << 20 }),
+        fc.integer({ min: 15, max: 85 }), fc.integer({ min: 15, max: 85 }));
+
+    it('reproduces the first fundamental form of the patch', () => {
+        check(sample, ([seed, ui, vi]) => {
+            const surface = bicubic(seed);
+            const probe = new ProbeGeodesic(surface);
+            const u = ui / 100, v = vi / 100;
+            const g = probe.metricAt(u, v);
+
+            // Independent computation from a freshly evaluated jet.
+            const jet = surface.createJet();
+            surface.evaluate(u, v, 1, jet);
+            const xu = jet[1], xv = jet[2];
+            expectClose(g[0][0], dot(xu, xu), 1e-12, 1e-12);
+            expectClose(g[0][1], dot(xu, xv), 1e-12, 1e-12);
+            expectClose(g[1][0], g[0][1], 0, 0);
+            expectClose(g[1][1], dot(xv, xv), 1e-12, 1e-12);
+
+            // The metric of a regular patch is symmetric positive definite.
+            expect(g[0][0]).toBeGreaterThan(0);
+            expect(g[0][0] * g[1][1] - g[0][1] * g[1][0]).toBeGreaterThan(0);
+        }, 40);
+    });
+
+    it('the Christoffel symbols differentiate the metric', () => {
+        const h = 1e-4;
+        check(sample, ([seed, ui, vi]) => {
+            const surface = bicubic(seed);
+            const probe = new ProbeGeodesic(surface);
+            // Keep the stencil inside [0,1].
+            const u = 0.15 + (ui - 15) * 0.7 / 70;
+            const v = 0.15 + (vi - 15) * 0.7 / 70;
+
+            const C = probe.christoffelAt(u, v);
+            // Central differences of the metric in each parameter.
+            const dg: number[][][] = [];
+            for (let k = 0; k < 2; ++k) {
+                const plus = k === 0 ? probe.metricAt(u + h, v)
+                    : probe.metricAt(u, v + h);
+                const minus = k === 0 ? probe.metricAt(u - h, v)
+                    : probe.metricAt(u, v - h);
+                dg.push([[(plus[0][0] - minus[0][0]) / (2 * h),
+                    (plus[0][1] - minus[0][1]) / (2 * h)],
+                [(plus[1][0] - minus[1][0]) / (2 * h),
+                    (plus[1][1] - minus[1][1]) / (2 * h)]]);
+            }
+
+            for (let i = 0; i < 2; ++i) {
+                for (let j = 0; j < 2; ++j) {
+                    for (let k = 0; k < 2; ++k) {
+                        // d(g_ij)/du_k = C[j](i,k) + C[i](j,k)
+                        expectClose(dg[k][i][j], C[j][i][k] + C[i][j][k],
+                            1e-5, 1e-5);
+                    }
+                }
+            }
+
+            // Each Christoffel matrix is symmetric (mixed partials commute).
+            for (let k = 0; k < 2; ++k) {
+                expect(C[k][0][1]).toBe(C[k][1][0]);
+            }
+        }, 25);
+    });
+
+    it('caches the jet from computeMetric, as upstream documents', () => {
+        check(fc.tuple(sample, fc.integer({ min: 15, max: 85 }),
+            fc.integer({ min: 15, max: 85 })),
+            ([[seed, ui, vi], au, av]) => {
+                const probe = new ProbeGeodesic(bicubic(seed));
+                const u = ui / 100, v = vi / 100;
+                const expected = probe.christoffelAt(u, v);
+                // The argument of computeChristoffel1 is ignored; the cached
+                // jet of the previous computeMetric call decides the result.
+                const actual = probe.christoffelWithCacheFrom(u, v,
+                    au / 100, av / 100);
+                expect(actual).toEqual(expected);
+            }, 25);
+    });
+
+    it('vanishes on a plane and matches the Gram metric there', () => {
+        check(fc.tuple(fc.double({ min: -3, max: 3, noNaN: true }),
+            fc.double({ min: -3, max: 3, noNaN: true }),
+            fc.double({ min: -3, max: 3, noNaN: true }),
+            fc.integer({ min: 0, max: 100 }), fc.integer({ min: 0, max: 100 })),
+            ([ax, ay, az, ui, vi]) => {
+                const A = v3(1 + Math.abs(ax), ay, az);
+                const B = v3(ax, 1 + Math.abs(ay), az);
+                const probe = new ProbeGeodesic(
+                    planePatch(v3(0.5, -1, 2), A, B));
+                const u = ui / 100, v = vi / 100;
+
+                const g = probe.metricAt(u, v);
+                expectClose(g[0][0], dot(A, A), 1e-9, 1e-9);
+                expectClose(g[0][1], dot(A, B), 1e-9, 1e-9);
+                expectClose(g[1][1], dot(B, B), 1e-9, 1e-9);
+
+                // A plane has vanishing second derivatives.
+                const C = probe.christoffelAt(u, v);
+                for (let k = 0; k < 2; ++k) {
+                    for (let i = 0; i < 2; ++i) {
+                        for (let j = 0; j < 2; ++j) {
+                            expect(Math.abs(C[k][i][j])).toBeLessThan(1e-9);
+                        }
+                    }
+                }
+
+                // The segment length is the Euclidean length of the image.
+                const p0 = gv(0.1, 0.2), p1 = gv(0.9, 0.7);
+                const expected = length(add(mul(0.8, A), mul(0.5, B)));
+                expectClose(probe.computeSegmentLength(p0, p1), expected,
+                    1e-6, 1e-6);
+            }, 30);
     });
 });

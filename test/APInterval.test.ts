@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { APInterval, isInfinite } from '../src/APInterval.js';
 import { BSRational } from '../src/BSRational.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 // Convenience constructors for exact rationals.
 function r(numerator: number, denominator: number = 1): BSRational {
@@ -251,5 +252,208 @@ describe('APInterval containment invariants', () => {
                 expect(w.get(0).lessThanOrEqual(w.get(1))).toBe(true);
             }
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Independent verification pass (VERIFYING.md): the upstream case analysis of
+// operator* and operator/ is checked against the exact hull of the endpoint
+// combinations, and every result is checked to contain the exact result of
+// the operation applied to interior points.
+// ---------------------------------------------------------------------------
+
+describe('APInterval verification', () => {
+    const rational: fc.Arbitrary<BSRational> =
+        fc.tuple(fc.integer({ min: -30, max: 30 }),
+            fc.integer({ min: 1, max: 16 }))
+            .map(([n, d]) => BSRational.fromNumber(n, d));
+
+    const interval: fc.Arbitrary<APInterval> =
+        fc.tuple(rational, rational).map(([a, b]) =>
+            a.lessThanOrEqual(b) ? new APInterval(a, b) : new APInterval(b, a));
+
+    // Intervals that do not contain zero, so that division is determinate.
+    const nonzeroInterval: fc.Arbitrary<APInterval> = interval.filter(w => {
+        const e = w.getEndpoints();
+        return e[0].getSign() > 0 || e[1].getSign() < 0;
+    });
+
+    // The exact hull of the four endpoint combinations, which is the
+    // mathematical range of a bilinear operation on the two intervals.
+    function hull(u: APInterval, v: APInterval,
+        op: (a: BSRational, b: BSRational) => BSRational): [BSRational, BSRational] {
+        const [u0, u1] = u.getEndpoints();
+        const [v0, v1] = v.getEndpoints();
+        const values = [op(u0, v0), op(u0, v1), op(u1, v0), op(u1, v1)];
+        let lo = values[0], hi = values[0];
+        for (const value of values) {
+            if (value.lessThan(lo)) { lo = value; }
+            if (hi.lessThan(value)) { hi = value; }
+        }
+        return [lo, hi];
+    }
+
+    function expectSame(w: APInterval, expected: [BSRational, BSRational]): void {
+        const e = w.getEndpoints();
+        expect(e[0].equals(expected[0])).toBe(true);
+        expect(e[1].equals(expected[1])).toBe(true);
+    }
+
+    // A point of the interval: u0 + t*(u1 - u0) with t in [0,1] rational.
+    function interior(w: APInterval, t: BSRational): BSRational {
+        const e = w.getEndpoints();
+        return e[0].add(t.mul(e[1].sub(e[0])));
+    }
+
+    const fraction: fc.Arbitrary<BSRational> =
+        fc.integer({ min: 0, max: 8 }).map(i => BSRational.fromNumber(i, 8));
+
+    it('add and sub are exactly the hull of the endpoint combinations', () => {
+        check(fc.tuple(interval, interval), ([u, v]) => {
+            expectSame(u.add(v), hull(u, v, (a, b) => a.add(b)));
+            expectSame(u.sub(v), hull(u, v, (a, b) => a.sub(b)));
+            // Scalar overloads agree with the degenerate interval.
+            const s = v.get(0);
+            expectSame(u.add(s), hull(u, new APInterval(s), (a, b) => a.add(b)));
+            expectSame(u.sub(s), hull(u, new APInterval(s), (a, b) => a.sub(b)));
+            expectSame(APInterval.scalarSub(s, u),
+                hull(new APInterval(s), u, (a, b) => a.sub(b)));
+        });
+    });
+
+    it('the nine sign cases of operator* reproduce the exact hull', () => {
+        check(fc.tuple(interval, interval), ([u, v]) => {
+            const w = u.mul(v);
+            expectSame(w, hull(u, v, (a, b) => a.mul(b)));
+            // Multiplication of intervals is commutative.
+            expectSame(v.mul(u), w.getEndpoints());
+            // The scalar overload agrees with the degenerate interval.
+            const s = v.get(0);
+            expectSame(u.mul(s), hull(u, new APInterval(s), (a, b) => a.mul(b)));
+        });
+    });
+
+    it('operator/ reproduces the exact hull when the divisor excludes zero',
+        () => {
+            check(fc.tuple(interval, nonzeroInterval), ([u, v]) => {
+                expectSame(u.div(v), hull(u, v, (a, b) => a.div(b)));
+                expectSame(APInterval.scalarDiv(u.get(0), v),
+                    hull(new APInterval(u.get(0)), v, (a, b) => a.div(b)));
+                const s = v.get(0);
+                expectSame(u.div(s),
+                    hull(u, new APInterval(s), (a, b) => a.div(b)));
+            });
+        });
+
+    it('contains the exact result for every pair of interior points', () => {
+        check(fc.tuple(interval, nonzeroInterval, fraction, fraction),
+            ([u, v, s, t]) => {
+                const x = interior(u, s);
+                const y = interior(v, t);
+                for (const [w, value] of [
+                    [u.add(v), x.add(y)],
+                    [u.sub(v), x.sub(y)],
+                    [u.mul(v), x.mul(y)],
+                    [u.div(v), x.div(y)]
+                ] as [APInterval, BSRational][]) {
+                    const e = w.getEndpoints();
+                    expect(e[0].lessThanOrEqual(value)).toBe(true);
+                    expect(value.lessThanOrEqual(e[1])).toBe(true);
+                }
+            });
+    });
+
+    it('negation reverses and negates the endpoints', () => {
+        check(interval, u => {
+            const e = u.getEndpoints();
+            const n = u.negate();
+            expect(n.get(0).equals(e[1].negated())).toBe(true);
+            expect(n.get(1).equals(e[0].negated())).toBe(true);
+            // Negation is an involution and turns * into its negation.
+            expect(n.negate().get(0).equals(e[0])).toBe(true);
+            expect(n.negate().get(1).equals(e[1])).toBe(true);
+        });
+    });
+
+    it('the leaf-node operations are the degenerate exact results', () => {
+        check(fc.tuple(rational, rational), ([a, b]) => {
+            for (const [w, value] of [
+                [APInterval.add(a, b), a.add(b)],
+                [APInterval.sub(a, b), a.sub(b)],
+                [APInterval.mul(a, b), a.mul(b)]
+            ] as [APInterval, BSRational][]) {
+                expect(w.get(0).equals(value)).toBe(true);
+                expect(w.get(1).equals(value)).toBe(true);
+            }
+            const q = APInterval.div(a, b);
+            if (b.getSign() !== 0) {
+                expect(q.get(0).equals(a.div(b))).toBe(true);
+                expect(q.get(1).equals(a.div(b))).toBe(true);
+            } else {
+                expect(isInfinite(q.get(0))).toBe(true);
+                expect(isInfinite(q.get(1))).toBe(true);
+            }
+        });
+    });
+
+    it('yields the indeterminate interval exactly where upstream does', () => {
+        check(fc.tuple(interval, interval), ([u, v]) => {
+            const e = v.getEndpoints();
+            const straddles = e[0].getSign() < 0 && e[1].getSign() > 0;
+            if (e[0].getSign() === 0 && e[1].getSign() === 0) {
+                // The divisor [0,0] takes the v[0] == 0 branch, whose
+                // reciprocalDown(v[1]) divides by zero, so upstream throws
+                // instead of returning the whole real line (issue #280.6).
+                expect(() => u.div(v)).toThrow(/Division by zero/);
+            } else {
+                const w = u.div(v);
+                const uu = u.getEndpoints();
+                if (straddles) {
+                    expect(isInfinite(w.get(0))).toBe(true);
+                    expect(isInfinite(w.get(1))).toBe(true);
+                } else if (uu[0].getSign() >= 0 && uu[1].getSign() > 0) {
+                    // A divisor with one zero endpoint gives a half-line. For
+                    // a nonnegative numerator interval with a positive upper
+                    // bound the finite endpoint is the exact quotient by the
+                    // nonzero divisor endpoint and the other is a sentinel.
+                    if (e[0].getSign() === 0 && e[1].getSign() > 0) {
+                        // v = [0,b]: reciprocal is [1/b, +infinity).
+                        expect(w.get(0).equals(uu[0].div(e[1]))).toBe(true);
+                        expect(isInfinite(w.get(1))).toBe(true);
+                    } else if (e[1].getSign() === 0 && e[0].getSign() < 0) {
+                        // v = [a,0]: reciprocal is (-infinity, 1/a].
+                        expect(isInfinite(w.get(0))).toBe(true);
+                        expect(w.get(1).equals(uu[0].div(e[0]))).toBe(true);
+                    }
+                }
+            }
+
+            // Division by the zero scalar is the whole real line.
+            const z = u.div(new BSRational());
+            expect(isInfinite(z.get(0))).toBe(true);
+            expect(isInfinite(z.get(1))).toBe(true);
+        });
+    });
+
+    it('is immutable: no accessor exposes the internal endpoints', () => {
+        check(fc.tuple(rational, rational), ([a, b]) => {
+            const e0 = a.lessThanOrEqual(b) ? a : b;
+            const e1 = a.lessThanOrEqual(b) ? b : a;
+            const u = new APInterval(e0, e1);
+            const before = u.getEndpoints();
+
+            // Mutating the constructor inputs, a get() result and a
+            // getEndpoints() result must all leave u unchanged.
+            e0.negate();
+            e1.setSign(-1);
+            u.get(0).negate();
+            const taken = u.getEndpoints();
+            taken[0].setSign(1);
+            taken[1].negate();
+
+            const after = u.getEndpoints();
+            expect(after[0].equals(before[0])).toBe(true);
+            expect(after[1].equals(before[1])).toBe(true);
+        });
     });
 });

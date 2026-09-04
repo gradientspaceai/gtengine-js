@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { APConversion } from '../src/APConversion.js';
 import type { APConversionQFN1 } from '../src/APConversion.js';
 import { BSRational } from '../src/BSRational.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 function r(numerator: number, denominator: number = 1): BSRational {
     return BSRational.fromNumber(numerator, denominator);
@@ -301,5 +302,251 @@ describe('APConversion randomized cross-checks', () => {
             expect(compareToSqrt(q.qMin.sub(x), aSqr)).toBeLessThanOrEqual(0);
             expect(compareToSqrt(q.qMax.sub(x), aSqr)).toBeGreaterThanOrEqual(0);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Independent verification pass (VERIFYING.md). Every bound is checked with
+// exact rational predicates rather than floating-point comparisons: for
+// t >= 0 the sign of f(t) = (t^2 - (a^2+b^2))^2 - 4*a^2*b^2 together with the
+// sign of t^2 - (a^2+b^2) decides t against a+b and against |a-b|, because
+// the roots of f on the nonnegative axis are exactly |a-b| and a+b.
+// ---------------------------------------------------------------------------
+
+describe('APConversion verification', () => {
+    const PRECISION = 24;
+    const MAX_ITERATIONS = 64;
+
+    function threshold(precision: number): BSRational {
+        return BSRational.ldexp(BSRational.fromNumber(1), -precision);
+    }
+
+    // Positive rationals with small numerators and denominators.
+    const positiveSqr: fc.Arbitrary<BSRational> =
+        fc.tuple(fc.integer({ min: 1, max: 400 }),
+            fc.integer({ min: 1, max: 32 }))
+            .map(([n, d]) => BSRational.fromNumber(n, d));
+
+    const zero = new BSRational();
+
+    function sqr(t: BSRational): BSRational {
+        return t.mul(t);
+    }
+
+    // t <= sqrt(A) for A >= 0.
+    function leSqrt(t: BSRational, A: BSRational): boolean {
+        return t.getSign() <= 0 || sqr(t).lessThanOrEqual(A);
+    }
+
+    // t >= sqrt(A) for A >= 0.
+    function geSqrt(t: BSRational, A: BSRational): boolean {
+        return t.getSign() >= 0 && sqr(t).greaterThanOrEqual(A);
+    }
+
+    function quartic(t: BSRational, aSqr: BSRational, bSqr: BSRational): BSRational {
+        const s = aSqr.add(bSqr);
+        const inner = sqr(t).sub(s);
+        return sqr(inner).sub(BSRational.fromNumber(4).mul(aSqr).mul(bSqr));
+    }
+
+    // t <= sqrt(aSqr) + sqrt(bSqr).
+    function leSum(t: BSRational, aSqr: BSRational, bSqr: BSRational): boolean {
+        if (t.getSign() <= 0) { return true; }
+        const beyond = quartic(t, aSqr, bSqr).getSign() > 0
+            && sqr(t).greaterThan(aSqr.add(bSqr));
+        return !beyond;
+    }
+
+    // t >= sqrt(aSqr) + sqrt(bSqr).
+    function geSum(t: BSRational, aSqr: BSRational, bSqr: BSRational): boolean {
+        return t.getSign() >= 0
+            && quartic(t, aSqr, bSqr).getSign() >= 0
+            && sqr(t).greaterThanOrEqual(aSqr.add(bSqr));
+    }
+
+    // t <= |sqrt(aSqr) - sqrt(bSqr)|.
+    function leDiff(t: BSRational, aSqr: BSRational, bSqr: BSRational): boolean {
+        if (t.getSign() <= 0) { return true; }
+        return quartic(t, aSqr, bSqr).getSign() >= 0
+            && sqr(t).lessThanOrEqual(aSqr.add(bSqr));
+    }
+
+    // t >= |sqrt(aSqr) - sqrt(bSqr)|.
+    function geDiff(t: BSRational, aSqr: BSRational, bSqr: BSRational): boolean {
+        if (t.getSign() < 0) { return false; }
+        const below = quartic(t, aSqr, bSqr).getSign() > 0
+            && sqr(t).lessThan(aSqr.add(bSqr));
+        return !below;
+    }
+
+    it('brackets sqrt(aSqr) to the requested precision', () => {
+        const conv = new APConversion(PRECISION, MAX_ITERATIONS);
+        const eps = threshold(PRECISION);
+        check(positiveSqr, aSqr => {
+            const { numIterates, aMin, aMax } = conv.estimateSqrt(aSqr);
+            expect(numIterates).toBeLessThanOrEqual(MAX_ITERATIONS);
+            expect(aMin.getSign()).toBeGreaterThan(0);
+            // aMin <= sqrt(aSqr) <= aMax, exactly.
+            expect(leSqrt(aMin, aSqr)).toBe(true);
+            expect(geSqrt(aMax, aSqr)).toBe(true);
+            expect(aMax.sub(aMin).lessThan(eps)).toBe(true);
+
+            // The single-value overload is the midpoint of the bracket.
+            const single = conv.estimateSqrtValue(aSqr);
+            expect(single.numIterates).toBe(numIterates);
+            expect(single.a.equals(
+                BSRational.ldexp(aMin.add(aMax), -1))).toBe(true);
+            expect(aMin.lessThanOrEqual(single.a)).toBe(true);
+            expect(single.a.lessThanOrEqual(aMax)).toBe(true);
+        }, 40);
+    });
+
+    it('brackets sqrt(aSqr) + sqrt(bSqr) to the requested precision', () => {
+        const conv = new APConversion(PRECISION, MAX_ITERATIONS);
+        const eps = threshold(PRECISION);
+        check(fc.tuple(positiveSqr, positiveSqr), ([aSqr, bSqr]) => {
+            const { numIterates, tMin, tMax } = conv.estimateApB(aSqr, bSqr);
+            expect(numIterates).toBeLessThanOrEqual(MAX_ITERATIONS);
+            expect(leSum(tMin, aSqr, bSqr)).toBe(true);
+            expect(geSum(tMax, aSqr, bSqr)).toBe(true);
+            expect(tMax.sub(tMin).lessThan(eps)).toBe(true);
+        }, 30);
+    });
+
+    it('brackets sqrt(aSqr) - sqrt(bSqr) to the requested precision', () => {
+        const conv = new APConversion(PRECISION, MAX_ITERATIONS);
+        const eps = threshold(PRECISION);
+        // Upstream requires aSqr >= bSqr so that a - b >= 0.
+        const ordered = fc.tuple(positiveSqr, positiveSqr)
+            .map(([p, q]) => (p.lessThan(q) ? [q, p] : [p, q]) as
+                [BSRational, BSRational]);
+        check(ordered, ([aSqr, bSqr]) => {
+            const { numIterates, tMin, tMax } = conv.estimateAmB(aSqr, bSqr);
+            expect(numIterates).toBeLessThanOrEqual(MAX_ITERATIONS);
+            expect(leDiff(tMin, aSqr, bSqr)).toBe(true);
+            expect(geDiff(tMax, aSqr, bSqr)).toBe(true);
+            expect(tMax.sub(tMin).lessThan(eps)).toBe(true);
+        }, 30);
+    });
+
+    it('brackets a quadratic field number x + y*sqrt(d)', () => {
+        const conv = new APConversion(PRECISION, MAX_ITERATIONS);
+        const eps = threshold(PRECISION);
+        const coefficient: fc.Arbitrary<BSRational> =
+            fc.tuple(fc.integer({ min: -20, max: 20 }),
+                fc.integer({ min: 1, max: 8 }))
+                .map(([n, d]) => BSRational.fromNumber(n, d));
+
+        check(fc.tuple(coefficient, coefficient, positiveSqr),
+            ([x, y, d]) => {
+                const q: APConversionQFN1 = { x: [x, y], d };
+                const { numIterates, qMin, qMax } = conv.estimate(q);
+                expect(qMin.lessThanOrEqual(qMax)).toBe(true);
+
+                if (y.getSign() === 0) {
+                    expect(numIterates).toBe(0);
+                    expect(qMin.equals(x)).toBe(true);
+                    expect(qMax.equals(x)).toBe(true);
+                    return;
+                }
+
+                // The exact value is x + sign(y)*sqrt(y^2*d).
+                const aSqr = y.mul(y).mul(d);
+                if (y.getSign() > 0) {
+                    expect(leSqrt(qMin.sub(x), aSqr)).toBe(true);
+                    expect(geSqrt(qMax.sub(x), aSqr)).toBe(true);
+                } else {
+                    // qMin <= x - sqrt(aSqr) <= qMax.
+                    expect(geSqrt(x.sub(qMin), aSqr)).toBe(true);
+                    expect(leSqrt(x.sub(qMax), aSqr)).toBe(true);
+                }
+                expect(qMax.sub(qMin).lessThan(eps)).toBe(true);
+
+                const single = conv.estimateValue(q);
+                expect(single.qEstimate.equals(
+                    BSRational.ldexp(qMin.add(qMax), -1))).toBe(true);
+            }, 30);
+    });
+
+    it('tightens the bracket as the precision grows', () => {
+        const aSqr = BSRational.fromNumber(2);
+        let previous: BSRational | null = null;
+        for (const precision of [8, 16, 32, 64]) {
+            const conv = new APConversion(precision, MAX_ITERATIONS);
+            expect(conv.getPrecision()).toBe(precision);
+            expect(conv.getMaxIterations()).toBe(MAX_ITERATIONS);
+            const { aMin, aMax } = conv.estimateSqrt(aSqr);
+            const width = aMax.sub(aMin);
+            expect(width.lessThan(threshold(precision))).toBe(true);
+            expect(leSqrt(aMin, aSqr)).toBe(true);
+            expect(geSqrt(aMax, aSqr)).toBe(true);
+            if (previous !== null) {
+                expect(width.lessThanOrEqual(previous)).toBe(true);
+            }
+            previous = width;
+        }
+
+        // setPrecision replaces the threshold.
+        const conv = new APConversion(4, MAX_ITERATIONS);
+        conv.setPrecision(50);
+        expect(conv.getPrecision()).toBe(50);
+        const tight = conv.estimateSqrt(aSqr);
+        expect(tight.aMax.sub(tight.aMin).lessThan(threshold(50))).toBe(true);
+        conv.setMaxIterations(3);
+        expect(conv.getMaxIterations()).toBe(3);
+    });
+
+    it('is exact for squares of dyadic rationals', () => {
+        const conv = new APConversion(PRECISION, MAX_ITERATIONS);
+        check(fc.tuple(fc.integer({ min: 1, max: 64 }),
+            fc.integer({ min: -6, max: 6 })), ([n, e]) => {
+                const a = BSRational.ldexp(BSRational.fromNumber(n), e);
+                const { aMin, aMax } = conv.estimateSqrt(a.mul(a));
+                // The exact root lies in the bracket and the bracket is tight.
+                expect(aMin.lessThanOrEqual(a)).toBe(true);
+                expect(a.lessThanOrEqual(aMax)).toBe(true);
+            }, 40);
+    });
+
+    // Regression for the port fix of the upstream stale-square defect
+    // (issue #280). When a^2/b^2 is close to (7 + 3*sqrt(5))/2 the quantity
+    // f''(a-b)/8 = a^2 - 3ab + b^2 is tiny, so the 53-bit initial bounds fall
+    // on the wrong side of the inflection point and the bisection loop of
+    // estimateAmB runs. With few iterations the loop exits by exhaustion
+    // rather than by its break, and upstream then feeds the Newton bound a
+    // tMinSqr (respectively tMaxSqr) that no longer corresponds to tMin
+    // (tMax). The resulting "bound" is not a bound: the exact a-b falls
+    // outside [tMin, tMax]. The convergents of (7 + 3*sqrt(5))/2 below all
+    // fail the bracket assertion on the pre-fix source.
+    it('keeps the bracket when the bisection loop exhausts its iterations',
+        () => {
+            const convergents: [bigint, bigint][] = [
+                [10983760033n, 1602508992n],
+                [64300051206n, 9381251041n],
+                [516002918640n, 75283811239n],
+                [3020733700601n, 440719107401n],
+                [141910183877041n, 20704416796806n],
+                [6666757908520326n, 972666870342481n],
+                [53500214605455696n, 7805576116155895n]
+            ];
+            for (let maxIterations = 1; maxIterations <= 8; ++maxIterations) {
+                const conv = new APConversion(40, maxIterations);
+                for (const [p, q] of convergents) {
+                    const aSqr = BSRational.fromBigInt(p);
+                    const bSqr = BSRational.fromBigInt(q);
+                    const { tMin, tMax } = conv.estimateAmB(aSqr, bSqr);
+                    expect(leDiff(tMin, aSqr, bSqr)).toBe(true);
+                    expect(geDiff(tMax, aSqr, bSqr)).toBe(true);
+                }
+            }
+        });
+
+    it('rejects invalid construction arguments', () => {
+        expect(() => new APConversion(0, 1)).toThrow(/Invalid precision/);
+        expect(() => new APConversion(-1, 1)).toThrow(/Invalid precision/);
+        expect(() => new APConversion(1, 0)).toThrow(/Invalid maximum/);
+        const conv = new APConversion(8, 8);
+        expect(() => conv.setPrecision(0)).toThrow(/Invalid precision/);
+        expect(() => conv.setMaxIterations(0)).toThrow(/Invalid maximum/);
     });
 });

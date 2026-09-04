@@ -18,6 +18,10 @@ import * as Umbrella from '../src/ArbitraryPrecision.js';
 import { BSNumber as DirectBSNumber } from '../src/BSNumber.js';
 import { BSRational as DirectBSRational } from '../src/BSRational.js';
 import { BSPrecision as DirectBSPrecision } from '../src/BSPrecision.js';
+import * as BSNumberModule from '../src/BSNumber.js';
+import * as BSRationalModule from '../src/BSRational.js';
+import * as BSPrecisionModule from '../src/BSPrecision.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 describe('ArbitraryPrecision (umbrella module)', () => {
     it('re-exports exactly the symbols of the ported includes', () => {
@@ -156,4 +160,124 @@ describe('ArbitraryPrecision: BSPrecision through the umbrella', () => {
         expect(new BSPrecisionParameters(0, 0, 32).maxWords).toBe(1);
         expect(new BSPrecisionParameters(0, 0, 33).maxWords).toBe(2);
     });
+});
+
+// ---------------------------------------------------------------------------
+// Independent verification pass (VERIFYING.md). Upstream ArbitraryPrecision.h
+// is a pure umbrella header: it includes UIntegerALU32.h, UIntegerAP32.h,
+// UIntegerFP32.h, BSNumber.h, BSRational.h and BSPrecision.h and declares
+// nothing of its own. The port omits the three UInteger*32 storage backends
+// (the significands are bigint), so the module must re-export the complete
+// surface of exactly BSNumber.ts, BSRational.ts and BSPrecision.ts.
+// ---------------------------------------------------------------------------
+
+describe('ArbitraryPrecision verification', () => {
+    it('re-exports every binding of the three included modules and no more',
+        () => {
+            const expected = new Set([
+                ...Object.keys(BSNumberModule),
+                ...Object.keys(BSRationalModule),
+                ...Object.keys(BSPrecisionModule)
+            ]);
+            const actual = new Set(Object.keys(Umbrella));
+            expect([...actual].sort()).toEqual([...expected].sort());
+            const umbrella = Umbrella as Record<string, unknown>;
+            for (const name of actual) {
+                const source =
+                    (BSNumberModule as Record<string, unknown>)[name]
+                    ?? (BSRationalModule as Record<string, unknown>)[name]
+                    ?? (BSPrecisionModule as Record<string, unknown>)[name];
+                expect(umbrella[name]).toBe(source);
+            }
+        });
+
+    it('is transparent: the umbrella bindings compute the same values', () => {
+        const smallInt = fc.integer({ min: -200, max: 200 });
+        const denominator = fc.integer({ min: 1, max: 40 });
+        check(fc.tuple(smallInt, denominator, smallInt, denominator),
+            ([n0, d0, n1, d1]) => {
+                const a = BSRational.fromNumber(n0, d0);
+                const b = BSRational.fromNumber(n1, d1);
+                const direct = DirectBSRational.fromNumber(n0, d0)
+                    .add(DirectBSRational.fromNumber(n1, d1));
+                expect(a.add(b).equals(direct)).toBe(true);
+
+                // The exact sum, cross-checked against bigint arithmetic.
+                const num = BigInt(n0) * BigInt(d1) + BigInt(n1) * BigInt(d0);
+                const den = BigInt(d0) * BigInt(d1);
+                expect(a.add(b).mul(BSRational.fromBigInt(den))
+                    .equals(BSRational.fromBigInt(num))).toBe(true);
+
+                // BSNumber multiplication of the integer numerators is exact
+                // and both products fit a double, so toNumber is lossless.
+                // (BSNumber has a single unsigned zero, so -0 becomes 0.)
+                expect(BSNumber.fromBigInt(BigInt(n0))
+                    .mul(BSNumber.fromBigInt(BigInt(n1))).toNumber())
+                    .toBe(n0 * n1 === 0 ? 0 : n0 * n1);
+            });
+    });
+
+    it('routes the conversion helpers to the same rounding behavior', () => {
+        check(fc.tuple(fc.integer({ min: -500, max: 500 }),
+            fc.integer({ min: 1, max: 60 }),
+            fc.integer({ min: 1, max: 20 })), ([n, d, precision]) => {
+                const x = BSRational.fromNumber(n, d);
+                const down = convertBSRationalToBSNumber(x, precision,
+                    BSNumberRoundingMode.FE_DOWNWARD);
+                const up = convertBSRationalToBSNumber(x, precision,
+                    BSNumberRoundingMode.FE_UPWARD);
+                // The rational-output overload wraps the BSNumber overload.
+                expect(convertBSRational(x, precision,
+                    BSNumberRoundingMode.FE_TONEAREST)
+                    .equals(BSRational.fromBSNumber(
+                        convertBSRationalToBSNumber(x, precision,
+                            BSNumberRoundingMode.FE_TONEAREST)))).toBe(true);
+                // The directed results bracket the exact value.
+                expect(BSRational.fromBSNumber(down).lessThanOrEqual(x))
+                    .toBe(true);
+                expect(x.lessThanOrEqual(BSRational.fromBSNumber(up)))
+                    .toBe(true);
+                // The double and float conversions are the 53- and 24-bit
+                // instances of the same routine.
+                expect(convertBSRationalToNumber(x,
+                    BSNumberRoundingMode.FE_TONEAREST))
+                    .toBe(convertBSRationalToBSNumber(x, 53,
+                        BSNumberRoundingMode.FE_TONEAREST).toNumber());
+                expect(convertBSRationalToFloat32(x,
+                    BSNumberRoundingMode.FE_TONEAREST))
+                    .toBe(convertBSRationalToBSNumber(x, 24,
+                        BSNumberRoundingMode.FE_TONEAREST).toFloat32());
+                // convertBSNumber at full double precision is the identity
+                // on a number that came from a double.
+                const asNumber = BSNumber.fromNumber(n / d);
+                expect(convertBSNumber(asNumber, 53,
+                    BSNumberRoundingMode.FE_TONEAREST)
+                    .equals(asNumber)).toBe(true);
+            });
+    });
+
+    it('propagates BSPrecision through the umbrella as the direct module does',
+        () => {
+            const parameters = fc.tuple(fc.integer({ min: -60, max: 0 }),
+                fc.integer({ min: 0, max: 60 }), fc.integer({ min: 1, max: 60 }));
+            check(fc.tuple(parameters, parameters), ([p0, p1]) => {
+                const build = (Ctor: typeof BSPrecision,
+                    p: [number, number, number]) => new Ctor(p[0], p[1], p[2]);
+                for (const op of ['add', 'sub', 'mul'] as const) {
+                    const viaUmbrella =
+                        build(BSPrecision, p0)[op](build(BSPrecision, p1));
+                    const direct = build(DirectBSPrecision, p0)[op](
+                        build(DirectBSPrecision, p1));
+                    expect(viaUmbrella.bsn.minExponent)
+                        .toBe(direct.bsn.minExponent);
+                    expect(viaUmbrella.bsn.maxExponent)
+                        .toBe(direct.bsn.maxExponent);
+                    expect(viaUmbrella.bsn.maxBits).toBe(direct.bsn.maxBits);
+                    // maxWords is derived from maxBits by the same formula.
+                    expect(viaUmbrella.bsn.maxWords)
+                        .toBe(new BSPrecisionParameters(0, 0,
+                            viaUmbrella.bsn.maxBits).maxWords);
+                }
+            });
+        });
 });

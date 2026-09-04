@@ -595,10 +595,12 @@ export class BSPPolygon2 {
             return found;
         }
 
-        // Edge not in map, insert it and assign it a unique index.
+        // Edge not in map, insert it and assign it a unique index. Upstream
+        // stores the key and the array entry by value, so the caller's object
+        // must not be aliased: splitEdge mutates mEArray entries in place.
         const i = this.mEArray.length;
         this.mEMap.set(key, i);
-        this.mEArray.push(edge);
+        this.mEArray.push(makeEdge(edge.V[0], edge.V[1]));
         return i;
     }
 

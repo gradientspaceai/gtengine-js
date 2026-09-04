@@ -5,6 +5,7 @@ import {
 } from '../src/BSRational.js';
 import { BSNumber, BSNumberRoundingMode } from '../src/BSNumber.js';
 import { isArbitraryPrecision, hasDivisionOperator } from '../src/TypeTraits.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 function makeRandom(seed: number): () => number {
     let state = seed >>> 0;
@@ -745,5 +746,257 @@ describe('BSRational: type traits', () => {
         // BSNumber has no division operator, BSRational does.
         expect(hasDivisionOperator(new BSNumber())).toBe(false);
         expect(hasDivisionOperator(1.5)).toBe(true);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Independent verification pass (VERIFYING.md): property-based cross-checks
+// of every BSRational.h function against exact bigint rational arithmetic.
+// ---------------------------------------------------------------------------
+
+describe('BSRational verification', () => {
+    // Rationals built from small integers, which exercise the shared-factor
+    // and zero-numerator paths often.
+    const smallRational: fc.Arbitrary<BSRational> =
+        fc.tuple(fc.integer({ min: -64, max: 64 }),
+            fc.integer({ min: 1, max: 64 }))
+            .map(([n, d]) => BSRational.fromNumber(n, d));
+
+    // Rationals far wider than a double, which exercise the bigint paths.
+    const wideRational: fc.Arbitrary<BSRational> =
+        fc.tuple(fc.bigInt({ min: -(2n ** 90n), max: 2n ** 90n }),
+            fc.bigInt({ min: 1n, max: 2n ** 90n }))
+            .map(([n, d]) => BSRational.fromBigInt(n, d));
+
+    const anyRational: fc.Arbitrary<BSRational> =
+        fc.oneof(smallRational, wideRational);
+
+    const nonzeroRational: fc.Arbitrary<BSRational> =
+        anyRational.filter(x => x.getSign() !== 0);
+
+    function ratAbs(a: Rat): Rat {
+        return ratMake(a.n < 0n ? -a.n : a.n, a.d);
+    }
+
+    it('keeps the class invariant and the exact value through every operation',
+        () => {
+            check(fc.tuple(anyRational, nonzeroRational), ([a, b]) => {
+                const ea = exact(a);
+                const eb = exact(b);
+                const cases: [BSRational, Rat][] = [
+                    [a.add(b), ratAdd(ea, eb)],
+                    [a.sub(b), ratSub(ea, eb)],
+                    [a.mul(b), ratMul(ea, eb)],
+                    [a.div(b), ratDiv(ea, eb)],
+                    [a.negated(), ratMake(-ea.n, ea.d)],
+                    [BSRational.fabs(a), ratAbs(ea)]
+                ];
+                for (const [result, expected] of cases) {
+                    expectValid(result);
+                    expectExactlyEqual(result, expected);
+                }
+            });
+        });
+
+    it('orders exactly as the bigint comparison does', () => {
+        check(fc.tuple(anyRational, anyRational), ([a, b]) => {
+            const c = ratCompare(exact(a), exact(b));
+            expect(a.lessThan(b)).toBe(c < 0);
+            expect(a.greaterThan(b)).toBe(c > 0);
+            expect(a.equals(b)).toBe(c === 0);
+            expect(a.notEquals(b)).toBe(c !== 0);
+            expect(a.lessThanOrEqual(b)).toBe(c <= 0);
+            expect(a.greaterThanOrEqual(b)).toBe(c >= 0);
+            // getSign is the comparison against zero.
+            expect(Math.sign(a.getSign())).toBe(
+                ratCompare(exact(a), { n: 0n, d: 1n }));
+        });
+    });
+
+    it('satisfies the field axioms exactly', () => {
+        check(fc.tuple(smallRational, smallRational, smallRational),
+            ([a, b, c]) => {
+                // Associativity and commutativity of + and *.
+                expect(a.add(b).add(c).equals(a.add(b.add(c)))).toBe(true);
+                expect(a.mul(b).mul(c).equals(a.mul(b.mul(c)))).toBe(true);
+                expect(a.add(b).equals(b.add(a))).toBe(true);
+                expect(a.mul(b).equals(b.mul(a))).toBe(true);
+                // Distributivity.
+                expect(a.mul(b.add(c)).equals(a.mul(b).add(a.mul(c)))).toBe(true);
+                // Additive and multiplicative inverses.
+                expect(a.sub(a).getSign()).toBe(0);
+                if (a.getSign() !== 0) {
+                    expect(a.div(a).equals(BSRational.fromNumber(1))).toBe(true);
+                }
+                // fma / robustSOP / robustDOP are the exact expressions.
+                expect(BSRational.fma(a, b, c).equals(a.mul(b).add(c))).toBe(true);
+                expect(BSRational.robustSOP(a, b, a, c)
+                    .equals(a.mul(b).add(a.mul(c)))).toBe(true);
+                expect(BSRational.robustDOP(a, b, a, c)
+                    .equals(a.mul(b).sub(a.mul(c)))).toBe(true);
+            });
+    });
+
+    it('frexp and ldexp are exact and invert each other', () => {
+        check(anyRational, a => {
+            const { result, exponent } = BSRational.frexp(a);
+            expectValid(result);
+            // x = result * 2^exponent.
+            const back = BSRational.ldexp(result, exponent);
+            expect(back.equals(a)).toBe(true);
+            if (a.getSign() === 0) {
+                expect(exponent).toBe(0);
+                return;
+            }
+            // |result| is in [1/2, 1).
+            const magnitude = BSRational.fabs(result);
+            expect(magnitude.greaterThanOrEqual(
+                BSRational.fromNumber(1, 2))).toBe(true);
+            expect(magnitude.lessThan(BSRational.fromNumber(1))).toBe(true);
+        });
+    });
+
+    it('brackets the exact value with the directed rounding modes', () => {
+        check(fc.tuple(anyRational, fc.integer({ min: 1, max: 24 })),
+            ([a, precision]) => {
+                const down = convertBSRationalToBSNumber(a, precision,
+                    BSNumberRoundingMode.FE_DOWNWARD);
+                const up = convertBSRationalToBSNumber(a, precision,
+                    BSNumberRoundingMode.FE_UPWARD);
+                const near = convertBSRationalToBSNumber(a, precision,
+                    BSNumberRoundingMode.FE_TONEAREST);
+                const zero = convertBSRationalToBSNumber(a, precision,
+                    BSNumberRoundingMode.FE_TOWARDZERO);
+                for (const x of [down, up, near, zero]) {
+                    expectValidBSNumber(x);
+                    expect(x.getNumBits()).toBeLessThanOrEqual(precision);
+                }
+
+                const ea = exact(a);
+                const rd = exact(BSRational.fromBSNumber(down));
+                const ru = exact(BSRational.fromBSNumber(up));
+                const rn = exact(BSRational.fromBSNumber(near));
+                const rz = exact(BSRational.fromBSNumber(zero));
+                expect(ratCompare(rd, ea)).toBeLessThanOrEqual(0);
+                expect(ratCompare(ru, ea)).toBeGreaterThanOrEqual(0);
+                // Round to nearest lands on one of the two directed results
+                // and is no farther from the exact value than the other.
+                expect(ratCompare(rn, rd) === 0 || ratCompare(rn, ru) === 0)
+                    .toBe(true);
+                const other = ratCompare(rn, rd) === 0 ? ru : rd;
+                expect(ratCompare(ratAbs(ratSub(rn, ea)),
+                    ratAbs(ratSub(other, ea)))).toBeLessThanOrEqual(0);
+                // Round toward zero truncates the magnitude.
+                expect(ratCompare(rz, a.getSign() < 0 ? ru : rd)).toBe(0);
+                // An exactly representable value is fixed by every mode.
+                if (ratCompare(rd, ru) === 0) {
+                    expect(ratCompare(rd, ea)).toBe(0);
+                }
+            });
+    });
+
+    it('converts a double-valued rational back to that double exactly', () => {
+        check(fc.tuple(fc.double({ min: -1e12, max: 1e12, noNaN: true }),
+            fc.integer({ min: -40, max: 40 })), ([value, shift]) => {
+                const x = BSRational.fromNumber(value);
+                // A signed zero converts to the unsigned zero, as it does in
+                // C++ (BSNumber has a single zero with sign 0).
+                expect(x.toNumber()).toBe(value === 0 ? 0 : value);
+                // Scaling by a power of two is exact when it neither
+                // overflows nor underflows the double range.
+                const expected = value * Math.pow(2, shift);
+                if (Number.isFinite(expected) && expected !== 0
+                    && Math.abs(expected) > 1e-280) {
+                    expect(BSRational.ldexp(x, shift).toNumber()).toBe(expected);
+                }
+            });
+    });
+
+    it('fromString agrees with the exact decimal fraction', () => {
+        check(fc.tuple(fc.integer({ min: -999, max: 999 }),
+            fc.stringMatching(/^[0-9]{0,6}$/)), ([intPart, frcPart]) => {
+                const sign = intPart < 0 ? '-' : '';
+                const text = sign + String(Math.abs(intPart)) + '.' + frcPart;
+                const x = BSRational.fromString(text);
+                expectValid(x);
+                const scale = 10n ** BigInt(frcPart.length);
+                const magnitude = BigInt(Math.abs(intPart)) * scale
+                    + (frcPart.length > 0 ? BigInt(frcPart) : 0n);
+                expectExactlyEqual(x, ratMake(
+                    intPart < 0 ? -magnitude : magnitude, scale));
+            });
+    });
+
+    // Regression for a port defect: BSRational.remainder formed the quotient
+    // as a double, so above 2^53 the nearest integer n was off by one and
+    // 'dx - n*dy' rounded on top of that. Upstream converts to double and
+    // calls std::remainder, whose result is exact.
+    it('remainder is the exact IEEE remainder of the two doubles', () => {
+        // std::remainder(1e17, 3) == 1; the double computation returned 0.
+        expect(BSRational.remainder(BSRational.fromNumber(1e17),
+            BSRational.fromNumber(3)).toNumber()).toBe(1);
+
+        const exactRemainder = (dx: number, dy: number): Rat => {
+            const ex = exact(BSRational.fromNumber(dx));
+            const ey = exact(BSRational.fromNumber(dy));
+            // n = the integer nearest to x/y, ties to even, computed on
+            // exact bigint fractions.
+            const num = ex.n * ey.d;
+            const den = ex.d * ey.n;
+            const sign = den < 0n ? -1n : 1n;
+            const a = num * sign;
+            const b = den * sign;
+            let q = a / b;
+            let r = a - q * b;
+            if (r < 0n) { q -= 1n; r += b; }   // floor division
+            if (2n * r > b || (2n * r === b && (q & 1n) === 1n)) { q += 1n; }
+            return ratSub(ex, ratMul({ n: q, d: 1n }, ey));
+        };
+
+        check(fc.tuple(fc.double({ min: -1e18, max: 1e18, noNaN: true }),
+            fc.double({ min: -1e6, max: 1e6, noNaN: true })
+                .filter(y => Math.abs(y) > 1e-3)),
+            ([dx, dy]) => {
+                const got = BSRational.remainder(BSRational.fromNumber(dx),
+                    BSRational.fromNumber(dy));
+                expectExactlyEqual(got, exactRemainder(dx, dy));
+            });
+    });
+
+    it('setSign, negate and the zero canonicalization agree with the value',
+        () => {
+            check(fc.tuple(anyRational, fc.constantFrom(-1, 1)),
+                ([a, s]) => {
+                    const b = a.clone();
+                    b.setSign(s);
+                    expect(b.getDenominator().getSign()).toBe(1);
+                    if (a.getSign() !== 0) {
+                        expectValid(b);
+                        expect(b.getSign()).toBe(s);
+                        const magnitude = ratAbs(exact(a));
+                        expectExactlyEqual(b, s < 0
+                            ? ratMake(-magnitude.n, magnitude.d) : magnitude);
+                    }
+
+                    const c = a.clone();
+                    c.negate();
+                    expectValid(c);
+                    // Negating zero stays a canonical zero (int32 -0 is 0).
+                    expect(Object.is(c.getSign(), -0)).toBe(false);
+                    expectExactlyEqual(c, ratMake(-exact(a).n, exact(a).d));
+                });
+        });
+
+    it('clone keeps C++ value semantics', () => {
+        check(anyRational, a => {
+            const before = exact(a);
+            const b = a.clone();
+            b.negate();
+            b.getNumerator().setBiasedExponent(
+                b.getNumerator().getBiasedExponent() + 3);
+            // Mutating the clone must not disturb the original.
+            expect(ratCompare(exact(a), before)).toBe(0);
+            expectValid(a);
+        });
     });
 });

@@ -499,19 +499,27 @@ export class BSRational implements ArbitraryPrecisionNumber {
     }
 
     // The port of std::remainder: x - n*y where n is the integer nearest to
-    // x/y, ties to even. JavaScript has no built-in equivalent of
-    // std::remainder ('%' is std::fmod), so it is computed here.
+    // x/y, ties to even. Upstream converts both operands to double and calls
+    // std::remainder, whose result is exact (and always representable as a
+    // double). JavaScript has no built-in equivalent ('%' is std::fmod), so
+    // the exact integer computation of BSNumber.remainder is reused. Forming
+    // the quotient as a double instead loses exactness above 2^53: for
+    // remainder(1e17, 3) the double quotient rounds down by one, and
+    // 'dx - n*dy' evaluates to 0 where std::remainder returns 1.
     static remainder(x: BSRational, y: BSRational): BSRational {
         const dx = x.toNumber();
         const dy = y.toNumber();
-        const quotient = dx / dy;
-        let n = Math.round(quotient);
-        if (Math.abs(quotient - Math.trunc(quotient)) === 0.5 && (n % 2 !== 0)) {
-            // Math.round rounds halves up; std::remainder rounds halves to
-            // even.
-            n -= 1;
+        if (!Number.isFinite(dx) || Number.isNaN(dy) || dy === 0) {
+            // std::remainder is NaN here; BSRational has no NaN
+            // representation and upstream's conversion of a NaN yields zero.
+            return new BSRational();
         }
-        return BSRational.fromNumber(dx - n * dy);
+        if (!Number.isFinite(dy)) {
+            // std::remainder(x, +-infinity) = x.
+            return BSRational.fromNumber(dx);
+        }
+        return BSRational.fromBSNumber(BSNumber.remainder(
+            BSNumber.fromNumber(dx), BSNumber.fromNumber(dy)));
     }
 
     static sin(x: BSRational): BSRational {
