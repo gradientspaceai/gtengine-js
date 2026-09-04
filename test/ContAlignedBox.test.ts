@@ -5,7 +5,10 @@ import {
     inContainerAlignedBox,
     mergeContainersAlignedBox
 } from '../src/ContAlignedBox.js';
-import { Vector } from '../src/Vector.js';
+import { Vector, add } from '../src/Vector.js';
+import {
+    alignedBox, check, fc, latticeVector, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -161,5 +164,90 @@ describe('mergeContainersAlignedBox', () => {
     it('throws on a dimension mismatch', () => {
         expect(() => mergeContainersAlignedBox(box([0, 0], [1, 1]), new AlignedBox(3)))
             .toThrow('mergeContainersAlignedBox: mismatched dimensions.');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (VERIFYING.md): property-based cross-checks of the port
+// against the upstream ContAlignedBox.h semantics.
+// ---------------------------------------------------------------------------
+
+describe('ContAlignedBox verification', () => {
+    // getContainerAlignedBox is ComputeExtremes, so the result must equal the
+    // componentwise min/max of the inputs exactly (no rounding is involved).
+    it('is the exact componentwise min/max of the inputs', () => {
+        check(fc.tuple(fc.integer({ min: 2, max: 4 }),
+            fc.integer({ min: 1, max: 12 })).chain(([n, count]) =>
+                fc.array(wellScaledVector(n), { minLength: count, maxLength: count })),
+            (points: Vector[]) => {
+                const n = points[0].size;
+                const box = getContainerAlignedBox(points)!;
+                for (let d = 0; d < n; ++d) {
+                    const coords = points.map(p => p.get(d));
+                    expect(box.min.get(d)).toBe(Math.min(...coords));
+                    expect(box.max.get(d)).toBe(Math.max(...coords));
+                }
+                // Every input point is in the container, and the container is
+                // minimal: shrinking any face excludes at least one point.
+                for (const p of points) {
+                    expect(inContainerAlignedBox(p, box)).toBe(true);
+                }
+                for (let d = 0; d < n; ++d) {
+                    const shrunk = AlignedBox.fromMinMax(box.min.clone(), box.max.clone());
+                    const width = box.max.get(d) - box.min.get(d);
+                    shrunk.min.values[d] = box.min.get(d) + 0.25 * width + 1e-12;
+                    shrunk.max.values[d] = box.max.get(d) - 0.25 * width - 1e-12;
+                    expect(points.some(p => !inContainerAlignedBox(p, shrunk))).toBe(true);
+                }
+            });
+    });
+
+    // inContainerAlignedBox agrees with the componentwise interval test.
+    it('inContainer agrees with a componentwise brute-force test', () => {
+        check(fc.tuple(alignedBox(3), wellScaledVector(3, -12, 12)),
+            ([b, p]: [AlignedBox, Vector]) => {
+                let expected = true;
+                for (let d = 0; d < 3; ++d) {
+                    if (p.get(d) < b.min.get(d) || p.get(d) > b.max.get(d)) {
+                        expected = false;
+                    }
+                }
+                expect(inContainerAlignedBox(p, b)).toBe(expected);
+            });
+    });
+
+    // The merge is the smallest box containing both inputs: it contains every
+    // vertex of both, and each of its faces is supported by one of them.
+    it('merge is the minimal box containing both inputs', () => {
+        check(fc.tuple(alignedBox(3), alignedBox(3)),
+            ([b0, b1]: [AlignedBox, AlignedBox]) => {
+                const merge = mergeContainersAlignedBox(b0, b1);
+                for (const vertex of [...b0.getVertices(), ...b1.getVertices()]) {
+                    expect(inContainerAlignedBox(vertex, merge)).toBe(true);
+                }
+                for (let d = 0; d < 3; ++d) {
+                    expect(merge.min.get(d)).toBe(
+                        Math.min(b0.min.get(d), b1.min.get(d)));
+                    expect(merge.max.get(d)).toBe(
+                        Math.max(b0.max.get(d), b1.max.get(d)));
+                }
+            });
+    });
+
+    // Translating the point set translates the box exactly (the algorithm is
+    // a componentwise min/max, so the only error is the one in p + t itself).
+    it('is equivariant under translation', () => {
+        check(fc.tuple(fc.array(latticeVector(3), { minLength: 1, maxLength: 10 }),
+            latticeVector(3)),
+            ([points, t]: [Vector[], Vector]) => {
+                const box = getContainerAlignedBox(points)!;
+                const moved = getContainerAlignedBox(
+                    points.map(p => add(p, t)))!;
+                for (let d = 0; d < 3; ++d) {
+                    // Lattice coordinates: the sums are exact.
+                    expect(moved.min.get(d)).toBe(box.min.get(d) + t.get(d));
+                    expect(moved.max.get(d)).toBe(box.max.get(d) + t.get(d));
+                }
+            });
     });
 });

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { PointInPolygon2 } from '../src/ContPointInPolygon2.js';
 import { Vector } from '../src/Vector.js';
+import { check, fc, latticeVector } from './helpers/arbitraries.js';
 
 function v(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -269,5 +270,180 @@ describe('PointInPolygon2 convex queries', () => {
             }
             expect(query.containsConvexOrderN(p)).toBe(query.contains(p));
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (VERIFYING.md): property-based cross-checks of the port
+// against the upstream ContPointInPolygon2.h semantics.
+// ---------------------------------------------------------------------------
+
+// Exact CCW convex hull (monotone chain) of small integer points. Collinear
+// points are dropped, so the hull is strictly convex, which is what the
+// O(log N) bisection query assumes. Coordinates are integers in [-8, 8], so
+// every cross product below is exact in binary64.
+function convexHullCCW(points: readonly Vector[]): Vector[] {
+    const pts = points.map(p => [p.get(0), p.get(1)] as [number, number])
+        .sort((a, b) => (a[0] - b[0]) || (a[1] - b[1]))
+        .filter((p, i, a) => i === 0 || p[0] !== a[i - 1][0] || p[1] !== a[i - 1][1]);
+    if (pts.length < 3) {
+        return [];
+    }
+    const cross = (o: number[], a: number[], b: number[]): number =>
+        (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    const lower: number[][] = [];
+    for (const p of pts) {
+        while (lower.length >= 2
+            && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
+            lower.pop();
+        }
+        lower.push(p);
+    }
+    const upper: number[][] = [];
+    for (let i = pts.length - 1; i >= 0; --i) {
+        const p = pts[i];
+        while (upper.length >= 2
+            && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
+            upper.pop();
+        }
+        upper.push(p);
+    }
+    lower.pop();
+    upper.pop();
+    const hull = lower.concat(upper);
+    return hull.length >= 3 ? hull.map(p => Vector.fromArray(p)) : [];
+}
+
+// Exact side-of-edge classification of p against a CCW convex polygon:
+// +1 strictly inside, 0 on the boundary, -1 strictly outside.
+function exactConvexClassify(hull: readonly Vector[], p: Vector): number {
+    let onBoundary = false;
+    for (let i = 0, j = hull.length - 1; i < hull.length; j = i++) {
+        const ax = hull[j].get(0), ay = hull[j].get(1);
+        const bx = hull[i].get(0), by = hull[i].get(1);
+        const s = (bx - ax) * (p.get(1) - ay) - (by - ay) * (p.get(0) - ax);
+        if (s < 0) {
+            return -1;
+        }
+        if (s === 0) {
+            onBoundary = true;
+        }
+    }
+    return onBoundary ? 0 : 1;
+}
+
+describe('ContPointInPolygon2 verification', () => {
+    const hullArb = fc.array(latticeVector(2, -8, 8),
+        { minLength: 3, maxLength: 12 })
+        .map(convexHullCCW)
+        .filter(h => h.length >= 3);
+
+    // All four queries must agree with the exact side-of-edge test on a
+    // strictly convex lattice polygon. Boundary points are excluded because
+    // the even-odd rule of Contains is deliberately half-open there.
+    it('all queries agree with an exact convex classification', () => {
+        check(fc.tuple(hullArb, latticeVector(2, -10, 10)),
+            ([hull, p]: [Vector[], Vector]) => {
+                const cls = exactConvexClassify(hull, p);
+                if (cls === 0) {
+                    return;  // on the boundary: the rules disagree by design
+                }
+                const inside = cls > 0;
+                const query = new PointInPolygon2(hull);
+                expect(query.contains(p)).toBe(inside);
+                expect(query.containsConvexOrderN(p)).toBe(inside);
+                expect(query.containsConvexOrderLogN(p)).toBe(inside);
+                if (hull.length === 4) {
+                    expect(query.containsQuadrilateral(p)).toBe(inside);
+                }
+            });
+    });
+
+    // The convex queries include the boundary (all side tests use <= 0), so a
+    // vertex and an edge midpoint are reported inside.
+    it('convex queries include the polygon boundary', () => {
+        check(hullArb, (hull: Vector[]) => {
+            const query = new PointInPolygon2(hull);
+            for (let i = 0; i < hull.length; ++i) {
+                expect(query.containsConvexOrderN(hull[i])).toBe(true);
+                expect(query.containsConvexOrderLogN(hull[i])).toBe(true);
+                const j = (i + 1) % hull.length;
+                const mid = Vector.fromArray([
+                    0.5 * (hull[i].get(0) + hull[j].get(0)),
+                    0.5 * (hull[i].get(1) + hull[j].get(1))]);
+                expect(query.containsConvexOrderN(mid)).toBe(true);
+                expect(query.containsConvexOrderLogN(mid)).toBe(true);
+            }
+        });
+    });
+
+    // The even-odd ray-casting rule does not depend on the vertex ordering,
+    // nor on the starting vertex of the (cyclic) list.
+    it('Contains is invariant under reversal and rotation of the vertices', () => {
+        check(fc.tuple(hullArb, latticeVector(2, -10, 10)),
+            ([hull, p]: [Vector[], Vector]) => {
+                if (exactConvexClassify(hull, p) === 0) {
+                    return;
+                }
+                const base = new PointInPolygon2(hull).contains(p);
+                const reversed = new PointInPolygon2([...hull].reverse());
+                expect(reversed.contains(p)).toBe(base);
+                for (let k = 1; k < hull.length; ++k) {
+                    const rotated = new PointInPolygon2(
+                        [...hull.slice(k), ...hull.slice(0, k)]);
+                    expect(rotated.contains(p)).toBe(base);
+                }
+            });
+    });
+
+    // Non-convex case: rectilinear polygons, where every edge is axis
+    // aligned, so a test point at half-integer coordinates is never on the
+    // boundary and the even-odd answer is unambiguous. Cross-checked against
+    // the independent PNPOLY reference above.
+    it('Contains matches PNPOLY on non-convex rectilinear polygons', () => {
+        const shapes: Vector[][] = [
+            // L shape.
+            [v(0, 0), v(4, 0), v(4, 2), v(2, 2), v(2, 5), v(0, 5)],
+            // Plus shape.
+            [v(1, 0), v(2, 0), v(2, 1), v(3, 1), v(3, 2), v(2, 2),
+                v(2, 3), v(1, 3), v(1, 2), v(0, 2), v(0, 1), v(1, 1)],
+            // Comb with three teeth.
+            [v(0, 0), v(6, 0), v(6, 4), v(5, 4), v(5, 1), v(4, 1),
+                v(4, 4), v(3, 4), v(3, 1), v(2, 1), v(2, 4), v(1, 4),
+                v(1, 1), v(0, 1)],
+            // Spiral (strongly non-convex).
+            [v(0, 0), v(5, 0), v(5, 5), v(1, 5), v(1, 2), v(3, 2),
+                v(3, 3), v(2, 3), v(2, 4), v(4, 4), v(4, 1), v(0, 1)]
+        ];
+        for (const shape of shapes) {
+            const query = new PointInPolygon2(shape);
+            const reversed = new PointInPolygon2([...shape].reverse());
+            for (let x = -1.5; x <= 7.5; x += 1) {
+                for (let y = -1.5; y <= 6.5; y += 1) {
+                    const p = v(x, y);
+                    const expected = referenceInside(shape, p);
+                    expect(query.contains(p)).toBe(expected);
+                    expect(reversed.contains(p)).toBe(expected);
+                }
+            }
+        }
+    });
+
+    // Degenerate configurations documented by the port.
+    it('rejects fewer than three vertices and non-2D vertices', () => {
+        expect(() => new PointInPolygon2([v(0, 0), v(1, 0)]))
+            .toThrow('PointInPolygon2: at least 3 vertices are required.');
+        expect(() => new PointInPolygon2(
+            [v(0, 0), v(1, 0), Vector.fromArray([0, 1, 0])]))
+            .toThrow('PointInPolygon2: the vertices must be 2D.');
+    });
+
+    // Upstream returns false from ContainsQuadrilateral when the polygon does
+    // not have exactly four vertices; the return is indistinguishable from
+    // "outside". Pinned.
+    it('containsQuadrilateral returns false when the count is not four', () => {
+        const tri = new PointInPolygon2([v(0, 0), v(4, 0), v(0, 4)]);
+        expect(tri.containsQuadrilateral(v(1, 1))).toBe(false);
+        expect(tri.containsConvexOrderN(v(1, 1))).toBe(true);
     });
 });

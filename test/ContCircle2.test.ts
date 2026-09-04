@@ -5,7 +5,10 @@ import {
     mergeContainersCircle2
 } from '../src/ContCircle2.js';
 import { Hypersphere, type Circle2 } from '../src/Hypersphere.js';
-import { Vector, length, sub } from '../src/Vector.js';
+import { Vector, add, div, length, mul, sub } from '../src/Vector.js';
+import {
+    check, expectClose, fc, rotationFrame, seededRandom, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -201,5 +204,148 @@ describe('mergeContainersCircle2', () => {
     it('throws when the inputs are not 2D', () => {
         expect(() => mergeContainersCircle2(circle(0, 0, 1), new Hypersphere(3)))
             .toThrow('mergeContainersCircle2: inputs must be 2D.');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (VERIFYING.md): property-based cross-checks of the port
+// against the upstream ContCircle2.h semantics.
+// ---------------------------------------------------------------------------
+
+describe('ContCircle2 verification', () => {
+    // Upstream builds the average-center circle: C is the mean of the points
+    // and r is the largest distance from C to a point. Cross-check both
+    // against an independent computation. The mean is a sum of up to 12
+    // well-scaled terms, so the relative error is a few ulps.
+    it('center is the mean and radius the largest distance', () => {
+        check(fc.array(wellScaledVector(2), { minLength: 1, maxLength: 12 }),
+            (points: Vector[]) => {
+                const circle = getContainerCircle2(points);
+
+                let mean = new Vector(2);
+                for (const p of points) { mean = add(mean, p); }
+                mean = div(mean, points.length);
+                expectClose(circle.center.get(0), mean.get(0), 1e-12, 1e-12);
+                expectClose(circle.center.get(1), mean.get(1), 1e-12, 1e-12);
+
+                let maxDist = 0;
+                for (const p of points) {
+                    maxDist = Math.max(maxDist, length(sub(p, circle.center)));
+                }
+                expectClose(circle.radius, maxDist, 1e-12, 1e-12);
+
+                // Containment is exact: the radius is sqrt of the largest
+                // squared distance, computed the same way as inContainer.
+                for (const p of points) {
+                    expect(inContainerCircle2(p, circle)).toBe(true);
+                }
+
+                // Minimality for this center: any smaller radius excludes a
+                // point (the maximum is attained).
+                if (circle.radius > 0) {
+                    const tight = Hypersphere.fromCenterRadius(
+                        circle.center, circle.radius * (1 - 1e-12));
+                    expect(points.some(p => !inContainerCircle2(p, tight)))
+                        .toBe(true);
+                }
+            });
+    });
+
+    // inContainer is |P - C| <= r; cross-check against the squared form.
+    it('inContainer agrees with the squared-distance test', () => {
+        check(fc.tuple(wellScaledVector(2), fc.double({ min: 0.1, max: 5, noNaN: true }),
+            wellScaledVector(2, -12, 12)),
+            ([c, r, p]: [Vector, number, Vector]) => {
+                const circle = Hypersphere.fromCenterRadius(c, r);
+                const d = sub(p, c);
+                const sqrLen = d.get(0) * d.get(0) + d.get(1) * d.get(1);
+                // Away from the boundary the two forms cannot disagree.
+                if (Math.abs(Math.sqrt(sqrLen) - r) > 1e-9) {
+                    expect(inContainerCircle2(p, circle)).toBe(sqrLen < r * r);
+                }
+            });
+    });
+
+    // Rigid motions: rotating and translating the point set rotates and
+    // translates the circle and leaves the radius unchanged.
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(fc.array(wellScaledVector(2), { minLength: 1, maxLength: 10 }),
+            rotationFrame(2), wellScaledVector(2)),
+            ([points, frame, t]: [Vector[], Vector[], Vector]) => {
+                const xform = (p: Vector): Vector =>
+                    add(add(mul(p.get(0), frame[0]), mul(p.get(1), frame[1])), t);
+                const c0 = getContainerCircle2(points);
+                const c1 = getContainerCircle2(points.map(xform));
+                const expected = xform(c0.center);
+                // The rotation mixes coordinates, so a few ulps of the
+                // coordinate magnitude (<= 10) are lost.
+                expectClose(c1.center.get(0), expected.get(0), 1e-11, 1e-11);
+                expectClose(c1.center.get(1), expected.get(1), 1e-11, 1e-11);
+                expectClose(c1.radius, c0.radius, 1e-11, 1e-11);
+            });
+    });
+
+    // The merged circle contains both inputs: for each input circle,
+    // |Ci - Cm| + ri <= rm. This is exactly the design claim of the upstream
+    // algorithm, and it holds to rounding error here (unlike the ellipse
+    // merge of ContEllipse2, see upstream issue #292).
+    it('merge contains both input circles', () => {
+        const circleArb = fc.tuple(wellScaledVector(2),
+            fc.double({ min: 0, max: 5, noNaN: true }))
+            .map(([c, r]) => Hypersphere.fromCenterRadius(c, r));
+        check(fc.tuple(circleArb, circleArb),
+            ([c0, c1]: [Circle2, Circle2]) => {
+                const merge = mergeContainersCircle2(c0, c1);
+                for (const input of [c0, c1]) {
+                    const d = length(sub(input.center, merge.center));
+                    expect(d + input.radius).toBeLessThanOrEqual(
+                        merge.radius + 1e-12 + 1e-12 * merge.radius);
+                }
+                // The merge is also tight: it touches at least one input.
+                const touch = [c0, c1].some(input =>
+                    Math.abs(length(sub(input.center, merge.center))
+                        + input.radius - merge.radius) <= 1e-9);
+                expect(touch).toBe(true);
+            });
+    });
+
+    // Sampling the boundary of each input confirms the analytic containment
+    // test above with an independent construction.
+    it('merge contains sampled boundary points of both inputs', () => {
+        const rand = seededRandom(0x5eed1);
+        for (let trial = 0; trial < 200; ++trial) {
+            const mk = (): Circle2 => Hypersphere.fromCenterRadius(
+                Vector.fromArray([10 * rand() - 5, 10 * rand() - 5]),
+                4 * rand());
+            const c0 = mk(), c1 = mk();
+            const merge = mergeContainersCircle2(c0, c1);
+            for (const input of [c0, c1]) {
+                for (let k = 0; k < 16; ++k) {
+                    const a = (2 * Math.PI * k) / 16;
+                    const p = add(input.center, Vector.fromArray(
+                        [input.radius * Math.cos(a), input.radius * Math.sin(a)]));
+                    expect(length(sub(p, merge.center)))
+                        .toBeLessThanOrEqual(merge.radius + 1e-9);
+                }
+            }
+        }
+    });
+
+    // Degenerate inputs: coincident centers, and merging a circle with itself.
+    it('handles coincident centers and self-merge', () => {
+        check(fc.tuple(wellScaledVector(2), fc.double({ min: 0, max: 5, noNaN: true }),
+            fc.double({ min: 0, max: 5, noNaN: true })),
+            ([c, r0, r1]: [Vector, number, number]) => {
+                const a = Hypersphere.fromCenterRadius(c, r0);
+                const b = Hypersphere.fromCenterRadius(c, r1);
+                // rDiffSqr >= lenSqr = 0, so the larger circle is returned.
+                const merge = mergeContainersCircle2(a, b);
+                expect(merge.radius).toBe(Math.max(r0, r1));
+                expect(merge.center.get(0)).toBe(c.get(0));
+                const self = mergeContainersCircle2(a, a);
+                expect(self.radius).toBe(r0);
+                // The result never aliases an input.
+                expect(self.center).not.toBe(a.center);
+            });
     });
 });
