@@ -5,7 +5,16 @@ import { DistTriangle3CanonicalBox3 }
 import type { DistTriangle3CanonicalBox3Result }
     from '../src/DistTriangle3CanonicalBox3.js';
 import { Triangle } from '../src/Triangle.js';
+import { AlignedBox } from '../src/AlignedBox.js';
+import { DistSegment3CanonicalBox3 } from '../src/DistSegment3CanonicalBox3.js';
+import { DistTriangle3AlignedBox3 } from '../src/DistTriangle3AlignedBox3.js';
+import { Segment } from '../src/Segment.js';
 import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, latticeVector,
+    seededRandom
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -127,5 +136,127 @@ describe('DistTriangle3CanonicalBox3', () => {
             expect(sampled - result.distance).toBeLessThan(0.35);
             expectConsistent(t, box, result);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (see VERIFYING.md): property-based cross-checks of the
+// port against upstream DistTriangle3CanonicalBox3.h.
+// ---------------------------------------------------------------------------
+
+describe('DistTriangle3CanonicalBox3 verification', () => {
+    const query = new DistTriangle3CanonicalBox3();
+    const abQuery = new DistTriangle3AlignedBox3();
+    const sbQuery = new DistSegment3CanonicalBox3();
+
+    const boxArb = fc.array(finite(0.05, 4), { minLength: 3, maxLength: 3 })
+        .map(e => CanonicalBox.fromExtent(v(e[0], e[1], e[2])));
+
+    // Lattice vertices keep the triangle normal well conditioned; the area
+    // filter rejects the needle triangles whose Normalize(K) underflows.
+    const triArb = fc.tuple(latticeVector(3, -6, 6), latticeVector(3, -6, 6),
+        latticeVector(3, -6, 6))
+        .filter(([a, b, c]) => {
+            const n = cross(sub(b, a), sub(c, a));
+            return dot(n, n) > 4;
+        })
+        .map(([a, b, c]) => Triangle.fromVertices(a, b, c));
+
+    it('reports consistent distances and on-primitive closest points', () => {
+        check(fc.tuple(triArb, boxArb), ([t, box]) => {
+            const res = query.compute(t, box);
+            expectClose(res.sqrDistance, res.distance * res.distance,
+                1e-12, 1e-12);
+            const d = sub(res.closest[0], res.closest[1]);
+            expectClose(Math.sqrt(dot(d, d)), res.distance, 1e-8, 1e-8);
+
+            const b = res.barycentric;
+            expectClose(b[0] + b[1] + b[2], 1, 1e-9, 1e-9);
+            let rebuilt = new Vector(3);
+            for (let i = 0; i < 3; ++i) {
+                expect(b[i]).toBeGreaterThanOrEqual(-1e-8);
+                rebuilt = add(rebuilt, mul(b[i], t.v[i]));
+            }
+            expectVectorClose(rebuilt, res.closest[0], 1e-7, 1e-7);
+
+            for (let i = 0; i < 3; ++i) {
+                expect(Math.abs(res.closest[1].values[i]))
+                    .toBeLessThanOrEqual(box.extent.values[i] + 1e-8);
+            }
+        });
+    });
+
+    it('agrees with the exact point-box distance at closest[0]', () => {
+        check(fc.tuple(triArb, boxArb), ([t, box]) => {
+            const res = query.compute(t, box);
+            expectClose(res.distance, pointBoxDistance(res.closest[0], box),
+                1e-7, 1e-7);
+        });
+    });
+
+    // When the closest plane point is outside the triangle, the upstream
+    // fall-back is the minimum over the three edges; the reported distance
+    // must then equal that minimum. When the plane point is inside, the
+    // distance can only be smaller.
+    it('never exceeds the minimum over the three edges', () => {
+        check(fc.tuple(triArb, boxArb), ([t, box]) => {
+            let best = Number.MAX_VALUE;
+            for (let i = 0; i < 3; ++i) {
+                const s = Segment.fromEndpoints(t.v[i], t.v[(i + 1) % 3]);
+                best = Math.min(best, sbQuery.compute(s, box).sqrDistance);
+            }
+            const res = query.compute(t, box);
+            expect(res.sqrDistance).toBeLessThanOrEqual(best + 1e-9);
+        });
+    });
+
+    it('never exceeds a barycentric sampling of the triangle', () => {
+        const rng = seededRandom(0x0badf00d);
+        const box = CanonicalBox.fromExtent(v(1, 2, 0.5));
+        for (let k = 0; k < 40; ++k) {
+            const p = () => v(10 * rng() - 5, 10 * rng() - 5, 10 * rng() - 5);
+            const t = Triangle.fromVertices(p(), p(), p());
+            const res = query.compute(t, box);
+            expect(res.distance)
+                .toBeLessThanOrEqual(sampledDistance(t, box, 30) + 1e-9);
+        }
+    }, 30000);
+
+    it('agrees with the aligned-box query for an origin-centered box', () => {
+        check(fc.tuple(triArb, boxArb), ([t, box]) => {
+            const e = box.extent;
+            const ab = AlignedBox.fromMinMax(
+                v(-e.values[0], -e.values[1], -e.values[2]),
+                v(e.values[0], e.values[1], e.values[2]));
+            const r0 = query.compute(t, box);
+            const r1 = abQuery.compute(t, ab);
+            expectClose(r0.distance, r1.distance, 1e-12, 1e-12);
+            expectVectorClose(r0.closest[0], r1.closest[0], 1e-12, 1e-12);
+            expectVectorClose(r0.closest[1], r1.closest[1], 1e-12, 1e-12);
+        });
+    });
+
+    it('reports zero when a vertex is inside the box', () => {
+        check(fc.tuple(triArb, boxArb), ([t, box]) => {
+            // Translate the triangle so that vertex 0 lands at the origin,
+            // which is inside every canonical box.
+            const shift = Triangle.fromVertices(sub(t.v[0], t.v[0]),
+                sub(t.v[1], t.v[0]), sub(t.v[2], t.v[0]));
+            const res = query.compute(shift, box);
+            expect(res.distance).toBe(0);
+            expect(res.sqrDistance).toBe(0);
+        });
+    });
+
+    it('is invariant under a permutation of the triangle vertices', () => {
+        check(fc.tuple(triArb, boxArb), ([t, box]) => {
+            const r0 = query.compute(t, box);
+            const r1 = query.compute(
+                Triangle.fromVertices(t.v[1], t.v[2], t.v[0]), box);
+            const r2 = query.compute(
+                Triangle.fromVertices(t.v[1], t.v[0], t.v[2]), box);
+            expectClose(r0.distance, r1.distance, 1e-8, 1e-8);
+            expectClose(r0.distance, r2.distance, 1e-8, 1e-8);
+        });
     });
 });

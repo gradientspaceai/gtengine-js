@@ -3,7 +3,14 @@ import { DistPoint3Tetrahedron3 } from '../src/DistPoint3Tetrahedron3.js';
 import type { DistPoint3Tetrahedron3Result }
     from '../src/DistPoint3Tetrahedron3.js';
 import { Tetrahedron3 } from '../src/Tetrahedron3.js';
+import { DistPointTriangle } from '../src/DistPointTriangle.js';
+import { Triangle } from '../src/Triangle.js';
 import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { computeBarycentrics3, cross } from '../src/Vector3.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, latticeVector,
+    rotationFrame, seededRandom, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -152,5 +159,127 @@ describe('DistPoint3Tetrahedron3', () => {
             expect(sampled - result.distance).toBeLessThan(0.25);
             expectConsistent(p, t, result);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (see VERIFYING.md): property-based cross-checks of the
+// port against upstream DistPoint3Tetrahedron3.h.
+// ---------------------------------------------------------------------------
+
+describe('DistPoint3Tetrahedron3 verification', () => {
+    const query = new DistPoint3Tetrahedron3();
+    const ptQuery = new DistPointTriangle();
+
+    // Lattice vertices keep the tetrahedron well conditioned; the volume
+    // filter rejects the near-degenerate draws whose face normals (built by
+    // UnitCross in Tetrahedron3.getPlanes) would lose all precision.
+    const tetraArb = fc.tuple(latticeVector(3, -5, 5), latticeVector(3, -5, 5),
+        latticeVector(3, -5, 5), latticeVector(3, -5, 5))
+        .filter(([a, b, c, d]) =>
+            Math.abs(dot(sub(b, a), cross(sub(c, a), sub(d, a)))) > 2)
+        .map(([a, b, c, d]) => Tetrahedron3.fromVertices(a, b, c, d));
+
+    const pointArb = wellScaledVector(3, -8, 8);
+
+    // The exact squared distance to the solid tetrahedron, computed
+    // independently: zero when the point is inside, otherwise the minimum
+    // over the four triangular faces.
+    function referenceSqrDistance(p: Vector, t: Tetrahedron3): number {
+        const bary = computeBarycentrics3(p, t.v[0], t.v[1], t.v[2], t.v[3]);
+        if (bary.valid && bary.bary.every(b => b >= 0)) {
+            return 0;
+        }
+        let best = Number.MAX_VALUE;
+        for (let f = 0; f < 4; ++f) {
+            const idx = Tetrahedron3.getFaceIndices(f);
+            const tri = Triangle.fromVertices(t.v[idx[0]], t.v[idx[1]],
+                t.v[idx[2]]);
+            best = Math.min(best, ptQuery.compute(p, tri).sqrDistance);
+        }
+        return best;
+    }
+
+    it('reports consistent distances and barycentric closest points', () => {
+        check(fc.tuple(pointArb, tetraArb), ([p, t]) => {
+            const r = query.compute(p, t);
+            expect(r.closest[0].equals(p)).toBe(true);
+            expectClose(r.sqrDistance, r.distance * r.distance, 1e-12, 1e-12);
+            const d = sub(r.closest[0], r.closest[1]);
+            expectClose(Math.sqrt(dot(d, d)), r.distance, 1e-9, 1e-9);
+
+            let sum = 0;
+            let rebuilt = new Vector(3);
+            for (let i = 0; i < 4; ++i) {
+                expect(r.barycentric[i]).toBeGreaterThanOrEqual(-1e-9);
+                sum += r.barycentric[i];
+                rebuilt = add(rebuilt, mul(r.barycentric[i], t.v[i]));
+            }
+            expectClose(sum, 1, 1e-9, 1e-9);
+            expectVectorClose(rebuilt, r.closest[1], 1e-8, 1e-8);
+        });
+    });
+
+    it('matches the face-minimum reference distance', () => {
+        check(fc.tuple(pointArb, tetraArb), ([p, t]) => {
+            const r = query.compute(p, t);
+            expectClose(r.sqrDistance, referenceSqrDistance(p, t),
+                1e-9, 1e-9);
+        });
+    });
+
+    it('reports zero for points inside the tetrahedron', () => {
+        check(fc.tuple(tetraArb, fc.array(finite(0.05, 1),
+            { minLength: 4, maxLength: 4 })), ([t, w]) => {
+                const s = w[0] + w[1] + w[2] + w[3];
+                let p = new Vector(3);
+                for (let i = 0; i < 4; ++i) {
+                    p = add(p, mul(w[i] / s, t.v[i]));
+                }
+                const r = query.compute(p, t);
+                expect(r.distance).toBe(0);
+                expect(r.sqrDistance).toBe(0);
+                expectVectorClose(r.closest[1], p, 1e-12, 1e-12);
+            });
+    });
+
+    it('never exceeds a barycentric sampling of the solid', () => {
+        // Deterministic sampling loop; the timeout covers the cost under a
+        // loaded machine.
+        const rng = seededRandom(0x5eed1234);
+        const t = tetra([0, 0, 0], [3, 0, 0], [0, 4, 0], [0, 0, 5]);
+        for (let k = 0; k < 60; ++k) {
+            const p = v(12 * rng() - 6, 12 * rng() - 6, 12 * rng() - 6);
+            const r = query.compute(p, t);
+            expect(r.sqrDistance)
+                .toBeLessThanOrEqual(sampledSqrDistance(p, t, 12) + 1e-9);
+        }
+    }, 30000);
+
+    it('is equivariant under a rigid motion', () => {
+        check(fc.tuple(pointArb, tetraArb, rotationFrame(3),
+            wellScaledVector(3, -5, 5)), ([p, t, R, tr]) => {
+                const xf = (q: Vector) => add(add(add(
+                    mul(q.values[0], R[0]), mul(q.values[1], R[1])),
+                    mul(q.values[2], R[2])), tr);
+                const r0 = query.compute(p, t);
+                const r1 = query.compute(xf(p), Tetrahedron3.fromVertices(
+                    xf(t.v[0]), xf(t.v[1]), xf(t.v[2]), xf(t.v[3])));
+                expectClose(r0.distance, r1.distance, 1e-8, 1e-8);
+                expectVectorClose(xf(r0.closest[1]), r1.closest[1],
+                    1e-7, 1e-7);
+            });
+    });
+
+    it('is unaffected by the winding of the input vertices', () => {
+        // Tetrahedron3.getPlanes flips inner-pointing normals, so swapping
+        // two vertices must not change the result.
+        check(fc.tuple(pointArb, tetraArb), ([p, t]) => {
+            const r0 = query.compute(p, t);
+            const r1 = query.compute(p, Tetrahedron3.fromVertices(
+                t.v[1], t.v[0], t.v[2], t.v[3]));
+            expectClose(r0.distance, r1.distance, 1e-9, 1e-9);
+            expectVectorClose(r0.closest[1], r1.closest[1], 1e-8, 1e-8);
+        });
     });
 });

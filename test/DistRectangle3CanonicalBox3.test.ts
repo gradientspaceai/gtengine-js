@@ -5,7 +5,13 @@ import { DistRectangle3CanonicalBox3 }
 import type { DistRectangle3CanonicalBox3Result }
     from '../src/DistRectangle3CanonicalBox3.js';
 import { Rectangle } from '../src/Rectangle.js';
+import { AlignedBox } from '../src/AlignedBox.js';
+import { DistRectangle3AlignedBox3 } from '../src/DistRectangle3AlignedBox3.js';
 import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, rotationFrame,
+    seededRandom, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -147,4 +153,121 @@ describe('DistRectangle3CanonicalBox3', () => {
             expectConsistent(r, box, result);
         }
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (see VERIFYING.md): property-based cross-checks of the
+// port against upstream DistRectangle3CanonicalBox3.h.
+// ---------------------------------------------------------------------------
+
+describe('DistRectangle3CanonicalBox3 verification', () => {
+    const query = new DistRectangle3CanonicalBox3();
+    const abQuery = new DistRectangle3AlignedBox3();
+
+    const boxArb = fc.array(finite(0.05, 4), { minLength: 3, maxLength: 3 })
+        .map(e => CanonicalBox.fromExtent(v(e[0], e[1], e[2])));
+
+    const rectArb = fc.tuple(wellScaledVector(3, -6, 6), rotationFrame(3),
+        fc.array(finite(0.05, 4), { minLength: 2, maxLength: 2 }))
+        .map(([c, R, e]) =>
+            Rectangle.fromCenterAxisExtent(c, [R[0], R[1]], v(e[0], e[1])));
+
+    it('reports consistent distances and on-primitive closest points', () => {
+        check(fc.tuple(rectArb, boxArb), ([r, box]) => {
+            const res = query.compute(r, box);
+            expectClose(res.sqrDistance, res.distance * res.distance,
+                1e-12, 1e-12);
+            const d = sub(res.closest[0], res.closest[1]);
+            expectClose(Math.sqrt(dot(d, d)), res.distance, 1e-8, 1e-8);
+
+            // The W-coordinates are in range and reproduce closest[0].
+            let rebuilt = r.center.clone();
+            for (let i = 0; i < 2; ++i) {
+                expect(Math.abs(res.cartesian[i]))
+                    .toBeLessThanOrEqual(r.extent.values[i] + 1e-8);
+                rebuilt = add(rebuilt, mul(res.cartesian[i], r.axis[i]));
+            }
+            expectVectorClose(rebuilt, res.closest[0], 1e-7, 1e-7);
+
+            // closest[1] is in the box.
+            for (let i = 0; i < 3; ++i) {
+                expect(Math.abs(res.closest[1].values[i]))
+                    .toBeLessThanOrEqual(box.extent.values[i] + 1e-8);
+            }
+        });
+    });
+
+    // The distance from the rectangle to the box equals the distance from
+    // closest[0] to the box (an exact, independent computation), which
+    // catches any mismatch between the reported distance and the reported
+    // closest points.
+    it('agrees with the exact point-box distance at closest[0]', () => {
+        check(fc.tuple(rectArb, boxArb), ([r, box]) => {
+            const res = query.compute(r, box);
+            expectClose(res.distance, pointBoxDistance(res.closest[0], box),
+                1e-7, 1e-7);
+        });
+    });
+
+    it('never exceeds a grid sampling of the rectangle', () => {
+        const rng = seededRandom(0x2468ace0);
+        const box = CanonicalBox.fromExtent(v(1, 2, 0.5));
+        for (let k = 0; k < 40; ++k) {
+            const a = 2 * Math.PI * rng(), b = 2 * Math.PI * rng();
+            const r = Rectangle.fromCenterAxisExtent(
+                v(8 * rng() - 4, 8 * rng() - 4, 8 * rng() - 4),
+                [frame(a, b)[0], frame(a, b)[1]],
+                v(0.5 + 2 * rng(), 0.5 + 2 * rng()));
+            const res = query.compute(r, box);
+            expect(res.distance)
+                .toBeLessThanOrEqual(sampledDistance(r, box, 24) + 1e-9);
+        }
+    }, 30000);
+
+    // DistRectangle3AlignedBox3 is "translate, run this query, translate
+    // back", so the two must agree for a box centered at the origin.
+    it('agrees with the aligned-box query for an origin-centered box', () => {
+        check(fc.tuple(rectArb, boxArb), ([r, box]) => {
+            const e = box.extent;
+            const ab = AlignedBox.fromMinMax(
+                v(-e.values[0], -e.values[1], -e.values[2]),
+                v(e.values[0], e.values[1], e.values[2]));
+            const r0 = query.compute(r, box);
+            const r1 = abQuery.compute(r, ab);
+            expectClose(r0.distance, r1.distance, 1e-12, 1e-12);
+            expectVectorClose(r0.closest[0], r1.closest[0], 1e-12, 1e-12);
+            expectVectorClose(r0.closest[1], r1.closest[1], 1e-12, 1e-12);
+        });
+    });
+
+    it('maps the cartesian coordinates of the four edges correctly', () => {
+        // A rectangle far away and parallel to the xy-plane, positioned so
+        // the closest point is a specific corner. This pins down the
+        // sign/j0/j1 tables used by the edge branch.
+        const axes = [v(1, 0, 0), v(0, 1, 0)];
+        const box = CanonicalBox.fromExtent(v(1, 1, 1));
+        for (const [cx, cy, sx, sy] of [[10, 10, 1, 1], [-10, 10, -1, 1],
+            [10, -10, 1, -1], [-10, -10, -1, -1]]) {
+            const r = Rectangle.fromCenterAxisExtent(v(cx, cy, 5), axes,
+                v(2, 3));
+            const res = query.compute(r, box);
+            expect(res.cartesian[0]).toBeCloseTo(-sx * 2, 9);
+            expect(res.cartesian[1]).toBeCloseTo(-sy * 3, 9);
+            expectVectorClose(res.closest[0],
+                v(cx - sx * 2, cy - sy * 3, 5), 1e-9, 1e-9);
+        }
+    });
+
+    it('degenerates to the point-box distance for a zero-extent rectangle',
+        () => {
+            check(fc.tuple(wellScaledVector(3, -6, 6), rotationFrame(3),
+                boxArb), ([c, R, box]) => {
+                    const r = Rectangle.fromCenterAxisExtent(c, [R[0], R[1]],
+                        v(0, 0));
+                    const res = query.compute(r, box);
+                    expectClose(res.distance, pointBoxDistance(c, box),
+                        1e-8, 1e-8);
+                    expectVectorClose(res.closest[0], c, 1e-9, 1e-9);
+                });
+        });
 });
