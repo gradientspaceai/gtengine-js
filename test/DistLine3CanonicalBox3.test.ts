@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { CanonicalBox } from '../src/CanonicalBox.js';
 import { DistLine3CanonicalBox3 } from '../src/DistLine3CanonicalBox3.js';
 import { Line } from '../src/Line.js';
-import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import { AlignedBox } from '../src/AlignedBox.js';
+import { DistLine2AlignedBox2 } from '../src/DistLine2AlignedBox2.js';
+import { DistPointCanonicalBox } from '../src/DistPointCanonicalBox.js';
+import { check, expectClose, expectVectorClose, fc, positive, rotationFrame, seededRandom, wellScaled, wellScaledVector } from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -162,5 +166,185 @@ describe('DistLine3CanonicalBox3', () => {
                 expect(dot(diff, diff)).toBeCloseTo(result.sqrDistance, 6);
             }
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V19): property-based cross-checks of
+// DistLine3CanonicalBox3.ts against the upstream header
+// DistLine3CanonicalBox3.h.
+// ---------------------------------------------------------------------------
+
+function rot3(R: readonly Vector[], p: Vector): Vector {
+    let q = mul(p.values[0], R[0]);
+    for (let i = 1; i < 3; ++i) {
+        q = add(q, mul(p.values[i], R[i]));
+    }
+    return q;
+}
+
+/** Squared distance from a point to the solid canonical box, by clamping. */
+function pointCanonicalSqrDistance(p: Vector, extent: Vector): number {
+    let sum = 0;
+    for (let i = 0; i < p.size; ++i) {
+        const over = Math.abs(p.values[i]) - extent.values[i];
+        if (over > 0) { sum += over * over; }
+    }
+    return sum;
+}
+
+/**
+ * The exact line-box distance, computed independently of the query under
+ * test. The function t -> distance(P + t*D, box) is convex (a norm distance
+ * to a convex set composed with an affine map), so a ternary search on a
+ * bracket containing the minimizer converges to the global minimum. The
+ * bracket is |t - t_c| <= (h + R)/|D| around the foot t_c of the
+ * perpendicular from the box center, with h the perpendicular distance and R
+ * the radius of a ball about the center containing the box; outside it the
+ * distance already exceeds the value at t_c.
+ */
+function referenceLineCanonicalDistance(line: Line, extent: Vector): number {
+    const radius = length(extent);
+    const dd = dot(line.direction, line.direction);
+    const tc = -dot(line.direction, line.origin) / dd;
+    const h = length(add(line.origin, mul(tc, line.direction)));
+    const half = (h + radius) / Math.sqrt(dd);
+    let lo = tc - half - 1;
+    let hi = tc + half + 1;
+    const f = (t: number): number => pointCanonicalSqrDistance(
+        add(line.origin, mul(t, line.direction)), extent);
+    for (let k = 0; k < 200; ++k) {
+        const m0 = lo + (hi - lo) / 3;
+        const m1 = hi - (hi - lo) / 3;
+        if (f(m0) <= f(m1)) { hi = m1; }
+        else { lo = m0; }
+    }
+    return Math.sqrt(Math.min(f(lo), f(hi), f(0.5 * (lo + hi))));
+}
+
+const nonUnitLine3 = fc.tuple(wellScaledVector(3, -8, 8),
+    wellScaledVector(3, -3, 3))
+    .filter(([, d]) => length(d) > 0.25)
+    .map(([o, d]) => Line.fromOriginDirection(o, d));
+
+const canonicalBox3 = fc.array(positive(5), { minLength: 3, maxLength: 3 })
+    .map(e => CanonicalBox.fromExtent(Vector.fromArray(e)));
+
+describe('DistLine3CanonicalBox3 verification', () => {
+    const query = new DistLine3CanonicalBox3();
+
+    it('result is self consistent and the points lie on their primitives',
+        () => {
+            check(fc.tuple(nonUnitLine3, canonicalBox3), ([line, cbox]) => {
+                const r = query.compute(line, cbox);
+                expectClose(r.distance, Math.sqrt(r.sqrDistance), 1e-12,
+                    1e-12);
+                const diff = sub(r.closest[0], r.closest[1]);
+                expectClose(r.sqrDistance, dot(diff, diff), 1e-7, 1e-7);
+                expectVectorClose(r.closest[0],
+                    add(line.origin, mul(r.parameter, line.direction)), 1e-9,
+                    1e-9);
+                for (let i = 0; i < 3; ++i) {
+                    expect(Math.abs(r.closest[1].values[i]))
+                        .toBeLessThanOrEqual(cbox.extent.values[i] + 1e-9);
+                }
+            });
+        });
+
+    it('matches an independent convex minimization along the line', () => {
+        check(fc.tuple(nonUnitLine3, canonicalBox3), ([line, cbox]) => {
+            expectClose(query.compute(line, cbox).distance,
+                referenceLineCanonicalDistance(line, cbox.extent), 1e-7, 1e-7);
+        });
+    });
+
+    it('does not mutate its inputs', () => {
+        check(fc.tuple(nonUnitLine3, canonicalBox3), ([line, cbox]) => {
+            const o = line.origin.clone();
+            const d = line.direction.clone();
+            const e = cbox.extent.clone();
+            query.compute(line, cbox);
+            expectVectorClose(line.origin, o, 0, 0);
+            expectVectorClose(line.direction, d, 0, 0);
+            expectVectorClose(cbox.extent, e, 0, 0);
+        });
+    });
+
+    it('is equivariant under the reflections the query applies internally',
+        () => {
+            check(fc.tuple(nonUnitLine3, canonicalBox3,
+                fc.array(fc.boolean(), { minLength: 3, maxLength: 3 })),
+            ([line, cbox, flip]) => {
+                const refl = (p: Vector): Vector => Vector.fromArray(
+                    [0, 1, 2].map(i =>
+                        flip[i] ? -p.values[i] : p.values[i]));
+                const movedLine = Line.fromOriginDirection(refl(line.origin),
+                    refl(line.direction));
+                expectClose(query.compute(line, cbox).distance,
+                    query.compute(movedLine, cbox).distance, 0, 0);
+            });
+        });
+
+    it('agrees with the 2D line-box query on a flat embedding', () => {
+        // A line in the z = 0 plane sees the canonical box exactly as the 2D
+        // aligned box [-e0,e0] x [-e1,e1] (z = 0 is interior to [-e2,e2]).
+        check(fc.tuple(wellScaledVector(2, -8, 8), wellScaledVector(2, -3, 3)
+            .filter(d => length(d) > 0.25), canonicalBox3),
+        ([o2, d2, cbox]) => {
+            const line3 = Line.fromOriginDirection(
+                Vector.fromArray([o2.values[0], o2.values[1], 0]),
+                Vector.fromArray([d2.values[0], d2.values[1], 0]));
+            const box2 = AlignedBox.fromMinMax(
+                Vector.fromArray([-cbox.extent.values[0],
+                    -cbox.extent.values[1]]),
+                Vector.fromArray([cbox.extent.values[0],
+                    cbox.extent.values[1]]));
+            const r3 = query.compute(line3, cbox);
+            const r2 = new DistLine2AlignedBox2().compute(
+                Line.fromOriginDirection(o2, d2), box2);
+            expectClose(r3.distance, r2.distance, 1e-8, 1e-8);
+        });
+    });
+
+    it('reduces to a point-box distance for a zero direction', () => {
+        check(fc.tuple(wellScaledVector(3, -8, 8), canonicalBox3),
+            ([p, cbox]) => {
+                const r = query.compute(
+                    Line.fromOriginDirection(p, new Vector(3)), cbox);
+                expect(r.parameter).toBe(0);
+                expectClose(r.sqrDistance,
+                    pointCanonicalSqrDistance(p, cbox.extent), 1e-12, 1e-12);
+                const pcb = new DistPointCanonicalBox().compute(p, cbox);
+                expectClose(r.distance, pcb.distance, 1e-12, 1e-12);
+                expectVectorClose(r.closest[1], pcb.closest[1], 1e-12, 1e-12);
+            });
+    });
+
+    it('reports zero distance when the line meets the box', () => {
+        check(fc.tuple(canonicalBox3, wellScaledVector(3, -1, 1),
+            rotationFrame(3), wellScaled(-5, 5)), ([cbox, frac, R, t]) => {
+            const q = Vector.fromArray([0, 1, 2].map(i =>
+                frac.values[i] * cbox.extent.values[i]));
+            const line = Line.fromOriginDirection(add(q, mul(t, R[0])), R[0]);
+            expect(query.compute(line, cbox).distance)
+                .toBeLessThanOrEqual(1e-9);
+        });
+    });
+
+    it('is minimal over sampled line/box point pairs', () => {
+        const rand = seededRandom(0x51e2);
+        check(fc.tuple(nonUnitLine3, canonicalBox3), ([line, cbox]) => {
+            const r = query.compute(line, cbox);
+            const q = new Vector(3);
+            for (let k = 0; k < 24; ++k) {
+                const t = 40 * (rand() - 0.5);
+                for (let i = 0; i < 3; ++i) {
+                    q.values[i] = cbox.extent.values[i] * (2 * rand() - 1);
+                }
+                const gap = length(
+                    sub(add(line.origin, mul(t, line.direction)), q));
+                expect(r.distance).toBeLessThanOrEqual(gap + 1e-9 * (1 + gap));
+            }
+        }, 60);
     });
 });

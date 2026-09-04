@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { DistLine2Circle2 } from '../src/DistLine2Circle2.js';
 import { Hypersphere } from '../src/Hypersphere.js';
 import { Line } from '../src/Line.js';
-import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import { DistPointLine } from '../src/DistPointLine.js';
+import { check, expectClose, expectVectorClose, fc, positive, rotationFrame, seededRandom, wellScaledVector } from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -117,5 +119,157 @@ describe('DistLine2Circle2', () => {
             expect(result.distance).toBeCloseTo(
                 Math.sqrt(result.sqrDistance), 10);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V19): property-based cross-checks of DistLine2Circle2.ts
+// against the upstream header DistLine2Circle2.h.
+// ---------------------------------------------------------------------------
+
+function rot2(R: readonly Vector[], p: Vector): Vector {
+    return add(mul(p.values[0], R[0]), mul(p.values[1], R[1]));
+}
+
+// A 2D line with a well-scaled, deliberately non-unit direction.
+const nonUnitLine2 = fc.tuple(wellScaledVector(2, -8, 8),
+    wellScaledVector(2, -3, 3))
+    .filter(([, d]) => length(d) > 0.25)
+    .map(([o, d]) => Line.fromOriginDirection(o, d));
+
+const circle2 = fc.tuple(wellScaledVector(2, -8, 8), positive(6))
+    .map(([c, r]) => Hypersphere.fromCenterRadius(c, r));
+
+describe('DistLine2Circle2 verification', () => {
+    const query = new DistLine2Circle2();
+    const pointLine = new DistPointLine();
+
+    it('result is self consistent and the points lie on their primitives',
+        () => {
+            check(fc.tuple(nonUnitLine2, circle2), ([line, circle]) => {
+                const r = query.compute(line, circle);
+                expect(r.numClosestPairs === 1 || r.numClosestPairs === 2)
+                    .toBe(true);
+                expectClose(r.distance, Math.sqrt(r.sqrDistance), 1e-12,
+                    1e-12);
+                const diff = sub(r.closest[0][0], r.closest[0][1]);
+                expectClose(r.sqrDistance, dot(diff, diff), 1e-12, 1e-12);
+                for (let j = 0; j < r.numClosestPairs; ++j) {
+                    // closest[j][0] is on the line at parameter[j].
+                    expectVectorClose(r.closest[j][0],
+                        add(line.origin, mul(r.parameter[j], line.direction)),
+                        1e-9, 1e-9);
+                    // closest[j][1] is on the circle.
+                    expectClose(length(sub(r.closest[j][1], circle.center)),
+                        circle.radius, 1e-7, 1e-7);
+                }
+            });
+        });
+
+    it('matches | distance(center, line) - radius | when they do not meet',
+        () => {
+            check(fc.tuple(nonUnitLine2, circle2), ([line, circle]) => {
+                const r = query.compute(line, circle);
+                const h = pointLine.compute(circle.center, line).distance;
+                if (r.numClosestPairs === 1) {
+                    expectClose(r.distance, Math.abs(h - circle.radius), 1e-7,
+                        1e-7);
+                    // The single closest line point is the projection of the
+                    // circle center onto the line.
+                    expectClose(r.parameter[0],
+                        pointLine.compute(circle.center, line).parameter, 1e-9,
+                        1e-9);
+                }
+                else {
+                    expect(r.distance).toBe(0);
+                    expect(h).toBeLessThanOrEqual(
+                        circle.radius * (1 + 1e-9) + 1e-9);
+                }
+            });
+        });
+
+    it('returns two intersection points in increasing parameter order', () => {
+        check(fc.tuple(nonUnitLine2, circle2)
+            .filter(([line, circle]) =>
+                pointLine.compute(circle.center, line).distance
+                < 0.9 * circle.radius),
+        ([line, circle]) => {
+            const r = query.compute(line, circle);
+            expect(r.numClosestPairs).toBe(2);
+            expect(r.parameter[0]).toBeLessThanOrEqual(r.parameter[1]);
+            for (let j = 0; j < 2; ++j) {
+                // Each point is on the line and on the circle.
+                expectVectorClose(r.closest[j][0], r.closest[j][1], 0, 0);
+                expectClose(length(sub(r.closest[j][0], circle.center)),
+                    circle.radius, 1e-7, 1e-7);
+            }
+        });
+    });
+
+    it('is minimal over sampled line/circle point pairs', () => {
+        const rand = seededRandom(0x51e1);
+        check(fc.tuple(nonUnitLine2, circle2), ([line, circle]) => {
+            const r = query.compute(line, circle);
+            for (let k = 0; k < 24; ++k) {
+                const t = 40 * (rand() - 0.5);
+                const a = 2 * Math.PI * rand();
+                const p = add(line.origin, mul(t, line.direction));
+                const q = add(circle.center, Vector.fromArray(
+                    [circle.radius * Math.cos(a),
+                        circle.radius * Math.sin(a)]));
+                const gap = length(sub(p, q));
+                expect(r.distance).toBeLessThanOrEqual(gap + 1e-9 * (1 + gap));
+            }
+        }, 60);
+    });
+
+    it('is equivariant under rigid motions of the plane', () => {
+        check(fc.tuple(nonUnitLine2, circle2, rotationFrame(2),
+            wellScaledVector(2, -5, 5)), ([line, circle, R, tr]) => {
+            const movedLine = Line.fromOriginDirection(
+                add(rot2(R, line.origin), tr), rot2(R, line.direction));
+            const movedCircle = Hypersphere.fromCenterRadius(
+                add(rot2(R, circle.center), tr), circle.radius);
+            const r0 = query.compute(line, circle);
+            const r1 = query.compute(movedLine, movedCircle);
+            expectClose(r0.distance, r1.distance, 1e-8, 1e-8);
+            expect(r1.numClosestPairs).toBe(r0.numClosestPairs);
+        });
+    });
+
+    it('reports a single tangency point for a tangent line', () => {
+        // The tangency test is exact only when DotPerp(D,delta)^2 and
+        // r^2*Dot(D,D) round identically, so the tangent line is built
+        // axis-aligned: delta = (+-r, 0) or (0, +-r) with D the other axis
+        // gives DotPerp(D,delta)^2 = r^2 and Dot(D,D) = 1 exactly. A rotated
+        // frame would leave Dot(D,D) one ulp off 1 and report two nearly
+        // coincident intersections instead.
+        // The center and radius are integers so that C + r*N and the
+        // subtraction (C + r*N) - C are both exact; with generic doubles the
+        // cancellation leaves delta one ulp off r*N.
+        check(fc.tuple(fc.integer({ min: -8, max: 8 }),
+            fc.integer({ min: -8, max: 8 }), fc.integer({ min: 1, max: 6 }),
+            fc.integer({ min: 0, max: 3 })),
+        ([cx, cy, radius, which]) => {
+            const circle = Hypersphere.fromCenterRadius(v(cx, cy), radius);
+            {
+                const sign = which < 2 ? 1 : -1;
+                const N = which % 2 === 0
+                    ? Vector.fromArray([sign, 0])
+                    : Vector.fromArray([0, sign]);
+                const D = which % 2 === 0
+                    ? Vector.fromArray([0, 1])
+                    : Vector.fromArray([1, 0]);
+                const origin = add(circle.center, mul(circle.radius, N));
+                const r = query.compute(Line.fromOriginDirection(origin, D),
+                    circle);
+                expect(r.numClosestPairs).toBe(1);
+                expect(r.distance).toBe(0);
+                // At tangency upstream sets closest[0][1] = closest[0][0].
+                expectVectorClose(r.closest[0][0], r.closest[0][1], 0, 0);
+                expectClose(length(sub(r.closest[0][0], circle.center)),
+                    circle.radius, 1e-9, 1e-9);
+            }
+        });
     });
 });
