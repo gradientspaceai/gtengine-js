@@ -219,26 +219,19 @@ export class Delaunay2 {
             return false;
         }
 
-        if (info.dimension === 1) {
-            // The vertices are collinear.
-            this.mDimension = 1;
-            this.mLine.origin = info.origin.clone();
-            this.mLine.direction = info.direction[0].clone();
-            return false;
-        }
-
-        // The vertices necessarily will have a triangulation.
-        this.mDimension = 2;
-
-        // Convert the floating-point inputs to rational type.
+        // Convert the floating-point inputs to rational type. Upstream does
+        // this only after it has decided the intrinsic dimension is 2; the
+        // port needs the rational vertices earlier, for the exact
+        // classification below.
         this.mIRVertices = new Array<RationalPoint2>(this.mNumVertices);
         for (let i = 0; i < this.mNumVertices; ++i) {
             const v = vertices[i].values;
             this.mIRVertices[i] = [BSNumber.fromNumber(v[0]), BSNumber.fromNumber(v[1])];
         }
 
-        // Select the seed triangle from the extreme vertices found by the
-        // intrinsics computation.
+        // Classify the intrinsic dimension exactly and select the seed
+        // triangle from the extreme vertices found by the intrinsics
+        // computation.
         //
         // Upstream bug (fixed in the port): IntrinsicsVector2 determines the
         // intrinsic dimension in floating-point arithmetic and Delaunay2<T>
@@ -257,10 +250,15 @@ export class Delaunay2 {
         // question: keep upstream's extreme[2] when the seed triangle really
         // is nondegenerate; otherwise look for a vertex that is exactly off
         // the line through the first two extremes; and if there is no such
-        // vertex the input is exactly collinear, which is dimension 1. The
+        // vertex the input is exactly collinear, which is dimension 1 with
+        // the line upstream's dimension-1 branch would have reported. The
         // exact sign also replaces info.extremeCCW, which is the same
         // roundoff-prone quantity, so the seed triangle is counterclockwise
         // as the circumcircle-visibility algorithm requires.
+        //
+        // The dimension-0 case above needs no such check: with epsilon = 0
+        // its test is 'maxRange == 0', which holds exactly when the bounding
+        // box of the input is a single point.
         const e0 = info.extreme[0], e1 = info.extreme[1];
         let e2 = info.extreme[2];
         let toLineSign = (e2 !== e0 && e2 !== e1 ? this.toLine(e2, e0, e1) : 0);
@@ -285,6 +283,9 @@ export class Delaunay2 {
             this.mLine.direction = info.direction[0].clone();
             return false;
         }
+
+        // The vertices necessarily will have a triangulation.
+        this.mDimension = 2;
 
         // Assume initially the vertices are unique. If duplicates are found
         // during the Delaunay update, mDuplicates[] will be modified
