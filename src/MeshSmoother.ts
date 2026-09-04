@@ -21,11 +21,13 @@
 //     initialize(vertices, indices). The vertices are Vector objects of size
 //     3; they are aliased, not copied, and update() mutates them in place
 //     exactly as the upstream pointer does.
-//   - The upstream mean is 'mMeans[i] /= neighborCounts[i]'. A vertex that
-//     is not referenced by any triangle has neighbor count 0, so upstream
-//     divides 0/0 and gets NaN; the port reproduces that (the vertex is
-//     still moved by update()). Callers should pass meshes in which every
-//     vertex belongs to a triangle.
+//   - The upstream mean is 'mMeans[i] /= T(neighborCounts[i])', the Vector
+//     operator/= of Vector.h. That operator multiplies by the reciprocal of
+//     the divisor and sets the vector to ZERO when the divisor is zero, so a
+//     vertex that is not referenced by any triangle gets mean (0,0,0), not
+//     NaN. The port reproduces both parts of that contract. Such a vertex is
+//     still moved by update() (toward the origin); callers should pass
+//     meshes in which every vertex belongs to a triangle.
 
 import { logAssert } from './Logger.js';
 import { Vector, add, dot, mul, normalize, sub } from './Vector.js';
@@ -143,10 +145,23 @@ export class MeshSmoother {
 
         for (let i = 0; i < this.mNumVertices; ++i) {
             normalize(this.mNormals[i]);
+            // Upstream is 'mMeans[i] /= T(mNeighborCounts[i])', which is the
+            // Vector operator/= of Vector.h: it multiplies by the reciprocal
+            // of the divisor and sets the vector to ZERO when the divisor is
+            // zero. A plain componentwise division would differ in the last
+            // ulp and would give NaN (not zero) for a vertex that belongs to
+            // no triangle.
             const denom = this.mNeighborCounts[i];
             const mean = this.mMeans[i].values;
-            for (let j = 0; j < 3; ++j) {
-                mean[j] /= denom;
+            if (denom !== 0) {
+                const invDenom = 1 / denom;
+                for (let j = 0; j < 3; ++j) {
+                    mean[j] *= invDenom;
+                }
+            } else {
+                for (let j = 0; j < 3; ++j) {
+                    mean[j] = 0;
+                }
             }
         }
 

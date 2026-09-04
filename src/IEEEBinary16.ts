@@ -596,6 +596,24 @@ export class IEEEBinary16 {
     static fmod(x: IEEEBinary16, y: IEEEBinary16): IEEEBinary16 {
         return half(x.number % y.number);
     }
+    // The port of 'std::frexp(IEEEBinary16 x, int32_t* exponent)'. The
+    // upstream output parameter becomes a field of the returned object, the
+    // BSNumber.frexp/BSRational.frexp precedent. The decomposition is
+    // x = result * 2^exponent with |result| in [1/2, 1); zero, infinity and
+    // NaN are returned unchanged with exponent 0, as std::frexp does.
+    static frexp(x: IEEEBinary16): { result: IEEEBinary16, exponent: number } {
+        const value = x.number;
+        if (value === 0 || !Number.isFinite(value)) {
+            return { result: x.clone(), exponent: 0 };
+        }
+        // Every binary16 value is exactly a binary32 normal (a 16-subnormal
+        // converts to a 32-normal), so the biased exponent of the binary32
+        // encoding determines the decomposition exactly.
+        const biased = (bitsOfFloat32(value) & IEEEBinary32.EXPONENT_MASK)
+            >>> IEEEBinary32.NUM_TRAILING_BITS;
+        const exponent = biased - IEEEBinary32.EXPONENT_BIAS + 1;
+        return { result: half(value * Math.pow(2, -exponent)), exponent };
+    }
     static ldexp(x: IEEEBinary16, exponent: number): IEEEBinary16 {
         return half(x.number * Math.pow(2, exponent));
     }

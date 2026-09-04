@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { ImplicitSurface3 } from '../src/ImplicitSurface3.js';
-import { Vector, dot, length, sub } from '../src/Vector.js';
+import { Matrix } from '../src/Matrix.js';
+import { Vector, add, dot, length, sub } from '../src/Vector.js';
 import { cross } from '../src/Vector3.js';
+import {
+    check, expectClose, expectVectorClose, fc, nonzero, rotationFrame,
+    wellScaled, wellScaledVector
+} from './helpers/arbitraries.js';
 
 // F(x,y,z) = x^2 + y^2 + z^2 - r^2.
 class Sphere extends ImplicitSurface3 {
@@ -346,5 +351,309 @@ describe('ImplicitSurface3', () => {
             const K = gAg / Math.pow(gLen, 4);
             expect(info.curvature0 * info.curvature1).toBeCloseTo(K, 10);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification block (V16): properties that would catch a translation error
+// in the port of GetGradient/GetHessian/GetFrame/GetPrincipalInformation.
+// ---------------------------------------------------------------------------
+
+// A general quadric F(p) = p^T M p + b . p + c with M symmetric, so the
+// gradient (2 M p + b) and the Hessian (2 M) exercise every off-diagonal
+// entry of the port's Hessian assembly.
+class Quadric extends ImplicitSurface3 {
+    constructor(readonly M: number[][], readonly b: number[],
+        readonly c: number) {
+        super();
+    }
+
+    f(p: Vector): number {
+        const v = p.values;
+        let s = this.c;
+        for (let i = 0; i < 3; ++i) {
+            s += this.b[i] * v[i];
+            for (let j = 0; j < 3; ++j) {
+                s += v[i] * this.M[i][j] * v[j];
+            }
+        }
+        return s;
+    }
+
+    private g(p: Vector, i: number): number {
+        const v = p.values;
+        let s = this.b[i];
+        for (let j = 0; j < 3; ++j) {
+            s += 2 * this.M[i][j] * v[j];
+        }
+        return s;
+    }
+
+    fx(p: Vector): number { return this.g(p, 0); }
+    fy(p: Vector): number { return this.g(p, 1); }
+    fz(p: Vector): number { return this.g(p, 2); }
+    fxx(_p: Vector): number { return 2 * this.M[0][0]; }
+    fxy(_p: Vector): number { return 2 * this.M[0][1]; }
+    fxz(_p: Vector): number { return 2 * this.M[0][2]; }
+    fyy(_p: Vector): number { return 2 * this.M[1][1]; }
+    fyz(_p: Vector): number { return 2 * this.M[1][2]; }
+    fzz(_p: Vector): number { return 2 * this.M[2][2]; }
+}
+
+// A symmetric 3x3 matrix, a linear term and a constant, all at a moderate
+// scale. wellScaled snaps tiny magnitudes to zero, so no entry is subnormal;
+// the algorithm normalizes the gradient, so this is enough conditioning.
+const quadricArb = fc.tuple(
+    fc.array(wellScaled(-3, 3), { minLength: 6, maxLength: 6 }),
+    fc.array(wellScaled(-3, 3), { minLength: 3, maxLength: 3 }),
+    wellScaled(-3, 3))
+    .map(([m, b, c]) => {
+        const M = [
+            [m[0], m[1], m[2]],
+            [m[1], m[3], m[4]],
+            [m[2], m[4], m[5]]
+        ];
+        return new Quadric(M, b, c);
+    });
+
+// A quadric together with a point whose gradient is comfortably nonzero.
+const quadricAndPoint = fc.tuple(quadricArb, wellScaledVector(3, -3, 3))
+    .filter(([q, p]) => length(q.getGradient(p)) > 1e-2);
+
+function matVec3(M: Matrix, v: Vector): Vector {
+    const r = new Vector(3);
+    for (let i = 0; i < 3; ++i) {
+        let s = 0;
+        for (let j = 0; j < 3; ++j) { s += M.get(i, j) * v.values[j]; }
+        r.values[i] = s;
+    }
+    return r;
+}
+
+function scaleVector(v: Vector, s: number): Vector {
+    return Vector.fromArray(v.values.map(x => x * s));
+}
+
+describe('ImplicitSurface3 verification', () => {
+    it('assembles the gradient and the symmetric Hessian from the partials', () => {
+        check(quadricAndPoint, ([q, p]) => {
+            const g = q.getGradient(p);
+            expect(g.size).toBe(3);
+            expect(g.values[0]).toBe(q.fx(p));
+            expect(g.values[1]).toBe(q.fy(p));
+            expect(g.values[2]).toBe(q.fz(p));
+
+            const H = q.getHessian(p);
+            expect(H.numRows).toBe(3);
+            expect(H.numCols).toBe(3);
+            expect(H.get(0, 0)).toBe(q.fxx(p));
+            expect(H.get(1, 1)).toBe(q.fyy(p));
+            expect(H.get(2, 2)).toBe(q.fzz(p));
+            // The upstream Matrix3x3 initializer list writes fxy, fxz and fyz
+            // twice, once in each triangle.
+            expect(H.get(0, 1)).toBe(q.fxy(p));
+            expect(H.get(1, 0)).toBe(q.fxy(p));
+            expect(H.get(0, 2)).toBe(q.fxz(p));
+            expect(H.get(2, 0)).toBe(q.fxz(p));
+            expect(H.get(1, 2)).toBe(q.fyz(p));
+            expect(H.get(2, 1)).toBe(q.fyz(p));
+        });
+    });
+
+    it('returns a right-handed orthonormal frame whose normal is the unit gradient', () => {
+        check(quadricAndPoint, ([q, p]) => {
+            const { tangent0, tangent1, normal } = q.getFrame(p);
+            expectClose(length(tangent0), 1, 1e-12, 1e-12);
+            expectClose(length(tangent1), 1, 1e-12, 1e-12);
+            expectClose(length(normal), 1, 1e-12, 1e-12);
+            expectClose(dot(tangent0, tangent1), 0, 1e-12, 1e-12);
+            expectClose(dot(tangent0, normal), 0, 1e-12, 1e-12);
+            expectClose(dot(tangent1, normal), 0, 1e-12, 1e-12);
+            expectVectorClose(cross(tangent0, tangent1), normal, 1e-12, 1e-12);
+
+            const g = q.getGradient(p);
+            expectVectorClose(normal, scaleVector(g, 1 / length(g)),
+                1e-12, 1e-12);
+        });
+    });
+
+    it('satisfies the shape-operator eigen-equation of the referenced PDF', () => {
+        // Upstream solves the eigensystem of barA = J^T A J with A = H/|grad|
+        // and J = [U | V] the tangent frame, then returns direction_i = J*w_i.
+        // Because J J^T = I - N N^T, that is equivalent to: the tangential
+        // part of A*direction_i equals curvature_i * direction_i. The identity
+        // pins the matrix products, the eigenvalue ordering and the J*w
+        // back-substitution at once.
+        check(quadricAndPoint, ([q, p]) => {
+            const info = q.getPrincipalInformation(p);
+            expect(info.valid).toBe(true);
+            expect(info.curvature0).toBeLessThanOrEqual(info.curvature1);
+
+            const g = q.getGradient(p);
+            const gLen = length(g);
+            const N = scaleVector(g, 1 / gLen);
+            const H = q.getHessian(p);
+            const A = Matrix.fromArray(3, 3, H.values.map(x => x / gLen));
+
+            const pairs: Array<[number, Vector]> = [
+                [info.curvature0, info.direction0],
+                [info.curvature1, info.direction1]
+            ];
+            for (const [k, d] of pairs) {
+                expectClose(length(d), 1, 1e-9, 1e-9);
+                expectClose(dot(d, N), 0, 1e-9, 1e-9);
+
+                const Ad = matVec3(A, d);
+                const tangential = sub(Ad, scaleVector(N, dot(N, Ad)));
+                // The residual is relative to the scale of A = H/|grad|, which
+                // the curvature bounds from below; both are moderate here.
+                const scale = Math.max(1, Math.abs(k));
+                expectVectorClose(tangential, scaleVector(d, k),
+                    1e-8 * scale, 1e-8);
+            }
+            expectClose(dot(info.direction0, info.direction1), 0, 1e-8, 1e-8);
+        });
+    });
+
+    it('matches the trace and determinant of the tangential Hessian', () => {
+        // Sum and product of the eigenvalues of barA = J^T A J. Because
+        // J J^T = I - N N^T, trace(barA) = trace(A) - N^T A N.
+        check(quadricAndPoint, ([q, p]) => {
+            const info = q.getPrincipalInformation(p);
+            const g = q.getGradient(p);
+            const gLen = length(g);
+            const N = scaleVector(g, 1 / gLen);
+            const H = q.getHessian(p);
+            const A = Matrix.fromArray(3, 3, H.values.map(x => x / gLen));
+
+            const traceA = A.get(0, 0) + A.get(1, 1) + A.get(2, 2);
+            const nAn = dot(N, matVec3(A, N));
+            expectClose(info.curvature0 + info.curvature1, traceA - nAn,
+                1e-8, 1e-8);
+
+            // The determinant, computed from the same frame the port uses.
+            const { tangent0: U, tangent1: V } = q.getFrame(p);
+            const s00 = dot(U, matVec3(A, U));
+            const s01 = dot(U, matVec3(A, V));
+            const s10 = dot(V, matVec3(A, U));
+            const s11 = dot(V, matVec3(A, V));
+            const avr = 0.5 * (s01 + s10);
+            expectClose(info.curvature0 * info.curvature1,
+                s00 * s11 - avr * avr, 1e-8, 1e-8);
+        });
+    });
+
+    it('is invariant under a rigid motion of the surface', () => {
+        // F'(p) = F(R^T (p - t)) describes the rigidly moved surface, so the
+        // principal curvatures of F' at R p + t equal those of F at p.
+        check(fc.tuple(quadricAndPoint, rotationFrame(3),
+            wellScaledVector(3, -2, 2)), ([[q, p], R, t]) => {
+            // R has the frame vectors as its columns.
+            const rot = (x: Vector): Vector => {
+                const r = new Vector(3);
+                for (let i = 0; i < 3; ++i) {
+                    r.values[i] = R[0].values[i] * x.values[0]
+                        + R[1].values[i] * x.values[1]
+                        + R[2].values[i] * x.values[2];
+                }
+                return r;
+            };
+            // M' = R M R^T, b' = R b - (M' + M'^T) t,
+            // c' = c - (R b) . t + t^T M' t.
+            const Mp: number[][] = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+            for (let i = 0; i < 3; ++i) {
+                for (let j = 0; j < 3; ++j) {
+                    let s = 0;
+                    for (let a = 0; a < 3; ++a) {
+                        for (let b2 = 0; b2 < 3; ++b2) {
+                            s += R[a].values[i] * q.M[a][b2] * R[b2].values[j];
+                        }
+                    }
+                    Mp[i][j] = s;
+                }
+            }
+            const Rb = rot(Vector.fromArray(q.b));
+            const bp: number[] = [0, 0, 0];
+            for (let i = 0; i < 3; ++i) {
+                let s = Rb.values[i];
+                for (let j = 0; j < 3; ++j) {
+                    s -= (Mp[i][j] + Mp[j][i]) * t.values[j];
+                }
+                bp[i] = s;
+            }
+            let cp = q.c;
+            for (let i = 0; i < 3; ++i) {
+                cp -= Rb.values[i] * t.values[i];
+                for (let j = 0; j < 3; ++j) {
+                    cp += t.values[i] * Mp[i][j] * t.values[j];
+                }
+            }
+            const moved = new Quadric(Mp, bp, cp);
+            const pp = add(rot(p), t);
+            // Sanity: the moved surface takes the same value at the moved
+            // point. The rotation and translation lose a few digits.
+            expectClose(moved.f(pp), q.f(p), 1e-6, 1e-8);
+
+            const a = q.getPrincipalInformation(p);
+            const b = moved.getPrincipalInformation(pp);
+            expect(b.valid).toBe(true);
+            expectClose(a.curvature0, b.curvature0, 1e-7, 1e-7);
+            expectClose(a.curvature1, b.curvature1, 1e-7, 1e-7);
+        });
+    });
+
+    it('reports invalid with zero outputs wherever the gradient vanishes', () => {
+        // The gradient 2 M p + b vanishes at p when b = -2 M p, so build that
+        // quadric rather than inverting M.
+        check(fc.tuple(quadricArb, wellScaledVector(3, -3, 3)), ([q, p]) => {
+            const b: number[] = [0, 0, 0];
+            for (let i = 0; i < 3; ++i) {
+                let s = 0;
+                for (let j = 0; j < 3; ++j) { s += 2 * q.M[i][j] * p.values[j]; }
+                b[i] = -s;
+            }
+            const critical = new Quadric(q.M, b, q.c);
+            expect(length(critical.getGradient(p))).toBe(0);
+            const info = critical.getPrincipalInformation(p);
+            expect(info.valid).toBe(false);
+            expect(info.curvature0).toBe(0);
+            expect(info.curvature1).toBe(0);
+            expect(info.direction0.values).toEqual([0, 0, 0]);
+            expect(info.direction1.values).toEqual([0, 0, 0]);
+        });
+    });
+
+    it('agrees with finite differences for the gradient and the Hessian', () => {
+        check(quadricAndPoint, ([q, p]) => {
+            const h = 1e-4;
+            expectVectorClose(q.getGradient(p), fdGradient(q, p, h), 1e-6, 1e-6);
+            const H = q.getHessian(p);
+            const fd = fdHessian(q, p, h);
+            for (let i = 0; i < 3; ++i) {
+                for (let j = 0; j < 3; ++j) {
+                    expectClose(H.get(i, j), fd[i][j], 1e-4, 1e-4);
+                }
+            }
+        });
+    });
+
+    it('is unchanged when the implicit function is scaled by a nonzero factor', () => {
+        // s*F = 0 defines the same surface and the port divides the Hessian by
+        // |grad|, so the curvatures pick up sign(s) only (and swap when the
+        // sign flips, because they are returned in increasing order).
+        check(fc.tuple(quadricAndPoint, nonzero(-5, 5, 0.1)), ([[q, p], s]) => {
+            const scaled = new Quadric(q.M.map(row => row.map(x => x * s)),
+                q.b.map(x => x * s), q.c * s);
+            const a = q.getPrincipalInformation(p);
+            const b = scaled.getPrincipalInformation(p);
+            expect(b.valid).toBe(true);
+            if (s > 0) {
+                expectClose(a.curvature0, b.curvature0, 1e-9, 1e-9);
+                expectClose(a.curvature1, b.curvature1, 1e-9, 1e-9);
+            } else {
+                expectClose(a.curvature0, -b.curvature1, 1e-9, 1e-9);
+                expectClose(a.curvature1, -b.curvature0, 1e-9, 1e-9);
+            }
+        });
     });
 });
