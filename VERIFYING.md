@@ -52,6 +52,18 @@ in GitHub: one `verify-batch` issue and one PR per group in
    Use `check(arb, pred)` (200 runs) and `seededRandom` for brute-force loops.
    A property must pass deterministically; if it needs a tolerance, justify
    it in a comment (condition number, catastrophic cancellation, ...).
+   Generator hygiene (every flaky property so far came from one of these):
+   - `vector()`/`finite()` emit subnormal and 1e-160-scale components; any
+     algorithm that squares, normalizes or takes a covariance of its inputs
+     underflows there. Use `wellScaledVector`, `unitVector`, `rotationFrame`
+     or integer-lattice generators unless the tiny values are the point;
+   - `toBe`/`toEqual` use `Object.is`: a `-0`/`0` tie fails. Compare with
+     `===` or normalize with `+ 0`;
+   - iterative minimizers are path-dependent: an equivariance property must
+     compare with a tolerance that covers drift over the iterations;
+   - `it(name, fn, N)`'s third argument is a timeout, not a run count; give
+     deterministic loops that may exceed 5s under load an explicit 30000;
+   - run each new property file at least five times before opening the PR.
 4. **Fix what you find.**
    - *Port bug* (the TS disagrees with the C++): fix it, add a regression
      test that fails before and passes after, note it in the PR.
