@@ -3,6 +3,12 @@ import { Arc2 } from '../src/Arc2.js';
 import { DistRay2Arc2 } from '../src/DistRay2Arc2.js';
 import { Ray } from '../src/Ray.js';
 import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import { DistRay2Circle2 } from '../src/DistRay2Circle2.js';
+import { Hypersphere } from '../src/Hypersphere.js';
+import {
+    check, expectClose, expectVectorClose, fc, positive,
+    rotationFrame, unitVector, wellScaled, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -162,5 +168,160 @@ describe('DistRay2Arc2', () => {
                     .toBeCloseTo(result.distance, 8);
             }
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Independent verification (V21): property-based tests against the upstream
+// header DistRay2Arc2.h. Upstream runs the ray-circle query and keeps the
+// circle closest points that are on the arc; if none is, it sorts the two arc
+// endpoint distances and the ray-origin-to-arc distance and takes the minima.
+// ---------------------------------------------------------------------------
+
+// An arc with a well separated pair of endpoints on a circle of moderate
+// radius, plus the two angles that bound it (the port has no accessor for
+// them).
+const v21Arc = fc.tuple(wellScaledVector(2, -6, 6), positive(4, 0.2),
+    wellScaled(-Math.PI, Math.PI),
+    fc.double({ min: 0.05, max: 2 * Math.PI - 0.05, noNaN: true }))
+    .map(([c, r, a0, sweep]) => {
+        const a1 = a0 + sweep;
+        const e0 = add(c, Vector.fromArray(
+            [r * Math.cos(a0), r * Math.sin(a0)]));
+        const e1 = add(c, Vector.fromArray(
+            [r * Math.cos(a1), r * Math.sin(a1)]));
+        return [Arc2.fromCenterRadiusEnds(c, r, e0, e1), a0, a1] as
+            [Arc2, number, number];
+    });
+
+const v21Ray = fc.tuple(wellScaledVector(2, -8, 8), unitVector(2))
+    .map(([o, d]) => Ray.fromOriginDirection(o, d));
+
+// A point of the arc at fractional position u along its counterclockwise
+// sweep.
+function v21ArcPoint(a: Arc2, a0: number, a1: number, u: number): Vector {
+    let hi = a1;
+    while (hi < a0) {
+        hi += 2 * Math.PI;
+    }
+    const t = a0 + (hi - a0) * u;
+    return add(a.center,
+        Vector.fromArray([a.radius * Math.cos(t), a.radius * Math.sin(t)]));
+}
+
+describe('DistRay2Arc2 verification', () => {
+    const query = new DistRay2Arc2();
+
+    it('every reported pair is on the ray and on the arc', () => {
+        check(fc.tuple(v21Ray, v21Arc), ([r, [a, a0, a1]]) => {
+            void a0;
+            void a1;
+            const res = query.compute(r, a);
+            expect(res.numClosestPairs === 1 || res.numClosestPairs === 2)
+                .toBe(true);
+            expectClose(res.distance, Math.sqrt(res.sqrDistance), 1e-9, 1e-9);
+            for (let j = 0; j < res.numClosestPairs; ++j) {
+                const onRay = res.closest[j][0];
+                const onArc = res.closest[j][1];
+                // The ray point is at the reported parameter, which is >= 0.
+                expect(res.parameter[j]).toBeGreaterThanOrEqual(0);
+                expectVectorClose(onRay,
+                    add(r.origin, mul(res.parameter[j], r.direction)), 1e-8,
+                    1e-8);
+                // The arc point is on the circle and inside the arc.
+                expectClose(length(sub(onArc, a.center)), a.radius, 1e-8,
+                    1e-8);
+                expect(a.containsOnCircle(onArc)).toBe(true);
+                // The pair realizes the reported distance.
+                expectClose(length(sub(onRay, onArc)), res.distance, 1e-8,
+                    1e-8);
+            }
+        });
+    });
+
+    it('matches a brute-force minimization over the arc', () => {
+        check(fc.tuple(v21Ray, v21Arc), ([r, [a, a0, a1]]) => {
+            expectClose(query.compute(r, a).distance, bruteForce(r, a, a0, a1),
+                1e-6, 1e-6);
+        }, 60);
+    }, 30000);
+
+    it('is not larger than the distance to any sampled arc point', () => {
+        check(fc.tuple(v21Ray, v21Arc,
+            fc.double({ min: 0, max: 1, noNaN: true })),
+        ([r, [a, a0, a1], u]) => {
+            const q = v21ArcPoint(a, a0, a1, u);
+            expect(query.compute(r, a).distance)
+                .toBeLessThanOrEqual(pointRayDistance(q, r) + 1e-8);
+        });
+    });
+
+    it('reports zero distance when the ray starts on the arc', () => {
+        check(fc.tuple(v21Arc, fc.double({ min: 0, max: 1, noNaN: true }),
+            unitVector(2)), ([[a, a0, a1], u, d]) => {
+            const q = v21ArcPoint(a, a0, a1, u);
+            const r = Ray.fromOriginDirection(q, d);
+            expect(query.compute(r, a).distance).toBeLessThanOrEqual(1e-8);
+        });
+    });
+
+    it('agrees with the ray-circle query when the arc is the whole circle',
+        () => {
+            // An arc whose endpoints coincide has DotPerp(P-E0, E1-E0) = 0 for
+            // every P, so Contains accepts every circle point and the query
+            // degenerates to the ray-circle query.
+            check(fc.tuple(v21Ray, wellScaledVector(2, -6, 6),
+                positive(4, 0.2), wellScaled(-Math.PI, Math.PI)),
+            ([r, c, radius, a0]) => {
+                const e = add(c, Vector.fromArray(
+                    [radius * Math.cos(a0), radius * Math.sin(a0)]));
+                const a = Arc2.fromCenterRadiusEnds(c, radius, e, e.clone());
+                const circle = Hypersphere.fromCenterRadius(c, radius);
+                const rc = new DistRay2Circle2().compute(r, circle);
+                const ra = query.compute(r, a);
+                expect(ra.numClosestPairs).toBe(rc.numClosestPairs);
+                expectClose(ra.distance, rc.distance, 0, 0);
+            });
+        });
+
+    it('is equivariant under rigid motions', () => {
+        // Rotations preserve the counterclockwise ordering of the arc
+        // endpoints, so the moved arc is still a valid Arc2.
+        check(fc.tuple(v21Ray, v21Arc, rotationFrame(2),
+            wellScaledVector(2, -5, 5)), ([r, [a, a0, a1], R, tr]) => {
+            void a0;
+            void a1;
+            const rot = (x: Vector): Vector => add(mul(x.values[0], R[0]),
+                mul(x.values[1], R[1]));
+            const moved = Arc2.fromCenterRadiusEnds(add(rot(a.center), tr),
+                a.radius, add(rot(a.end[0]), tr), add(rot(a.end[1]), tr));
+            const movedRay = Ray.fromOriginDirection(add(rot(r.origin), tr),
+                rot(r.direction));
+            expectClose(query.compute(r, a).distance,
+                query.compute(movedRay, moved).distance, 1e-7, 1e-7);
+        });
+    });
+
+    it('does not mutate its inputs', () => {
+        check(fc.tuple(v21Ray, v21Arc), ([r, [a, a0, a1]]) => {
+            void a0;
+            void a1;
+            const o = r.origin.clone();
+            const d = r.direction.clone();
+            const snapshot = [...a.center.values, a.radius,
+                ...a.end[0].values, ...a.end[1].values];
+            const res = query.compute(r, a);
+            expect(r.origin.values).toEqual(o.values);
+            expect(r.direction.values).toEqual(d.values);
+            expect([...a.center.values, a.radius, ...a.end[0].values,
+                ...a.end[1].values]).toEqual(snapshot);
+            for (let j = 0; j < res.numClosestPairs; ++j) {
+                res.closest[j][0].values[0] = 777;
+                res.closest[j][1].values[0] = 777;
+            }
+            expect(r.origin.values).toEqual(o.values);
+            expect([...a.center.values, a.radius, ...a.end[0].values,
+                ...a.end[1].values]).toEqual(snapshot);
+        });
     });
 });

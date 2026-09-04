@@ -45,6 +45,22 @@ export interface DistPointHyperellipsoidResult {
 
 // The bisection algorithm to find the unique root of F(t). Only the first
 // 'numComponents' entries of e, y and x participate.
+//
+// Upstream numerical caveat (preserved, not fixed): the root satisfies
+// s > -pSqr[numComponents-1] = -1, and the lower bracket is
+// smin = z[numComponents-1] - 1. When z[numComponents-1] (the query-point
+// coordinate along the smallest-extent axis, divided by that extent) is tiny
+// but nonzero, smin rounds to exactly -1 and the root itself is closer to -1
+// than the double-precision spacing there. The final division by
+// (s + pSqr[i]) then cancels catastrophically: the reported closest point
+// leaves the hyperellipsoid and, when s + pSqr[i] underflows to zero, the
+// distance is Infinity. A coordinate of exactly zero takes the separate
+// SqrDistanceSpecial branch and is handled correctly, so the defect is
+// confined to a narrow band around the axis hyperplanes of the smallest
+// extent (and hence around the center). Upstream has the same behavior; it
+// offers exact arithmetic (T = BSRational) as the remedy. Fixing this in
+// double precision would require reformulating the bisection variable, which
+// is a change to upstream's algorithm rather than a translation fix.
 function bisector(numComponents: number, e: Vector, y: Vector,
     x: Vector): number {
     let sumZSqr = 0;

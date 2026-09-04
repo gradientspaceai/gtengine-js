@@ -5,6 +5,13 @@ import { DistRay3Circle3 } from '../src/DistRay3Circle3.js';
 import { Line, type Line3 } from '../src/Line.js';
 import { Ray } from '../src/Ray.js';
 import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector.js';
+import { distLine3Circle3Execute } from '../src/DistLine3Circle3.js';
+import { getOrthogonal } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
+import {
+    check, expectClose, expectVectorClose, fc, positive,
+    rotationFrame, unitVector, wellScaled, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -46,7 +53,8 @@ function verifyPair(c: Circle3, linear: Vector, circular: Vector,
 // tauHat = sqrt(|(a1*a3)^(2/3) - a3| / a2). The port fixes this (issue filed
 // upstream), so every trial checks the line solver against a brute-force
 // minimum over the whole line instead of skipping unreliable configurations.
-function lineSolverIsReliable(line: Line3, c: Circle3): boolean {
+function lineSolverIsReliable(line: Line3, c: Circle3,
+    range = 10): boolean {
     const lineDistance = new DistLine3Circle3().compute(line, c).distance;
     const at = (t: number): number =>
         pointCircleDistance(add(line.origin, mul(t, line.direction)), c);
@@ -54,14 +62,14 @@ function lineSolverIsReliable(line: Line3, c: Circle3): boolean {
     let best = Number.MAX_VALUE;
     let bt = 0;
     for (let i = 0; i <= n; ++i) {
-        const t = -10 + 20 * i / n;
+        const t = -range + 2 * range * i / n;
         const d = at(t);
         if (d < best) {
             best = d;
             bt = t;
         }
     }
-    let h = 20 / n;
+    let h = 2 * range / n;
     for (let pass = 0; pass < 80; ++pass) {
         for (const sign of [1, -1]) {
             const d = at(bt + sign * h);
@@ -183,5 +191,260 @@ describe('DistRay3Circle3', () => {
             ++compared;
         }
         expect(compared).toBeGreaterThan(50);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Independent verification (V21): property-based tests against the upstream
+// header DistRay3Circle3.h. Upstream runs DistLine3Circle3's Execute to get
+// the critical points of the line-circle squared distance and then clamps to
+// t >= 0, so the properties check that clamping as well as the geometry.
+// ---------------------------------------------------------------------------
+
+const v21Circle = fc.tuple(wellScaledVector(3, -5, 5), unitVector(3),
+    positive(4, 0.2))
+    .map(([c, n, r]) => Circle3.fromCenterNormalRadius(c, n, r));
+
+// The shared line-circle solver (DistLine3Circle3) is reliable only when the
+// line is not nearly perpendicular to the plane of the circle and does not
+// nearly meet the axis of the circle. Upstream threw
+// "Invalid ordering of t-interval endpoints." in both regimes (PDFSection422
+// builds an inverted or collapsed bisection bracket); the port fixed the
+// exception in V20 by routing exact a3 == 0 to PDFSection421 and by returning
+// the bracket midpoint when the bracket collapses, and the regression tests
+// at the end of this block cover the configurations that used to throw. What
+// the fix cannot recover is accuracy in the *neighbourhood* of those regimes:
+// once |N x M| is within a few ulps of zero, a0 = Dot(M,E)/Dot(M,M) is around
+// 1e6 while the bracket width r*|N x M|/|M|^2 is around 1e-13, so the root
+// carries no significant digits. For example the circle C = (0,0,0),
+// N = (-1,0,0), r = 0.2 with the segment
+// (-3.443461197292675, 7.999999999999849, 0) -> (0, 7.999999999999964, 0),
+// whose direction is perpendicular to the plane of the circle to within
+// 3e-14, is reported at distance 7.800046 where the true distance is 7.8.
+// The properties below skip that neighbourhood.
+function v21LineSolverApplies(origin: Vector, direction: Vector,
+    c: Circle3): boolean {
+    const D = sub(origin, c.center);
+    const NxM = cross(c.normal, direction);
+    const NxD = cross(c.normal, D);
+    const isZero = (x: Vector): boolean =>
+        x.values[0] === 0 && x.values[1] === 0 && x.values[2] === 0;
+    if (isZero(NxM) || isZero(NxD)) {
+        return true;   // the closed-form PDFSection411/412/421 branches
+    }
+    if (length(NxM) <= 1e-5 * length(direction)) {
+        return false;  // nearly perpendicular to the plane of the circle
+    }
+    const s = -dot(NxM, NxD) / dot(NxM, NxM);
+    const E = add(mul(s, direction), D);
+    return length(cross(c.normal, E)) > 1e-6 * length(E);   // nearly on axis
+}
+
+const v21Ray = fc.tuple(wellScaledVector(3, -8, 8), unitVector(3))
+    .map(([o, d]) => Ray.fromOriginDirection(o, d));
+
+// The ray parameter of a point known to be on the ray's line.
+function v21RayParameter(r: Ray, x: Vector): number {
+    return dot(sub(x, r.origin), r.direction) / dot(r.direction, r.direction);
+}
+
+describe('DistRay3Circle3 verification', () => {
+    const query = new DistRay3Circle3();
+
+    it('every reported pair is on the ray and on the circle', () => {
+        check(fc.tuple(v21Ray, v21Circle), ([r, c]) => {
+            if (!v21LineSolverApplies(r.origin, r.direction, c)) {
+                return;
+            }
+            const res = query.compute(r, c);
+            expect(res.numClosestPairs === 1 || res.numClosestPairs === 2)
+                .toBe(true);
+            expectClose(res.sqrDistance, res.distance * res.distance, 1e-12,
+                1e-12);
+            for (let j = 0; j < res.numClosestPairs; ++j) {
+                const linear = res.linearClosest[j];
+                const circular = res.circularClosest[j];
+                const t = v21RayParameter(r, linear);
+                expect(t).toBeGreaterThanOrEqual(-1e-9);
+                expectVectorClose(linear, add(r.origin, mul(t, r.direction)),
+                    1e-8, 1e-8);
+                const delta = sub(circular, c.center);
+                expectClose(dot(c.normal, delta), 0, 1e-8, 1e-8);
+                expectClose(length(delta), c.radius, 1e-8, 1e-8);
+                expectClose(length(sub(linear, circular)), res.distance, 1e-8,
+                    1e-8);
+            }
+        });
+    });
+
+    it('the line solver orders its two critical parameters', () => {
+        // HasTwoCriticalPoints assumes parameter[0] <= parameter[1] (it
+        // returns the line result when t0 >= 0 and the ray origin when
+        // t1 <= 0). Verify that assumption on the shared solver.
+        check(fc.tuple(v21Ray, v21Circle), ([r, c]) => {
+            if (!v21LineSolverApplies(r.origin, r.direction, c)) {
+                return;
+            }
+            const line = Line.fromOriginDirection(r.origin, r.direction);
+            const { critical } = distLine3Circle3Execute(line, c);
+            if (critical.numPoints === 2) {
+                expect(critical.parameter[0])
+                    .toBeLessThanOrEqual(critical.parameter[1]);
+            }
+        });
+    });
+
+    it('keeps the line result when every critical point is on the ray', () => {
+        check(fc.tuple(v21Ray, v21Circle), ([r, c]) => {
+            if (!v21LineSolverApplies(r.origin, r.direction, c)) {
+                return;
+            }
+            const line = Line.fromOriginDirection(r.origin, r.direction);
+            const { result: lr, critical } = distLine3Circle3Execute(line, c);
+            const rr = query.compute(r, c);
+            const onRay = critical.numPoints === 1
+                ? critical.parameter[0] > 0
+                : critical.parameter[0] >= 0;
+            if (onRay) {
+                expect(rr.numClosestPairs).toBe(lr.numClosestPairs);
+                expect(rr.distance).toBe(lr.distance);
+                for (let j = 0; j < lr.numClosestPairs; ++j) {
+                    expectVectorClose(rr.linearClosest[j], lr.linearClosest[j],
+                        0, 0);
+                    expectVectorClose(rr.circularClosest[j],
+                        lr.circularClosest[j], 0, 0);
+                }
+            }
+        });
+    });
+
+    it('matches a brute-force minimization along the ray', () => {
+        check(fc.tuple(v21Ray, v21Circle), ([r, c]) => {
+            if (!v21LineSolverApplies(r.origin, r.direction, c)) {
+                return;
+            }
+            const line = Line.fromOriginDirection(r.origin, r.direction);
+            // The line solver is the ingredient the ray query trusts; if the
+            // shared solver has already missed the line minimum there is
+            // nothing for this file to prove. The brute-force bracket has to
+            // cover the closest line point, which is at most
+            // |P - C| + r away from the origin along a unit direction.
+            const range = 2 * (length(sub(r.origin, c.center)) + c.radius + 1);
+            expect(lineSolverIsReliable(line, c, range)).toBe(true);
+            expectClose(query.compute(r, c).distance, bruteForce(r, c, 60),
+                1e-5, 1e-5);
+        }, 20);
+    }, 30000);
+
+    it('is not larger than the distance to any sampled ray point', () => {
+        check(fc.tuple(v21Ray, v21Circle, positive(60, 0)), ([r, c, t]) => {
+            if (!v21LineSolverApplies(r.origin, r.direction, c)) {
+                return;
+            }
+            expect(query.compute(r, c).distance).toBeLessThanOrEqual(
+                pointCircleDistance(add(r.origin, mul(t, r.direction)), c)
+                + 1e-8);
+        });
+    });
+
+    it('reduces to the point-circle query when the ray points away', () => {
+        // A ray whose direction is the outward radial direction at its origin
+        // and whose origin is far outside the circle can only move away, so
+        // the origin is the closest ray point.
+        check(fc.tuple(v21Circle, wellScaled(-Math.PI, Math.PI),
+            positive(6, 2)), ([c, angle, extra]) => {
+            const u = getOrthogonal(c.normal, true);
+            const w = cross(c.normal, u);
+            const radial = add(mul(Math.cos(angle), u),
+                mul(Math.sin(angle), w));
+            const origin = add(c.center, mul(c.radius + extra, radial));
+            const r = Ray.fromOriginDirection(origin, radial);
+            if (!v21LineSolverApplies(r.origin, r.direction, c)) {
+                return;
+            }
+            const res = query.compute(r, c);
+            expect(res.numClosestPairs).toBe(1);
+            expectClose(res.distance, extra, 1e-8, 1e-8);
+            expectVectorClose(res.linearClosest[0], origin, 1e-9, 1e-9);
+        });
+    });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(v21Ray, v21Circle, rotationFrame(3),
+            wellScaledVector(3, -4, 4)), ([r, c, R, tr]) => {
+            const rot = (x: Vector): Vector => {
+                let y = new Vector(3);
+                for (let i = 0; i < 3; ++i) {
+                    y = add(y, mul(x.values[i], R[i]));
+                }
+                return y;
+            };
+            const moved = Circle3.fromCenterNormalRadius(
+                add(rot(c.center), tr), rot(c.normal), c.radius);
+            const movedRay = Ray.fromOriginDirection(add(rot(r.origin), tr),
+                rot(r.direction));
+            if (!v21LineSolverApplies(r.origin, r.direction, c)
+                || !v21LineSolverApplies(movedRay.origin, movedRay.direction,
+                    moved)) {
+                return;
+            }
+            // The bisection in the shared line solver is path dependent, so
+            // the distance drifts by more than machine precision under a
+            // change of frame.
+            expectClose(query.compute(r, c).distance,
+                query.compute(movedRay, moved).distance, 1e-7, 1e-7);
+        });
+    });
+
+    it('does not mutate its inputs', () => {
+        check(fc.tuple(v21Ray, v21Circle), ([r, c]) => {
+            if (!v21LineSolverApplies(r.origin, r.direction, c)) {
+                return;
+            }
+            const o = r.origin.clone();
+            const d = r.direction.clone();
+            const snapshot = [...c.center.values, ...c.normal.values,
+                c.radius];
+            const res = query.compute(r, c);
+            expect(r.origin.values).toEqual(o.values);
+            expect(r.direction.values).toEqual(d.values);
+            expect([...c.center.values, ...c.normal.values, c.radius])
+                .toEqual(snapshot);
+            res.linearClosest[0].values[0] = 888;
+            res.circularClosest[0].values[0] = 888;
+            expect(r.origin.values).toEqual(o.values);
+            expect([...c.center.values, ...c.normal.values, c.radius])
+                .toEqual(snapshot);
+        });
+    });
+    it('handles a ray that meets the axis of the circle', () => {
+        // PDFSection422 with a3 = |N x E|^2 == 0 is exactly the "line meets
+        // the circle axis" configuration; upstream computes tauHat = 0 and
+        // gTauHat = 0/0 = NaN there and ends up with an inverted bisection
+        // bracket, so the query throws. This ray crosses the axis at (0,0,1).
+        const c = circle([0, 0, 0], [0, 0, 1], 0.2);
+        const r = ray([0.2, 0, 3], [0.1, 0, 1]);
+        const res = query.compute(r, c);
+        expect(res.distance).toBeCloseTo(bruteForce(r, c, 60), 5);
+        for (let j = 0; j < res.numClosestPairs; ++j) {
+            verifyPair(c, res.linearClosest[j], res.circularClosest[j],
+                res.distance);
+        }
+    });
+
+    it('handles a ray along the axis whose NxD is nonzero by rounding', () => {
+        // PDFSection412 normalizes the in-plane component of the closest line
+        // point without checking its length, so upstream reports distance 0
+        // instead of the radius for a line along the circle axis whose N x D
+        // is nonzero only through rounding. The configuration below is the
+        // rotated image of a ray on the axis.
+        const n = v(0, 0.9913756202460874, -0.13105105715592485);
+        const c = Circle3.fromCenterNormalRadius(v(0, 0, 0), n, 0.2);
+        const r = Ray.fromOriginDirection(mul(0.4621098150455284, n),
+            mul(-1, n));
+        const res = query.compute(r, c);
+        expect(res.distance).toBeCloseTo(0.2, 9);
+        verifyPair(c, res.linearClosest[0], res.circularClosest[0],
+            res.distance);
     });
 });

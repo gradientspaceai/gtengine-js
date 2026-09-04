@@ -2,7 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { AlignedBox } from '../src/AlignedBox.js';
 import { DistSegment2AlignedBox2 } from '../src/DistSegment2AlignedBox2.js';
 import { Segment } from '../src/Segment.js';
-import { Vector, add, length, mul, sub } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, sub }
+    from '../src/Vector.js';
+import { DistLine2AlignedBox2 } from '../src/DistLine2AlignedBox2.js';
+import { DistPointAlignedBox } from '../src/DistPointAlignedBox.js';
+import { Line } from '../src/Line.js';
+import {
+    check, expectClose, expectVectorClose, fc, positive,
+    rotationFrame, unitVector, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -134,5 +142,203 @@ describe('DistSegment2AlignedBox2', () => {
             expect(result.distance).toBeCloseTo(brute, 6);
             verifyClosest(s, b, result);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Independent verification (V21): property-based tests against the upstream
+// header DistSegment2AlignedBox2.h. Upstream solves the query on the line containing the
+// segment and clamps the result to the segment domain, so the properties below
+// check the line/point agreement as well as the geometric invariants.
+// ---------------------------------------------------------------------------
+
+const v21Shape = fc.tuple(wellScaledVector(2, -8, 8),
+    wellScaledVector(2, -8, 8)).map(([a, b]) => {
+    const lo = new Vector(2);
+    const hi = new Vector(2);
+    for (let i = 0; i < 2; ++i) {
+        lo.values[i] = Math.min(a.values[i], b.values[i]);
+        hi.values[i] = Math.max(a.values[i], b.values[i]);
+    }
+    return AlignedBox.fromMinMax(lo, hi);
+});
+
+// A box together with one of its points.
+const v21ShapePoint = fc.tuple(v21Shape,
+    fc.array(fc.double({ min: 0, max: 1, noNaN: true }),
+        { minLength: 2, maxLength: 2 }))
+    .map(([b, u]) => {
+        const q = new Vector(2);
+        for (let i = 0; i < 2; ++i) {
+            q.values[i] = (1 - u[i]) * b.min.values[i] + u[i] * b.max.values[i];
+        }
+        return [b, q] as [AlignedBox, Vector];
+    });
+
+function v21PointDistance(p: Vector, b: AlignedBox): number {
+    return new DistPointAlignedBox().compute(p, b).distance;
+}
+
+function v21CheckShapePoint(b: AlignedBox,
+    res: { closest: [Vector, Vector] }): void {
+    for (let i = 0; i < 2; ++i) {
+        expect(res.closest[1].values[i])
+            .toBeGreaterThanOrEqual(b.min.values[i] - 1e-9);
+        expect(res.closest[1].values[i])
+            .toBeLessThanOrEqual(b.max.values[i] + 1e-9);
+    }
+}
+
+// An aligned box is not closed under rotation, so the equivariance property
+// uses translations only (rot is ignored).
+function v21MoveShape(b: AlignedBox, rot: (x: Vector) => Vector,
+    tr: Vector): AlignedBox {
+    void rot;
+    return AlignedBox.fromMinMax(add(b.min, tr), add(b.max, tr));
+}
+
+function v21ShapeSnapshot(b: AlignedBox): number[] {
+    return [...b.min.values, ...b.max.values];
+}
+
+const v21Segment = fc.tuple(wellScaledVector(2, -8, 8),
+    wellScaledVector(2, -8, 8))
+    .filter(([a, b]) => length(sub(b, a)) > 1e-2)
+    .map(([a, b]) => Segment.fromEndpoints(a, b));
+
+// Minimum of a convex function on [lo,hi] by ternary search. The distance
+// from a point to a convex set is convex and the segment is an affine image of
+// its parameter, so the composition is convex and the search is exact.
+function v21MinOnInterval(f: (t: number) => number, lo: number,
+    hi: number): number {
+    let a = lo;
+    let b = hi;
+    for (let i = 0; i < 140; ++i) {
+        const m1 = a + (b - a) / 3;
+        const m2 = b - (b - a) / 3;
+        if (f(m1) <= f(m2)) {
+            b = m2;
+        }
+        else {
+            a = m1;
+        }
+    }
+    return Math.min(f(a), Math.min(f(b), f(0.5 * (a + b))));
+}
+
+describe('DistSegment2AlignedBox2 verification', () => {
+    const query = new DistSegment2AlignedBox2();
+
+    it('result is self consistent and the points lie on their primitives',
+        () => {
+            check(fc.tuple(v21Segment, v21Shape), ([seg, s]) => {
+                const res = query.compute(seg, s);
+                expectClose(res.distance, Math.sqrt(res.sqrDistance), 1e-12,
+                    1e-12);
+                const diff = sub(res.closest[0], res.closest[1]);
+                expectClose(res.sqrDistance, dot(diff, diff), 1e-9, 1e-9);
+                // Upstream parameterizes the segment as P0 + t*(P1-P0) with
+                // 0 <= t <= 1 (not the centered form), so the parameter must
+                // be in [0,1].
+                expect(res.parameter).toBeGreaterThanOrEqual(0);
+                expect(res.parameter).toBeLessThanOrEqual(1);
+                expectVectorClose(res.closest[0],
+                    add(seg.p[0],
+                        mul(res.parameter, sub(seg.p[1], seg.p[0]))), 1e-9,
+                    1e-9);
+                v21CheckShapePoint(s, res);
+            });
+        });
+
+    it('matches a convex minimization along the segment', () => {
+        check(fc.tuple(v21Segment, v21Shape), ([seg, s]) => {
+            const res = query.compute(seg, s);
+            const dir = sub(seg.p[1], seg.p[0]);
+            const f = (t: number): number =>
+                v21PointDistance(add(seg.p[0], mul(t, dir)), s);
+            expectClose(res.distance, v21MinOnInterval(f, 0, 1), 1e-7, 1e-7);
+        }, 60);
+    }, 30000);
+
+    it('agrees with the line query inside [0,1] and the point query outside',
+        () => {
+            check(fc.tuple(v21Segment, v21Shape), ([seg, s]) => {
+                const line = Line.fromOriginDirection(seg.p[0],
+                    sub(seg.p[1], seg.p[0]));
+                const lr = new DistLine2AlignedBox2().compute(line, s);
+                const sr = query.compute(seg, s);
+                if (lr.parameter >= 0 && lr.parameter <= 1) {
+                    expect(sr.parameter).toBe(lr.parameter);
+                    expect(sr.distance).toBe(lr.distance);
+                    expectVectorClose(sr.closest[0], lr.closest[0], 0, 0);
+                    expectVectorClose(sr.closest[1], lr.closest[1], 0, 0);
+                }
+                else {
+                    const end = lr.parameter < 0 ? 0 : 1;
+                    expect(sr.parameter).toBe(end);
+                    expectVectorClose(sr.closest[0], seg.p[end], 0, 0);
+                    expect(sr.distance)
+                        .toBe(v21PointDistance(seg.p[end], s));
+                }
+            });
+        });
+
+    it('reports zero distance when an endpoint is on the shape', () => {
+        check(fc.tuple(v21ShapePoint, wellScaledVector(2, -6, 6)),
+            ([[s, q], other]) => {
+                const seg = Segment.fromEndpoints(q, add(q, other));
+                const zres = query.compute(seg, s);
+                // The segment contains q, so its distance to the shape is at
+                // most q's own distance to the shape. That distance is zero
+                // in exact arithmetic; the sampled shape point carries
+                // rounding error that grows with the coordinate magnitudes
+                // and, for a thin triangle, with 1/area, so the near-zero
+                // bound is scale relative.
+                const pd = v21PointDistance(q, s);
+                expect(zres.distance).toBeLessThanOrEqual(pd + 1e-9);
+                expect(pd).toBeLessThanOrEqual(1e-7 * (1 + length(q)));
+            });
+    });
+
+    it('is invariant under a common translation', () => {
+        // An aligned box is not closed under rotation, so only translations
+        // move the whole configuration rigidly.
+        check(fc.tuple(v21Segment, v21Shape, rotationFrame(2),
+            wellScaledVector(2, -5, 5)), ([seg, s, R, tr]) => {
+            void R;
+            const rot = (x: Vector): Vector => x.clone();
+            const moved = Segment.fromEndpoints(add(rot(seg.p[0]), tr),
+                add(rot(seg.p[1]), tr));
+            const r0 = query.compute(seg, s);
+            const r1 = query.compute(moved, v21MoveShape(s, rot, tr));
+            expectClose(r0.distance, r1.distance, 1e-8, 1e-8);
+        });
+    });
+
+    it('a short segment agrees with the point query at its first endpoint',
+        () => {
+            check(fc.tuple(wellScaledVector(2, -8, 8), unitVector(2),
+                v21Shape), ([p0, d, s]) => {
+                const seg = Segment.fromEndpoints(p0, add(p0, mul(1e-9, d)));
+                const res = query.compute(seg, s);
+                expectClose(res.distance, v21PointDistance(p0, s), 1e-7,
+                    1e-7);
+            });
+        });
+
+    it('does not mutate its inputs', () => {
+        check(fc.tuple(v21Segment, v21Shape), ([seg, s]) => {
+            const p0 = seg.p[0].clone();
+            const p1 = seg.p[1].clone();
+            const snapshot = v21ShapeSnapshot(s);
+            const res = query.compute(seg, s);
+            expect(seg.p[0].values).toEqual(p0.values);
+            expect(seg.p[1].values).toEqual(p1.values);
+            expect(v21ShapeSnapshot(s)).toEqual(snapshot);
+            res.closest[0].values[0] = 4242;
+            res.closest[1].values[0] = 4242;
+            expect(seg.p[0].values).toEqual(p0.values);
+            expect(v21ShapeSnapshot(s)).toEqual(snapshot);
+        });
     });
 });
