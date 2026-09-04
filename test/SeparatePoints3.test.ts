@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { SeparatePoints3 } from '../src/SeparatePoints3.js';
 import { Vector, dot } from '../src/Vector.js';
+import { check, fc, latticeVector } from './helpers/arbitraries.js';
+import { exactDyadic } from './helpers/exact.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -282,4 +284,177 @@ describe('SeparatePoints3', () => {
             expect(query.compute(points0, points1).separated).toBe(false);
         }
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V13): property-based cross-checks against an exact oracle.
+// ---------------------------------------------------------------------------
+
+// An exact separating-plane search that is independent of the port. Instead of
+// the convex hulls it enumerates every candidate plane the separating-axis
+// theorem can require directly from the input points: the plane through each
+// triple of points of one set, and the plane through a point of set 0 whose
+// normal is the cross product of a point pair from set 0 with a point pair from
+// set 1. Every hull face normal and every hull edge-edge cross product is in
+// this (much larger) family, so for point sets whose hulls are three
+// dimensional the search succeeds exactly when the two convex hulls have
+// disjoint interiors -- the specification of the query. All arithmetic is
+// bigint on the exact dyadic representation of the coordinates, so the
+// decision has no round-off.
+function exactSeparated(points0: readonly Vector[],
+    points1: readonly Vector[]): boolean {
+    const all: number[] = [];
+    for (const p of points0) { all.push(...p.values); }
+    for (const p of points1) { all.push(...p.values); }
+    const s = exactDyadic(all);
+    const pack = (offset: number, count: number): bigint[][] => {
+        const out: bigint[][] = [];
+        for (let i = 0; i < count; ++i) {
+            const k = 3 * (offset + i);
+            out.push([s[k], s[k + 1], s[k + 2]]);
+        }
+        return out;
+    };
+    const P0 = pack(0, points0.length);
+    const P1 = pack(points0.length, points1.length);
+
+    const subv = (a: bigint[], b: bigint[]): bigint[] =>
+        [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    const crossv = (a: bigint[], b: bigint[]): bigint[] => [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0]
+    ];
+    // -1, 0, +1 as the sign of the exact signed distance; 2 when every point
+    // of the set lies on the plane and 0 when the plane splits the set.
+    const side = (P: bigint[][], n: bigint[], o: bigint[]): number => {
+        let pos = 0, neg = 0;
+        for (const q of P) {
+            const d = subv(q, o);
+            const e = n[0] * d[0] + n[1] * d[1] + n[2] * d[2];
+            if (e > 0n) { ++pos; } else if (e < 0n) { ++neg; }
+            if (pos !== 0 && neg !== 0) { return 0; }
+        }
+        return pos !== 0 ? 1 : (neg !== 0 ? -1 : 2);
+    };
+    const separates = (n: bigint[], o: bigint[]): boolean => {
+        if (n[0] === 0n && n[1] === 0n && n[2] === 0n) { return false; }
+        const s0 = side(P0, n, o);
+        const s1 = side(P1, n, o);
+        if (s0 === 0 || s1 === 0) { return false; }
+        if (s0 === 2 && s1 === 2) { return false; }   // both sets on the plane
+        if (s0 === 2 || s1 === 2) { return true; }
+        return s0 * s1 < 0;
+    };
+
+    for (const P of [P0, P1]) {
+        for (let a = 0; a < P.length; ++a) {
+            for (let b = a + 1; b < P.length; ++b) {
+                for (let c = b + 1; c < P.length; ++c) {
+                    if (separates(crossv(subv(P[b], P[a]), subv(P[c], P[a])),
+                        P[a])) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    for (let a = 0; a < P0.length; ++a) {
+        for (let b = a + 1; b < P0.length; ++b) {
+            const d0 = subv(P0[b], P0[a]);
+            for (let c = 0; c < P1.length; ++c) {
+                for (let d = c + 1; d < P1.length; ++d) {
+                    if (separates(crossv(d0, subv(P1[d], P1[c])), P0[a])) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+
+// A lattice point set whose convex hull is guaranteed to be three dimensional:
+// a unit tetrahedron at a lattice base plus extra lattice points near it. Small
+// integers are exact in binary64 and stay exact through the hull predicates and
+// the bigint oracle above.
+const latticeSolid = (spread: number): fc.Arbitrary<Vector[]> =>
+    fc.tuple(latticeVector(3, -spread, spread),
+        fc.array(latticeVector(3, -2, 2), { minLength: 3, maxLength: 5 }))
+        .map(([base, extra]) => {
+            const at = (dx: number, dy: number, dz: number): Vector =>
+                v3(base.get(0) + dx, base.get(1) + dy, base.get(2) + dz);
+            const points = [at(0, 0, 0), at(1, 0, 0), at(0, 1, 0), at(0, 0, 1)];
+            for (const e of extra) {
+                points.push(at(e.get(0), e.get(1), e.get(2)));
+            }
+            return points;
+        });
+
+describe('SeparatePoints3 verification', () => {
+    const query = new SeparatePoints3();
+
+    // With this generator roughly half of the draws are separated and half
+    // overlap, so both answers are exercised.
+    it('agrees with an exact separating-plane search on lattice input', () => {
+        check(fc.tuple(latticeSolid(1), latticeSolid(1)), ([p0, p1]) => {
+            const actual = query.compute(p0, p1).separated;
+            expect(actual).toBe(exactSeparated(p0, p1));
+        }, 120);
+    }, 30000);
+
+    it('is symmetric under an argument swap', () => {
+        check(fc.tuple(latticeSolid(1), latticeSolid(2)), ([p0, p1]) => {
+            expect(query.compute(p1, p0).separated)
+                .toBe(query.compute(p0, p1).separated);
+        }, 120);
+    }, 30000);
+
+    it('reports a plane that really separates the sets', () => {
+        check(fc.tuple(latticeSolid(4), latticeSolid(4)), ([p0, p1]) => {
+            const result = query.compute(p0, p1);
+            if (result.separated) {
+                verifySeparation(result.separatingPlane, p0, p1);
+            }
+        }, 120);
+    }, 30000);
+
+    it('never separates sets that share a common interior point', () => {
+        // Both sets contain the cube [-1,1]^3 shifted to a common center, so
+        // their hulls have a common interior and no separation exists.
+        check(fc.tuple(latticeVector(3, -5, 5),
+            fc.array(latticeVector(3, -3, 3), { minLength: 4, maxLength: 6 }),
+            fc.array(latticeVector(3, -3, 3), { minLength: 4, maxLength: 6 })),
+        ([c, e0, e1]) => {
+            const shell = (extra: Vector[]): Vector[] => {
+                const points: Vector[] = [];
+                for (const x of [-1, 1]) {
+                    for (const y of [-1, 1]) {
+                        for (const z of [-1, 1]) {
+                            points.push(v3(c.get(0) + x, c.get(1) + y,
+                                c.get(2) + z));
+                        }
+                    }
+                }
+                for (const p of extra) {
+                    points.push(v3(c.get(0) + 2 * p.get(0),
+                        c.get(1) + 2 * p.get(1), c.get(2) + 2 * p.get(2)));
+                }
+                return points;
+            };
+            expect(query.compute(shell(e0), shell(e1)).separated).toBe(false);
+        }, 60);
+    }, 30000);
+
+    it('reports no separation for degenerate (non-3D) hulls', () => {
+        check(fc.tuple(fc.array(latticeVector(3, -6, 6),
+            { minLength: 4, maxLength: 8 }), latticeSolid(3)),
+        ([flat, solid]) => {
+            // Project the first set onto the plane z = 0: its hull has
+            // dimension at most 2, so the query must decline.
+            const planar = flat.map(p => v3(p.get(0), p.get(1), 0));
+            expect(query.compute(planar, solid).separated).toBe(false);
+            expect(query.compute(solid, planar).separated).toBe(false);
+        }, 60);
+    }, 30000);
 });
