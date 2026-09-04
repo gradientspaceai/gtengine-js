@@ -51,8 +51,20 @@ export class ApprHeightPlane3 extends ApprQuery<Vector> {
                     mean.values[d] += p.values[d];
                 }
             }
-            for (let d = 0; d < 3; ++d) {
-                mean.values[d] /= numIndices;
+            // Upstream is 'mean /= (Real)numIndices'. GTE's Vector
+            // operator/= multiplies by the reciprocal when the divisor is
+            // nonzero and zeroes the vector when it is zero; both are
+            // reproduced here so the arithmetic matches bit for bit.
+            if (numIndices !== 0) {
+                const invSize = 1 / numIndices;
+                for (let d = 0; d < 3; ++d) {
+                    mean.values[d] *= invSize;
+                }
+            }
+            else {
+                for (let d = 0; d < 3; ++d) {
+                    mean.values[d] = 0;
+                }
             }
 
             // Compute the covariance matrix of the points.

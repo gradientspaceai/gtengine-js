@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { ApprCircle2 } from '../src/ApprCircle2.js';
 import { Hypersphere } from '../src/Hypersphere.js';
 import { Vector } from '../src/Vector.js';
+import { check, expectClose, fc, finite, positive, vector } from './helpers/arbitraries.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -165,5 +166,132 @@ describe('ApprCircle2.fitUsingLengths', () => {
         expect(circle.radius).toBeCloseTo(4 / 5, 12);
         expect(circle.center.values[0]).toBeCloseTo(0, 12);
         expect(circle.center.values[1]).toBeCloseTo(0, 12);
+    });
+});
+
+describe('ApprCircle2 verification', () => {
+    // k points equally spaced on the circle with the given center/radius,
+    // starting at the given angular offset.
+    const circlePoints = (cx: number, cy: number, r: number, k: number,
+        offset: number): Vector[] => {
+        const points: Vector[] = [];
+        for (let i = 0; i < k; ++i) {
+            const t = offset + (2 * Math.PI * i) / k;
+            points.push(Vector.fromArray(
+                [cx + r * Math.cos(t), cy + r * Math.sin(t)]));
+        }
+        return points;
+    };
+
+    const circleArb = fc.tuple(finite(-5, 5), finite(-5, 5), positive(5, 0.5),
+        fc.integer({ min: 3, max: 12 }), finite(0, 2 * Math.PI));
+
+    it('fitUsingSquaredLengths recovers a circle its samples lie on', () => {
+        // The algebraic error sum_i (|X_i-C|^2 - r^2)^2 is zero at the true
+        // circle, which is therefore the global minimizer the normal
+        // equations solve for. Equally spaced samples keep the 2x2 system
+        // well conditioned, so the tolerance is a few ulps of the data.
+        check(circleArb, ([cx, cy, r, k, offset]) => {
+            const points = circlePoints(cx, cy, r, k, offset);
+            const circle = new Hypersphere(2);
+            expect(new ApprCircle2().fitUsingSquaredLengths(points, circle))
+                .toBe(true);
+            expectClose(circle.center.get(0), cx, 1e-9, 1e-9);
+            expectClose(circle.center.get(1), cy, 1e-9, 1e-9);
+            expectClose(circle.radius, r, 1e-9, 1e-9);
+        });
+    });
+
+    it('fitUsingSquaredLengths is equivariant under translation', () => {
+        check(fc.tuple(circleArb, vector(2, -20, 20)),
+            ([[cx, cy, r, k, offset], t]) => {
+                const points = circlePoints(cx, cy, r, k, offset);
+                const shifted = points.map(p => Vector.fromArray(
+                    [p.get(0) + t.get(0), p.get(1) + t.get(1)]));
+
+                const a = new Hypersphere(2);
+                const b = new Hypersphere(2);
+                const fitter = new ApprCircle2();
+                expect(fitter.fitUsingSquaredLengths(points, a)).toBe(true);
+                expect(fitter.fitUsingSquaredLengths(shifted, b)).toBe(true);
+
+                // Translation moves the fitted center and leaves the radius.
+                expectClose(b.center.get(0), a.center.get(0) + t.get(0),
+                    1e-8, 1e-8);
+                expectClose(b.center.get(1), a.center.get(1) + t.get(1),
+                    1e-8, 1e-8);
+                expectClose(b.radius, a.radius, 1e-8, 1e-8);
+            });
+    });
+
+    it('fitUsingSquaredLengths fails and zeroes the circle for degenerate '
+        + 'samples', () => {
+            // Samples on the x-axis give M01 = M11 = 0 exactly, so the 2x2
+            // determinant is exactly zero and upstream takes the failure
+            // branch. Coincident samples zero the whole covariance matrix.
+            check(fc.tuple(fc.array(finite(-10, 10),
+                { minLength: 1, maxLength: 8 }), vector(2, -10, 10)),
+                ([xs, p]) => {
+                    const onAxis = xs.map(x => Vector.fromArray([x, 0]));
+                    const coincident = xs.map(() => p.clone());
+                    for (const points of [onAxis, coincident]) {
+                        const circle = Hypersphere.fromCenterRadius(
+                            Vector.fromArray([7, 8]), 9);
+                        expect(new ApprCircle2()
+                            .fitUsingSquaredLengths(points, circle))
+                            .toBe(false);
+                        expect(circle.center.values).toEqual([0, 0]);
+                        expect(circle.radius).toBe(0);
+                    }
+                });
+        });
+
+    it('fitUsingLengths keeps a symmetric exact fit at its fixed point',
+        () => {
+            // For equally spaced samples the average of the unit vectors
+            // from the true center vanishes, so C = average + L*dL is the
+            // true center and the radius is the true radius.
+            check(circleArb, ([cx, cy, r, k, offset]) => {
+                const points = circlePoints(cx, cy, r, k, offset);
+                const circle = new Hypersphere(2);
+                const iterations = new ApprCircle2().fitUsingLengths(
+                    points, 8, true, circle);
+                expect(iterations).toBeLessThanOrEqual(8);
+                expectClose(circle.center.get(0), cx, 1e-8, 1e-8);
+                expectClose(circle.center.get(1), cy, 1e-8, 1e-8);
+                expectClose(circle.radius, r, 1e-8, 1e-8);
+            });
+        });
+
+    it('fitUsingLengths honors maxIterations and epsilon', () => {
+        check(circleArb, ([cx, cy, r, k, offset]) => {
+            const points = circlePoints(cx, cy, r, k, offset);
+
+            // Zero iterations leaves the incoming circle untouched.
+            const untouched = Hypersphere.fromCenterRadius(
+                Vector.fromArray([1, 2]), 3);
+            expect(new ApprCircle2().fitUsingLengths(points, 0, false,
+                untouched)).toBe(0);
+            expect(untouched.center.values).toEqual([1, 2]);
+            expect(untouched.radius).toBe(3);
+
+            // A huge epsilon stops after the very first update, which
+            // upstream reports as iteration 0.
+            const early = new Hypersphere(2);
+            expect(new ApprCircle2().fitUsingLengths(points, 25, true, early,
+                1e6)).toBe(0);
+        });
+    });
+
+    it('neither fit mutates its input samples', () => {
+        check(circleArb, ([cx, cy, r, k, offset]) => {
+            const points = circlePoints(cx, cy, r, k, offset);
+            const before = points.map(p => [...p.values]);
+            const circle = new Hypersphere(2);
+            const fitter = new ApprCircle2();
+            fitter.fitUsingSquaredLengths(points, circle);
+            fitter.fitUsingLengths(points, 4, true, circle);
+            expect(points.map(p => [...p.values])).toEqual(before);
+        });
     });
 });

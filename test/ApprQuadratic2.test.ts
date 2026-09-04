@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { ApprQuadratic2, ApprQuadraticCircle2 } from '../src/ApprQuadratic2.js';
 import { Hypersphere } from '../src/Hypersphere.js';
-import { Vector } from '../src/Vector.js';
+import { Vector, dot } from '../src/Vector.js';
+import { check, expectClose, expectVectorClose, fc, finite, positive, rotationFrame, wellScaledVector } from './helpers/arbitraries.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -187,5 +188,186 @@ describe('ApprQuadraticCircle2', () => {
         expect(Math.abs(circle.center.get(1) - center.get(1))).toBeLessThan(d);
         expect(circle.radius).toBeGreaterThan(radius - d);
         expect(circle.radius).toBeLessThan(radius + d);
+    });
+});
+
+describe('ApprQuadratic2 verification', () => {
+    // wellScaledVector keeps every coordinate either exactly zero or above
+    // 1e-3: the monomial vector contains x^2 and x^4 terms, whose subnormal
+    // products would otherwise leave the eigensolver with no mantissa to
+    // work with.
+    //
+    // V = (1, x, y, x^2, x*y, y^2), the monomial vector the fit uses.
+    const monomials = (p: Vector): number[] => {
+        const x = p.get(0), y = p.get(1);
+        return [1, x, y, x * x, x * y, y * y];
+    };
+
+    // Samples on the ellipse center + a*cos(t)*U + b*sin(t)*V.
+    const ellipsePoints = (center: Vector, a: number, b: number,
+        frame: readonly Vector[], k: number, offset: number): Vector[] => {
+        const points: Vector[] = [];
+        for (let i = 0; i < k; ++i) {
+            const t = offset + (2 * Math.PI * i) / k;
+            const ca = a * Math.cos(t), sb = b * Math.sin(t);
+            points.push(Vector.fromArray([
+                center.get(0) + ca * frame[0].get(0) + sb * frame[1].get(0),
+                center.get(1) + ca * frame[0].get(1) + sb * frame[1].get(1)]));
+        }
+        return points;
+    };
+
+    const ellipseArb = fc.tuple(wellScaledVector(2, -3, 3), positive(3, 0.5),
+        positive(3, 0.5), rotationFrame(2),
+        fc.integer({ min: 6, max: 14 }), finite(0, 2 * Math.PI));
+
+    it('the reported measure is the mean squared conic residual', () => {
+        // M is (1/n) * sum_i V_i * V_i^T (the header's rank-one formula is a
+        // typo), so for the returned unit eigenvector c the minimum
+        // eigenvalue equals c^T M c = (1/n) * sum_i Dot(V_i, c)^2. That
+        // identity exercises every entry of the 6x6 assembly, including the
+        // aliased ones copied in after the accumulation loop.
+        check(fc.array(wellScaledVector(2, -6, 6), { minLength: 1, maxLength: 12 }),
+            points => {
+                const { coefficients, minEigenvalue } =
+                    new ApprQuadratic2().compute(points);
+                expect(coefficients.length).toBe(6);
+
+                let sum = 0, scale = 0;
+                for (const p of points) {
+                    const v = monomials(p);
+                    const d = v.reduce((u, t, i) => u + t * coefficients[i], 0);
+                    sum += d * d;
+                    scale += v.reduce((u, t) => u + t * t, 0);
+                }
+                sum /= points.length;
+                scale /= points.length;
+                expect(Math.abs(minEigenvalue - sum))
+                    .toBeLessThanOrEqual(1e-8 + 1e-8 * scale);
+                expect(minEigenvalue).toBeGreaterThanOrEqual(0);
+            });
+    });
+
+    it('returns a unit-length coefficient vector', () => {
+        check(fc.array(wellScaledVector(2, -6, 6), { minLength: 1, maxLength: 12 }),
+            points => {
+                const { coefficients } = new ApprQuadratic2().compute(points);
+                const norm = coefficients.reduce((u, c) => u + c * c, 0);
+                expectClose(norm, 1, 1e-9, 1e-9);
+            });
+    });
+
+    it('fits an ellipse its samples lie on exactly', () => {
+        check(ellipseArb, ([center, a, b, frame, k, offset]) => {
+            const points = ellipsePoints(center, a, b, frame, k, offset);
+            const { coefficients, minEigenvalue } =
+                new ApprQuadratic2().compute(points);
+
+            // Every sample satisfies the fitted conic.
+            let scale = 0;
+            for (const p of points) {
+                const v = monomials(p);
+                scale += v.reduce((u, t) => u + t * t, 0);
+            }
+            scale /= points.length;
+            expect(minEigenvalue).toBeLessThanOrEqual(1e-10 * scale + 1e-14);
+
+            for (const p of points) {
+                const v = monomials(p);
+                expect(Math.abs(v.reduce(
+                    (u, t, i) => u + t * coefficients[i], 0)))
+                    .toBeLessThanOrEqual(1e-6 * Math.sqrt(scale));
+            }
+        });
+    });
+
+    it('handles degenerate sample sets without throwing', () => {
+        // Coincident samples make M rank one; upstream still returns the
+        // eigenvector of the smallest eigenvalue and clamps the measure to
+        // be nonnegative.
+        check(fc.tuple(wellScaledVector(2, -5, 5), fc.integer({ min: 1, max: 6 })),
+            ([p, n]) => {
+                const points = Array.from({ length: n }, () => p.clone());
+                const { coefficients, minEigenvalue } =
+                    new ApprQuadratic2().compute(points);
+                expect(minEigenvalue).toBeGreaterThanOrEqual(0);
+                expect(coefficients.every(Number.isFinite)).toBe(true);
+            });
+    });
+});
+
+describe('ApprQuadraticCircle2 verification', () => {
+    const circlePoints = (center: Vector, r: number, k: number,
+        offset: number): Vector[] => {
+        const points: Vector[] = [];
+        for (let i = 0; i < k; ++i) {
+            const t = offset + (2 * Math.PI * i) / k;
+            points.push(Vector.fromArray([center.get(0) + r * Math.cos(t),
+                center.get(1) + r * Math.sin(t)]));
+        }
+        return points;
+    };
+
+    const circleArb = fc.tuple(wellScaledVector(2, -4, 4), positive(4, 0.5),
+        fc.integer({ min: 3, max: 12 }), finite(0, 2 * Math.PI));
+
+    it('recovers a circle its samples lie on', () => {
+        check(circleArb, ([center, r, k, offset]) => {
+            const points = circlePoints(center, r, k, offset);
+            const circle = new Hypersphere(2);
+            const measure = new ApprQuadraticCircle2().compute(points, circle);
+
+            expect(measure).toBeGreaterThanOrEqual(0);
+            expect(measure).toBeLessThan(1e-9);
+            expectVectorClose(circle.center, center, 1e-7, 1e-7);
+            expectClose(circle.radius, r, 1e-7, 1e-7);
+        });
+    });
+
+    it('reports the center and radius implied by the fitted coefficients',
+        () => {
+            // The documented relations are (xc,yc) = -(C[1],C[2])/2 and
+            // r = sqrt(xc^2 + yc^2 - C[0]) for the normalized coefficients,
+            // with the radius clamped to be nonnegative.
+            check(fc.array(wellScaledVector(2, -6, 6), { minLength: 3, maxLength: 12 }),
+                points => {
+                    const circle = new Hypersphere(2);
+                    const measure =
+                        new ApprQuadraticCircle2().compute(points, circle);
+                    expect(measure).toBeGreaterThanOrEqual(0);
+
+                    if (!Number.isFinite(circle.radius)
+                        || !circle.center.values.every(Number.isFinite)) {
+                        // C'[3] can vanish for degenerate data, and upstream
+                        // divides by it unguarded (pinned separately below).
+                        return;
+                    }
+                    expect(circle.radius).toBeGreaterThanOrEqual(0);
+                    const c0 = dot(circle.center, circle.center)
+                        - circle.radius * circle.radius;
+                    // Every sample satisfies c0 + C1*x + C2*y + x^2 + y^2 = 0
+                    // only for an exact fit, so just check the relation
+                    // between center, radius and c0 is self-consistent.
+                    expectClose(circle.radius,
+                        Math.sqrt(Math.max(
+                            dot(circle.center, circle.center) - c0, 0)),
+                        1e-9, 1e-9);
+                });
+        });
+
+    it('divides by a vanishing C[3] without a guard', () => {
+        // The circle coefficients are C'[i]/C'[3]. For coincident samples at
+        // the origin the eigenvector of the smallest eigenvalue is (0,1,0,0),
+        // so C'[3] is zero and the reported center and radius are
+        // -Infinity/NaN rather than a failure. Preserved from upstream.
+        check(fc.integer({ min: 1, max: 6 }), n => {
+            const points = Array.from({ length: n },
+                () => Vector.fromArray([0, 0]));
+            const circle = Hypersphere.fromCenterRadius(
+                Vector.fromArray([1, 2]), 3);
+            const measure = new ApprQuadraticCircle2().compute(points, circle);
+            expect(measure).toBe(0);
+            expect(Number.isNaN(circle.radius)).toBe(true);
+        });
     });
 });

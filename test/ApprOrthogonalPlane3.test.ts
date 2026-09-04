@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { ApprOrthogonalPlane3 } from '../src/ApprOrthogonalPlane3.js';
-import { Vector, dot } from '../src/Vector.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { check, expectClose, fc, positive, rotationFrame, vector, wellScaledVector } from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -155,5 +156,137 @@ describe('ApprOrthogonalPlane3', () => {
         expect(target.getParameters().origin.values[2]).toBeCloseTo(5, 12);
         source.getParameters().origin.values[2] = 0;
         expect(target.getParameters().origin.values[2]).toBeCloseTo(5, 12);
+    });
+});
+
+describe('ApprOrthogonalPlane3 verification', () => {
+    const pointsArb = fc.array(wellScaledVector(3, -10, 10),
+        { minLength: 3, maxLength: 12 });
+
+    it('reports the mean as the origin and a unit-length normal', () => {
+        check(pointsArb, points => {
+            const fitter = new ApprOrthogonalPlane3();
+            fitter.fit(points);
+            const p = fitter.getParameters();
+
+            const mean = [0, 0, 0];
+            for (const q of points) {
+                for (let d = 0; d < 3; ++d) { mean[d] += q.get(d); }
+            }
+            const invN = 1 / points.length;
+            for (let d = 0; d < 3; ++d) {
+                expectClose(p.origin.get(d), mean[d] * invN, 1e-9, 1e-9);
+            }
+            expectClose(dot(p.normal, p.normal), 1, 1e-12, 1e-12);
+        });
+    });
+
+    it('the model error is the distance to the fitted plane', () => {
+        check(fc.tuple(pointsArb, vector(3, -20, 20)), ([points, q]) => {
+            const fitter = new ApprOrthogonalPlane3();
+            fitter.fit(points);
+            const p = fitter.getParameters();
+
+            // Independent computation: drop q onto the plane and measure.
+            const diff = sub(q, p.origin);
+            const signed = dot(diff, p.normal);
+            const foot = sub(q, mul(signed, p.normal));
+            const d = sub(q, foot);
+            expectClose(fitter.error(q), Math.sqrt(dot(d, d)), 1e-9, 1e-9);
+            expect(fitter.error(q)).toBeGreaterThanOrEqual(0);
+        });
+    });
+
+    it('recovers a plane its samples lie on', () => {
+        check(fc.tuple(wellScaledVector(3, -8, 8), rotationFrame(3),
+            fc.tuple(positive(8, 1), positive(8, 1),
+                fc.array(wellScaledVector(2, -5, 5), { maxLength: 6 })),
+            ), ([origin, frame, [a, b, extra]]) => {
+                const planar = [[0, 0], [a, 0], [0, b],
+                    ...extra.map(q => [q.get(0), q.get(1)])];
+                const points = planar.map(([u, v]) => add(origin,
+                    add(mul(u, frame[0]), mul(v, frame[1]))));
+
+                const fitter = new ApprOrthogonalPlane3();
+                expect(fitter.fit(points)).toBe(true);
+                const p = fitter.getParameters();
+
+                // The fitted normal is the plane normal up to sign.
+                expectClose(Math.abs(dot(p.normal, frame[2])), 1, 1e-7, 1e-7);
+                for (const q of points) {
+                    expectClose(fitter.error(q), 0, 1e-8, 0);
+                }
+            });
+    });
+
+    it('the total squared fit error is invariant under a rigid motion',
+        () => {
+            // sum_i error(P_i)^2 is the least-squares objective, a spectral
+            // quantity of the covariance and therefore a rigid invariant,
+            // unlike the normal itself when the two smallest eigenvalues are
+            // close.
+            check(fc.tuple(pointsArb, rotationFrame(3),
+                wellScaledVector(3, -10, 10)), ([points, frame, t]) => {
+                    const move = (p: Vector): Vector => add(t,
+                        add(mul(p.get(0), frame[0]),
+                            add(mul(p.get(1), frame[1]),
+                                mul(p.get(2), frame[2]))));
+
+                    const f0 = new ApprOrthogonalPlane3();
+                    const f1 = new ApprOrthogonalPlane3();
+                    f0.fit(points);
+                    f1.fit(points.map(move));
+
+                    let e0 = 0, e1 = 0, scale = 0;
+                    for (const p of points) {
+                        e0 += f0.error(p) ** 2;
+                        e1 += f1.error(move(p)) ** 2;
+                        scale += dot(p, p);
+                    }
+                    expect(Math.abs(e1 - e0))
+                        .toBeLessThanOrEqual(1e-7 + 1e-7 * scale);
+                });
+        });
+
+    it('reports a non-unique fit for isotropic and coincident data', () => {
+        // The six samples (+/-r,0,0), (0,+/-r,0), (0,0,+/-r) have covariance
+        // (r^2/3) * I, so the minimum eigenvalue is not simple.
+        check(fc.integer({ min: 1, max: 8 }), r => {
+            const isotropic: Vector[] = [];
+            for (let d = 0; d < 3; ++d) {
+                for (const s of [r, -r]) {
+                    const p = new Vector(3);
+                    p.set(d, s);
+                    isotropic.push(p);
+                }
+            }
+            const coincident = [Vector.fromArray([r, r, r]),
+                Vector.fromArray([r, r, r]), Vector.fromArray([r, r, r])];
+            for (const points of [isotropic, coincident]) {
+                const fitter = new ApprOrthogonalPlane3();
+                expect(fitter.fit(points)).toBe(false);
+                expectClose(dot(fitter.getParameters().normal,
+                    fitter.getParameters().normal), 1, 1e-12, 1e-12);
+            }
+        });
+    });
+
+    it('copyParameters deep-copies the parameters', () => {
+        check(pointsArb, points => {
+            const source = new ApprOrthogonalPlane3();
+            source.fit(points);
+            const target = new ApprOrthogonalPlane3();
+            target.copyParameters(source);
+
+            const s = source.getParameters();
+            const t = target.getParameters();
+            expect(t.origin).not.toBe(s.origin);
+            expect(t.normal).not.toBe(s.normal);
+            expect([...t.origin.values]).toEqual([...s.origin.values]);
+            expect([...t.normal.values]).toEqual([...s.normal.values]);
+
+            s.origin.set(0, 4321);
+            expect(t.origin.get(0)).not.toBe(4321);
+        });
     });
 });

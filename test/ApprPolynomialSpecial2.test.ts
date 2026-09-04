@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ApprPolynomialSpecial2 } from '../src/ApprPolynomialSpecial2.js';
 import { ApprQuery } from '../src/ApprQuery.js';
+import { check, expectClose, fc, finite } from './helpers/arbitraries.js';
 
 // Solve the 2x2 system A*X = B by Cramer's rule; an independent check.
 function solve2(A: number[][], B: number[]): number[] {
@@ -149,5 +150,189 @@ describe('ApprPolynomialSpecial2', () => {
         source.fit([-2, -1, 0, 1, 2].map((x) => [x, 1 - x * x]));
         expect(target.getParameters()).toEqual(copied);
         expect(target.evaluate(0.3)).toBe(value);
+    });
+});
+
+describe('ApprPolynomialSpecial2 verification', () => {
+    // Strictly increasing nonnegative powers, as the constructor demands.
+    const degreesArb = fc.array(fc.integer({ min: 0, max: 2 }),
+        { minLength: 1, maxLength: 3 })
+        .map(gaps => {
+            let acc = -1;
+            return gaps.map(g => (acc += g + 1));
+        });
+
+    // Well-separated abscissas so the transformed normal equations are
+    // conditioned; the transform needs xmax > xmin to be finite at all.
+    const abscissas = (count: number) =>
+        fc.array(finite(0.4, 1.4), { minLength: count, maxLength: count })
+            .map(gaps => {
+                let acc = -2;
+                return gaps.map(g => (acc += g));
+            });
+
+    const configArb = degreesArb.chain(degrees => fc.tuple(
+        fc.constant(degrees),
+        abscissas(degrees.length + 3),
+        fc.array(finite(-4, 4),
+            { minLength: degrees.length + 3, maxLength: degrees.length + 3 })
+            .filter(ws => Math.max(...ws) - Math.min(...ws) > 0.5)));
+
+    it('is a least-squares fit in the transformed coordinates', () => {
+        // Upstream maps the samples to [-1,1]^2 before fitting, so the
+        // residual of the transformed model is orthogonal to every basis
+        // function (x')^{p_i}.
+        check(configArb, ([degrees, xs, ws]) => {
+            const observations = xs.map((x, i) => [x, ws[i]]);
+            const fitter = new ApprPolynomialSpecial2(degrees);
+            if (!fitter.fit(observations)) { return; }
+            const c = fitter.getParameters();
+
+            const xmin = Math.min(...xs), xmax = Math.max(...xs);
+            const wmin = Math.min(...ws), wmax = Math.max(...ws);
+            const tx = (x: number): number =>
+                -1 + (2 * (x - xmin)) / (xmax - xmin);
+            const tw = (w: number): number =>
+                -1 + (2 * (w - wmin)) / (wmax - wmin);
+            const model = (xp: number): number => degrees.reduce(
+                (u, p, i) => u + c[i] * Math.pow(xp, p), 0);
+
+            for (let i = 0; i < degrees.length; ++i) {
+                let residual = 0, scale = 0;
+                for (const [x, w] of observations) {
+                    const xp = tx(x);
+                    const basis = Math.pow(xp, degrees[i]);
+                    residual += basis * (model(xp) - tw(w));
+                    scale += Math.abs(basis) * 2;
+                }
+                expect(Math.abs(residual))
+                    .toBeLessThanOrEqual(1e-8 + 1e-8 * scale);
+            }
+        });
+    });
+
+    it('evaluate applies the stored transform in both directions', () => {
+        // Evaluate maps x into [-1,1], sums c[i]*(x')^{p_i} and maps the
+        // result back with (w'+1)*mInvTwoWScale + wmin.
+        check(fc.tuple(configArb, finite(-6, 6)),
+            ([[degrees, xs, ws], x]) => {
+                const observations = xs.map((u, i) => [u, ws[i]]);
+                const fitter = new ApprPolynomialSpecial2(degrees);
+                if (!fitter.fit(observations)) { return; }
+                const c = fitter.getParameters();
+
+                const xmin = Math.min(...xs), xmax = Math.max(...xs);
+                const wmin = Math.min(...ws), wmax = Math.max(...ws);
+                const xp = -1 + (2 * (x - xmin)) / (xmax - xmin);
+                const wp = degrees.reduce(
+                    (u, p, i) => u + c[i] * Math.pow(xp, p), 0);
+                const expected = ((wp + 1) * (wmax - wmin)) / 2 + wmin;
+
+                const scale = 1 + Math.abs(expected);
+                expectClose(fitter.evaluate(x), expected, 1e-7 * scale, 1e-7);
+            });
+    });
+
+    it('reproduces samples of a full monomial basis exactly', () => {
+        // The affine transform of the samples preserves the span only when
+        // the term set is the full basis {1, x, ..., x^d}; then the exact fit
+        // survives the change of coordinates.
+        check(fc.tuple(fc.integer({ min: 0, max: 3 }), fc.array(finite(-3, 3),
+            { minLength: 4, maxLength: 4 })).chain(([d, c]) =>
+                fc.tuple(fc.constant(d), fc.constant(c.slice(0, d + 1)),
+                    abscissas(d + 3))),
+            ([d, c, xs]) => {
+                const degrees = Array.from({ length: d + 1 }, (_, i) => i);
+                const poly = (x: number): number =>
+                    c.reduce((u, v, i) => u + v * Math.pow(x, i), 0);
+                const observations = xs.map(x => [x, poly(x)]);
+                // Transform divides by (wmax - wmin), so constant height
+                // data has no fit at all (pinned separately below).
+                const hs = observations.map(o => o[1]);
+                if (Math.max(...hs) - Math.min(...hs) < 0.5) { return; }
+                const fitter = new ApprPolynomialSpecial2(degrees);
+                if (!fitter.fit(observations)) { return; }
+
+                const scale = c.reduce((u, v) => u + Math.abs(v), 0) + 1;
+                for (const [x, w] of observations) {
+                    expectClose(fitter.evaluate(x), w, 1e-6 * scale, 1e-6);
+                    expectClose(fitter.error([x, w]), 0, 1e-6 * scale, 0);
+                }
+            });
+    });
+
+    it('reports the term count and the domain of the most recent fit', () => {
+        // Unlike ApprPolynomial2, Transform assigns (rather than accumulates)
+        // the domain, so it tracks only the latest sample set.
+        check(fc.tuple(configArb, configArb),
+            ([[degrees, xs0, ws0], [, xs1, ws1]]) => {
+                const fitter = new ApprPolynomialSpecial2(degrees);
+                expect(fitter.getMinimumRequired()).toBe(degrees.length);
+                expect(fitter.getXDomain()[0]).toBe(Number.MAX_VALUE);
+
+                fitter.fit(xs0.map((x, i) => [x, ws0[i]]));
+                expect(fitter.getXDomain())
+                    .toEqual([Math.min(...xs0), Math.max(...xs0)]);
+
+                const shifted = xs1.map(x => x + 50);
+                fitter.fit(shifted.map((x, i) => [x, ws1[i % ws1.length]]));
+                expect(fitter.getXDomain())
+                    .toEqual([Math.min(...shifted), Math.max(...shifted)]);
+            });
+    });
+
+    it('rejects degree lists that are not strictly increasing', () => {
+        check(fc.array(fc.integer({ min: -2, max: 4 }),
+            { minLength: 0, maxLength: 4 }), degrees => {
+                const strictlyIncreasing = degrees.length > 0
+                    && degrees[0] >= 0
+                    && degrees.every((d, i) => i === 0 || d > degrees[i - 1]);
+                if (strictlyIncreasing) {
+                    expect(() => new ApprPolynomialSpecial2(degrees))
+                        .not.toThrow();
+                }
+                else if (degrees.length === 0) {
+                    expect(() => new ApprPolynomialSpecial2(degrees))
+                        .toThrowError('The input array must have elements.');
+                }
+                else {
+                    expect(() => new ApprPolynomialSpecial2(degrees))
+                        .toThrowError('Degrees must be increasing.');
+                }
+            });
+    });
+
+    it('copyParameters deep-copies the model', () => {
+        check(configArb, ([degrees, xs, ws]) => {
+            const source = new ApprPolynomialSpecial2(degrees);
+            if (!source.fit(xs.map((x, i) => [x, ws[i]]))) { return; }
+            const target = new ApprPolynomialSpecial2(degrees);
+            target.copyParameters(source);
+
+            expect([...target.getParameters()])
+                .toEqual([...source.getParameters()]);
+            expect(target.getParameters()).not.toBe(source.getParameters());
+            expect(target.getXDomain()).toEqual(source.getXDomain());
+            expect(target.evaluate(0.5)).toBe(source.evaluate(0.5));
+
+            const copied = [...target.getParameters()];
+            source.fit(xs.map((x, i) => [x, ws[i] + 10]));
+            expect([...target.getParameters()]).toEqual(copied);
+        });
+    });
+
+    it('produces NaN for constant height data', () => {
+        // Transform computes mScale[i] = 1 / (omax[i] - omin[i]) with no
+        // guard, so samples whose heights are all equal divide by zero and
+        // every transformed value is NaN. Preserved from upstream.
+        check(fc.tuple(fc.array(finite(0.4, 1.4),
+            { minLength: 4, maxLength: 4 }), finite(-5, 5)),
+            ([gaps, w]) => {
+                let acc = -2;
+                const xs = gaps.map(g => (acc += g));
+                const fitter = new ApprPolynomialSpecial2([0, 1]);
+                fitter.fit(xs.map(x => [x, w]));
+                expect(Number.isNaN(fitter.evaluate(xs[0]))).toBe(true);
+            });
     });
 });

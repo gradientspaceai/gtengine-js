@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { approximateCurveByArcs } from '../src/ApprCurveByArcs.js';
 import { ParametricCurve } from '../src/ParametricCurve.js';
 import { Vector, length as vectorLength, sub } from '../src/Vector.js';
+import { check, expectClose, expectVectorClose, fc, finite, positive, vector } from './helpers/arbitraries.js';
 
 // A circle of radius r centered at (cx,cy), traversed once on [0, 2*pi].
 // The speed is the constant r, so the arc-length subdivision is exact.
@@ -229,5 +230,171 @@ describe('approximateCurveByArcs', () => {
         const e16 = errorFor(16);
         expect(e16).toBeLessThan(e4);
         expect(e16).toBeLessThan(1e-3);
+    });
+});
+
+describe('ApprCurveByArcs verification', () => {
+    const curveArb = fc.oneof(
+        fc.tuple(positive(4, 0.5), finite(-5, 5), finite(-5, 5))
+            .map(([r, cx, cy]) => new CircleCurve(r, cx, cy)),
+        fc.tuple(positive(3, 0.5), positive(2, 0.2), positive(6, 2))
+            .map(([a, b, tmax]) => new SpiralCurve(a, b, tmax)));
+
+    // A closed curve needs at least two arcs: with one arc the chord
+    // endpoints coincide, D = P1 - P0 is zero and the bisection's
+    // precondition F(t0) < 0 < F(t1) fails (see the degenerate-input test
+    // below).
+    const configArb = fc.tuple(curveArb, fc.integer({ min: 2, max: 6 }));
+
+    it('fills the containers with 2*N+1 samples and N arcs', () => {
+        check(configArb, ([curve, numArcs]) => {
+            const { times, points, arcs } = approximateCurveByArcs(curve,
+                numArcs);
+            expect(times.length).toBe(2 * numArcs + 1);
+            expect(points.length).toBe(2 * numArcs + 1);
+            expect(arcs.length).toBe(numArcs);
+            for (const p of points) { expect(p.size).toBe(2); }
+        });
+    });
+
+    it('samples the curve at the reported times, subdividing by arc length',
+        () => {
+            check(configArb, ([curve, numArcs]) => {
+                const { times, points } = approximateCurveByArcs(curve,
+                    numArcs);
+                const numTimes = times.length;
+                const deltaLength = curve.getTotalLength() / (numTimes - 1);
+
+                for (let i = 0; i < numTimes; ++i) {
+                    // Every stored point is the curve position at its time.
+                    expectVectorClose(points[i],
+                        curve.getPosition(times[i]), 1e-9, 1e-9);
+
+                    if (i % 2 === 0) {
+                        // The even-indexed times subdivide by arc length.
+                        expectClose(curve.getLength(curve.getTMin(), times[i]),
+                            deltaLength * i, 1e-6, 1e-6);
+                    }
+                }
+
+                // The times increase; the odd ones come from bisection of the
+                // enclosing even bracket.
+                for (let i = 1; i < numTimes; ++i) {
+                    expect(times[i]).toBeGreaterThanOrEqual(times[i - 1]);
+                }
+            }, 40);
+        });
+
+    it('produces a C0 chain whose arcs interpolate all three samples', () => {
+        check(configArb, ([curve, numArcs]) => {
+            const { points, arcs } = approximateCurveByArcs(curve, numArcs);
+            for (let i = 0; i < numArcs; ++i) {
+                const arc = arcs[i];
+
+                // The endpoints are the even-indexed curve samples, and
+                // consecutive arcs share one, so the chain is C0.
+                expectVectorClose(arc.end[0], points[2 * i], 0, 0);
+                expectVectorClose(arc.end[1], points[2 * i + 2], 0, 0);
+                if (i > 0) {
+                    expectVectorClose(arc.end[0], arcs[i - 1].end[1], 0, 0);
+                }
+
+                if (arc.radius === Number.MAX_VALUE) {
+                    // The line-segment sentinel; the center is at infinity.
+                    expect(arc.center.values)
+                        .toEqual([Number.MAX_VALUE, Number.MAX_VALUE]);
+                    continue;
+                }
+
+                // Otherwise the circumscribed circle passes through the two
+                // endpoints and the midpoint sample.
+                const scale = 1 + Math.abs(arc.radius);
+                for (const q of [arc.end[0], arc.end[1], points[2 * i + 1]]) {
+                    expectClose(vectorLength(sub(q, arc.center)), arc.radius,
+                        1e-7 * scale, 1e-7);
+                }
+            }
+        }, 40);
+    });
+
+    it('places the arc midpoint on the perpendicular bisector of the chord',
+        () => {
+            // The bisection solves Dot(P1-P0, X(t) - (P0+P1)/2) = 0, so the
+            // midpoint sample is equidistant from the two endpoints.
+            check(configArb, ([curve, numArcs]) => {
+                const { points, arcs } = approximateCurveByArcs(curve,
+                    numArcs);
+                for (let i = 0; i < numArcs; ++i) {
+                    const m = points[2 * i + 1];
+                    const d0 = vectorLength(sub(m, arcs[i].end[0]));
+                    const d1 = vectorLength(sub(m, arcs[i].end[1]));
+                    expectClose(d0, d1, 1e-7, 1e-7);
+                }
+            }, 40);
+        });
+
+    it('reproduces the generating circle exactly for every arc', () => {
+        check(fc.tuple(positive(4, 0.5), finite(-5, 5), finite(-5, 5),
+            fc.integer({ min: 2, max: 6 })), ([r, cx, cy, numArcs]) => {
+                const { arcs } = approximateCurveByArcs(
+                    new CircleCurve(r, cx, cy), numArcs);
+                for (const arc of arcs) {
+                    expectClose(arc.radius, r, 1e-6, 1e-6);
+                    expectClose(arc.center.get(0), cx, 1e-6 * (1 + r), 1e-6);
+                    expectClose(arc.center.get(1), cy, 1e-6 * (1 + r), 1e-6);
+                }
+            }, 40);
+    });
+
+    it('uses the line-segment sentinel only when |det| < epsilon', () => {
+        // Upstream tests 'fabs(det) >= epsilon' with epsilon defaulting to 0,
+        // which is always true: an exactly colinear triple then divides by
+        // det == 0 instead of taking the documented sentinel path. The port
+        // preserves that. A positive epsilon reaches the sentinel.
+        check(fc.tuple(vector(2, -5, 5), vector(2, -5, 5),
+            fc.integer({ min: 1, max: 4 }))
+            .filter(([p0, p1]) => vectorLength(sub(p1, p0)) > 1),
+            ([p0, p1, numArcs]) => {
+                const curve = new LineCurve(p0, p1);
+
+                const guarded = approximateCurveByArcs(curve, numArcs, 1e-6);
+                for (const arc of guarded.arcs) {
+                    expect(arc.radius).toBe(Number.MAX_VALUE);
+                    expect(arc.center.values)
+                        .toEqual([Number.MAX_VALUE, Number.MAX_VALUE]);
+                }
+
+                const unguarded = approximateCurveByArcs(curve, numArcs);
+                for (const arc of unguarded.arcs) {
+                    // The (near-)zero determinant is divided by rather than
+                    // detected, so the circumscribed circle is absurd rather
+                    // than flagged: either non-finite or astronomically
+                    // large, and never the sentinel.
+                    expect(!Number.isFinite(arc.radius) || arc.radius > 1e6)
+                        .toBe(true);
+                    expect(arc.center.values)
+                        .not.toEqual([Number.MAX_VALUE, Number.MAX_VALUE]);
+                }
+            }, 40);
+    });
+
+    it('collapses the chord for a single arc on a closed curve', () => {
+        // Upstream assumes P0 != P1 for each arc: it bisects
+        // F(t) = Dot(P1-P0, X(t)-(P0+P1)/2), which degenerates when the
+        // chord collapses. The circumscribing determinant then collapses
+        // too and, because 'fabs(det) >= epsilon' is always true for the
+        // default epsilon of 0, the reported center and radius are whatever
+        // the division produces -- NaN, or a finite value unrelated to the
+        // curve, depending on rounding. Callers must pass numArcs >= 2 for a
+        // closed curve. Preserved from upstream; pinned only as the chord
+        // collapse, since the downstream value is not well defined.
+        check(fc.tuple(positive(4, 0.5), finite(-5, 5), finite(-5, 5)),
+            ([r, cx, cy]) => {
+                const { arcs } = approximateCurveByArcs(
+                    new CircleCurve(r, cx, cy), 1);
+                expect(arcs.length).toBe(1);
+                expect(vectorLength(sub(arcs[0].end[1], arcs[0].end[0])))
+                    .toBeLessThan(1e-14 * (1 + r));
+            }, 30);
     });
 });

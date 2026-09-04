@@ -104,6 +104,38 @@ export const unitVector = (n: number): fc.Arbitrary<Vector> =>
         return u;
     });
 
+/**
+ * Orthonormal frame of dimension 2 or 3 built from rotation angles, so every
+ * component is a sine or a cosine of a moderate angle. Unlike
+ * orthonormalFrame this never produces subnormal components, which matters
+ * for algorithms that square their inputs before taking a square root (for
+ * example the unscaled GetCosSin of SymmetricEigensolver3x3, where a
+ * subnormal square costs most of the mantissa).
+ */
+export const rotationFrame = (n: number): fc.Arbitrary<Vector[]> => {
+    // wellScaled snaps tiny angles to exactly zero, so no component is ever
+    // subnormal.
+    const angle = wellScaled(-Math.PI, Math.PI);
+    if (n === 2) {
+        return angle.map(a => {
+            const c = Math.cos(a), s = Math.sin(a);
+            return [Vector.fromArray([c, s]), Vector.fromArray([-s, c])];
+        });
+    }
+    return fc.tuple(angle, angle, angle).map(([a, b, c]) => {
+            const ca = Math.cos(a), sa = Math.sin(a);
+            const cb = Math.cos(b), sb = Math.sin(b);
+            const cc = Math.cos(c), sc = Math.sin(c);
+            // R = Rz(a) * Ry(b) * Rx(c); the columns are the frame vectors.
+            return [
+                Vector.fromArray([ca * cb, sa * cb, -sb]),
+                Vector.fromArray([ca * sb * sc - sa * cc,
+                    sa * sb * sc + ca * cc, cb * sc]),
+                Vector.fromArray([ca * sb * cc + sa * sc,
+                    sa * sb * cc - ca * sc, cb * cc])];
+        });
+};
+
 /** Orthonormal frame: n mutually orthogonal unit vectors of dimension n. */
 export const orthonormalFrame = (n: number): fc.Arbitrary<Vector[]> =>
     fc.array(vector(n, -1, 1), { minLength: n, maxLength: n })

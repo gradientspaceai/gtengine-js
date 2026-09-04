@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { ApprQuery } from '../src/ApprQuery.js';
+import { check, fc, finite } from './helpers/arbitraries.js';
 
 // A miniature fitting query in the style of the Appr* files: fit the mean of
 // a set of 1D observations. The model parameter is the mean; the model error
@@ -220,4 +221,154 @@ describe('ApprQuery', () => {
             expect(bestModel.mean).toBe(bestMean);
         });
     });
+});
+
+describe('ApprQuery verification', () => {
+    afterEach(() => {
+        ApprQuery.validateIndices = false;
+    });
+
+    it('every fit overload funnels into the same indexed fit', () => {
+        // Upstream Fit(numObservations, ptr), Fit(vector), Fit(vector, imin,
+        // imax) and Fit(vector, indices, numIndices) all build an index list
+        // and call FitIndexed. The port must agree on all four.
+        check(fc.array(finite(-100, 100), { minLength: 1, maxLength: 12 }),
+            obs => {
+                const n = obs.length;
+                const identity = Array.from({ length: n }, (_, i) => i);
+
+                const all = new ApprMean1();
+                expect(all.fit(obs)).toBe(true);
+
+                const range = new ApprMean1();
+                expect(range.fit(obs, 0, n - 1)).toBe(true);
+                expect(range.mean).toBe(all.mean);
+
+                const indexed = new ApprMean1();
+                expect(indexed.fit(obs, identity)).toBe(true);
+                expect(indexed.mean).toBe(all.mean);
+
+                // numIndices larger than indices.length is clamped, so this
+                // is again the whole set.
+                const prefix = new ApprMean1();
+                expect(prefix.fit(obs, identity, n + 5)).toBe(true);
+                expect(prefix.mean).toBe(all.mean);
+            });
+    });
+
+    it('a contiguous range agrees with the equivalent index list', () => {
+        check(fc.tuple(
+            fc.array(finite(-100, 100), { minLength: 1, maxLength: 12 }),
+            fc.nat(11), fc.nat(11)), ([obs, a, b]) => {
+                const n = obs.length;
+                const ia = a % n, ib = b % n;
+                const imin = Math.min(ia, ib);
+                const imax = Math.max(ia, ib);
+                const list: number[] = [];
+                for (let i = imin; i <= imax; ++i) {
+                    list.push(i);
+                }
+                const range = new ApprMean1();
+                const indexed = new ApprMean1();
+                expect(range.fit(obs, imin, imax)).toBe(true);
+                expect(indexed.fit(obs, list)).toBe(true);
+                expect(range.mean).toBe(indexed.mean);
+
+                // imin > imax is rejected without touching the model.
+                if (imin < imax) {
+                    const reversed = new ApprMean1();
+                    reversed.mean = 42;
+                    expect(reversed.fit(obs, imax, imin)).toBe(false);
+                    expect(reversed.mean).toBe(42);
+                }
+            });
+    });
+
+    it('the numIndices overload uses exactly the requested prefix', () => {
+        check(fc.tuple(
+            fc.array(finite(-100, 100), { minLength: 1, maxLength: 10 }),
+            fc.nat(20)), ([obs, k]) => {
+                const n = obs.length;
+                const indices = Array.from({ length: n }, (_, i) => n - 1 - i);
+                const clamped = Math.min(k, n);
+                const prefix = new ApprMean1();
+                const explicitList = new ApprMean1();
+                expect(prefix.fit(obs, indices, k))
+                    .toBe(explicitList.fit(obs, indices.slice(0, clamped)));
+                expect(prefix.mean).toBe(explicitList.mean);
+            });
+    });
+
+    it('validIndices enforces the documented bounds when enabled', () => {
+        ApprQuery.validateIndices = true;
+        check(fc.tuple(fc.integer({ min: 1, max: 8 }),
+            fc.array(fc.integer({ min: -3, max: 10 }), { maxLength: 10 })),
+            ([n, indices]) => {
+                const obs = Array.from({ length: n }, (_, i) => i);
+                const query = new ApprMean1();
+                const expected = query.getMinimumRequired() <= indices.length
+                    && indices.length <= n
+                    && indices.every(i => i >= 0 && i < n);
+                expect(query.validIndices(obs, indices)).toBe(expected);
+            });
+    });
+
+    it('RANSAC is deterministic and reports valid consensus sets', () => {
+        // Upstream default-constructs std::default_random_engine on every
+        // iteration, so RANSAC is a pure function of its inputs; the port
+        // mirrors that with a fresh generator per iteration.
+        check(fc.array(finite(-50, 50), { minLength: 3, maxLength: 12 }),
+            obs => {
+                const first = ApprQuery.ransac(new ApprMean1(), obs, 2, 100,
+                    5, new ApprMean1());
+                const second = ApprQuery.ransac(new ApprMean1(), obs, 2, 100,
+                    5, new ApprMean1());
+                expect(second.success).toBe(first.success);
+                expect(second.bestConsensus).toEqual(first.bestConsensus);
+
+                const consensus = first.bestConsensus;
+                expect(new Set(consensus).size).toBe(consensus.length);
+                for (const index of consensus) {
+                    expect(Number.isInteger(index)).toBe(true);
+                    expect(index).toBeGreaterThanOrEqual(0);
+                    expect(index).toBeLessThan(obs.length);
+                }
+                if (first.success && consensus.length > 0) {
+                    expect(consensus.length).toBeGreaterThanOrEqual(2);
+                }
+            }, 60);
+    });
+
+    it('RANSAC reports success without a consensus set when the requirement '
+        + 'is at most the minimum required', () => {
+            // Upstream initializes bestNumFittedObservations to
+            // GetMinimumRequired() and returns
+            // bestNumFittedObservations >= numRequiredForGoodFit, so a
+            // requirement of 1 (= ApprMean1's minimum) is "met" before any
+            // model is fitted. bestConsensus is then never assigned; upstream
+            // leaves the caller's vector untouched and the port returns an
+            // empty array. Pinned as an upstream quirk, not an improvement.
+            const bestModel = new ApprMean1();
+            bestModel.mean = 999;
+            const { success, bestConsensus } = ApprQuery.ransac(
+                new ApprMean1(), [0, 1000, 2000, 3000], 1, 1e-6, 4, bestModel);
+            expect(success).toBe(true);
+            expect(bestConsensus).toEqual([]);
+            expect(bestModel.mean).toBe(999);
+        });
+
+    it('RANSAC gains nothing from extra iterations when the first finds no '
+        + 'consensus', () => {
+            // Because the shuffle is re-seeded every iteration, an iteration
+            // that swaps nothing leaves the candidate array unchanged, so all
+            // subsequent iterations repeat it exactly. Upstream quirk.
+            const spread = [0, 1000, 2000, 3000, 4000, 5000, 6000];
+            for (const numIterations of [1, 2, 10, 50]) {
+                const { success, bestConsensus } = ApprQuery.ransac(
+                    new ApprMean1(), spread, 6, 1.0, numIterations,
+                    new ApprMean1());
+                expect(success).toBe(false);
+                expect(bestConsensus).toEqual([]);
+            }
+        });
 });
