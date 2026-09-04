@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { OBBNode } from '../src/OBBTree.js';
+import { OBBNode, OBBTree } from '../src/OBBTree.js';
 import { OBBTreeOfSegments } from '../src/OBBTreeOfSegments.js';
 import type { OrientedBox } from '../src/OrientedBox.js';
-import { Vector, dot, length, sub } from '../src/Vector.js';
+import { Vector, div, dot, length, sub } from '../src/Vector.js';
+import {
+    check, expectClose, fc, wellScaledVector
+} from './helpers/arbitraries.js';
 
 // Whether the point is inside or on the box, |Dot(X-C, U[j])| <= e[j].
 function boxContains(box: OrientedBox, p: Vector, eps: number = 1e-9): boolean {
@@ -241,5 +244,192 @@ describe('OBBTreeOfSegments', () => {
         expect(() => tree.createFromSegments([], [])).toThrow('Invalid input.');
         expect(() => tree.createFromSegments(
             [Vector.zero(3), Vector.unit(3, 0)], [])).toThrow('Invalid input.');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V07): property-based re-check of OBBTreeOfSegments.h.
+//
+// wellScaledVector rather than vector: the covariance matrix that
+// SymmetricEigensolver3x3 works on squares the coordinates, so subnormal
+// separations underflow it to zero and its eigenvectors stop being
+// orthonormal. That is a conditioning limit of the eigensolver, not of this
+// file.
+// ---------------------------------------------------------------------------
+
+// A vertex pool with index-pair segments; indices may repeat, so degenerate
+// (zero-length) segments occur, which upstream accepts silently.
+const obbsSoup = fc.tuple(
+    fc.array(wellScaledVector(3, -8, 8), { minLength: 2, maxLength: 10 }),
+    fc.array(fc.tuple(fc.nat({ max: 9 }), fc.nat({ max: 9 })),
+        { minLength: 1, maxLength: 11 }))
+    .map((input) => ({
+        vertices: input[0],
+        segments: input[1].map(p => [p[0] % input[0].length,
+            p[1] % input[0].length] as [number, number])
+    }));
+
+function obbsReachable(tree: OBBTreeOfSegments): number[] {
+    const nodes = tree.getNodes();
+    const list: number[] = [];
+    const stack = [0];
+    while (stack.length > 0) {
+        const index = stack.pop()!;
+        list.push(index);
+        const node = nodes[index];
+        if (!isLeaf(node)) {
+            stack.push(node.leftChild, node.rightChild);
+        }
+    }
+    return list;
+}
+
+describe('OBBTreeOfSegments verification', () => {
+    it('computes the exact midpoints and copies both inputs', () => {
+        check(obbsSoup, (mesh) => {
+            const tree = new OBBTreeOfSegments();
+            tree.createFromSegments(mesh.vertices, mesh.segments);
+
+            const centroids = tree.getCentroids();
+            for (let i = 0; i < mesh.segments.length; ++i) {
+                const seg = mesh.segments[i];
+                for (let j = 0; j < 3; ++j) {
+                    // Upstream: half * (V[seg[0]] + V[seg[1]]).
+                    expect(centroids[i].values[j]).toBe(
+                        0.5 * (mesh.vertices[seg[0]].values[j]
+                            + mesh.vertices[seg[1]].values[j]));
+                }
+            }
+            expect(tree.getSegments().map(s => [s[0], s[1]]))
+                .toEqual(mesh.segments.map(s => [s[0], s[1]]));
+            for (let i = 0; i < mesh.vertices.length; ++i) {
+                expect(tree.getVertices()[i]).not.toBe(mesh.vertices[i]);
+            }
+        }, 100);
+    });
+
+    it('bounds every node by the endpoints of its segments', () => {
+        check(fc.tuple(obbsSoup, fc.integer({ min: 0, max: 4 }), fc.boolean()),
+            (input) => {
+                const mesh = input[0];
+                const tree = new OBBTreeOfSegments();
+                tree.createFromSegments(mesh.vertices, mesh.segments,
+                    input[2] ? OBBTree.fullHeight : input[1]);
+
+                const nodes = tree.getNodes();
+                const partition = tree.getPartition();
+                expect([...partition].sort((a, b) => a - b))
+                    .toEqual([...Array(mesh.segments.length).keys()]);
+
+                const covered = new Array<number>(mesh.segments.length).fill(0);
+                for (const index of obbsReachable(tree)) {
+                    const node = nodes[index];
+                    if (isLeaf(node)) {
+                        for (let i = node.minIndex; i <= node.maxIndex; ++i) {
+                            ++covered[i];
+                        }
+                        continue;
+                    }
+                    // ComputeInteriorBox grows the box over every endpoint of
+                    // every segment the node represents.
+                    for (let i = node.minIndex; i <= node.maxIndex; ++i) {
+                        const seg = mesh.segments[partition[i]];
+                        expect(boxContains(node.box, mesh.vertices[seg[0]], 1e-8))
+                            .toBe(true);
+                        expect(boxContains(node.box, mesh.vertices[seg[1]], 1e-8))
+                            .toBe(true);
+                    }
+                }
+                expect(covered.every(c => c === 1)).toBe(true);
+            }, 60);
+    });
+
+    it('gives every leaf the segment-aligned degenerate box', () => {
+        check(obbsSoup, (mesh) => {
+            const tree = new OBBTreeOfSegments();
+            tree.createFromSegments(mesh.vertices, mesh.segments);
+            const nodes = tree.getNodes();
+            const partition = tree.getPartition();
+
+            for (const index of obbsReachable(tree)) {
+                const node = nodes[index];
+                if (!isLeaf(node)) {
+                    continue;
+                }
+                const seg = mesh.segments[partition[node.minIndex]];
+                const v0 = mesh.vertices[seg[0]];
+                const v1 = mesh.vertices[seg[1]];
+                const box = node.box;
+
+                // Center is the midpoint, extent[0] is half the length and
+                // the other two extents are zero.
+                for (let j = 0; j < 3; ++j) {
+                    expect(box.center.values[j])
+                        .toBe(0.5 * (v0.values[j] + v1.values[j]));
+                }
+                const len = length(sub(v1, v0));
+                // extent[0] is half the segment length, the other two are
+                // set to zero explicitly by ComputeLeafBox.
+                expectClose(box.extent.values[0], 0.5 * len, 1e-15, 1e-12);
+                expect(box.extent.values[1]).toBe(0);
+                expect(box.extent.values[2]).toBe(0);
+                if (len > 1e-6) {
+                    // axis[0] is the unit segment direction; the orthogonal
+                    // complement completes an orthonormal frame.
+                    expectOrthonormal(box);
+                    const dir = div(sub(v1, v0), len);
+                    expect(Math.abs(Math.abs(dot(box.axis[0], dir)) - 1))
+                        .toBeLessThan(1e-9);
+                    expect(boxContains(box, v0, 1e-9)).toBe(true);
+                    expect(boxContains(box, v1, 1e-9)).toBe(true);
+                } else if (len === 0) {
+                    // A zero-length segment: upstream normalizes the zero
+                    // vector, which Vector.h defines as "set to zero and
+                    // return 0", and then asks for its orthogonal complement.
+                    // The whole frame collapses to zero. The quirk is
+                    // preserved; what matters is that nothing becomes NaN.
+                    expect(box.extent.values[0]).toBe(0);
+                    for (let j = 0; j < 3; ++j) {
+                        for (let k = 0; k < 3; ++k) {
+                            expect(box.axis[j].values[k]).toBe(0);
+                        }
+                    }
+                }
+                expect(box.center).not.toBe(tree.getCentroids()[
+                    partition[node.minIndex]]);
+            }
+        }, 100);
+    });
+
+    it('keeps the mean of a node inside its interior box (upstream #103)', () => {
+        // Upstream seeds pmin and pmax with the zero vector, so the interior
+        // box is forced to contain the projection origin -- the mean of the
+        // node's segment midpoints. The box is conservative by construction.
+        check(obbsSoup.filter(m => m.segments.length >= 2), (mesh) => {
+            const tree = new OBBTreeOfSegments();
+            tree.createFromSegments(mesh.vertices, mesh.segments);
+            const nodes = tree.getNodes();
+            const centroids = tree.getCentroids();
+            const partition = tree.getPartition();
+
+            for (const index of obbsReachable(tree)) {
+                const node = nodes[index];
+                if (isLeaf(node)) {
+                    continue;
+                }
+                const mean = new Vector(3);
+                const denom = node.maxIndex - node.minIndex + 1;
+                for (let i = node.minIndex; i <= node.maxIndex; ++i) {
+                    const c = centroids[partition[i]];
+                    for (let j = 0; j < 3; ++j) {
+                        mean.values[j] += c.values[j];
+                    }
+                }
+                for (let j = 0; j < 3; ++j) {
+                    mean.values[j] /= denom;
+                }
+                expect(boxContains(node.box, mean, 1e-8)).toBe(true);
+            }
+        }, 60);
     });
 });

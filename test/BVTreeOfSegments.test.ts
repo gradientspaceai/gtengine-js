@@ -301,15 +301,15 @@ describe('BVTreeOfSegments', () => {
 
 // A vertex pool with index-pair segments. Indices may repeat, so degenerate
 // (zero-length) segments occur, which is what upstream accepts silently.
-const segmentSoup = fc.array(vector(3, -8, 8), { minLength: 2, maxLength: 10 })
-    .chain((vertices) => fc.array(
-        fc.tuple(fc.nat({ max: vertices.length - 1 }),
-            fc.nat({ max: vertices.length - 1 })),
-        { minLength: 1, maxLength: 13 })
-        .map((pairs) => ({
-            vertices: vertices,
-            segments: pairs.map(p => [p[0], p[1]] as [number, number])
-        })));
+const segmentSoup = fc.tuple(
+    fc.array(vector(3, -8, 8), { minLength: 2, maxLength: 10 }),
+    fc.array(fc.tuple(fc.nat({ max: 9 }), fc.nat({ max: 9 })),
+        { minLength: 1, maxLength: 13 }))
+    .map((input) => ({
+        vertices: input[0],
+        segments: input[1].map(p => [p[0] % input[0].length,
+            p[1] % input[0].length] as [number, number])
+    }));
 
 function bvsReachable(tree: AABBTreeOfSegments): number[] {
     const nodes = tree.getNodes();
