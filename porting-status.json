@@ -33,7 +33,8 @@
   "status": "ported"
  },
  "ApprCircle2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 3
  },
  "ApprCone3.h": {
   "status": "ported"
@@ -42,7 +43,8 @@
   "status": "ported"
  },
  "ApprCurveByArcs.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 3
  },
  "ApprCylinder3.h": {
   "status": "ported"
@@ -57,28 +59,35 @@
   "status": "ported"
  },
  "ApprGaussian2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 3
  },
  "ApprGaussian3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 3
  },
  "ApprGreatCircle3.h": {
   "status": "ported"
  },
  "ApprHeightLine2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 3
  },
  "ApprHeightPlane3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 3
  },
  "ApprOrthogonalLine2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 3
  },
  "ApprOrthogonalLine3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 3
  },
  "ApprOrthogonalPlane3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 3
  },
  "ApprParabola2.h": {
   "status": "ported"
@@ -87,37 +96,48 @@
   "status": "ported"
  },
  "ApprParallelLines2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 3
  },
  "ApprPolynomial2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 3
  },
  "ApprPolynomial3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 3
  },
  "ApprPolynomial4.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 3
  },
  "ApprPolynomialSpecial2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 3
  },
  "ApprPolynomialSpecial3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 3
  },
  "ApprPolynomialSpecial4.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 3
  },
  "ApprQuadratic2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 3
  },
  "ApprQuadratic3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 3
  },
  "ApprQuery.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 3
  },
  "ApprSphere3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 3
  },
  "ApprTorus3.h": {
   "status": "ported"
