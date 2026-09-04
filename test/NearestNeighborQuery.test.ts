@@ -9,6 +9,7 @@ import type {
     NearestNeighborSortedPoint
 } from '../src/NearestNeighborQuery.js';
 import { Vector } from '../src/Vector.js';
+import { check, fc, scaled, wellScaledVector } from './helpers/arbitraries.js';
 
 // Deterministic LCG so the randomized cross-checks are reproducible.
 function makeRandom(seed: number): () => number {
@@ -318,6 +319,186 @@ describe('NearestNeighborQuery', () => {
                 Vector.fromArray([1, 2]), Vector.fromArray([0, 1]));
             expect(site.getPosition().values).toEqual([1, 2]);
             expect(site.direction.values).toEqual([0, 1]);
+        });
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Independent verification pass (VERIFYING.md).
+//
+// Although the upstream TODO calls the query "approximate", the pruning tests
+// are conservative: an internal node's left subtree holds only keys <= split
+// and its right subtree only keys >= split, so any site within 'radius' of the
+// query point survives both descent tests. The query is therefore exact for
+// the sites inside the radius, and the properties below compare it against
+// brute force. The distances are computed as Dot(diff, diff) in both places
+// (same summation order), so the comparisons are exact.
+// ---------------------------------------------------------------------------
+
+// A random configuration: dimension, sites, leaf size, level cap, query point.
+const nnConfiguration = fc.record({
+    dimension: fc.integer({ min: 1, max: 3 }),
+    numSites: fc.integer({ min: 1, max: 40 }),
+    maxLeafSize: fc.integer({ min: 1, max: 5 }),
+    maxLevel: fc.integer({ min: 1, max: 8 }),
+    coords: fc.array(scaled(-10, 10, 4096), { minLength: 123, maxLength: 123 }),
+    query: fc.array(scaled(-12, 12, 4096), { minLength: 3, maxLength: 3 }),
+    radius: scaled(0, 14, 64),
+    maxNeighbors: fc.integer({ min: 1, max: 8 })
+}).map(({ dimension, numSites, maxLeafSize, maxLevel, coords, query, radius,
+    maxNeighbors }) => {
+    const points: number[][] = [];
+    for (let i = 0; i < numSites; ++i) {
+        const p: number[] = [];
+        for (let d = 0; d < dimension; ++d) { p.push(coords[(3 * i + d) % coords.length]); }
+        points.push(p);
+    }
+    return {
+        points, maxLeafSize, maxLevel, radius, maxNeighbors,
+        query: query.slice(0, dimension)
+    };
+});
+
+describe('NearestNeighborQuery verification', () => {
+    it('findNeighbors returns the k nearest sites inside the radius', () => {
+        check(nnConfiguration, ({ points, maxLeafSize, maxLevel, query, radius,
+            maxNeighbors }) => {
+            const q = new NearestNeighborQuery(makeSites(points), maxLeafSize, maxLevel);
+            const neighbors = q.findNeighbors(Vector.fromArray(query), radius,
+                maxNeighbors);
+            const reference = bruteForceNeighbors(points, query, radius);
+            const expectedCount = Math.min(maxNeighbors, reference.length);
+            expect(neighbors.length).toBe(expectedCount);
+
+            // The reported neighbors are inside the radius and their distances
+            // are exactly the smallest 'expectedCount' brute-force distances.
+            const reported = neighbors.map(i => ({
+                index: i, sqrLength: sqrDistance(points[i], query)
+            }));
+            expect([...reported].map(r => r.sqrLength).sort((a, b) => a - b))
+                .toEqual(reference.slice(0, expectedCount).map(r => r.sqrLength));
+            // The output order is the heap-pop order: nonincreasing distance,
+            // ties broken by decreasing site index.
+            for (let i = 1; i < reported.length; ++i) {
+                const previous = reported[i - 1], current = reported[i];
+                expect(previous.sqrLength > current.sqrLength
+                    || (previous.sqrLength === current.sqrLength
+                        && previous.index > current.index)).toBe(true);
+            }
+            // When the cutoff is not a tie, the retained set is determined and
+            // must be exactly the brute-force prefix.
+            const tie = expectedCount < reference.length
+                && reference[expectedCount - 1].sqrLength
+                    === reference[expectedCount].sqrLength;
+            if (!tie) {
+                expect([...neighbors].sort((a, b) => a - b))
+                    .toEqual(reference.slice(0, expectedCount)
+                        .map(r => r.index).sort((a, b) => a - b));
+            }
+        });
+    });
+
+    it('a radius covering the whole set returns the k globally nearest sites', () => {
+        check(nnConfiguration, ({ points, maxLeafSize, maxLevel, query, maxNeighbors }) => {
+            const q = new NearestNeighborQuery(makeSites(points), maxLeafSize, maxLevel);
+            const neighbors = q.findNeighbors(Vector.fromArray(query), 1000, maxNeighbors);
+            expect(neighbors.length).toBe(Math.min(maxNeighbors, points.length));
+            const worstReported = Math.max(...neighbors.map(i =>
+                sqrDistance(points[i], query)));
+            // Nothing outside the reported set is closer than its worst
+            // member. (Which member of a tie is retained depends on the
+            // traversal order, so the set itself is compared by distance.)
+            const returned = new Set(neighbors);
+            for (let i = 0; i < points.length; ++i) {
+                if (!returned.has(i)) {
+                    expect(sqrDistance(points[i], query))
+                        .toBeGreaterThanOrEqual(worstReported);
+                }
+            }
+        });
+    });
+
+    it('radius zero returns only sites coincident with the query point', () => {
+        check(nnConfiguration, ({ points, maxLeafSize, maxLevel, maxNeighbors }) => {
+            const q = new NearestNeighborQuery(makeSites(points), maxLeafSize, maxLevel);
+            // Query at an existing site: it must be found at distance 0.
+            const target = points[points.length - 1];
+            const neighbors = q.findNeighbors(Vector.fromArray(target), 0, maxNeighbors);
+            expect(neighbors.length).toBeGreaterThanOrEqual(1);
+            for (const i of neighbors) {
+                expect(sqrDistance(points[i], target)).toBe(0);
+            }
+        });
+    });
+
+    it('the tree satisfies the upstream construction invariants', () => {
+        check(nnConfiguration, ({ points, maxLeafSize, maxLevel }) => {
+            const q = new NearestNeighborQuery(makeSites(points), maxLeafSize, maxLevel);
+            verifyTree(q, points.length);
+            // Build splits while level <= maxLevel, so the deepest level is
+            // maxLevel + 1.
+            expect(q.getDepth()).toBeLessThanOrEqual(maxLevel + 1);
+            const nodes = q.getNodes();
+            let internal = 0, leaves = 0, largest = 0, covered = 0;
+            for (const node of nodes) {
+                if (node.siteOffset === -1) {
+                    ++internal;
+                } else {
+                    ++leaves;
+                    largest = Math.max(largest, node.numSites);
+                    covered += node.numSites;
+                }
+            }
+            expect(nodes.length).toBe(2 * internal + 1);
+            expect(leaves).toBe(internal + 1);
+            expect(covered).toBe(points.length);
+            expect(q.getLargestNodeSize()).toBe(largest);
+            expect(q.getNumNodes()).toBe(nodes.length);
+        });
+    });
+
+    it('sites are copied, so later edits do not disturb the tree', () => {
+        check(nnConfiguration, ({ points, maxLeafSize, maxLevel }) => {
+            const sites = makeSites(points);
+            const q = new NearestNeighborQuery(sites, maxLeafSize, maxLevel);
+            const before = q.getSortedPoints().map(sp => [...sp.position.values]);
+            // PositionSite copies its input and getPosition returns a copy, so
+            // mutating a site cannot reach the tree.
+            for (const site of sites) { site.position.set(0, 1e6); }
+            expect(q.getSortedPoints().map(sp => [...sp.position.values]))
+                .toEqual(before);
+        });
+    });
+
+    it('rejects invalid construction and query arguments', () => {
+        check(fc.integer({ min: -4, max: 40 }), (maxLevel) => {
+            const sites = makeSites([[0, 0], [1, 1], [2, 2]]);
+            if (maxLevel > 0 && maxLevel <= 32) {
+                expect(() => new NearestNeighborQuery(sites, 1, maxLevel)).not.toThrow();
+            } else {
+                expect(() => new NearestNeighborQuery(sites, 1, maxLevel))
+                    .toThrow('Invalid max level.');
+            }
+        });
+        // An empty site list reaches Build, whose "Empty point list" assert
+        // fires (upstream behaves the same way).
+        expect(() => new NearestNeighborQuery([], 1, 8)).toThrow('Empty point list.');
+        const q = new NearestNeighborQuery(makeSites([[0, 0], [3, 4]]), 1, 8);
+        expect(() => q.findNeighbors(Vector.fromArray([0, 0]), 1, 0))
+            .toThrow('Invalid maximum number of neighbors.');
+    });
+
+    it('PositionSite and PositionDirectionSite copy their inputs', () => {
+        check(fc.tuple(wellScaledVector(3), wellScaledVector(3)), ([p, d]) => {
+            const site = new PositionSite(p);
+            const pd = new PositionDirectionSite(p, d);
+            expect(site.position).not.toBe(p);
+            expect(site.getPosition().values).toEqual(p.values);
+            expect(site.getPosition()).not.toBe(site.position);
+            expect(pd.position.values).toEqual(p.values);
+            expect(pd.direction.values).toEqual(d.values);
+            expect(pd.position).not.toBe(p);
+            expect(pd.direction).not.toBe(d);
         });
     });
 });
