@@ -19,9 +19,10 @@
 // * operator() returns a bool and writes the separating plane through an
 //   output reference. The port's compute(...) returns
 //   { separated, separatingPlane }. Upstream leaves 'separatingPlane'
-//   holding the last candidate plane tested when the return value is false;
-//   the port returns a plane in the same state, but the field is meaningful
-//   only when 'separated' is true.
+//   holding the last candidate plane it tested when the return value is
+//   false, which is meaningless scratch state; the port returns the default
+//   Hyperplane(3) instead. The field carries information only when
+//   'separated' is true, and there it agrees with upstream.
 // * The code assumes each point set has at least 4 noncoplanar points. When
 //   either hull has dimension other than 3, the query reports "not
 //   separated", as upstream does.

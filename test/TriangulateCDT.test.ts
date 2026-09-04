@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { ConvexHull2 } from '../src/ConvexHull2.js';
 import { PolygonTree, PolygonTreeEx } from '../src/PolygonTree.js';
 import { TriangulateCDT } from '../src/TriangulateCDT.js';
 import { Vector } from '../src/Vector.js';
+import { check, fc, latticeVector } from './helpers/arbitraries.js';
+import { exactDyadic, inCircle2 } from './helpers/exact.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -475,5 +478,334 @@ describe('TriangulateCDT', () => {
             expectConstraintEdges(tree);
             expectConsistentClassification(tree, points);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V13): property-based exact-cover and Delaunay oracles.
+//
+// Every generator below places the vertices on an integer lattice with small
+// coordinates, so twice-signed-area sums, the point-in-polygon crossing test
+// and the separating-axis overlap test are all exact in binary64 and the
+// comparisons can be exact equalities rather than tolerances.
+// ---------------------------------------------------------------------------
+
+// Twice the signed area of the index polygon; positive for counterclockwise.
+function twiceSignedAreaPoly(polygon: readonly number[],
+    points: readonly Vector[]): number {
+    let area = 0;
+    const n = polygon.length;
+    for (let i0 = n - 1, i1 = 0; i1 < n; i0 = i1++) {
+        const a = points[polygon[i0]].values;
+        const b = points[polygon[i1]].values;
+        area += a[0] * b[1] - b[0] * a[1];
+    }
+    return area;
+}
+
+function twiceTotalArea(triangles: readonly Tri[],
+    points: readonly Vector[]): number {
+    let sum = 0;
+    for (const tri of triangles) {
+        sum += Math.abs(signedArea2(tri, points));
+    }
+    return sum;
+}
+
+// Crossing-number point-in-polygon test in exact integer arithmetic. The point
+// (px, py) and the polygon coordinates are both multiplied by 'scale', which
+// callers set to 3 so that a triangle centroid becomes an integer. The caller
+// must guarantee that the point is not on the polygon boundary, which holds
+// for the centroid of a triangle that lies in the region: the open triangle is
+// contained in the open region.
+function insidePolygonExact(px: number, py: number,
+    polygon: readonly number[], points: readonly Vector[],
+    scale: number): boolean {
+    let inside = false;
+    const n = polygon.length;
+    for (let i0 = n - 1, i1 = 0; i1 < n; i0 = i1++) {
+        const ax = scale * points[polygon[i0]].values[0];
+        const ay = scale * points[polygon[i0]].values[1];
+        const bx = scale * points[polygon[i1]].values[0];
+        const by = scale * points[polygon[i1]].values[1];
+        if ((ay > py) !== (by > py)) {
+            // Sign of (px - x(py)) * (by - ay), where x(py) is the abscissa of
+            // the edge at height py. Multiplying by (by - ay) clears the
+            // division, so the test stays in exact integers.
+            const t = (bx - ax) * (py - ay) - (px - ax) * (by - ay);
+            if (by - ay > 0 ? t > 0 : t < 0) {
+                inside = !inside;
+            }
+        }
+    }
+    return inside;
+}
+
+// Three times the centroid of a triangle, an integer pair on a lattice.
+function centroid3(tri: Tri, points: readonly Vector[]): [number, number] {
+    const a = points[tri[0]].values;
+    const b = points[tri[1]].values;
+    const c = points[tri[2]].values;
+    return [a[0] + b[0] + c[0], a[1] + b[1] + c[1]];
+}
+
+// Exact separating-axis test for two triangles. The return value is true when
+// the interiors intersect; triangles that only touch along an edge or at a
+// vertex are not overlapping.
+function trianglesOverlap(t0: Tri, t1: Tri, points: readonly Vector[]): boolean {
+    const corners = (t: Tri): number[][] =>
+        [points[t[0]].values, points[t[1]].values, points[t[2]].values];
+    const c0 = corners(t0), c1 = corners(t1);
+    for (const c of [c0, c1]) {
+        for (let i0 = 2, i1 = 0; i1 < 3; i0 = i1++) {
+            const nx = -(c[i1][1] - c[i0][1]);
+            const ny = c[i1][0] - c[i0][0];
+            if (nx === 0 && ny === 0) {
+                continue;   // degenerate edge
+            }
+            const project = (cs: number[][]): [number, number] => {
+                let lo = Infinity, hi = -Infinity;
+                for (const p of cs) {
+                    const d = nx * p[0] + ny * p[1];
+                    lo = Math.min(lo, d);
+                    hi = Math.max(hi, d);
+                }
+                return [lo, hi];
+            };
+            const [lo0, hi0] = project(c0);
+            const [lo1, hi1] = project(c1);
+            if (hi0 <= lo1 || hi1 <= lo0) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+function expectPairwiseDisjoint(triangles: readonly Tri[],
+    points: readonly Vector[]): void {
+    for (let i = 0; i < triangles.length; ++i) {
+        for (let j = i + 1; j < triangles.length; ++j) {
+            expect(trianglesOverlap(triangles[i], triangles[j], points),
+                'triangles ' + i + ' and ' + j + ' overlap').toBe(false);
+        }
+    }
+}
+
+// A lattice rectangle with a strictly interior rectangular hole. Extra
+// collinear vertices are placed on the bottom edge of the outer rectangle, so
+// the generator also exercises the non-simple-polygon handling.
+interface RectWithHole {
+    points: Vector[];
+    outer: number[];
+    hole: number[];
+    outerArea: number;
+    holeArea: number;
+}
+
+const rectWithHole: fc.Arbitrary<RectWithHole> = fc.tuple(
+    fc.integer({ min: 4, max: 9 }),          // width
+    fc.integer({ min: 4, max: 9 }),          // height
+    fc.integer({ min: 0, max: 4095 }),       // hole position and size
+    fc.uniqueArray(fc.integer({ min: 1, max: 8 }),
+        { minLength: 0, maxLength: 3 })      // extra bottom-edge abscissas
+).map(([w, h, seed, extras]) => {
+    // A hole [x0, x0+dw] x [y0, y0+dh] strictly inside the rectangle.
+    const x0 = 1 + (seed % (w - 2));
+    const y0 = 1 + ((seed >> 3) % (h - 2));
+    const dw = 1 + ((seed >> 6) % (w - 1 - x0));
+    const dh = 1 + ((seed >> 9) % (h - 1 - y0));
+
+    const points: Vector[] = [];
+    const push = (x: number, y: number): number => {
+        points.push(v2(x, y));
+        return points.length - 1;
+    };
+    const outer: number[] = [];
+    outer.push(push(0, 0));
+    for (const x of extras.filter(x => x < w).sort((a, b) => a - b)) {
+        outer.push(push(x, 0));
+    }
+    outer.push(push(w, 0));
+    outer.push(push(w, h));
+    outer.push(push(0, h));
+    // The hole is listed clockwise.
+    const hole = [
+        push(x0, y0), push(x0, y0 + dh),
+        push(x0 + dw, y0 + dh), push(x0 + dw, y0)
+    ];
+    return { points, outer, hole, outerArea: w * h, holeArea: dw * dh };
+});
+
+// A convex lattice polygon: the convex hull of random lattice points, with the
+// point pool restricted to the hull vertices so that every input point is a
+// polygon vertex.
+const convexLatticePolygon:
+    fc.Arbitrary<{ points: Vector[]; polygon: number[] }> =
+    fc.array(latticeVector(2, -8, 8), { minLength: 4, maxLength: 9 })
+        .map(pts => {
+            const ch = new ConvexHull2();
+            ch.compute(pts);
+            if (ch.getDimension() !== 2) {
+                return { points: [] as Vector[], polygon: [] as number[] };
+            }
+            const points = ch.getHull().map(i => pts[i]);
+            return { points, polygon: points.map((_unused, i) => i) };
+        })
+        .filter(c => c.polygon.length >= 3);
+
+describe('TriangulateCDT verification', () => {
+    it('exactly covers a lattice rectangle with a rectangular hole', () => {
+        check(rectWithHole, c => {
+            const root = new PolygonTree();
+            root.polygon = c.outer.slice();
+            const hole = new PolygonTree();
+            hole.polygon = c.hole.slice();
+            root.child = [hole];
+
+            const tree = new TriangulateCDT().compute(c.points, root);
+
+            // The rectangle is the convex hull of the points, so the Delaunay
+            // triangulation covers exactly the rectangle and nothing is left
+            // outside the polygon tree.
+            expect(tree.outsideTriangles.length).toBe(0);
+            expectConstraintEdges(tree);
+            expectConsistentClassification(tree, c.points);
+
+            // Exact areas: the arithmetic is integer, so no tolerance.
+            expect(twiceTotalArea(tree.interiorTriangles, c.points))
+                .toBe(2 * (c.outerArea - c.holeArea));
+            expect(twiceTotalArea(tree.exteriorTriangles, c.points))
+                .toBe(2 * c.holeArea);
+            expect(twiceTotalArea(tree.allTriangles, c.points))
+                .toBe(2 * c.outerArea);
+
+            // The triangles tile the rectangle: pairwise disjoint interiors
+            // together with the exact area sum is an exact cover.
+            expectPairwiseDisjoint(tree.allTriangles, c.points);
+
+            // Each triangle is attributed to the right region.
+            for (const tri of tree.interiorTriangles) {
+                const [px, py] = centroid3(tri, c.points);
+                expect(insidePolygonExact(px, py, c.outer, c.points, 3))
+                    .toBe(true);
+                expect(insidePolygonExact(px, py, c.hole, c.points, 3))
+                    .toBe(false);
+            }
+            for (const tri of tree.exteriorTriangles) {
+                const [px, py] = centroid3(tri, c.points);
+                expect(insidePolygonExact(px, py, c.hole, c.points, 3))
+                    .toBe(true);
+            }
+        }, 60);
+    }, 30000);
+
+    it('reproduces the Delaunay triangulation of a convex polygon', () => {
+        // With no reflex boundary and no hole, every polygon edge is a hull
+        // edge and is already present in the unconstrained triangulation, so
+        // ConstrainedDelaunay2 performs no retriangulation and the output must
+        // satisfy the empty-circumcircle property. The in-circle predicate is
+        // evaluated exactly with bigint arithmetic.
+        check(convexLatticePolygon, c => {
+            const root = new PolygonTree();
+            root.polygon = c.polygon.slice();
+            const tree = new TriangulateCDT().compute(c.points, root);
+
+            expect(tree.outsideTriangles.length).toBe(0);
+            expect(tree.exteriorTriangles.length).toBe(0);
+            expect(twiceTotalArea(tree.interiorTriangles, c.points))
+                .toBe(twiceSignedAreaPoly(c.polygon, c.points));
+            expectConstraintEdges(tree);
+            expectConsistentClassification(tree, c.points);
+            expectPairwiseDisjoint(tree.allTriangles, c.points);
+
+            const flat: number[] = [];
+            for (const p of c.points) { flat.push(p.values[0], p.values[1]); }
+            const e = exactDyadic(flat);
+            const xy = (i: number): [bigint, bigint] => [e[2 * i], e[2 * i + 1]];
+            for (const tri of tree.allTriangles) {
+                const a = tri[0];
+                let b = tri[1], d = tri[2];
+                if (signedArea2([a, b, d], c.points) < 0) {
+                    const swap = b; b = d; d = swap;
+                }
+                const [ax, ay] = xy(a), [bx, by] = xy(b), [cx, cy] = xy(d);
+                for (let k = 0; k < c.points.length; ++k) {
+                    if (k === a || k === b || k === d) { continue; }
+                    const [kx, ky] = xy(k);
+                    expect(inCircle2(ax, ay, bx, by, cx, cy, kx, ky),
+                        'point ' + k + ' is inside a circumcircle')
+                        .toBeLessThanOrEqual(0);
+                }
+            }
+        }, 60);
+    }, 30000);
+
+    it('is unaffected by duplicated points in the vertex pool', () => {
+        // Appending copies of polygon vertices and referencing the copies must
+        // give the same geometry; the triangulator deduplicates the points
+        // before triangulating.
+        check(fc.tuple(rectWithHole, fc.array(fc.integer({ min: 0, max: 7 }),
+            { minLength: 1, maxLength: 4 })), ([c, picks]) => {
+            const points = c.points.slice();
+            const outer = c.outer.slice();
+            for (const pick of picks) {
+                const i = pick % outer.length;
+                points.push(v2(points[outer[i]].values[0],
+                    points[outer[i]].values[1]));
+                outer[i] = points.length - 1;
+            }
+
+            const build = (poly: readonly number[]): PolygonTree => {
+                const root = new PolygonTree();
+                root.polygon = poly.slice();
+                const hole = new PolygonTree();
+                hole.polygon = c.hole.slice();
+                root.child = [hole];
+                return root;
+            };
+
+            const plain = new TriangulateCDT().compute(c.points, build(c.outer));
+            const dupes = new TriangulateCDT().compute(points, build(outer));
+            expect(twiceTotalArea(dupes.interiorTriangles, points))
+                .toBe(twiceTotalArea(plain.interiorTriangles, c.points));
+            expect(twiceTotalArea(dupes.exteriorTriangles, points))
+                .toBe(twiceTotalArea(plain.exteriorTriangles, c.points));
+            expect(dupes.allTriangles.length).toBe(plain.allTriangles.length);
+            expectConstraintEdges(dupes);
+            expectConsistentClassification(dupes, points);
+        }, 40);
+    }, 30000);
+
+    it('preserves the upstream remapping quirk for coincident vertices', () => {
+        // The hole shares the location of the outer vertex 0, listed a second
+        // time as the input point 4. RemapPolygonTree overwrites the remapping
+        // entry of the first occurrence with the input index of the duplicate,
+        // so the restored outer polygon reports index 4 where the caller
+        // passed index 0. The two input points are equal, so the geometry is
+        // unaffected; the port preserves the upstream behavior. See the port
+        // notes in src/TriangulateCDT.ts.
+        const points = [
+            v2(0, 0), v2(6, 0), v2(6, 6), v2(0, 6),
+            v2(0, 0), v2(4, 1), v2(1, 4)
+        ];
+        const root = new PolygonTree();
+        root.polygon = [0, 1, 2, 3];
+        const hole = new PolygonTree();
+        hole.polygon = [4, 6, 5];   // clockwise
+        root.child = [hole];
+
+        const tree = new TriangulateCDT().compute(points, root);
+        expect(tree.nodes[0].polygon).toEqual([4, 1, 2, 3]);
+        expect(tree.nodes[1].polygon).toEqual([4, 6, 5]);
+
+        // The triangulation itself is correct: the outer square has area 36
+        // and the hole triangle (0,0), (1,4), (4,1) has area 7.5.
+        expect(twiceTotalArea(tree.interiorTriangles, points)).toBe(2 * 28.5);
+        expect(twiceTotalArea(tree.exteriorTriangles, points)).toBe(2 * 7.5);
+        expect(tree.outsideTriangles.length).toBe(0);
+        expectConstraintEdges(tree);
+        expectConsistentClassification(tree, points);
+        expectPairwiseDisjoint(tree.allTriangles, points);
     });
 });
