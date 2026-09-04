@@ -26,6 +26,46 @@
 // is highly likely to differ from the previous shuffle and there is a chance
 // the algorithm succeeds just because of the different ordering of points.
 //
+// KNOWN UPSTREAM DEFECT (preserved). The claim above that a floating-point
+// failure is always trapped is false: compute(...) can return success = true
+// together with a circle that does not contain every input point.
+//
+// The shared mechanism is that updateSupport{2,3} always rewrite
+// mSupport/mNumSupport, while the caller keeps the returned circle only when
+// its radius exceeds the current one. When an update returns a *smaller*
+// circle, ctMinimal is unchanged but the support set has been replaced;
+// supportContains() then permanently hides the point that just entered the
+// support, so the main loop finishes without ever covering it. In exact
+// arithmetic an update that follows a failed contains() always produces a
+// larger circle, so this never happens; two floating-point paths reach it.
+//
+//  1. Cocircular input. For the nine integer points
+//       (3,8) (0,0) (-2,-7) (1,0) (-3,-7) (-3,0) (-8,-5) (0,1) (2,-6)
+//     four points are cocircular and exactCircle3 computes that circle's
+//     squared radius as 72.49999999999999 from one triple and 72.5 from
+//     another, so contains() rejects a point that lies exactly on the circle
+//     and a spurious update runs. The query then returns success = true for
+//     a circle that misses (2,-6) by 0.23. In a survey of random integer
+//     point sets in [-8,8]^2 about 0.05% of nine-point sets were affected,
+//     with the missed point up to 3.5 away from the boundary.
+//  2. Nearly collinear input. exactCircle3 detects "no circumcircle" only
+//     through LinearSystem.solve2x2, whose invertibility test is
+//     determinant != 0. For four points on a line, two of them very close
+//     together, the determinant is a cancellation residue rather than the
+//     exact zero, so instead of the "radius = MAX_VALUE" sentinel the solve
+//     returns garbage - a circle of radius 0 - which is then selected as the
+//     smallest candidate. See the two pinned tests in
+//     test/MinimumAreaCircle2.test.ts.
+//
+// A final containment check cannot repair either path: the returned radius is
+// the square root of the internal squared radius, so re-squaring it rejects
+// about 45% of the *correct* results. Restoring the support set when the
+// caller rejects the circle does not help either (in both examples the
+// missed point has already been tested and the loop still terminates). The
+// real fix is upstream's exact ComputeType (BSRational), which this port does
+// not instantiate. The behavior is preserved verbatim; see the "Upstream bug
+// suspects" note of the V10 verification PR.
+//
 // Port notes:
 // * operator() becomes compute(points), returning { minimal, success }
 //   instead of writing through an output reference and returning bool.
