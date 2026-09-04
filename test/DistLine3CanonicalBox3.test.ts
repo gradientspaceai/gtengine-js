@@ -52,6 +52,23 @@ function sampledMinimum(l: Line, b: CanonicalBox): number {
 }
 
 describe('DistLine3CanonicalBox3', () => {
+    it('returns 0, not NaN, for a line through a zero-extent box', () => {
+        // The upstream incremental sqrDistance form goes slightly negative
+        // here and sqrt() gives NaN (found by V20's equivariance property on
+        // a flat OrientedBox). The port clamps negative round-off to 0.
+        // Pre-fix: sqrDistance = -1.7763568394002505e-15, distance = NaN.
+        const box = new CanonicalBox(3);
+        box.extent = Vector.fromArray([0, 3.999999999999937, 3.999999999970607]);
+        const line = Line.fromOriginDirection(
+            Vector.fromArray([0, -7.499019495845319, 0]),
+            Vector.fromArray([-7.55637869396348e-9, -0.9763428607601213,
+                0.21622816246442592]));
+        const result = new DistLine3CanonicalBox3().compute(line, box);
+        expect(Number.isNaN(result.distance)).toBe(false);
+        expect(result.sqrDistance).toBeGreaterThanOrEqual(0);
+        expect(result.distance).toBeLessThan(1e-6);
+    });
+
     const query = new DistLine3CanonicalBox3();
     const unitBox = box(1, 1, 1);
 

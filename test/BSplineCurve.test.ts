@@ -430,6 +430,13 @@ describe('BSplineCurve verification', () => {
                 // Avoid t = 1, where the half-open support of the reference
                 // Cox-de Boor recursion returns zero.
                 const t = tIndex / 1000;
+                // At an interior knot j/(numControls - degree) the degree-th
+                // derivative is discontinuous and the reference recursion's
+                // half-open convention need not match the curve's; skip.
+                const m = s.numControls - s.degree;
+                if (Math.abs(t * m - Math.round(t * m)) < 1e-9) {
+                    return true;
+                }
                 const jet = curve.createJet();
                 const order = Math.min(3, s.degree);
                 curve.evaluate(t, order, jet);

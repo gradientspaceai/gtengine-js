@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { Cylinder3 } from '../src/Cylinder3.js';
 import { DistPoint3Cylinder3 } from '../src/DistPoint3Cylinder3.js';
 import { Line } from '../src/Line.js';
-import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
+import {
+    Vector, add, dot, getOrthogonal, length, mul, normalize, sub
+} from '../src/Vector.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, rotationFrame,
+    unitVector, wellScaledVector
+} from './helpers/arbitraries.js';
 import { cross } from '../src/Vector3.js';
 
 function v(...values: number[]): Vector {
@@ -146,5 +152,144 @@ describe('DistPoint3Cylinder3', () => {
             }
             expect(result.sqrDistance).toBeLessThanOrEqual(best + 1e-6);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (see VERIFYING.md): property-based cross-checks of the
+// port against the upstream DistPoint3Cylinder3.h.
+// ---------------------------------------------------------------------------
+
+describe('DistPoint3Cylinder3 verification', () => {
+    const query = new DistPoint3Cylinder3();
+
+    const finiteArb = fc.tuple(wellScaledVector(3, -5, 5), unitVector(3),
+        finite(0.1, 4), finite(0.1, 8))
+        .map(([o, d, radius, height]) => Cylinder3.fromAxisRadiusHeight(
+            Line.fromOriginDirection(o, d), radius, height));
+
+    const infiniteArb = fc.tuple(wellScaledVector(3, -5, 5), unitVector(3),
+        finite(0.1, 4))
+        .map(([o, d, radius]) => {
+            const c = Cylinder3.fromAxisRadiusHeight(
+                Line.fromOriginDirection(o, d), radius, 1);
+            c.makeInfiniteCylinder();
+            return c;
+        });
+
+    // Cylinder coordinates of a point: the signed distance along the axis and
+    // the distance from the axis.
+    function cylinderCoords(p: Vector, cyl: Cylinder3):
+        { axial: number, radial: number } {
+        const delta = sub(p, cyl.axis.origin);
+        const axial = dot(cyl.axis.direction, delta);
+        const radial = length(sub(delta, mul(axial, cyl.axis.direction)));
+        return { axial, radial };
+    }
+
+    // A solid finite cylinder is the product of a disk and an interval, and
+    // the two factors are orthogonal, so the distance is the Euclidean
+    // combination of the per-factor distances. This is an independent closed
+    // form for the query.
+    function closedForm(p: Vector, cyl: Cylinder3): number {
+        const { axial, radial } = cylinderCoords(p, cyl);
+        const dr = Math.max(radial - cyl.radius, 0);
+        if (cyl.isInfinite()) {
+            return dr;
+        }
+        const dz = Math.max(Math.abs(axial) - 0.5 * cyl.height, 0);
+        return Math.sqrt(dr * dr + dz * dz);
+    }
+
+    it('matches the closed form for finite cylinders', () => {
+        check(fc.tuple(wellScaledVector(3, -8, 8), finiteArb), ([p, cyl]) => {
+            const r = query.compute(p, cyl);
+            expectClose(r.distance, closedForm(p, cyl), 1e-9, 1e-9);
+            expectClose(r.distance, Math.sqrt(r.sqrDistance), 1e-12, 1e-12);
+            expectClose(length(sub(r.closest[0], r.closest[1])), r.distance,
+                1e-9, 1e-9);
+            expectVectorClose(r.closest[0], p, 0, 0);
+            expect(r.closest[0]).not.toBe(p);
+            // closest[1] is a cylinder point.
+            const c = cylinderCoords(r.closest[1], cyl);
+            expect(c.radial).toBeLessThanOrEqual(cyl.radius + 1e-9);
+            expect(Math.abs(c.axial))
+                .toBeLessThanOrEqual(0.5 * cyl.height + 1e-9);
+        });
+    });
+
+    it('matches the closed form for infinite cylinders', () => {
+        check(fc.tuple(wellScaledVector(3, -8, 8), infiniteArb),
+            ([p, cyl]) => {
+                const r = query.compute(p, cyl);
+                expectClose(r.distance, closedForm(p, cyl), 1e-9, 1e-9);
+                const c = cylinderCoords(r.closest[1], cyl);
+                expect(c.radial).toBeLessThanOrEqual(cyl.radius + 1e-9);
+            });
+    });
+
+    it('accepts the Cylinder3 infinite sentinel (upstream issue #187)', () => {
+        // Upstream tests height == numeric_limits<T>::max(), but
+        // MakeInfiniteCylinder sets height = -1, so upstream falls into the
+        // finite branch and trips its "positive height" assertion.
+        const cyl = Cylinder3.fromAxisRadiusHeight(
+            Line.fromOriginDirection(v(0, 0, 0), v(0, 0, 1)), 2, 1);
+        cyl.makeInfiniteCylinder();
+        expect(cyl.height).toBe(-1);
+        const r = query.compute(v(5, 0, 1000), cyl);
+        expect(r.distance).toBeCloseTo(3, 12);
+        expectVectorClose(r.closest[1], v(2, 0, 1000), 1e-9, 1e-9);
+    });
+
+    it('reports zero distance for points inside the cylinder', () => {
+        check(fc.tuple(finiteArb, finite(0, 0.99), finite(-0.99, 0.99),
+            finite(-Math.PI, Math.PI)), ([cyl, ru, zu, angle]) => {
+            const u = getOrthogonal(cyl.axis.direction, true);
+            const w = cross(cyl.axis.direction, u);
+            const radial = ru * cyl.radius;
+            const p = add(cyl.axis.origin,
+                add(mul(zu * 0.5 * cyl.height, cyl.axis.direction),
+                    add(mul(radial * Math.cos(angle), u),
+                        mul(radial * Math.sin(angle), w))));
+            const r = query.compute(p, cyl);
+            expectClose(r.distance, 0, 1e-9, 1e-9);
+            expectVectorClose(r.closest[1], p, 1e-9, 1e-9);
+        });
+    });
+
+    it('handles points on the cylinder axis', () => {
+        check(fc.tuple(finiteArb, finite(-8, 8)), ([cyl, t]) => {
+            const p = add(cyl.axis.origin, mul(t, cyl.axis.direction));
+            const r = query.compute(p, cyl);
+            const expected = Math.max(Math.abs(t) - 0.5 * cyl.height, 0);
+            expectClose(r.distance, expected, 1e-9, 1e-9);
+        });
+    });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(wellScaledVector(3, -8, 8), finiteArb,
+            rotationFrame(3), wellScaledVector(3, -6, 6)),
+            ([p, cyl, frame, shift]) => {
+                const rot = (q: Vector): Vector =>
+                    add(add(mul(q.values[0], frame[0]),
+                        mul(q.values[1], frame[1])),
+                        mul(q.values[2], frame[2]));
+                const moved = Cylinder3.fromAxisRadiusHeight(
+                    Line.fromOriginDirection(add(shift, rot(cyl.axis.origin)),
+                        rot(cyl.axis.direction)), cyl.radius, cyl.height);
+                const r0 = query.compute(p, cyl);
+                const r1 = query.compute(add(shift, rot(p)), moved);
+                expectClose(r0.distance, r1.distance, 1e-8, 1e-8);
+            });
+    });
+
+    it('rejects a non-positive radius or height', () => {
+        const axis = Line.fromOriginDirection(v(0, 0, 0), v(0, 0, 1));
+        expect(() => query.compute(v(1, 0, 0),
+            Cylinder3.fromAxisRadiusHeight(axis, 0, 1)))
+            .toThrow('The cylinder must have a positive radius.');
+        expect(() => query.compute(v(1, 0, 0),
+            Cylinder3.fromAxisRadiusHeight(axis, 1, 0)))
+            .toThrow('The cylinder must have a positive height.');
     });
 });

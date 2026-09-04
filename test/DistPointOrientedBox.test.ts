@@ -3,7 +3,11 @@ import { DistPointAlignedBox } from '../src/DistPointAlignedBox.js';
 import { DistPointOrientedBox } from '../src/DistPointOrientedBox.js';
 import { AlignedBox } from '../src/AlignedBox.js';
 import { OrientedBox } from '../src/OrientedBox.js';
-import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, rotationFrame,
+    wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -145,5 +149,114 @@ describe('DistPointOrientedBox', () => {
             }
             expect(result.sqrDistance).toBeLessThanOrEqual(best + 1e-9);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (see VERIFYING.md): property-based cross-checks of the
+// port against the upstream DistPointOrientedBox.h.
+// ---------------------------------------------------------------------------
+
+describe('DistPointOrientedBox verification', () => {
+    const query = new DistPointOrientedBox();
+    const alignedQuery = new DistPointAlignedBox();
+
+    const boxArb = (n: number): fc.Arbitrary<OrientedBox> =>
+        fc.tuple(wellScaledVector(n, -5, 5), rotationFrame(n),
+            fc.array(finite(0, 4), { minLength: n, maxLength: n }))
+            .map(([c, axis, e]) => OrientedBox.fromCenterAxisExtent(c, axis,
+                Vector.fromArray(e)));
+
+    // Independent closed form: clamp the box-frame coordinates.
+    function closestInBox(p: Vector, b: OrientedBox): Vector {
+        const n = b.extent.size;
+        const delta = sub(p, b.center);
+        let q = b.center.clone();
+        for (let i = 0; i < n; ++i) {
+            const e = b.extent.get(i);
+            const y = Math.min(Math.max(dot(b.axis[i], delta), -e), e);
+            q = add(q, mul(y, b.axis[i]));
+        }
+        return q;
+    }
+
+    for (const n of [2, 3]) {
+        it(`matches the box-frame clamp in ${n}D`, () => {
+            check(fc.tuple(wellScaledVector(n, -8, 8), boxArb(n)),
+                ([p, b]) => {
+                    const r = query.compute(p, b);
+                    const q = closestInBox(p, b);
+                    expectVectorClose(r.closest[1], q, 1e-9, 1e-9);
+                    expectClose(r.distance, length(sub(p, q)), 1e-9, 1e-9);
+                    expectClose(r.distance, Math.sqrt(r.sqrDistance), 1e-12,
+                        1e-12);
+                    expectVectorClose(r.closest[0], p, 0, 0);
+                    expect(r.closest[0]).not.toBe(p);
+                });
+        });
+    }
+
+    it('agrees with the aligned-box query for an identity frame', () => {
+        const axes = [v(1, 0, 0), v(0, 1, 0), v(0, 0, 1)];
+        check(fc.tuple(wellScaledVector(3, -8, 8), wellScaledVector(3, -5, 5),
+            fc.array(finite(0, 4), { minLength: 3, maxLength: 3 })),
+            ([p, c, e]) => {
+                const ext = Vector.fromArray(e);
+                const ob = OrientedBox.fromCenterAxisExtent(c, axes, ext);
+                const ab = AlignedBox.fromMinMax(sub(c, ext), add(c, ext));
+                const r0 = query.compute(p, ob);
+                const r1 = alignedQuery.compute(p, ab);
+                expectClose(r0.distance, r1.distance, 1e-12, 1e-12);
+                expectVectorClose(r0.closest[1], r1.closest[1], 1e-12, 1e-12);
+            });
+    });
+
+    it('reports zero distance for points inside the box', () => {
+        check(fc.tuple(boxArb(3), fc.array(finite(-1, 1),
+            { minLength: 3, maxLength: 3 })), ([b, u]) => {
+            let p = b.center.clone();
+            for (let i = 0; i < 3; ++i) {
+                p = add(p, mul(u[i] * b.extent.get(i), b.axis[i]));
+            }
+            const r = query.compute(p, b);
+            expectClose(r.distance, 0, 1e-9, 1e-9);
+            expectVectorClose(r.closest[1], p, 1e-9, 1e-9);
+        });
+    });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(wellScaledVector(3, -8, 8), boxArb(3),
+            rotationFrame(3), wellScaledVector(3, -6, 6)),
+            ([p, b, frame, shift]) => {
+                const rot = (q: Vector): Vector =>
+                    add(add(mul(q.values[0], frame[0]),
+                        mul(q.values[1], frame[1])),
+                        mul(q.values[2], frame[2]));
+                const moved = OrientedBox.fromCenterAxisExtent(
+                    add(shift, rot(b.center)),
+                    [rot(b.axis[0]), rot(b.axis[1]), rot(b.axis[2])],
+                    b.extent);
+                const r0 = query.compute(p, b);
+                const r1 = query.compute(add(shift, rot(p)), moved);
+                expectClose(r0.distance, r1.distance, 1e-8, 1e-8);
+                expectVectorClose(add(shift, rot(r0.closest[1])),
+                    r1.closest[1], 1e-7, 1e-7);
+            });
+    });
+
+    it('is invariant to negating a box axis', () => {
+        // Negating an axis describes the same solid box.
+        check(fc.tuple(wellScaledVector(3, -8, 8), boxArb(3), fc.nat(2)),
+            ([p, b, k]) => {
+                const axes = [b.axis[0].clone(), b.axis[1].clone(),
+                    b.axis[2].clone()];
+                axes[k] = mul(-1, axes[k]);
+                const flipped = OrientedBox.fromCenterAxisExtent(b.center,
+                    axes, b.extent);
+                const r0 = query.compute(p, b);
+                const r1 = query.compute(p, flipped);
+                expectClose(r0.distance, r1.distance, 1e-9, 1e-9);
+                expectVectorClose(r0.closest[1], r1.closest[1], 1e-9, 1e-9);
+            });
     });
 });
