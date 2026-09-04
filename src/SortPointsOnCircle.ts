@@ -79,6 +79,13 @@ function lessThanByGeometry(object0: SortObject, object1: SortObject): number {
     return 0;
 }
 
+// KNOWN UPSTREAM QUIRK (preserved): this predicate is not a strict weak
+// ordering when a point coincides with the center, i.e. when W = (0,0). The
+// zero vector compares "not less" against every W with y >= 0 and "greater"
+// than every W with y < 0, so it is equivalent to points that are themselves
+// strictly ordered (equivalence is not transitive). In C++ that is undefined
+// behavior for std::sort; here Array.prototype.sort merely produces an
+// order that can differ from byAngle for such degenerate input.
 function strictLessThanByGeometry(object0: SortObject, object1: SortObject): boolean {
     const x0 = object0.W[0], y0 = object0.W[1];
     const x1 = object1.W[0], y1 = object1.W[1];

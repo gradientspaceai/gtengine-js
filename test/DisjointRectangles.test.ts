@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { DisjointRectangles } from '../src/DisjointRectangles.js';
 import { DisjointIntervals } from '../src/DisjointIntervals.js';
+import { check, fc, finite, scaled } from './helpers/arbitraries.js';
 
 type Rect = [number, number, number, number];  // [xmin, xmax, ymin, ymax]
 
@@ -338,5 +339,254 @@ describe('DisjointRectangles', () => {
         const merged = DisjointIntervals.union(strip.intervalSet, other);
         expect(merged.getNumIntervals()).toBe(1);
         expect(merged.getInterval(0)).toEqual({ xmin: 0, xmax: 6 });
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Independent verification pass (VERIFYING.md). Like DisjointIntervals, the
+// strip algorithm only compares and copies scalars, so the membership
+// properties below hold exactly, including on strip and interval boundaries.
+// The representation is *not* canonical in y: vertically abutting strips with
+// equal interval sets are never merged, so structural laws (associativity,
+// distributivity) are checked pointwise rather than by comparing endpoints.
+// ---------------------------------------------------------------------------
+
+const gridRectSet = (n: number, cells: number): fc.Arbitrary<DisjointRectangles> =>
+    fc.array(fc.tuple(fc.integer({ min: 0, max: cells - 1 }),
+        fc.integer({ min: 1, max: 4 }),
+        fc.integer({ min: 0, max: cells - 1 }),
+        fc.integer({ min: 1, max: 4 })), { minLength: 0, maxLength: n })
+        .map(quads => {
+            const set = new DisjointRectangles();
+            for (const [x, w, y, h] of quads) { set.insert(x, x + w, y, y + h); }
+            return set;
+        });
+
+const doubleRectSet = (n: number): fc.Arbitrary<DisjointRectangles> =>
+    fc.array(fc.tuple(scaled(-6, 6, 24), scaled(0.5, 3, 6),
+        scaled(-6, 6, 24), scaled(0.5, 3, 6)), { minLength: 0, maxLength: n })
+        .map(quads => {
+            const set = new DisjointRectangles();
+            for (const [x, w, y, h] of quads) { set.insert(x, x + w, y, y + h); }
+            return set;
+        });
+
+// Probe abscissas/ordinates: every rectangle boundary of the inputs, the
+// midpoints between consecutive ones, and one value outside the hull.
+function probeAxis(values: number[]): number[] {
+    const sorted = [...new Set(values)].sort((a, b) => a - b);
+    const probes: number[] = [];
+    for (let i = 0; i < sorted.length; ++i) {
+        probes.push(sorted[i]);
+        if (i + 1 < sorted.length) { probes.push(0.5 * (sorted[i] + sorted[i + 1])); }
+    }
+    probes.push((sorted[0] ?? 0) - 1, (sorted[sorted.length - 1] ?? 0) + 1);
+    return probes;
+}
+
+function probeGrid(...sets: DisjointRectangles[]): { xs: number[], ys: number[] } {
+    const xv: number[] = [], yv: number[] = [];
+    for (const set of sets) {
+        for (const [xmin, xmax, ymin, ymax] of rectanglesOf(set)) {
+            xv.push(xmin, xmax);
+            yv.push(ymin, ymax);
+        }
+    }
+    return { xs: probeAxis(xv), ys: probeAxis(yv) };
+}
+
+// The strips of a well-formed set are sorted in y, have positive height and do
+// not overlap; every x-interval set inside a strip is itself canonical.
+function expectStripsWellFormed(set: DisjointRectangles): void {
+    let previousYMax = Number.NEGATIVE_INFINITY;
+    let total = 0;
+    for (let i = 0; i < set.getNumStrips(); ++i) {
+        const strip = set.getStrip(i)!;
+        expect(strip.ymin).toBeLessThan(strip.ymax);
+        expect(previousYMax).toBeLessThanOrEqual(strip.ymin);
+        previousYMax = strip.ymax;
+        const intervals = strip.intervalSet;
+        for (let k = 0; k < intervals.getNumIntervals(); ++k) {
+            const cur = intervals.getInterval(k)!;
+            expect(cur.xmin).toBeLessThan(cur.xmax);
+            if (k > 0) {
+                expect(intervals.getInterval(k - 1)!.xmax).toBeLessThan(cur.xmin);
+            }
+        }
+        total += intervals.getNumIntervals();
+    }
+    // GetNumRectangles is the cached sum computed by ComputeRectangleQuantity.
+    expect(set.getNumRectangles()).toBe(total);
+}
+
+describe('DisjointRectangles verification', () => {
+    it('the four operators agree with pointwise membership (grid corners)', () => {
+        check(fc.tuple(gridRectSet(4, 8), gridRectSet(4, 8)), ([A, B]) => {
+            const union = DisjointRectangles.union(A, B);
+            const inter = DisjointRectangles.intersection(A, B);
+            const diff = DisjointRectangles.difference(A, B);
+            const xor = DisjointRectangles.exclusiveOr(A, B);
+            const { xs, ys } = probeGrid(A, B);
+            for (const x of xs) {
+                for (const y of ys) {
+                    const a = contains(A, x, y), b = contains(B, x, y);
+                    expect(contains(union, x, y)).toBe(a || b);
+                    expect(contains(inter, x, y)).toBe(a && b);
+                    expect(contains(diff, x, y)).toBe(a && !b);
+                    expect(contains(xor, x, y)).toBe(a !== b);
+                }
+            }
+        }, 60);
+    });
+
+    it('the four operators agree with pointwise membership (double corners)', () => {
+        check(fc.tuple(doubleRectSet(3), doubleRectSet(3)), ([A, B]) => {
+            const union = DisjointRectangles.union(A, B);
+            const inter = DisjointRectangles.intersection(A, B);
+            const diff = DisjointRectangles.difference(A, B);
+            const xor = DisjointRectangles.exclusiveOr(A, B);
+            const { xs, ys } = probeGrid(A, B);
+            for (const x of xs) {
+                for (const y of ys) {
+                    const a = contains(A, x, y), b = contains(B, x, y);
+                    expect(contains(union, x, y)).toBe(a || b);
+                    expect(contains(inter, x, y)).toBe(a && b);
+                    expect(contains(diff, x, y)).toBe(a && !b);
+                    expect(contains(xor, x, y)).toBe(a !== b);
+                }
+            }
+        }, 60);
+    });
+
+    it('every operator returns sorted, non-overlapping strips', () => {
+        check(fc.tuple(gridRectSet(4, 8), gridRectSet(4, 8)), ([A, B]) => {
+            expectStripsWellFormed(A);
+            expectStripsWellFormed(B);
+            expectStripsWellFormed(DisjointRectangles.union(A, B));
+            expectStripsWellFormed(DisjointRectangles.intersection(A, B));
+            expectStripsWellFormed(DisjointRectangles.difference(A, B));
+            expectStripsWellFormed(DisjointRectangles.exclusiveOr(A, B));
+        }, 100);
+    });
+
+    it('insert/remove equal union/difference with a single rectangle', () => {
+        check(fc.tuple(gridRectSet(3, 8), fc.integer({ min: 0, max: 7 }),
+            fc.integer({ min: 1, max: 4 }), fc.integer({ min: 0, max: 7 }),
+            fc.integer({ min: 1, max: 4 })), ([A, x, w, y, h]) => {
+            const single = new DisjointRectangles(x, x + w, y, y + h);
+            const inserted = A.clone();
+            expect(inserted.insert(x, x + w, y, y + h)).toBe(true);
+            expect(rectanglesOf(inserted))
+                .toEqual(rectanglesOf(DisjointRectangles.union(A, single)));
+            const removed = A.clone();
+            expect(removed.remove(x, x + w, y, y + h)).toBe(true);
+            expect(rectanglesOf(removed))
+                .toEqual(rectanglesOf(DisjointRectangles.difference(A, single)));
+        }, 100);
+    });
+
+    it('set-algebra laws hold pointwise', () => {
+        check(fc.tuple(gridRectSet(3, 7), gridRectSet(3, 7), gridRectSet(3, 7)),
+            ([A, B, C]) => {
+                const u = DisjointRectangles.union;
+                const n = DisjointRectangles.intersection;
+                const d = DisjointRectangles.difference;
+                const lhs = [u(u(A, B), C), n(n(A, B), C), n(A, u(B, C))];
+                const rhs = [u(A, u(B, C)), n(A, n(B, C)), u(n(A, B), n(A, C))];
+                const { xs, ys } = probeGrid(A, B, C);
+                for (const x of xs) {
+                    for (const y of ys) {
+                        for (let k = 0; k < lhs.length; ++k) {
+                            expect(contains(lhs[k], x, y)).toBe(contains(rhs[k], x, y));
+                        }
+                    }
+                }
+                // A minus A and A xor A are empty; A union A and A cap A are A.
+                expect(d(A, A).getNumRectangles()).toBe(0);
+                expect(DisjointRectangles.exclusiveOr(A, A).getNumRectangles()).toBe(0);
+                for (const x of xs) {
+                    for (const y of ys) {
+                        const a = contains(A, x, y);
+                        expect(contains(u(A, A), x, y)).toBe(a);
+                        expect(contains(n(A, A), x, y)).toBe(a);
+                    }
+                }
+            }, 40);
+    });
+
+    it('operators only copy coordinates of their inputs', () => {
+        check(fc.tuple(doubleRectSet(3), doubleRectSet(3)), ([A, B]) => {
+            const xEnds = new Set<number>(), yEnds = new Set<number>();
+            for (const set of [A, B]) {
+                for (const [xmin, xmax, ymin, ymax] of rectanglesOf(set)) {
+                    xEnds.add(xmin);
+                    xEnds.add(xmax);
+                    yEnds.add(ymin);
+                    yEnds.add(ymax);
+                }
+            }
+            const ops = [DisjointRectangles.union, DisjointRectangles.intersection,
+                DisjointRectangles.difference, DisjointRectangles.exclusiveOr];
+            for (const op of ops) {
+                for (const [xmin, xmax, ymin, ymax] of rectanglesOf(op(A, B))) {
+                    expect(xEnds.has(xmin)).toBe(true);
+                    expect(xEnds.has(xmax)).toBe(true);
+                    expect(yEnds.has(ymin)).toBe(true);
+                    expect(yEnds.has(ymax)).toBe(true);
+                }
+            }
+        }, 100);
+    });
+
+    it('operands and results never alias (deep copies of the interval sets)', () => {
+        check(gridRectSet(3, 8), (A) => {
+            const empty = new DisjointRectangles();
+            const before = rectanglesOf(A);
+            for (const result of [DisjointRectangles.union(A, empty),
+                DisjointRectangles.difference(A, empty),
+                DisjointRectangles.exclusiveOr(A, empty)]) {
+                // Mutating a result must not disturb the operand.
+                result.insert(100, 200, 100, 200);
+                expect(rectanglesOf(A)).toEqual(before);
+            }
+            for (let i = 0; i < A.getNumStrips(); ++i) {
+                const strip = A.getStrip(i)!;
+                strip.intervalSet.insert(1000, 2000);
+                expect(rectanglesOf(A)).toEqual(before);
+            }
+            const copy = A.clone();
+            copy.insert(-100, -50, -100, -50);
+            expect(rectanglesOf(A)).toEqual(before);
+        }, 100);
+    });
+
+    it('degenerate inputs behave as documented', () => {
+        check(fc.tuple(finite(-4, 4), finite(-4, 4), finite(-4, 4), finite(-4, 4)),
+            ([a, b, c, d]) => {
+                const valid = a < b && c < d;
+                expect(new DisjointRectangles(a, b, c, d).getNumRectangles())
+                    .toBe(valid ? 1 : 0);
+                const set = new DisjointRectangles();
+                expect(set.insert(a, b, c, d)).toBe(valid);
+                expect(set.remove(a, b, c, d)).toBe(valid);
+            });
+        const single = new DisjointRectangles(0, 1, 0, 1);
+        expect(single.getRectangle(-1)).toBeNull();
+        expect(single.getRectangle(1)).toBeNull();
+        expect(single.getStrip(-1)).toBeNull();
+        expect(single.getStrip(1)).toBeNull();
+        const empty = new DisjointRectangles();
+        expect(empty.getRectangle(0)).toBeNull();
+        expect(rectanglesOf(DisjointRectangles.union(empty, single)))
+            .toEqual([[0, 1, 0, 1]]);
+        expect(rectanglesOf(DisjointRectangles.union(single, empty)))
+            .toEqual([[0, 1, 0, 1]]);
+        expect(DisjointRectangles.intersection(single, empty).getNumRectangles()).toBe(0);
+        expect(DisjointRectangles.intersection(empty, single).getNumRectangles()).toBe(0);
+        expect(rectanglesOf(DisjointRectangles.difference(single, empty)))
+            .toEqual([[0, 1, 0, 1]]);
+        expect(DisjointRectangles.difference(empty, single).getNumRectangles()).toBe(0);
+        expect(rectanglesOf(DisjointRectangles.exclusiveOr(empty, single)))
+            .toEqual([[0, 1, 0, 1]]);
     });
 });
