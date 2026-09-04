@@ -479,34 +479,40 @@
   "status": "ported"
  },
  "DistAlignedBoxAlignedBox.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 19
  },
  "DistCircle2Circle2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 19
  },
  "DistCircle3Circle3.h": {
   "status": "ported"
  },
  "DistLine2AlignedBox2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 19
  },
  "DistLine2Arc2.h": {
   "status": "ported"
  },
  "DistLine2Circle2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 19
  },
  "DistLine2OrientedBox2.h": {
   "status": "ported"
  },
  "DistLine2Triangle2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 19
  },
  "DistLine3AlignedBox3.h": {
   "status": "ported"
  },
  "DistLine3CanonicalBox3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 19
  },
  "DistLine3Circle3.h": {
   "status": "ported"
@@ -521,13 +527,16 @@
   "status": "ported"
  },
  "DistLineLine.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 19
  },
  "DistLineRay.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 19
  },
  "DistLineSegment.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 19
  },
  "DistOrientedBox3Cone3.h": {
   "status": "ported"
@@ -548,7 +557,8 @@
   "status": "ported"
  },
  "DistPoint2Circle2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 19
  },
  "DistPoint2Parallelogram2.h": {
   "status": "ported"
@@ -575,7 +585,8 @@
   "status": "ported"
  },
  "DistPointCanonicalBox.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 19
  },
  "DistPointHyperellipsoid.h": {
   "status": "ported"
@@ -584,22 +595,27 @@
   "status": "ported"
  },
  "DistPointLine.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 19
  },
  "DistPointOrientedBox.h": {
   "status": "ported"
  },
  "DistPointRay.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 19
  },
  "DistPointRectangle.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 19
  },
  "DistPointSegment.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 19
  },
  "DistPointTriangle.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 19
  },
  "DistRay2AlignedBox2.h": {
   "status": "ported"
@@ -635,10 +651,12 @@
   "status": "ported"
  },
  "DistRayRay.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 19
  },
  "DistRaySegment.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 19
  },
  "DistRectangle3AlignedBox3.h": {
   "status": "ported"
@@ -686,7 +704,8 @@
   "status": "ported"
  },
  "DistSegmentSegment.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 19
  },
  "DistTetrahedron3Tetrahedron3.h": {
   "status": "ported"
