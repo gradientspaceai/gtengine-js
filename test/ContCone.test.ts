@@ -224,7 +224,12 @@ describe('ContCone verification', () => {
 
     // Points on the axis at an in-range height are contained for every angle.
     it('contains axis points at in-range heights', () => {
-        check(fc.tuple(coneArb, fc.double({ min: 0, max: 3, noNaN: true })),
+        // The fraction is drawn from a uniform grid rather than with
+        // fc.double: a subnormal fraction makes the point differ from the
+        // vertex only in components that underflow when squared, and the
+        // quadratic test then compares two underflowed numbers.
+        check(fc.tuple(coneArb,
+            fc.integer({ min: 0, max: 1000 }).map(i => i / 1000)),
             ([{ cone }, s]: [{ cone: Cone }, number]) => {
                 const h = cone.getMinHeight()
                     + s * (cone.isInfinite() ? 1
