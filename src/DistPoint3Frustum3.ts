@@ -27,6 +27,31 @@ export interface DistPoint3Frustum3Result {
     closest: [Vector, Vector];
 }
 
+// Upstream bug (fixed here): the LF-edge and UF-edge cases assign the free
+// coordinate of the far edge straight from the (sign-folded) test point,
+// which is correct only where the surrounding case analysis already bounds
+// it. Two of the ten assignments are not so bounded: in the test[2] <= dmin
+// group and in the dmin < test[2] < dmax group, the branch guarded by
+// rEdgeDot >= 0 followed by rdDot >= maxRDDot reaches the LF-edge with
+// test[1] > umax (and symmetrically the uEdgeDot branch reaches the UF-edge
+// with test[0] > rmax). The reported closest point is then off the end of the
+// edge and outside the frustum, and the distance is too small.
+//
+// Example: an orthogonal frustum with dMin = 1, dMax = 2, uBound = rBound = 1
+// and the test point at frustum coordinates (r,u,d) = (100,3,0). Upstream
+// returns closest = (2,3,2) with distance 98.0204; the frustum only reaches
+// |u| <= 2 at d = 2, and the true closest point is the LUF vertex (2,2,2) at
+// distance 98.0255.
+//
+// The closest point on a segment is the projection clamped to its endpoints,
+// so clamping the free coordinate to the far half-extent repairs those cases
+// and is a no-op for the eight that were already bounded. The test point has
+// been folded into the octant with nonnegative R and U coordinates, so only
+// the upper bound needs to be applied.
+function clampToFarEdge(coordinate: number, halfExtent: number): number {
+    return coordinate <= halfExtent ? coordinate : halfExtent;
+}
+
 export class DistPoint3Frustum3
     implements DCPQuery<Vector, Frustum3, DistPoint3Frustum3Result> {
     compute(point: Vector, frustum: Frustum3): DistPoint3Frustum3Result {
@@ -86,7 +111,7 @@ export class DistPoint3Frustum3
                 }
                 else {
                     // UF-edge
-                    closest[0] = test[0];
+                    closest[0] = clampToFarEdge(test[0], rmax);
                     closest[1] = umax;
                     closest[2] = dmax;
                 }
@@ -95,7 +120,7 @@ export class DistPoint3Frustum3
                 if (test[1] <= umax) {
                     // LF-edge
                     closest[0] = rmax;
-                    closest[1] = test[1];
+                    closest[1] = clampToFarEdge(test[1], umax);
                     closest[2] = dmax;
                 }
                 else {
@@ -118,7 +143,7 @@ export class DistPoint3Frustum3
                     udDot = umin * test[1] + dmin * test[2];
                     if (udDot >= maxUDDot) {
                         // UF-edge
-                        closest[0] = test[0];
+                        closest[0] = clampToFarEdge(test[0], rmax);
                         closest[1] = umax;
                         closest[2] = dmax;
                     }
@@ -144,7 +169,7 @@ export class DistPoint3Frustum3
                     if (rdDot >= maxRDDot) {
                         // LF-edge
                         closest[0] = rmax;
-                        closest[1] = test[1];
+                        closest[1] = clampToFarEdge(test[1], umax);
                         closest[2] = dmax;
                     }
                     else if (rdDot >= minRDDot) {
@@ -170,7 +195,7 @@ export class DistPoint3Frustum3
                         if (rdDot >= maxRDDot) {
                             // LF-edge
                             closest[0] = rmax;
-                            closest[1] = test[1];
+                            closest[1] = clampToFarEdge(test[1], umax);
                             closest[2] = dmax;
                         }
                         else if (rdDot >= minRDDot) {
@@ -194,7 +219,7 @@ export class DistPoint3Frustum3
                             udDot = umin * test[1] + dmin * test[2];
                             if (udDot >= maxUDDot) {
                                 // UF-edge
-                                closest[0] = test[0];
+                                closest[0] = clampToFarEdge(test[0], rmax);
                                 closest[1] = umax;
                                 closest[2] = dmax;
                             }
@@ -252,7 +277,7 @@ export class DistPoint3Frustum3
                     udDot = umin * test[1] + dmin * test[2];
                     if (udDot >= maxUDDot) {
                         // UF-edge
-                        closest[0] = test[0];
+                        closest[0] = clampToFarEdge(test[0], rmax);
                         closest[1] = umax;
                         closest[2] = dmax;
                     }
@@ -271,7 +296,7 @@ export class DistPoint3Frustum3
                     if (rdDot >= maxRDDot) {
                         // LF-edge
                         closest[0] = rmax;
-                        closest[1] = test[1];
+                        closest[1] = clampToFarEdge(test[1], umax);
                         closest[2] = dmax;
                     }
                     else {
@@ -290,7 +315,7 @@ export class DistPoint3Frustum3
                         if (rdDot >= maxRDDot) {
                             // LF-edge
                             closest[0] = rmax;
-                            closest[1] = test[1];
+                            closest[1] = clampToFarEdge(test[1], umax);
                             closest[2] = dmax;
                         }
                         else {
@@ -307,7 +332,7 @@ export class DistPoint3Frustum3
                             udDot = umin * test[1] + dmin * test[2];
                             if (udDot >= maxUDDot) {
                                 // UF-edge
-                                closest[0] = test[0];
+                                closest[0] = clampToFarEdge(test[0], rmax);
                                 closest[1] = umax;
                                 closest[2] = dmax;
                             }
