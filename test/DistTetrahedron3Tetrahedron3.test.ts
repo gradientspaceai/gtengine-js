@@ -3,7 +3,14 @@ import { inContainerTetrahedron3 } from '../src/ContTetrahedron3.js';
 import { DistPoint3Tetrahedron3 } from '../src/DistPoint3Tetrahedron3.js';
 import { DistTetrahedron3Tetrahedron3 } from '../src/DistTetrahedron3Tetrahedron3.js';
 import { Tetrahedron3 } from '../src/Tetrahedron3.js';
-import { Vector, add, length, mul, sub } from '../src/Vector.js';
+import { DistTriangle3Triangle3 } from '../src/DistTriangle3Triangle3.js';
+import { Triangle } from '../src/Triangle.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
+import {
+    check, expectClose, expectVectorClose, fc, latticeVector, rotationFrame,
+    seededRandom, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -174,5 +181,120 @@ describe('DistTetrahedron3Tetrahedron3', () => {
             expect(pointQuery.compute(result.closest[1], tetra1).distance)
                 .toBeCloseTo(0, 8);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (see VERIFYING.md): property-based cross-checks of the
+// port against upstream DistTetrahedron3Tetrahedron3.h.
+// ---------------------------------------------------------------------------
+
+describe('DistTetrahedron3Tetrahedron3 verification', () => {
+    const query = new DistTetrahedron3Tetrahedron3();
+    const ttQuery = new DistTriangle3Triangle3();
+
+    const tetraArb = fc.tuple(latticeVector(3, -5, 5), latticeVector(3, -5, 5),
+        latticeVector(3, -5, 5), latticeVector(3, -5, 5))
+        .filter(([a, b, c, d]) =>
+            Math.abs(dot(sub(b, a), cross(sub(c, a), sub(d, a)))) > 4)
+        .map(([a, b, c, d]) => Tetrahedron3.fromVertices(a, b, c, d));
+
+    function faces(t: Tetrahedron3): Triangle[] {
+        const out: Triangle[] = [];
+        for (let f = 0; f < 4; ++f) {
+            const idx = Tetrahedron3.getFaceIndices(f);
+            out.push(Triangle.fromVertices(t.v[idx[0]], t.v[idx[1]],
+                t.v[idx[2]]));
+        }
+        return out;
+    }
+
+    it('reports consistent distances and barycentric closest points', () => {
+        check(fc.tuple(tetraArb, tetraArb), ([t0, t1]) => {
+            const r = query.compute(t0, t1);
+            expectClose(r.sqrDistance, r.distance * r.distance, 1e-12, 1e-12);
+            const d = sub(r.closest[0], r.closest[1]);
+            expectClose(Math.sqrt(dot(d, d)), r.distance, 1e-8, 1e-8);
+
+            const verify = (b: [number, number, number, number],
+                t: Tetrahedron3, c: Vector) => {
+                expectClose(b[0] + b[1] + b[2] + b[3], 1, 1e-8, 1e-8);
+                let rebuilt = new Vector(3);
+                for (let i = 0; i < 4; ++i) {
+                    expect(b[i]).toBeGreaterThanOrEqual(-1e-7);
+                    rebuilt = add(rebuilt, mul(b[i], t.v[i]));
+                }
+                expectVectorClose(rebuilt, c, 1e-6, 1e-6);
+            };
+            verify(r.barycentric0, t0, r.closest[0]);
+            verify(r.barycentric1, t1, r.closest[1]);
+        });
+    });
+
+    it('is symmetric under argument swap', () => {
+        check(fc.tuple(tetraArb, tetraArb), ([t0, t1]) => {
+            const a = query.compute(t0, t1);
+            const b = query.compute(t1, t0);
+            expectClose(a.distance, b.distance, 1e-8, 1e-8);
+        });
+    });
+
+    // When neither solid contains the other, the minimum distance is attained
+    // on the boundaries, which are the four triangular faces of each solid.
+    it('equals the minimum over the sixteen face pairs when not nested',
+        () => {
+            check(fc.tuple(tetraArb, tetraArb), ([t0, t1]) => {
+                const c0 = t0.computeCentroid(), c1 = t1.computeCentroid();
+                if (inContainerTetrahedron3(c0, t1)
+                    || inContainerTetrahedron3(c1, t0)) {
+                    return;   // nested; the face minimum is not the answer
+                }
+                let best = Number.MAX_VALUE;
+                for (const f0 of faces(t0)) {
+                    for (const f1 of faces(t1)) {
+                        best = Math.min(best,
+                            ttQuery.compute(f0, f1).sqrDistance);
+                    }
+                }
+                const r = query.compute(t0, t1);
+                expectClose(r.sqrDistance, best, 1e-8, 1e-8);
+            });
+        });
+
+    it('reports zero when one tetrahedron is nested inside the other', () => {
+        const outer = unitTetra(v(0, 0, 0), 10);
+        const inner = unitTetra(v(1, 1, 1), 1);
+        const r = query.compute(inner, outer);
+        expect(r.distance).toBe(0);
+        expect(r.sqrDistance).toBe(0);
+        expectVectorClose(r.closest[0], r.closest[1], 1e-12, 1e-12);
+        const rs = query.compute(outer, inner);
+        expect(rs.distance).toBe(0);
+    });
+
+    it('never exceeds a face sampling of the first tetrahedron', () => {
+        const rng = seededRandom(0x0ddba11);
+        for (let k = 0; k < 15; ++k) {
+            const p = () => v(8 * rng() - 4, 8 * rng() - 4, 8 * rng() - 4);
+            const t0 = Tetrahedron3.fromVertices(p(), p(), p(), p());
+            const t1 = Tetrahedron3.fromVertices(p(), p(), p(), p());
+            const r = query.compute(t0, t1);
+            expect(r.distance)
+                .toBeLessThanOrEqual(bruteForce(t0, t1, 12) + 1e-8);
+        }
+    }, 30000);
+
+    it('is equivariant under a rigid motion', () => {
+        check(fc.tuple(tetraArb, tetraArb, rotationFrame(3),
+            wellScaledVector(3, -4, 4)), ([t0, t1, R, tr]) => {
+                const xf = (q: Vector) => add(add(add(
+                    mul(q.values[0], R[0]), mul(q.values[1], R[1])),
+                    mul(q.values[2], R[2])), tr);
+                const xt = (t: Tetrahedron3) => Tetrahedron3.fromVertices(
+                    xf(t.v[0]), xf(t.v[1]), xf(t.v[2]), xf(t.v[3]));
+                const a = query.compute(t0, t1);
+                const b = query.compute(xt(t0), xt(t1));
+                expectClose(a.distance, b.distance, 1e-7, 1e-7);
+            });
     });
 });

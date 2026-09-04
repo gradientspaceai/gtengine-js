@@ -3,7 +3,15 @@ import { DistRectangle3Rectangle3 } from '../src/DistRectangle3Rectangle3.js';
 import type { DistRectangle3Rectangle3Result }
     from '../src/DistRectangle3Rectangle3.js';
 import { Rectangle } from '../src/Rectangle.js';
+import { DistSegment3Rectangle3 } from '../src/DistSegment3Rectangle3.js';
+import { DistTriangle3Triangle3 } from '../src/DistTriangle3Triangle3.js';
+import { Segment } from '../src/Segment.js';
+import { Triangle } from '../src/Triangle.js';
 import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, rotationFrame,
+    seededRandom, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -151,5 +159,144 @@ describe('DistRectangle3Rectangle3', () => {
             expect(sampled - result.distance).toBeLessThan(0.2);
             expectConsistent(r0, r1, result);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (see VERIFYING.md): property-based cross-checks of the
+// port against upstream DistRectangle3Rectangle3.h.
+// ---------------------------------------------------------------------------
+
+describe('DistRectangle3Rectangle3 verification', () => {
+    const query = new DistRectangle3Rectangle3();
+    const ttQuery = new DistTriangle3Triangle3();
+    const srQuery = new DistSegment3Rectangle3();
+
+    const rectArb = fc.tuple(wellScaledVector(3, -5, 5), rotationFrame(3),
+        fc.array(finite(0.05, 3), { minLength: 2, maxLength: 2 }))
+        .map(([c, R, e]) =>
+            Rectangle.fromCenterAxisExtent(c, [R[0], R[1]], v(e[0], e[1])));
+
+    // The two triangles whose union is the solid rectangle. The vertices come
+    // back in bit-pattern order, so <0,1,3> and <0,3,2> tile the rectangle.
+    function triangles(r: Rectangle): [Triangle, Triangle] {
+        const p = r.getVertices();
+        return [Triangle.fromVertices(p[0], p[1], p[3]),
+            Triangle.fromVertices(p[0], p[3], p[2])];
+    }
+
+    it('reports consistent distances and on-primitive closest points', () => {
+        check(fc.tuple(rectArb, rectArb), ([r0, r1]) => {
+            const res = query.compute(r0, r1);
+            expectClose(res.sqrDistance, res.distance * res.distance,
+                1e-12, 1e-12);
+            const d = sub(res.closest[0], res.closest[1]);
+            expectClose(Math.sqrt(dot(d, d)), res.distance, 1e-8, 1e-8);
+
+            const verify = (s: [number, number], r: Rectangle, c: Vector) => {
+                let rebuilt = r.center.clone();
+                for (let i = 0; i < 2; ++i) {
+                    expect(Math.abs(s[i]))
+                        .toBeLessThanOrEqual(r.extent.values[i] + 1e-8);
+                    rebuilt = add(rebuilt, mul(s[i], r.axis[i]));
+                }
+                expectVectorClose(rebuilt, c, 1e-7, 1e-7);
+            };
+            verify(res.cartesian0, r0, res.closest[0]);
+            verify(res.cartesian1, r1, res.closest[1]);
+        });
+    });
+
+    it('is symmetric under argument swap', () => {
+        check(fc.tuple(rectArb, rectArb), ([r0, r1]) => {
+            const a = query.compute(r0, r1);
+            const b = query.compute(r1, r0);
+            expectClose(a.distance, b.distance, 1e-8, 1e-8);
+            const d = sub(b.closest[1], b.closest[0]);
+            expectClose(Math.sqrt(dot(d, d)), a.distance, 1e-8, 1e-8);
+        });
+    });
+
+    // A rectangle is the union of two triangles, so the rectangle-rectangle
+    // distance is the minimum over the four triangle pairs. This is an
+    // independent code path (DistTriangle3Triangle3 does not use the
+    // segment-rectangle query at all).
+    it('equals the minimum over the four triangle pairs', () => {
+        check(fc.tuple(rectArb, rectArb), ([r0, r1]) => {
+            const a = triangles(r0), b = triangles(r1);
+            let best = Number.MAX_VALUE;
+            for (const t0 of a) {
+                for (const t1 of b) {
+                    best = Math.min(best, ttQuery.compute(t0, t1).sqrDistance);
+                }
+            }
+            const res = query.compute(r0, r1);
+            expectClose(res.sqrDistance, best, 1e-8, 1e-8);
+        });
+    });
+
+    it('equals the minimum over the eight edge-rectangle queries', () => {
+        check(fc.tuple(rectArb, rectArb), ([r0, r1]) => {
+            const edges: [number, number][] =
+                [[0, 1], [2, 3], [0, 2], [1, 3]];
+            const p0 = r0.getVertices(), p1 = r1.getVertices();
+            let best = Number.MAX_VALUE;
+            for (const [i, j] of edges) {
+                best = Math.min(best, srQuery.compute(
+                    Segment.fromEndpoints(p0[i], p0[j]), r1).sqrDistance);
+                best = Math.min(best, srQuery.compute(
+                    Segment.fromEndpoints(p1[i], p1[j]), r0).sqrDistance);
+            }
+            const res = query.compute(r0, r1);
+            expectClose(res.sqrDistance, best, 1e-9, 1e-9);
+        });
+    });
+
+    it('brackets a grid sampling of the first rectangle', () => {
+        const rng = seededRandom(0x7e57ca5e);
+        const n = 40;
+        for (let k = 0; k < 25; ++k) {
+            const mk = () => rect([6 * rng() - 3, 6 * rng() - 3,
+                6 * rng() - 3], frame(2 * Math.PI * rng(), 2 * Math.PI * rng()),
+                0.5 + rng(), 0.5 + rng());
+            const r0 = mk(), r1 = mk();
+            const res = query.compute(r0, r1);
+            const s = sampledDistance(r0, r1, n);
+            expect(res.distance).toBeLessThanOrEqual(s + 1e-9);
+            // The sample spacing along axis i is 2*extent[i]/n, so the
+            // 1-Lipschitz distance function overshoots by at most the
+            // diagonal of one cell.
+            const cell = Math.sqrt(
+                (2 * r0.extent.values[0] / n) ** 2
+                + (2 * r0.extent.values[1] / n) ** 2);
+            expect(s - res.distance).toBeLessThanOrEqual(cell + 1e-9);
+        }
+    }, 30000);
+
+    it('is equivariant under a rigid motion', () => {
+        check(fc.tuple(rectArb, rectArb, rotationFrame(3),
+            wellScaledVector(3, -4, 4)), ([r0, r1, R, t]) => {
+                const rot = (q: Vector) => add(add(
+                    mul(q.values[0], R[0]), mul(q.values[1], R[1])),
+                    mul(q.values[2], R[2]));
+                const xr = (r: Rectangle) => Rectangle.fromCenterAxisExtent(
+                    add(rot(r.center), t),
+                    [rot(r.axis[0]), rot(r.axis[1])], r.extent);
+                const a = query.compute(r0, r1);
+                const b = query.compute(xr(r0), xr(r1));
+                expectClose(a.distance, b.distance, 1e-8, 1e-8);
+            });
+    });
+
+    it('handles a zero-extent (point) rectangle', () => {
+        check(fc.tuple(rectArb, wellScaledVector(3, -5, 5), rotationFrame(3)),
+            ([r0, c, R]) => {
+                const pt = Rectangle.fromCenterAxisExtent(c, [R[0], R[1]],
+                    v(0, 0));
+                const res = query.compute(r0, pt);
+                expectClose(res.sqrDistance, pointRectangleSqr(c, r0),
+                    1e-8, 1e-8);
+                expectVectorClose(res.closest[1], c, 1e-8, 1e-8);
+            });
     });
 });
