@@ -302,8 +302,40 @@ function optimalityResidual(h: Hyperellipsoid, p: Vector,
     return worst;
 }
 
-// Brute-force minimum distance from a point to a 3D ellipsoid surface, over
-// the (theta,phi) parameterization, with a local pattern-search refinement.
+// Minimum of a unimodal function on [a,b] by golden-section search.
+function goldenMin(f: (x: number) => number, a0: number,
+    b0: number): number {
+    const invphi = (Math.sqrt(5) - 1) / 2;
+    let a = a0;
+    let b = b0;
+    let c = b - invphi * (b - a);
+    let d = a + invphi * (b - a);
+    let fc = f(c);
+    let fd = f(d);
+    for (let i = 0; i < 60; ++i) {
+        if (fc < fd) {
+            b = d;
+            d = c;
+            fd = fc;
+            c = b - invphi * (b - a);
+            fc = f(c);
+        }
+        else {
+            a = c;
+            c = d;
+            fc = fd;
+            d = a + invphi * (b - a);
+            fd = f(d);
+        }
+    }
+    return 0.5 * (a + b);
+}
+
+// Brute-force minimum distance from a point to a 3D ellipsoid surface. A
+// coarse grid over the (theta,phi) parameterization locates the basin, then
+// coordinate descent with golden-section line searches converges inside it.
+// A pattern search stalls on near-spheroidal shapes, where the objective has
+// a nearly flat valley along phi.
 function bruteForce3D(p: Vector, h: Hyperellipsoid): number {
     const e = h.extent.values;
     const at = (t: number, u: number): number => {
@@ -313,8 +345,8 @@ function bruteForce3D(p: Vector, h: Hyperellipsoid): number {
                 mul(e[2] * Math.cos(t), h.axis[2]))));
         return length(sub(p, x));
     };
-    const nt = 90;
-    const nu = 180;
+    const nt = 120;
+    const nu = 240;
     let best = Number.MAX_VALUE;
     let bt = 0;
     let bu = 0;
@@ -332,20 +364,15 @@ function bruteForce3D(p: Vector, h: Hyperellipsoid): number {
     }
     let ht = Math.PI / nt;
     let hu = 2 * Math.PI / nu;
-    for (let pass = 0; pass < 120; ++pass) {
-        for (const [dt, du] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1],
-            [1, -1], [-1, 1], [-1, -1]]) {
-            const d = at(bt + dt * ht, bu + du * hu);
-            if (d < best) {
-                best = d;
-                bt += dt * ht;
-                bu += du * hu;
-            }
-        }
-        ht *= 0.75;
-        hu *= 0.75;
+    for (let round = 0; round < 24; ++round) {
+        const u0 = bu;
+        bt = goldenMin(t => at(t, u0), bt - ht, bt + ht);
+        const t0 = bt;
+        bu = goldenMin(u => at(t0, u), bu - hu, bu + hu);
+        ht *= 0.5;
+        hu *= 0.5;
     }
-    return best;
+    return Math.min(best, at(bt, bu));
 }
 
 describe('DistPointHyperellipsoid verification', () => {
@@ -469,12 +496,16 @@ describe('DistPointHyperellipsoid verification', () => {
             const r0 = query.compute(p, h);
             const r1 = query.compute(add(rot(p), tr), moved);
             expectClose(r0.distance, r1.distance, 1e-8, 1e-8);
-            // The closest point comes out of a bisection whose iterates
-            // depend on the frame, and near a spheroid's symmetry axis the
-            // minimizer is barely determined, so the point comparison needs a
-            // much looser tolerance than the distance comparison.
-            expectVectorClose(add(rot(r0.closest[1]), tr), r1.closest[1],
-                1e-4, 1e-4);
+            // The closest point itself is not a well determined function of
+            // the input near a spheroid's symmetry axis: a whole circle of
+            // surface points is almost equidistant, so the frame-dependent
+            // bisection can land on different ones. What a rigid motion must
+            // preserve is that the image of a closest pair is a closest pair,
+            // so check that instead.
+            const mapped = add(rot(r0.closest[1]), tr);
+            expectClose(equationValue(mapped, moved), 1, 1e-7, 1e-7);
+            expectClose(length(sub(add(rot(p), tr), mapped)), r1.distance,
+                1e-8, 1e-8);
         }, 120);
     }, 30000);
 
