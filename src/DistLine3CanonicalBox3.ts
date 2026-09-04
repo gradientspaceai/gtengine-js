@@ -425,6 +425,14 @@ export class DistLine3CanonicalBox3
             }
         }
 
+        // Upstream accumulates sqrDistance in the cancellation-prone form
+        // pme^2 + tmp^2 + PpE^2 + delta*parameter, which can come out
+        // slightly negative for a grazing line or a zero-extent box; the
+        // C++ then returns distance = NaN. Clamp the round-off so the
+        // distance is 0 instead (port fix; see the verification notes).
+        if (result.sqrDistance < 0) {
+            result.sqrDistance = 0;
+        }
         result.distance = Math.sqrt(result.sqrDistance);
 
         // Compute the closest point on the line.
