@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { SortPointsOnCircle } from '../src/SortPointsOnCircle.js';
+import { check, fc, scaled } from './helpers/arbitraries.js';
 
 type Point2 = [number, number];
 
@@ -172,5 +173,154 @@ describe('SortPointsOnCircle', () => {
             const rotated = world.slice(start).concat(world.slice(0, start));
             expect(indices).toEqual(rotated);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Independent verification pass (VERIFYING.md). The ground truth here is
+// constructed rather than recomputed: each point is placed at a known angular
+// offset t from the reference ray, so the expected permutation is known
+// without calling atan2 on the sorted frame. Offsets are drawn from a grid of
+// 64 half-cell angles, so no offset is 0 or +-pi and consecutive offsets are
+// separated by 2*pi/64; that separation is far above the rounding error of the
+// dot products, so both sorts must reproduce the expected order exactly.
+// ---------------------------------------------------------------------------
+
+const SLOTS = 64;
+const slotAngle = (k: number): number => -Math.PI + ((k + 0.5) * 2 * Math.PI) / SLOTS;
+
+// A configuration: center C, reference direction D = len*(cos phi, sin phi),
+// and points at distinct angular offsets from D with distinct radii.
+const configuration = fc.record({
+    center: fc.tuple(scaled(-5, 5, 64), scaled(-5, 5, 64)),
+    phi: scaled(-Math.PI, Math.PI, 64),
+    dirLength: scaled(0.25, 4, 16),
+    slots: fc.uniqueArray(fc.integer({ min: 0, max: SLOTS - 1 }),
+        { minLength: 1, maxLength: 12 }),
+    radii: fc.array(fc.integer({ min: 1, max: 12 }), { minLength: 12, maxLength: 12 }),
+    sortCCW: fc.boolean()
+}).map(({ center, phi, dirLength, slots, radii, sortCCW }) => {
+    const D: Point2 = [dirLength * Math.cos(phi), dirLength * Math.sin(phi)];
+    const points: Point2[] = [];
+    const offsets: number[] = [];
+    for (let i = 0; i < slots.length; ++i) {
+        const t = slotAngle(slots[i]);
+        // The offset is measured counterclockwise in world space; when the
+        // sort is clockwise the reported angle of the same point is -t.
+        const r = 0.5 * radii[i];
+        points.push([center[0] + r * Math.cos(phi + t),
+            center[1] + r * Math.sin(phi + t)]);
+        offsets.push(sortCCW ? t : -t);
+    }
+    return { P: points, C: center as Point2, D, sortCCW, offsets };
+});
+
+describe('SortPointsOnCircle verification', () => {
+    it('both sorts reproduce the constructed angular order', () => {
+        check(configuration, ({ P, C, D, sortCCW, offsets }) => {
+            const expected = offsets
+                .map((t, i) => ({ t, i }))
+                .sort((a, b) => a.t - b.t)
+                .map(e => e.i);
+            expect(SortPointsOnCircle.byAngle(P, C, D, sortCCW)).toEqual(expected);
+            expect(SortPointsOnCircle.byGeometry(P, C, D, sortCCW)).toEqual(expected);
+        });
+    });
+
+    it('the output is always a permutation of the input indices', () => {
+        check(fc.tuple(
+            fc.array(fc.tuple(scaled(-6, 6, 48), scaled(-6, 6, 48)),
+                { minLength: 0, maxLength: 10 }),
+            fc.tuple(scaled(-3, 3, 24), scaled(-3, 3, 24)),
+            fc.tuple(scaled(-2, 2, 16), scaled(-2, 2, 16))
+                .filter(([x, y]) => x * x + y * y > 0.25),
+            fc.boolean()),
+        ([P, C, D, ccw]) => {
+            for (const indices of [SortPointsOnCircle.byAngle(P as Point2[], C as Point2, D as Point2, ccw),
+                SortPointsOnCircle.byGeometry(P as Point2[], C as Point2, D as Point2, ccw)]) {
+                expect(indices.length).toBe(P.length);
+                expect([...indices].sort((a, b) => a - b))
+                    .toEqual(P.map((_, i) => i));
+            }
+        });
+    });
+
+    it('byGeometry agrees with byAngle when angles are well separated', () => {
+        check(configuration, ({ P, C, D, sortCCW }) => {
+            expect(SortPointsOnCircle.byGeometry(P, C, D, sortCCW))
+                .toEqual(SortPointsOnCircle.byAngle(P, C, D, sortCCW));
+        });
+    });
+
+    it('the sorted sequence has non-decreasing angle in the sorting frame', () => {
+        check(configuration, ({ P, C, D, sortCCW }) => {
+            const perp: Point2 = sortCCW ? [-D[1], D[0]] : [D[1], -D[0]];
+            for (const indices of [SortPointsOnCircle.byAngle(P, C, D, sortCCW),
+                SortPointsOnCircle.byGeometry(P, C, D, sortCCW)]) {
+                let previous = Number.NEGATIVE_INFINITY;
+                for (const i of indices) {
+                    const v: Point2 = [P[i][0] - C[0], P[i][1] - C[1]];
+                    const angle = Math.atan2(perp[0] * v[0] + perp[1] * v[1],
+                        D[0] * v[0] + D[1] * v[1]);
+                    expect(angle).toBeGreaterThanOrEqual(previous);
+                    previous = angle;
+                }
+            }
+        });
+    });
+
+    it('the sort is invariant under a permutation of the input points', () => {
+        check(fc.tuple(configuration, fc.array(fc.integer({ min: 0, max: 1000 }),
+            { minLength: 12, maxLength: 12 })), ([{ P, C, D, sortCCW }, keys]) => {
+            // Shuffle by sorting a key array; the angular order of the points
+            // is intrinsic, so the permuted result must be the same sequence
+            // of points.
+            const order = P.map((_, i) => i)
+                .sort((a, b) => (keys[a] - keys[b]) || (a - b));
+            const permuted = order.map(i => P[i]);
+            const direct = SortPointsOnCircle.byGeometry(P, C, D, sortCCW)
+                .map(i => P[i]);
+            const shuffled = SortPointsOnCircle.byGeometry(permuted, C, D, sortCCW)
+                .map(i => permuted[i]);
+            expect(shuffled).toEqual(direct);
+        });
+    });
+
+    it('scaling the reference direction does not change the order', () => {
+        check(fc.tuple(configuration, scaled(0.25, 8, 16)),
+            ([{ P, C, D, sortCCW }, s]) => {
+                const scaledD: Point2 = [s * D[0], s * D[1]];
+                expect(SortPointsOnCircle.byGeometry(P, C, scaledD, sortCCW))
+                    .toEqual(SortPointsOnCircle.byGeometry(P, C, D, sortCCW));
+            });
+    });
+
+    it('handles degenerate configurations', () => {
+        const C: Point2 = [1, 2];
+        const D: Point2 = [1, 0];
+        // Empty input.
+        expect(SortPointsOnCircle.byAngle([], C, D, true)).toEqual([]);
+        expect(SortPointsOnCircle.byGeometry([], C, D, true)).toEqual([]);
+        // All points coincident: any permutation is valid, but the stable JS
+        // sort keeps the input order.
+        const same: Point2[] = [[2, 2], [2, 2], [2, 2]];
+        expect(SortPointsOnCircle.byAngle(same, C, D, true)).toEqual([0, 1, 2]);
+        expect(SortPointsOnCircle.byGeometry(same, C, D, true)).toEqual([0, 1, 2]);
+        // A point at the center has W = (0,0). byAngle uses atan2(0,0) = 0 and
+        // the radius tie-break, so the center sorts first among the angle-0
+        // ray. byGeometry differs: its predicate reports "neither is less"
+        // for W = (0,0) against every point with y >= 0, so the zero vector is
+        // *equivalent* to points that are themselves strictly ordered. That is
+        // not a strict weak ordering (upstream UB for std::sort); the stable
+        // JS sort leaves the input order in place. Pinned here as the
+        // documented behaviour of a degenerate input, not as a requirement.
+        const withCenter: Point2[] = [[3, 2], [1, 2], [2, 2]];
+        expect(SortPointsOnCircle.byAngle(withCenter, C, D, true)).toEqual([1, 2, 0]);
+        expect(SortPointsOnCircle.byGeometry(withCenter, C, D, true)).toEqual([0, 1, 2]);
+        // Points on the reference ray and its opposite: angle 0 before angle
+        // pi, each group ordered by increasing distance from the center.
+        const onAxis: Point2[] = [[-1, 2], [4, 2], [-3, 2], [2, 2]];
+        expect(SortPointsOnCircle.byAngle(onAxis, C, D, true)).toEqual([3, 1, 0, 2]);
+        expect(SortPointsOnCircle.byGeometry(onAxis, C, D, true)).toEqual([3, 1, 0, 2]);
     });
 });

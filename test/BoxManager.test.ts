@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { BoxManager } from '../src/BoxManager.js';
 import { AlignedBox } from '../src/AlignedBox.js';
 import { Vector } from '../src/Vector.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 function box(min: [number, number, number], max: [number, number, number]): AlignedBox {
     return AlignedBox.fromMinMax(Vector.fromArray(min), Vector.fromArray(max));
@@ -253,5 +254,139 @@ describe('BoxManager', () => {
         ];
         const manager = new BoxManager(boxes);
         expect(managerOverlap(manager)).toEqual(['0,1', '0,2', '1,2']);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Independent verification pass (VERIFYING.md).
+//
+// The reference is the brute-force O(n^2) overlap test above. Coordinates are
+// small integers so that touching boxes (which the inclusive >= / <= tests
+// count as overlapping), degenerate boxes and shared endpoint values occur
+// often; those are exactly the configurations where the endpoint comparator
+// and the incremental transposition rules could differ from upstream.
+// ---------------------------------------------------------------------------
+
+const iBox = fc.tuple(
+    fc.integer({ min: 0, max: 8 }), fc.integer({ min: 0, max: 3 }),
+    fc.integer({ min: 0, max: 8 }), fc.integer({ min: 0, max: 3 }),
+    fc.integer({ min: 0, max: 8 }), fc.integer({ min: 0, max: 3 }))
+    .map(([x, w, y, h, z, d]) => box([x, y, z], [x + w, y + h, z + d]));
+
+const boxSet = (maxCount: number) =>
+    fc.array(iBox, { minLength: 1, maxLength: maxCount });
+
+describe('BoxManager verification', () => {
+    it('the initial overlap set equals brute force', () => {
+        check(boxSet(8), (boxes) => {
+            const manager = new BoxManager(boxes);
+            expect(managerOverlap(manager)).toEqual(bruteForceOverlap(boxes));
+        });
+    });
+
+    it('the incremental update equals brute force after random moves', () => {
+        check(fc.tuple(boxSet(7), fc.array(fc.tuple(
+            fc.integer({ min: 0, max: 6 }), iBox), { minLength: 1, maxLength: 10 })),
+        ([boxes, moves]) => {
+            const manager = new BoxManager(boxes);
+            for (const [rawIndex, newBox] of moves) {
+                const i = rawIndex % boxes.length;
+                manager.setBox(i, newBox);
+                manager.update();
+                expect(managerOverlap(manager)).toEqual(bruteForceOverlap(boxes));
+            }
+        }, 100);
+    });
+
+    it('batched moves followed by one update equal brute force', () => {
+        check(fc.tuple(boxSet(7), fc.array(fc.tuple(
+            fc.integer({ min: 0, max: 6 }), iBox), { minLength: 1, maxLength: 8 })),
+        ([boxes, moves]) => {
+            const manager = new BoxManager(boxes);
+            for (const [rawIndex, newBox] of moves) {
+                manager.setBox(rawIndex % boxes.length, newBox);
+            }
+            manager.update();
+            expect(managerOverlap(manager)).toEqual(bruteForceOverlap(boxes));
+        }, 100);
+    });
+
+    it('the incremental state agrees with a full re-initialization', () => {
+        check(fc.tuple(boxSet(7), fc.array(fc.tuple(
+            fc.integer({ min: 0, max: 6 }), iBox), { minLength: 1, maxLength: 8 })),
+        ([boxes, moves]) => {
+            const manager = new BoxManager(boxes);
+            for (const [rawIndex, newBox] of moves) {
+                manager.setBox(rawIndex % boxes.length, newBox);
+                manager.update();
+            }
+            const incremental = managerOverlap(manager);
+            // A full sort-and-sweep from the current boxes must agree with the
+            // incrementally maintained set (this also proves the endpoint
+            // arrays and lookup tables stayed consistent).
+            manager.initialize();
+            expect(managerOverlap(manager)).toEqual(incremental);
+        }, 100);
+    });
+
+    it('the overlap keys are sorted, unordered and duplicate-free', () => {
+        check(fc.tuple(boxSet(8), fc.array(fc.tuple(
+            fc.integer({ min: 0, max: 7 }), iBox), { minLength: 0, maxLength: 6 })),
+        ([boxes, moves]) => {
+            const manager = new BoxManager(boxes);
+            for (const [rawIndex, newBox] of moves) {
+                manager.setBox(rawIndex % boxes.length, newBox);
+            }
+            manager.update();
+            const keys = manager.getOverlap();
+            const seen = new Set<string>();
+            for (let k = 0; k < keys.length; ++k) {
+                expect(keys[k].V[0]).toBeLessThan(keys[k].V[1]);
+                expect(keys[k].V[1]).toBeLessThan(boxes.length);
+                const label = `${keys[k].V[0]},${keys[k].V[1]}`;
+                expect(seen.has(label)).toBe(false);
+                seen.add(label);
+                if (k > 0) {
+                    const previous = keys[k - 1];
+                    expect(previous.V[0] < keys[k].V[0]
+                        || (previous.V[0] === keys[k].V[0]
+                            && previous.V[1] < keys[k].V[1])).toBe(true);
+                }
+            }
+        }, 100);
+    });
+
+    it('setBox writes a copy through to the caller array', () => {
+        check(fc.tuple(boxSet(4), iBox), ([boxes, newBox]) => {
+            const manager = new BoxManager(boxes);
+            manager.setBox(0, newBox);
+            // Upstream assigns the box by value into the caller's vector.
+            expect(boxes[0].min.values).toEqual(newBox.min.values);
+            expect(boxes[0].max.values).toEqual(newBox.max.values);
+            expect(boxes[0]).not.toBe(newBox);
+            // getBox returns a copy as well.
+            const fetched = manager.getBox(0);
+            expect(fetched).not.toBe(boxes[0]);
+            expect(fetched.min.values).toEqual(newBox.min.values);
+            fetched.min.set(0, -100);
+            expect(boxes[0].min.values[0]).toBe(newBox.min.values[0]);
+        });
+    });
+
+    it('translating every box by the same vector preserves the overlaps', () => {
+        check(fc.tuple(boxSet(7), fc.integer({ min: -5, max: 5 }),
+            fc.integer({ min: -5, max: 5 }), fc.integer({ min: -5, max: 5 })),
+        ([boxes, tx, ty, tz]) => {
+            const manager = new BoxManager(boxes);
+            const before = managerOverlap(manager);
+            for (let i = 0; i < boxes.length; ++i) {
+                const b = manager.getBox(i);
+                manager.setBox(i, box(
+                    [b.min.values[0] + tx, b.min.values[1] + ty, b.min.values[2] + tz],
+                    [b.max.values[0] + tx, b.max.values[1] + ty, b.max.values[2] + tz]));
+            }
+            manager.update();
+            expect(managerOverlap(manager)).toEqual(before);
+        }, 100);
     });
 });

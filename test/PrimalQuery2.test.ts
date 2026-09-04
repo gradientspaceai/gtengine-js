@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { PrimalQuery2, PrimalQuery2OrderType } from '../src/PrimalQuery2.js';
 import { Vector } from '../src/Vector.js';
+import { check, fc } from './helpers/arbitraries.js';
+import { inCircle2, orient2 } from './helpers/exact.js';
 
 const v2 = (x: number, y: number): Vector => Vector.fromArray([x, y]);
 
@@ -332,6 +334,231 @@ describe('PrimalQuery2', () => {
                     expect(q.toLine(0, 1, 2)).toBe(0);
                 }
             }
+        });
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Independent verification pass (VERIFYING.md).
+//
+// PrimalQuery2 was ported for T = number only (no BSNumber/BSRational
+// instantiation), so the port is exact exactly when every intermediate value
+// is representable in binary64. The properties below therefore use integer
+// coordinates in [-60, 60]: the largest intermediate in any of the queries is
+// the circumcircle determinant, bounded by 3 * 120 * (2 * 120 * 2 * 120^2)
+// < 2^40, so the double evaluation is exact and every sign the queries report
+// must match an exact bigint evaluation of the same predicate. The references
+// are the exact predicates of test/helpers/exact.ts (orient2, inCircle2) plus
+// barycentric signs built from them, not transcriptions of the port, so a
+// mis-transcribed term would show up.
+// ---------------------------------------------------------------------------
+
+// Negation that keeps 0 as +0, so toBe() (Object.is) does not see -0.
+const negateSign = (s: number): number => (s === 0 ? 0 : -s);
+
+// The exact predicates of test/helpers/exact.ts applied to integer-coordinate
+// points: orient(a, b, c) is the sign of cross(b - a, c - a) and
+// inCircle(a, b, c, d) is +1 when d is inside the circumcircle of the
+// counterclockwise triangle <a,b,c>.
+const orient = (a: Vector, b: Vector, c: Vector): number =>
+    orient2(BigInt(a.values[0]), BigInt(a.values[1]),
+        BigInt(b.values[0]), BigInt(b.values[1]),
+        BigInt(c.values[0]), BigInt(c.values[1]));
+
+const inCircle = (a: Vector, b: Vector, c: Vector, d: Vector): number =>
+    inCircle2(BigInt(a.values[0]), BigInt(a.values[1]),
+        BigInt(b.values[0]), BigInt(b.values[1]),
+        BigInt(c.values[0]), BigInt(c.values[1]),
+        BigInt(d.values[0]), BigInt(d.values[1]));
+
+// Integer point coordinates small enough that every product below is exact.
+const ipoint = fc.tuple(fc.integer({ min: -60, max: 60 }),
+    fc.integer({ min: -60, max: 60 })).map(([x, y]) => v2(x, y));
+
+// A generator that produces collinear and coincident configurations often:
+// each point is either free or built on the lattice line through two anchors.
+const degenerateTriple = fc.tuple(ipoint, ipoint,
+    fc.integer({ min: -3, max: 4 }), fc.integer({ min: -2, max: 2 }),
+    fc.boolean())
+    .map(([A, B, num, perp, useLattice]) => {
+        if (!useLattice) { return [A, B, v2(num * 7, perp * 5)] as Vector[]; }
+        // P = A + num*(B - A) + perp*Perp(B - A)/1, all integer.
+        const dx = B.values[0] - A.values[0];
+        const dy = B.values[1] - A.values[1];
+        const P = v2(A.values[0] + num * dx - perp * dy,
+            A.values[1] + num * dy + perp * dx);
+        return [A, B, P] as Vector[];
+    });
+
+describe('PrimalQuery2 verification', () => {
+    it('toLine returns the exact sign of the cross-product determinant', () => {
+        check(fc.tuple(ipoint, ipoint, ipoint), ([P, V0, V1]) => {
+            const query = new PrimalQuery2(3, [P, V0, V1]);
+            // det = cross(P - V0, V1 - V0) = -cross(V1 - V0, P - V0).
+            const expected = negateSign(orient(V0, V1, P));
+            expect(query.toLine(P, 1, 2)).toBe(expected);
+            // The index overload uses mVertices[i] as the test point.
+            expect(query.toLine(0, 1, 2)).toBe(expected);
+            // Reversing the line direction negates the sign.
+            expect(query.toLine(0, 2, 1)).toBe(negateSign(expected));
+        });
+    });
+
+    it('toLine is exact on collinear and coincident configurations', () => {
+        check(degenerateTriple, ([A, B, P]) => {
+            const query = new PrimalQuery2(3, [P, A, B]);
+            expect(query.toLine(0, 1, 2)).toBe(negateSign(orient(A, B, P)));
+        });
+    });
+
+    it('toLineWithOrder agrees with toLine and with the upstream order rule', () => {
+        check(degenerateTriple, ([A, B, P]) => {
+            const query = new PrimalQuery2(3, [P, A, B]);
+            const { sign: s, order } = query.toLineWithOrder(0, 1, 2);
+            expect(s).toBe(query.toLine(0, 1, 2));
+            const det = negateSign(orient(A, B, P));
+            if (det !== 0) {
+                expect(order).toBe(det > 0 ? +3 : -3);
+                return;
+            }
+            // Collinear. Upstream compares dot = Dot(P-V0, V1-V0) against
+            // |P-V0|^2 instead of |V1-V0|^2 (issue #100); reproduce that rule
+            // exactly, including the swap it induces.
+            const x0 = BigInt(P.values[0] - A.values[0]);
+            const y0 = BigInt(P.values[1] - A.values[1]);
+            const x1 = BigInt(B.values[0] - A.values[0]);
+            const y1 = BigInt(B.values[1] - A.values[1]);
+            const d = x0 * x1 + y0 * y1;
+            const sqrLength = x0 * x0 + y0 * y0;
+            const expected = d === 0n ? -1
+                : d < 0n ? -2
+                    : d === sqrLength ? +1
+                        : d > sqrLength ? +2 : 0;
+            expect(order).toBe(expected);
+        });
+    });
+
+    it('the upstream order swap: interior points report +2, beyond-V1 report 0', () => {
+        // Regression pin for issue #100 on exact input: P = V0 + c*(V1-V0).
+        const V0 = v2(0, 0), V1 = v2(4, 2);
+        const query = new PrimalQuery2(2, [V0, V1]);
+        // c = 1/2 (interior): documented order 0, upstream reports +2.
+        expect(query.toLineWithOrder(v2(2, 1), 0, 1).order).toBe(+2);
+        // c = 2 (beyond V1): documented order +2, upstream reports 0.
+        expect(query.toLineWithOrder(v2(8, 4), 0, 1).order).toBe(0);
+        // The unaffected cases.
+        expect(query.toLineWithOrder(v2(0, 0), 0, 1).order).toBe(-1);
+        expect(query.toLineWithOrder(v2(4, 2), 0, 1).order).toBe(+1);
+        expect(query.toLineWithOrder(v2(-4, -2), 0, 1).order).toBe(-2);
+        // toLineExtended performs the same test correctly.
+        expect(query.toLineExtended(v2(2, 1), V0, V1))
+            .toBe(PrimalQuery2OrderType.COLLINEAR_CONTAIN);
+        expect(query.toLineExtended(v2(8, 4), V0, V1))
+            .toBe(PrimalQuery2OrderType.COLLINEAR_RIGHT);
+    });
+
+    it('toTriangle matches the exact barycentric sign classification', () => {
+        check(fc.tuple(ipoint, ipoint, ipoint, ipoint), ([P, A, B, C]) => {
+            if (orient(A, B, C) <= 0) { return; }   // the query needs a CCW triangle
+            const query = new PrimalQuery2(4, [P, A, B, C]);
+            // Exact barycentric signs of P with respect to <A,B,C>.
+            const b0 = orient(P, B, C);
+            const b1 = orient(P, C, A);
+            const b2 = orient(P, A, B);
+            const expected = (b0 < 0 || b1 < 0 || b2 < 0) ? +1
+                : (b0 > 0 && b1 > 0 && b2 > 0) ? -1 : 0;
+            expect(query.toTriangle(0, 1, 2, 3)).toBe(expected);
+            expect(query.toTriangle(P, 1, 2, 3)).toBe(expected);
+            // The classification does not depend on which vertex starts the
+            // counterclockwise cycle.
+            expect(query.toTriangle(0, 2, 3, 1)).toBe(expected);
+            expect(query.toTriangle(0, 3, 1, 2)).toBe(expected);
+        });
+    });
+
+    it('toCircumcircle matches the exact in-circle determinant', () => {
+        check(fc.tuple(ipoint, ipoint, ipoint, ipoint), ([P, A, B, C]) => {
+            if (orient(A, B, C) <= 0) { return; }
+            const query = new PrimalQuery2(4, [P, A, B, C]);
+            // inCircle2 is +1 when P is strictly inside the circumcircle of
+            // the counterclockwise triangle; the query returns -1 for inside.
+            const expected = negateSign(inCircle(A, B, C, P));
+            expect(query.toCircumcircle(0, 1, 2, 3)).toBe(expected);
+            expect(query.toCircumcircle(P, 1, 2, 3)).toBe(expected);
+            // Cyclic permutations keep the orientation and the answer.
+            expect(query.toCircumcircle(0, 2, 3, 1)).toBe(expected);
+            // A transposition reverses the orientation and negates the answer.
+            expect(query.toCircumcircle(0, 2, 1, 3)).toBe(negateSign(expected));
+        });
+    });
+
+    it('points on a lattice circumcircle are reported as on the circle', () => {
+        // (0,0), (10,0), (0,10) has circumcenter (5,5) and radius^2 = 50; the
+        // lattice points at distance^2 = 50 from (5,5) all lie on the circle.
+        const A = v2(0, 0), B = v2(10, 0), C = v2(0, 10);
+        const query = new PrimalQuery2(3, [A, B, C]);
+        for (const [dx, dy] of [[5, 5], [-5, 5], [5, -5], [-5, -5],
+            [1, 7], [7, 1], [-1, 7], [7, -1], [1, -7], [-7, 1], [-1, -7], [-7, -1]]) {
+            expect(query.toCircumcircle(v2(5 + dx, 5 + dy), 0, 1, 2)).toBe(0);
+        }
+        expect(query.toCircumcircle(v2(5, 5), 0, 1, 2)).toBe(-1);
+        expect(query.toCircumcircle(v2(20, 20), 0, 1, 2)).toBe(+1);
+    });
+
+    it('toLineExtended matches its documented classification exactly', () => {
+        check(degenerateTriple, ([Q0, Q1, P]) => {
+            const query = new PrimalQuery2();
+            const equal = (a: Vector, b: Vector): boolean =>
+                a.values[0] === b.values[0] && a.values[1] === b.values[1];
+            let expected: PrimalQuery2OrderType;
+            if (equal(Q0, Q1)) {
+                expected = PrimalQuery2OrderType.Q0_EQUALS_Q1;
+            } else if (equal(P, Q0)) {
+                expected = PrimalQuery2OrderType.P_EQUALS_Q0;
+            } else if (equal(P, Q1)) {
+                expected = PrimalQuery2OrderType.P_EQUALS_Q1;
+            } else {
+                const det = orient(Q0, Q1, P);
+                if (det > 0) {
+                    expected = PrimalQuery2OrderType.POSITIVE;
+                } else if (det < 0) {
+                    expected = PrimalQuery2OrderType.NEGATIVE;
+                } else {
+                    const dx = BigInt(Q1.values[0] - Q0.values[0]);
+                    const dy = BigInt(Q1.values[1] - Q0.values[1]);
+                    const d = dx * BigInt(P.values[0] - Q0.values[0])
+                        + dy * BigInt(P.values[1] - Q0.values[1]);
+                    const sqrLength = dx * dx + dy * dy;
+                    expected = d < 0n ? PrimalQuery2OrderType.COLLINEAR_LEFT
+                        : d > sqrLength ? PrimalQuery2OrderType.COLLINEAR_RIGHT
+                            : PrimalQuery2OrderType.COLLINEAR_CONTAIN;
+                }
+            }
+            expect(query.toLineExtended(P, Q0, Q1)).toBe(expected);
+        });
+    });
+
+    it('toLineExtended checks the equality cases in upstream order', () => {
+        const query = new PrimalQuery2();
+        const A = v2(3, 4);
+        // Q0 == Q1 wins over P == Q0.
+        expect(query.toLineExtended(A, A, A)).toBe(PrimalQuery2OrderType.Q0_EQUALS_Q1);
+        // P == Q0 is tested before P == Q1.
+        expect(query.toLineExtended(A, A, v2(0, 0)))
+            .toBe(PrimalQuery2OrderType.P_EQUALS_Q0);
+        expect(query.toLineExtended(A, v2(0, 0), A))
+            .toBe(PrimalQuery2OrderType.P_EQUALS_Q1);
+    });
+
+    it('set() and the vertex array are held by reference, not copied', () => {
+        check(fc.tuple(ipoint, ipoint, ipoint), ([P, V0, V1]) => {
+            const vertices = [P, V0, V1];
+            const query = new PrimalQuery2(3, vertices);
+            expect(query.getVertices()).toBe(vertices);
+            expect(query.getNumVertices()).toBe(3);
+            const other = [V1, P, V0];
+            query.set(3, other);
+            expect(query.getVertices()).toBe(other);
         });
     });
 });

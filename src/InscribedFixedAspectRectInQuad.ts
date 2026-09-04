@@ -8,6 +8,34 @@
 // inscribed in a convex quadrilateral. The algorithm is described in
 // https://www.geometrictools.com/Documentation/MaximumAreaAspectRectangle.pdf
 //
+// KNOWN UPSTREAM LIMITATION (preserved): Execute solves the linear program by
+// intersecting the constraint planes 0 and 2 and clipping the resulting line
+// with the constraints 1 and 3 (falling back to the complementary pairing when
+// that clip is empty). It asserts alpha1 != 0 and alpha3 != 0, i.e. that the
+// line is not parallel to the other two planes. That assumption fails for
+// legitimate convex quadrilaterals. For a fixed case index j, the constraint
+// normal is a linear function of the 2D edge normal (n0,n1):
+//   j = 0: (n0, n1, 0)                  j = 1: (n0, n1, n0)
+//   j = 2: (n0, n1, n0 + n1/r)          j = 3: (n0, n1, n1/r)
+// so all constraints with the same j lie in a common plane through the origin
+// of (u,v,w)-space. Whenever three of the four edge normals fall in the same
+// quadrant (in particular normals 0, 2 and one of 1 or 3), those three
+// constraint normals are coplanar, the corresponding alpha is exactly zero and
+// the assert fires with "Unexpected condition". The smallest lattice example
+// is the counterclockwise convex quad <(0,3),(0,2),(1,1),(3,0)> (normals 0, 1
+// and 2 all in quadrant 0), which has a well-defined maximum inscribed
+// rectangle for every aspect ratio. The port preserves the upstream behavior
+// (a thrown Error) rather than redesigning the solver.
+//
+// A second, round-off-driven failure of the same kind: when the maximum
+// rectangle touches all four edges, the feasible interval along the line of
+// planes 0 and 2 degenerates to a single point. The endpoints -beta1/alpha1
+// and -beta3/alpha3 are compared without a tolerance, so one ulp of error can
+// order them the wrong way; the interval is then reported empty, the
+// complementary pairing is empty for the same reason, and Execute reports
+// "Unexpected interval intersection type" for a solvable problem. Both
+// failures are pinned by tests in test/InscribedFixedAspectRectInQuad.test.ts.
+//
 // Port notes: the upstream static Execute has the output parameters
 // 'rectOrigin', 'rectWidth' and 'rectHeight' and returns a 'bool'; the port
 // returns an object with the fields 'isUnique', 'rectOrigin', 'rectWidth' and
