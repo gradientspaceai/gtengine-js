@@ -1378,10 +1378,12 @@
   "verified": 8
  },
  "MinimumVolumeBox3FloatingPoint.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 12
  },
  "MinimumVolumeBox3Rational.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 12
  },
  "MinimumVolumeSphere3.h": {
   "status": "ported",
@@ -1645,7 +1647,8 @@
   "verified": 11
  },
  "SeparatePoints3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 13
  },
  "SharedPtrCompare.h": {
   "status": "omitted",
@@ -1757,7 +1760,8 @@
   "status": "ported"
  },
  "TriangulateCDT.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 13
  },
  "TriangulateEC.h": {
   "status": "ported",
