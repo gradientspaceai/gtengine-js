@@ -19,7 +19,10 @@
 // (CircleThroughTwoPointsSpecifiedRadius).
 //
 // Let N = (n0,n1) and define the unit-length perpendicular D = Perp(N) =
-// (-n1,n0). Represent P = A+u*D+s*N with parameters u = Dot(D,P-A) and
+// (n1,-n0). (The upstream comment says (-n1,n0), but GTE's Perp is (n1,-n0);
+// the code uses Perp, so the port's comment is corrected here. Either
+// perpendicular works, the choice only swaps circle[0] and circle[1].)
+// Represent P = A+u*D+s*N with parameters u = Dot(D,P-A) and
 // s = Dot(N,P-A). The parameter s is the signed distance from P to the line.
 // To simplify the logic of the implementation, if s < 0, the values of s and
 // N are negated (and therefore D is derived from the negated N). The
