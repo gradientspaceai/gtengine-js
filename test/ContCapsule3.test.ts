@@ -10,7 +10,13 @@ import { Capsule, type Capsule3 } from '../src/Capsule.js';
 import { Hypersphere } from '../src/Hypersphere.js';
 import { Segment } from '../src/Segment.js';
 import { DistPointSegment } from '../src/DistPointSegment.js';
-import { Vector } from '../src/Vector.js';
+import { Vector, add, length, mul, sub } from '../src/Vector.js';
+import { Line } from '../src/Line.js';
+import { DistPointLine } from '../src/DistPointLine.js';
+import {
+    check, expectClose, fc, rotationFrame, seededRandom, unitVector,
+    wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -225,5 +231,192 @@ describe('mergeContainersCapsule3', () => {
         const m10 = mergeContainersCapsule3(c1, c0);
         expect(m01.radius).toBeCloseTo(m10.radius, 12);
         expect(m01.radius).toBeCloseTo(2, 12);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (VERIFYING.md): property-based cross-checks of the port
+// against the upstream ContCapsule3.h semantics.
+// ---------------------------------------------------------------------------
+
+describe('ContCapsule3 verification', () => {
+    // Elongated clouds: t * axis + small transverse noise. The principal
+    // direction is then well separated from the other two, so the
+    // least-squares line (an eigenvector problem) is well conditioned and
+    // equivariance properties hold to a tight tolerance.
+    // The parameters t are spread evenly over [-5, 5] rather than drawn at
+    // random, so the variance along the axis (about 8) always dominates the
+    // transverse variance (at most 0.09) and the principal direction is never
+    // ambiguous. Random t values can all collapse to zero, which makes the
+    // eigenvector arbitrary and every equivariance property meaningless.
+    const elongatedCloud = fc.tuple(unitVector(3), wellScaledVector(3, -4, 4),
+        fc.array(wellScaledVector(3, -0.3, 0.3),
+            { minLength: 4, maxLength: 12 }))
+        .map(([axis, origin, noises]) =>
+            noises.map((noise, i) => {
+                const t = -5 + (10 * i) / (noises.length - 1);
+                return add(add(origin, mul(t, axis)), noise);
+            }));
+
+    const rigid = (frame: Vector[], t: Vector) => (p: Vector): Vector =>
+        add(add(add(mul(p.get(0), frame[0]), mul(p.get(1), frame[1])),
+            mul(p.get(2), frame[2])), t);
+
+    // The design claim: every input point is inside the fitted capsule.
+    it('the fitted capsule contains every input point', () => {
+        check(elongatedCloud, (points: Vector[]) => {
+            const capsule = getContainerCapsule3(points);
+            for (const p of points) {
+                expect(distanceToSegment(p, capsule.segment))
+                    .toBeLessThanOrEqual(capsule.radius + 1e-9);
+            }
+        });
+    });
+
+    // The radius is the largest distance from the points to the *infinite*
+    // fitted axis, not to the capsule segment; cross-check with DistPointLine
+    // on the line through the capsule segment.
+    it('the radius is the largest distance to the fitted axis line', () => {
+        check(elongatedCloud, (points: Vector[]) => {
+            const capsule = getContainerCapsule3(points);
+            const cf = capsule.segment.getCenteredForm();
+            if (cf.extent === 0) {
+                // Degenerate cloud (all points coincident): the segment is a
+                // single point and there is no axis direction to test.
+                return;
+            }
+            const axisLine = Line.fromOriginDirection(cf.center, cf.direction);
+            let maxDist = 0;
+            for (const p of points) {
+                maxDist = Math.max(maxDist,
+                    new DistPointLine().compute(p, axisLine).distance);
+            }
+            expectClose(capsule.radius, maxDist, 1e-9, 1e-9);
+        });
+    });
+
+    // Rigid motions: the capsule of the transformed cloud is the transform of
+    // the capsule. The fit is an eigen decomposition, so the axis direction
+    // may come back negated and the two segment endpoints swapped.
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(elongatedCloud, rotationFrame(3), wellScaledVector(3)),
+            ([points, frame, t]: [Vector[], Vector[], Vector]) => {
+                const xform = rigid(frame, t);
+                const c0 = getContainerCapsule3(points);
+                const c1 = getContainerCapsule3(points.map(xform));
+                expectClose(c1.radius, c0.radius, 1e-8, 1e-8);
+                const want = [xform(c0.segment.p[0]), xform(c0.segment.p[1])];
+                const got = [c1.segment.p[0], c1.segment.p[1]];
+                const dist = (a: Vector, b: Vector): number => length(sub(a, b));
+                const same = Math.max(dist(want[0], got[0]), dist(want[1], got[1]));
+                const swapped = Math.max(dist(want[0], got[1]), dist(want[1], got[0]));
+                expect(Math.min(same, swapped)).toBeLessThanOrEqual(1e-7);
+            });
+    });
+
+    // inContainerSphereCapsule3 must agree with sampling the sphere surface
+    // against inContainerCapsule3 (away from tangency, where rounding rules).
+    it('sphere containment agrees with sampling the sphere', () => {
+        const rand = seededRandom(0x5eedca);
+        for (let trial = 0; trial < 300; ++trial) {
+            const p0 = Vector.fromArray(
+                [6 * rand() - 3, 6 * rand() - 3, 6 * rand() - 3]);
+            const p1 = Vector.fromArray(
+                [6 * rand() - 3, 6 * rand() - 3, 6 * rand() - 3]);
+            const cap = capsule(p0, p1, 0.5 + 2 * rand());
+            const sphere = Hypersphere.fromCenterRadius(
+                Vector.fromArray([6 * rand() - 3, 6 * rand() - 3, 6 * rand() - 3]),
+                2 * rand());
+            const inside = inContainerSphereCapsule3(sphere, cap);
+            // Slack of the analytic test; skip near-tangent configurations.
+            const slack = (cap.radius - sphere.radius)
+                - distanceToSegment(sphere.center, cap.segment);
+            if (Math.abs(slack) < 1e-6) {
+                continue;
+            }
+            expect(inside).toBe(slack > 0);
+            if (inside) {
+                for (let k = 0; k < 40; ++k) {
+                    const z = 2 * rand() - 1;
+                    const a = 2 * Math.PI * rand();
+                    const s = Math.sqrt(Math.max(0, 1 - z * z));
+                    const q = add(sphere.center, mul(sphere.radius,
+                        Vector.fromArray(
+                            [s * Math.cos(a), s * Math.sin(a), z])));
+                    expect(inContainerCapsule3(q, cap)).toBe(true);
+                }
+            }
+        }
+    }, 30000);
+
+    // A capsule is inside another exactly when the spheres at its two
+    // endpoints are; sample the contained capsule to confirm.
+    it('capsule containment agrees with sampling the contained capsule', () => {
+        const rand = seededRandom(0x5eedcb);
+        for (let trial = 0; trial < 300; ++trial) {
+            const mk = (scale: number): Capsule3 => capsule(
+                Vector.fromArray([scale * (2 * rand() - 1), scale * (2 * rand() - 1),
+                    scale * (2 * rand() - 1)]),
+                Vector.fromArray([scale * (2 * rand() - 1), scale * (2 * rand() - 1),
+                    scale * (2 * rand() - 1)]),
+                0.2 + scale * rand());
+            const inner = mk(1);
+            const outer = mk(3);
+            if (!inContainerCapsuleCapsule3(inner, outer)) {
+                continue;
+            }
+            // Sample the inner capsule's surface: p(s) + r * unit.
+            for (let k = 0; k < 40; ++k) {
+                const s = rand();
+                const axisPoint = add(mul(1 - s, inner.segment.p[0]),
+                    mul(s, inner.segment.p[1]));
+                const z = 2 * rand() - 1;
+                const a = 2 * Math.PI * rand();
+                const t = Math.sqrt(Math.max(0, 1 - z * z));
+                const q = add(axisPoint, mul(inner.radius,
+                    Vector.fromArray([t * Math.cos(a), t * Math.sin(a), z])));
+                expect(distanceToSegment(q, outer.segment))
+                    .toBeLessThanOrEqual(outer.radius + 1e-9);
+            }
+        }
+    }, 30000);
+
+    // MergeContainers claims a capsule containing both inputs (though not
+    // necessarily of least volume). Sample both input capsules and confirm.
+    it('merge contains sampled surface points of both inputs', () => {
+        const rand = seededRandom(0x5eedcc);
+        for (let trial = 0; trial < 200; ++trial) {
+            const mk = (): Capsule3 => capsule(
+                Vector.fromArray([6 * rand() - 3, 6 * rand() - 3, 6 * rand() - 3]),
+                Vector.fromArray([6 * rand() - 3, 6 * rand() - 3, 6 * rand() - 3]),
+                0.2 + 1.5 * rand());
+            const c0 = mk(), c1 = mk();
+            const merge = mergeContainersCapsule3(c0, c1);
+            for (const input of [c0, c1]) {
+                for (let k = 0; k < 30; ++k) {
+                    const s = rand();
+                    const axisPoint = add(mul(1 - s, input.segment.p[0]),
+                        mul(s, input.segment.p[1]));
+                    const z = 2 * rand() - 1;
+                    const a = 2 * Math.PI * rand();
+                    const t = Math.sqrt(Math.max(0, 1 - z * z));
+                    const q = add(axisPoint, mul(input.radius,
+                        Vector.fromArray([t * Math.cos(a), t * Math.sin(a), z])));
+                    expect(distanceToSegment(q, merge.segment))
+                        .toBeLessThanOrEqual(merge.radius + 1e-9);
+                }
+            }
+        }
+    }, 30000);
+
+    // Degenerate clouds: all points equal gives a zero-radius, zero-extent
+    // capsule centered on the point.
+    it('collapses to a point for coincident inputs', () => {
+        check(wellScaledVector(3), (p: Vector) => {
+            const cap = getContainerCapsule3([p, p.clone(), p.clone()]);
+            expect(cap.radius).toBeLessThanOrEqual(1e-12);
+            expectClose(length(sub(cap.segment.p[0], p)), 0, 1e-12, 1e-12);
+            expectClose(length(sub(cap.segment.p[1], p)), 0, 1e-12, 1e-12);
+        });
     });
 });
