@@ -1,6 +1,7 @@
 {
  "AABBBVTreeOfTriangles.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 7
  },
  "ACosEstimate.h": {
   "status": "ported"
@@ -27,10 +28,12 @@
   "status": "ported"
  },
  "APConversion.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 6
  },
  "APInterval.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 6
  },
  "ApprCircle2.h": {
   "status": "ported",
@@ -153,7 +156,8 @@
   "verified": 4
  },
  "ArbitraryPrecision.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 6
  },
  "Arc2.h": {
   "status": "ported"
@@ -210,17 +214,20 @@
  },
  "BSplineCurve.h": {
   "status": "ported",
-  "note": "porter: ParametricCurve.getTime is numerically weak across knot discontinuities (upstream design limitation, see upstream-bug issue from B40) — decide arc-length test strategy accordingly"
+  "note": "porter: ParametricCurve.getTime is numerically weak across knot discontinuities (upstream design limitation, see upstream-bug issue from B40) — decide arc-length test strategy accordingly",
+  "verified": 6
  },
  "BSplineCurveFit.h": {
   "status": "ported",
   "verified": 5
  },
  "BSplineGeodesic.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 6
  },
  "BSplineReduction.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 6
  },
  "BSplineSurface.h": {
   "status": "ported",
@@ -235,26 +242,32 @@
   "verified": 5
  },
  "BSPPolygon2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 6
  },
  "BSPrecision.h": {
   "status": "ported",
   "verified": 5
  },
  "BSRational.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 6
  },
  "BVTree.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 7
  },
  "BVTreeOfPoints.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 7
  },
  "BVTreeOfSegments.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 7
  },
  "BVTreeOfTriangles.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 7
  },
  "CanonicalBox.h": {
   "status": "ported"
@@ -1383,17 +1396,21 @@
   "status": "ported"
  },
  "OBBTree.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 7
  },
  "OBBTreeOfPoints.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 7
  },
  "OBBTreeOfSegments.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 7
  },
  "OBBTreeOfTriangles.h": {
   "status": "ported",
-  "note": "porter: check ComputeInteriorBox pmin/pmax zero-init suspect flagged during B36 — see upstream-bug issue"
+  "note": "porter: check ComputeInteriorBox pmin/pmax zero-init suspect flagged during B36 — see upstream-bug issue",
+  "verified": 7
  },
  "OdeEuler.h": {
   "status": "ported"
