@@ -1,7 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { DistOrientedBox3OrientedBox3 } from '../src/DistOrientedBox3OrientedBox3.js';
 import { OrientedBox } from '../src/OrientedBox.js';
+import { DistRectangle3OrientedBox3 } from '../src/DistRectangle3OrientedBox3.js';
+import { Rectangle } from '../src/Rectangle.js';
 import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector.js';
+import {
+    check, expectClose, fc, finite, rotationFrame, seededRandom,
+    wellScaledVector
+} from './helpers/arbitraries.js';
 import { cross } from '../src/Vector3.js';
 
 function v(x: number, y: number, z: number): Vector {
@@ -171,5 +177,141 @@ describe('DistOrientedBox3OrientedBox3', () => {
             expect(distPointBox(result.closest[0], b0)).toBeCloseTo(0, 8);
             expect(distPointBox(result.closest[1], b1)).toBeCloseTo(0, 8);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (see VERIFYING.md): property-based cross-checks of the
+// port against upstream DistOrientedBox3OrientedBox3.h.
+// ---------------------------------------------------------------------------
+
+describe('DistOrientedBox3OrientedBox3 verification', () => {
+    const query = new DistOrientedBox3OrientedBox3();
+    const rbQuery = new DistRectangle3OrientedBox3();
+
+    const boxArb = fc.tuple(wellScaledVector(3, -5, 5), rotationFrame(3),
+        fc.array(finite(0.05, 3), { minLength: 3, maxLength: 3 }))
+        .map(([c, R, e]) => OrientedBox.fromCenterAxisExtent(c, R,
+            Vector.fromArray([e[0], e[1], e[2]])));
+
+    function inBox(p: Vector, b: OrientedBox, tol: number): void {
+        const d = sub(p, b.center);
+        for (let i = 0; i < 3; ++i) {
+            expect(Math.abs(dot(b.axis[i], d)))
+                .toBeLessThanOrEqual(b.extent.values[i] + tol);
+        }
+    }
+
+    it('reports consistent distances and in-box closest points', () => {
+        check(fc.tuple(boxArb, boxArb), ([b0, b1]) => {
+            const r = query.compute(b0, b1);
+            expectClose(r.sqrDistance, r.distance * r.distance, 1e-12, 1e-12);
+            expectClose(length(sub(r.closest[0], r.closest[1])), r.distance,
+                1e-8, 1e-8);
+            inBox(r.closest[0], b0, 1e-8);
+            inBox(r.closest[1], b1, 1e-8);
+        });
+    });
+
+    it('is symmetric under argument swap', () => {
+        check(fc.tuple(boxArb, boxArb), ([b0, b1]) => {
+            const a = query.compute(b0, b1);
+            const b = query.compute(b1, b0);
+            expectClose(a.distance, b.distance, 1e-8, 1e-8);
+            inBox(b.closest[0], b1, 1e-8);
+            inBox(b.closest[1], b0, 1e-8);
+        });
+    });
+
+    // Two axis-aligned boxes: the distance is the Euclidean norm of the
+    // per-axis interval gaps, an independent closed form.
+    it('matches the interval-gap formula for axis-aligned boxes', () => {
+        const axes = [v(1, 0, 0), v(0, 1, 0), v(0, 0, 1)];
+        check(fc.tuple(wellScaledVector(3, -5, 5), wellScaledVector(3, -5, 5),
+            fc.array(finite(0.05, 3), { minLength: 3, maxLength: 3 }),
+            fc.array(finite(0.05, 3), { minLength: 3, maxLength: 3 })),
+            ([c0, c1, e0, e1]) => {
+                const b0 = OrientedBox.fromCenterAxisExtent(c0, axes,
+                    Vector.fromArray(e0));
+                const b1 = OrientedBox.fromCenterAxisExtent(c1, axes,
+                    Vector.fromArray(e1));
+                let sqr = 0;
+                for (let i = 0; i < 3; ++i) {
+                    const gap = Math.abs(c1.values[i] - c0.values[i])
+                        - e0[i] - e1[i];
+                    if (gap > 0) { sqr += gap * gap; }
+                }
+                const r = query.compute(b0, b1);
+                expectClose(r.distance, Math.sqrt(sqr), 1e-8, 1e-8);
+            });
+    });
+
+    // The upstream algorithm is the minimum over the twelve
+    // (face rectangle, other box) queries.
+    it('equals the minimum over the twelve face-box queries', () => {
+        check(fc.tuple(boxArb, boxArb), ([b0, b1]) => {
+            let best = Number.MAX_VALUE;
+            const faces = (b: OrientedBox, other: OrientedBox) => {
+                for (let i0 = 2, i1 = 0, i2 = 1; i1 < 3; i2 = i0, i0 = i1++) {
+                    const scaled = mul(b.extent.values[i2], b.axis[i2]);
+                    for (const s of [1, -1]) {
+                        const rect = Rectangle.fromCenterAxisExtent(
+                            add(b.center, mul(s, scaled)),
+                            [b.axis[i0], b.axis[i1]],
+                            Vector.fromArray([b.extent.values[i0],
+                                b.extent.values[i1]]));
+                        best = Math.min(best,
+                            rbQuery.compute(rect, other).sqrDistance);
+                    }
+                }
+            };
+            faces(b0, b1);
+            faces(b1, b0);
+            const r = query.compute(b0, b1);
+            expectClose(r.sqrDistance, best, 1e-9, 1e-9);
+        });
+    });
+
+    it('reports zero when one box is nested inside the other', () => {
+        check(fc.tuple(boxArb, rotationFrame(3)), ([b0, R]) => {
+            const inner = OrientedBox.fromCenterAxisExtent(b0.center, R,
+                Vector.fromArray([1e-3, 1e-3, 1e-3]));
+            const r = query.compute(inner, b0);
+            expect(r.distance).toBe(0);
+            expect(query.compute(b0, inner).distance).toBe(0);
+        });
+    });
+
+    it('never exceeds a face sampling of the first box', () => {
+        const rng = seededRandom(0x2b1c9d47);
+        for (let k = 0; k < 20; ++k) {
+            const mk = () => {
+                const w = v(rng() - 0.5, rng() - 0.5, rng() - 0.5);
+                normalize(w);
+                const f = frame(w);
+                return box(v(6 * rng() - 3, 6 * rng() - 3, 6 * rng() - 3),
+                    [f[0], f[1], f[2]],
+                    v(0.3 + rng(), 0.3 + rng(), 0.3 + rng()));
+            };
+            const b0 = mk(), b1 = mk();
+            expect(query.compute(b0, b1).distance)
+                .toBeLessThanOrEqual(bruteForce(b0, b1, 24) + 1e-9);
+        }
+    }, 30000);
+
+    it('is equivariant under a rigid motion', () => {
+        check(fc.tuple(boxArb, boxArb, rotationFrame(3),
+            wellScaledVector(3, -4, 4)), ([b0, b1, R, t]) => {
+                const rot = (q: Vector) => add(add(
+                    mul(q.values[0], R[0]), mul(q.values[1], R[1])),
+                    mul(q.values[2], R[2]));
+                const xb = (b: OrientedBox) =>
+                    OrientedBox.fromCenterAxisExtent(add(rot(b.center), t),
+                        [rot(b.axis[0]), rot(b.axis[1]), rot(b.axis[2])],
+                        b.extent);
+                const a = query.compute(b0, b1);
+                const c = query.compute(xb(b0), xb(b1));
+                expectClose(a.distance, c.distance, 1e-8, 1e-8);
+            });
     });
 });
