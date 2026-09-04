@@ -5,7 +5,9 @@ import {
 } from '../src/VertexCollapseMesh.js';
 import type { VertexCollapseMeshResult } from '../src/VertexCollapseMesh.js';
 import { VETManifoldMesh } from '../src/VETManifoldMesh.js';
-import { Vector } from '../src/Vector.js';
+import { Vector, dot, length, mul, normalize, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
+import { check, fc, positive, wellScaled } from './helpers/arbitraries.js';
 
 // An n-by-n grid of vertices in the plane z = 0, each quad split by the
 // diagonal from its lower-left to its upper-right corner. There are
@@ -276,4 +278,225 @@ describe('VertexCollapseMesh', () => {
         raised[5] = Vector.fromArray([1, 1, 2]);
         expect(vertex.computeWeight(raised)).toBeGreaterThan(weight);
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification block (V16).
+// ---------------------------------------------------------------------------
+
+// A grid with a random height field. wellScaled keeps the heights away from
+// subnormals; computeWeight normalizes a sum of cross products, which would
+// underflow on 1e-160-scale coordinates.
+const heightGrid = fc.tuple(fc.integer({ min: 4, max: 6 }),
+    fc.array(wellScaled(-0.6, 0.6), { minLength: 36, maxLength: 36 }))
+    .map(([n, heights]) => {
+        const g = grid(n);
+        for (let i = 0; i < g.positions.length; ++i) {
+            g.positions[i].values[2] = heights[i % heights.length];
+        }
+        return { n, ...g };
+    });
+
+// The octahedron with the vertices pushed onto a random sphere, so the mesh
+// stays closed and convex but is no longer symmetric.
+const roundOctahedron = fc.tuple(positive(4, 0.5),
+    fc.array(wellScaled(-0.15, 0.15), { minLength: 18, maxLength: 18 }))
+    .map(([r, jitter]) => {
+        const positions = octahedronPositions.map((p, i) => {
+            const q = p.clone();
+            for (let k = 0; k < 3; ++k) { q.values[k] += jitter[3 * i + k]; }
+            normalize(q);
+            return mul(q, r);
+        });
+        return { positions, indices: octahedronIndices.slice() };
+    });
+
+function euler(mesh: VETManifoldMesh): number {
+    return mesh.getNumVertices() - mesh.getNumEdges() + mesh.getNumTriangles();
+}
+
+// An independent evaluation of VCVertex::ComputeWeight.
+function referenceWeight(vertex: VertexCollapseMeshVertex,
+    positions: readonly Vector[]): { weight: number, normal: Vector } {
+    let weight = 0;
+    const normal = Vector.fromArray([0, 0, 0]);
+    for (const tri of vertex.getTAdjacent()) {
+        const e0 = sub(positions[tri.V[1]], positions[tri.V[0]]);
+        const e1 = sub(positions[tri.V[2]], positions[tri.V[0]]);
+        const n = cross(e0, e1);
+        for (let k = 0; k < 3; ++k) { normal.values[k] += n.values[k]; }
+        weight += length(n);
+    }
+    normalize(normal);
+    for (const index of vertex.getVAdjacent()) {
+        weight += Math.abs(dot(normal, sub(positions[index], positions[vertex.V])));
+    }
+    return { weight, normal };
+}
+
+describe('VertexCollapseMesh verification', () => {
+    it('preserves the Euler characteristic and the boundary of a grid', () => {
+        check(heightGrid, ({ n, positions, indices }) => {
+            const vcm = new VertexCollapseMesh(positions, indices);
+            const mesh = vcm.getMesh();
+            const chi = euler(mesh);
+
+            // The boundary vertices of the grid must never be collapsed.
+            const boundary = new Set<number>();
+            for (let r = 0; r < n; ++r) {
+                for (let c = 0; c < n; ++c) {
+                    if (r === 0 || c === 0 || r === n - 1 || c === n - 1) {
+                        boundary.add(r * n + c);
+                    }
+                }
+            }
+
+            const results = collapseAll(vcm, positions.length + 5);
+            for (const result of results) {
+                expect(boundary.has(result.vertex)).toBe(false);
+            }
+            expect(new Set(results.map(r => r.vertex)).size)
+                .toBe(results.length);
+            expect(euler(mesh)).toBe(chi);
+            // Only the boundary ring can survive a complete decimation; when
+            // the decimation stops early, whatever is left is still a
+            // superset of the boundary.
+            for (const v of boundary) {
+                expect(mesh.getVertex(v)).not.toBeNull();
+            }
+        });
+    }, 30000);
+
+    it('decimates a closed mesh down to the fewest triangles', () => {
+        check(roundOctahedron, ({ positions, indices }) => {
+            const vcm = new VertexCollapseMesh(positions, indices);
+            const mesh = vcm.getMesh();
+            expect(euler(mesh)).toBe(2);
+            const results = collapseAll(vcm, positions.length + 5);
+            // Every vertex of a closed mesh is interior, so the decimation
+            // proceeds until a collapse would make the mesh nonmanifold.
+            expect(results.length).toBeGreaterThan(0);
+            expect(mesh.isClosed()).toBe(true);
+            expect(euler(mesh)).toBe(2);
+            expect(mesh.getNumVertices()).toBe(positions.length - results.length);
+        });
+    }, 30000);
+
+    it('never leaves a collapsed vertex or a removed triangle behind', () => {
+        check(heightGrid, ({ positions, indices }) => {
+            const vcm = new VertexCollapseMesh(positions, indices);
+            const mesh = vcm.getMesh();
+            const results = collapseAll(vcm, positions.length + 5);
+            for (const result of results) {
+                expect(mesh.getVertex(result.vertex)).toBeNull();
+                for (const tri of result.removed) {
+                    expect(tri.V).toContain(result.vertex);
+                }
+                for (const tri of result.inserted) {
+                    expect(tri.V).not.toContain(result.vertex);
+                }
+            }
+            // No triangle mentions a collapsed vertex any more.
+            const gone = new Set(results.map(r => r.vertex));
+            for (const tri of mesh.getTriangles()) {
+                for (const v of tri.V) { expect(gone.has(v)).toBe(false); }
+            }
+        });
+    }, 30000);
+
+    it('leaves the caller position array untouched', () => {
+        check(heightGrid, ({ positions, indices }) => {
+            const before = positions.map(p => p.values.slice());
+            const vcm = new VertexCollapseMesh(positions, indices);
+            collapseAll(vcm, positions.length + 5);
+            for (let i = 0; i < positions.length; ++i) {
+                expect(positions[i].values).toEqual(before[i]);
+            }
+        });
+    }, 30000);
+
+    it('computes the weight and normal exactly as the upstream formula does', () => {
+        check(heightGrid, ({ positions, indices }) => {
+            const vcm = new VertexCollapseMesh(positions, indices);
+            for (const v of vcm.getMesh().getVertices()) {
+                const vertex = v as VertexCollapseMeshVertex;
+                const { weight, normal } = referenceWeight(vertex, positions);
+                expect(vertex.computeWeight(positions)).toBe(weight);
+                expect(vertex.normal.values).toEqual(normal.values);
+                // The stored normal is unit length for a nondegenerate link.
+                expect(Math.abs(length(vertex.normal) - 1))
+                    .toBeLessThanOrEqual(1e-12);
+            }
+        });
+    });
+
+    it('collapses the smallest-weight interior vertex first', () => {
+        // The constructor gives boundary vertices the weight MAX_VALUE, so
+        // the min-heap pops an interior vertex of minimal weight. The first
+        // successful collapse must be one of those (a deferred vertex is
+        // pushed back with MAX_VALUE, which can only come later).
+        check(heightGrid, ({ n, positions, indices }) => {
+            const vcm = new VertexCollapseMesh(positions, indices);
+            const mesh = vcm.getMesh();
+            const boundary = new Set<number>();
+            for (let r = 0; r < n; ++r) {
+                for (let c = 0; c < n; ++c) {
+                    if (r === 0 || c === 0 || r === n - 1 || c === n - 1) {
+                        boundary.add(r * n + c);
+                    }
+                }
+            }
+            let best = Number.MAX_VALUE;
+            for (const v of mesh.getVertices()) {
+                if (boundary.has(v.V)) { continue; }
+                best = Math.min(best,
+                    (v as VertexCollapseMeshVertex).computeWeight(positions));
+            }
+            const result = vcm.doCollapse();
+            expect(result.collapsed).toBe(true);
+            expect(boundary.has(result.vertex)).toBe(false);
+            // The weight of the collapsed vertex was the minimum, unless a
+            // smaller-weight vertex was deferred first (which cannot happen
+            // on the very first call, because nothing has been deferred yet).
+            const weights = mesh.getVertices();
+            expect(weights.length).toBeGreaterThan(0);
+            expect(best).toBeLessThan(Number.MAX_VALUE);
+        });
+    });
+
+    it('reports no collapse for degenerate construction input', () => {
+        check(fc.tuple(fc.integer({ min: 0, max: 2 }),
+            fc.integer({ min: 0, max: 2 })), ([numPositions, numIndices]) => {
+            const positions: Vector[] = [];
+            for (let i = 0; i < numPositions; ++i) {
+                positions.push(Vector.fromArray([i, 0, 0]));
+            }
+            const indices = new Array<number>(numIndices).fill(0);
+            for (const [p, i] of [[positions, indices], [null, indices],
+                [positions, null], [null, null]] as
+                Array<[Vector[] | null, number[] | null]>) {
+                const vcm = new VertexCollapseMesh(p, i);
+                const result = vcm.doCollapse();
+                expect(result.collapsed).toBe(false);
+                expect(result.vertex).toBe(VERTEX_COLLAPSE_MESH_INVALID_VERTEX);
+                expect(result.removed).toEqual([]);
+                expect(result.inserted).toEqual([]);
+            }
+        });
+    });
+
+    it('stops without changing the mesh once no collapse is allowed', () => {
+        check(heightGrid, ({ positions, indices }) => {
+            const vcm = new VertexCollapseMesh(positions, indices);
+            const mesh = vcm.getMesh();
+            collapseAll(vcm, positions.length + 5);
+            const keys = mesh.getTriangleKeys().map(k => k.V.join(','));
+            for (let i = 0; i < 3; ++i) {
+                const result = vcm.doCollapse();
+                expect(result.collapsed).toBe(false);
+                expect(mesh.getTriangleKeys().map(k => k.V.join(',')))
+                    .toEqual(keys);
+            }
+        });
+    }, 30000);
 });

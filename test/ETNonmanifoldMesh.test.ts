@@ -5,6 +5,8 @@ import {
     ETNonmanifoldMeshTriangle
 } from '../src/ETNonmanifoldMesh.js';
 import { TriangleKey } from '../src/TriangleKey.js';
+import { EdgeKey } from '../src/EdgeKey.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 // The keys of the triangles of a mesh (or of a component), as arrays of the
 // three vertex indices.
@@ -432,5 +434,301 @@ describe('ETNonmanifoldMesh degenerate triangles (upstream behavior)', () => {
         const mesh = new ETNonmanifoldMesh();
         expect(mesh.insert(0, 0, 1)).not.toBeNull();
         expect(() => mesh.remove(0, 0, 1)).toThrow('Unexpected condition.');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification block (V16): model-based testing of insert/remove against a
+// brute-force adjacency model, over random (mostly nonmanifold) meshes.
+// ---------------------------------------------------------------------------
+
+type Tri = [number, number, number];
+
+function triKey(v0: number, v1: number, v2: number): string {
+    return new TriangleKey(true, v0, v1, v2).V.join(',');
+}
+
+function edgeKey(v0: number, v1: number): string {
+    return new EdgeKey(false, v0, v1).V.join(',');
+}
+
+// The three unordered edges of a triangle, as keys.
+function triEdgeKeys(t: Tri): string[] {
+    return [edgeKey(t[2], t[0]), edgeKey(t[0], t[1]), edgeKey(t[1], t[2])];
+}
+
+// A brute-force model of the mesh: a set of ordered triangle keys.
+class MeshModel {
+    readonly triangles = new Map<string, Tri>();
+
+    insert(t: Tri): boolean {
+        const key = triKey(t[0], t[1], t[2]);
+        if (this.triangles.has(key)) { return false; }
+        this.triangles.set(key, t);
+        return true;
+    }
+
+    remove(t: Tri): boolean {
+        return this.triangles.delete(triKey(t[0], t[1], t[2]));
+    }
+
+    // edgeKey -> sorted list of the triangle keys sharing that edge.
+    edgeMap(): Map<string, string[]> {
+        const m = new Map<string, string[]>();
+        for (const [key, t] of this.triangles) {
+            for (const e of triEdgeKeys(t)) {
+                const list = m.get(e);
+                if (list === undefined) { m.set(e, [key]); }
+                else if (!list.includes(key)) { list.push(key); }
+            }
+        }
+        for (const list of m.values()) { list.sort(compareKeyStrings); }
+        return m;
+    }
+
+    // Connected components of the triangle graph, triangles adjacent when
+    // they share an unordered edge.
+    components(): string[][] {
+        const byEdge = this.edgeMap();
+        const parent = new Map<string, string>();
+        const find = (a: string): string => {
+            let r = a;
+            while (parent.get(r) !== r) { r = parent.get(r) as string; }
+            return r;
+        };
+        for (const key of this.triangles.keys()) { parent.set(key, key); }
+        for (const list of byEdge.values()) {
+            for (let i = 1; i < list.length; ++i) {
+                parent.set(find(list[i]), find(list[0]));
+            }
+        }
+        const groups = new Map<string, string[]>();
+        for (const key of this.triangles.keys()) {
+            const root = find(key);
+            const g = groups.get(root);
+            if (g === undefined) { groups.set(root, [key]); } else { g.push(key); }
+        }
+        return Array.from(groups.values()).map(g => g.slice().sort(compareKeyStrings));
+    }
+}
+
+// The lexicographic order of the three vertex indices, which is what
+// FeatureKey.compare implements and what std::map iteration follows.
+function compareKeyStrings(a: string, b: string): number {
+    const x = a.split(',').map(Number);
+    const y = b.split(',').map(Number);
+    for (let i = 0; i < x.length; ++i) {
+        if (x[i] !== y[i]) { return x[i] - y[i]; }
+    }
+    return 0;
+}
+
+function meshTriangleKeys(mesh: ETNonmanifoldMesh): string[] {
+    return mesh.getTriangleKeys().map(k => k.V.join(','));
+}
+
+// Compare the mesh with the model in full.
+function expectMeshMatchesModel(mesh: ETNonmanifoldMesh, model: MeshModel): void {
+    const modelKeys = Array.from(model.triangles.keys()).sort(compareKeyStrings);
+    expect(mesh.getNumTriangles()).toBe(modelKeys.length);
+    // getTriangleKeys() must already be in std::map order.
+    expect(meshTriangleKeys(mesh)).toEqual(modelKeys);
+
+    const modelEdges = model.edgeMap();
+    const edgeKeys = mesh.getEdgeKeys().map(k => k.V.join(','));
+    expect(mesh.getNumEdges()).toBe(modelEdges.size);
+    expect(edgeKeys).toEqual(
+        Array.from(modelEdges.keys()).sort(compareKeyStrings));
+
+    for (const edge of mesh.getEdges()) {
+        const key = edgeKey(edge.V[0], edge.V[1]);
+        const expected = modelEdges.get(key) as string[];
+        expect(expected).toBeDefined();
+        expect(edge.T.size).toBe(expected.length);
+        // getTriangles() must be in the order of the upstream std::set of
+        // weak pointers, which is ordered by TriangleKey<true>.
+        expect(edge.getTriangles().map(t => triKey(t.V[0], t.V[1], t.V[2])))
+            .toEqual(expected);
+    }
+
+    // Every triangle's E[i] is the edge (V[i], V[(i+1)%3]) and points at the
+    // object stored in the edge map.
+    for (const tri of mesh.getTriangles()) {
+        for (let i = 0; i < 3; ++i) {
+            const e = tri.E[i];
+            expect(e).not.toBeNull();
+            const edge = e as ETNonmanifoldMeshEdge;
+            expect(edgeKey(edge.V[0], edge.V[1]))
+                .toBe(edgeKey(tri.V[i], tri.V[(i + 1) % 3]));
+            expect(mesh.getEdge(tri.V[i], tri.V[(i + 1) % 3])).toBe(edge);
+        }
+        expect(mesh.getTriangle(tri.V[0], tri.V[1], tri.V[2])).toBe(tri);
+    }
+
+    const sizes = Array.from(modelEdges.values(), list => list.length);
+    expect(mesh.isManifold()).toBe(sizes.every(s => s <= 2));
+    expect(mesh.isClosed()).toBe(sizes.every(s => s === 2));
+}
+
+// Distinct-vertex triangles over a small pool, so the random meshes are
+// densely connected and frequently nonmanifold. Degenerate triangles (two
+// equal vertices) are excluded because Remove throws on them, which is the
+// upstream defect covered by its own test above.
+const triangleArb: fc.Arbitrary<Tri> =
+    fc.uniqueArray(fc.integer({ min: 0, max: 5 }),
+        { minLength: 3, maxLength: 3 }).map(a => [a[0], a[1], a[2]] as Tri);
+
+const triangleListArb = fc.array(triangleArb, { minLength: 1, maxLength: 14 });
+
+describe('ETNonmanifoldMesh verification', () => {
+    it('keeps the edge-triangle adjacency in step with a brute-force model', () => {
+        check(fc.tuple(triangleListArb, fc.array(fc.boolean(),
+            { minLength: 14, maxLength: 14 })), ([triangles, removeFlags]) => {
+            const mesh = new ETNonmanifoldMesh();
+            const model = new MeshModel();
+            const inserted: Tri[] = [];
+
+            for (let i = 0; i < triangles.length; ++i) {
+                const t = triangles[i];
+                const created = mesh.insert(t[0], t[1], t[2]);
+                const modelCreated = model.insert(t);
+                expect(created !== null).toBe(modelCreated);
+                if (created !== null) {
+                    expect(triKey(created.V[0], created.V[1], created.V[2]))
+                        .toBe(triKey(t[0], t[1], t[2]));
+                    inserted.push(t);
+                }
+                expectMeshMatchesModel(mesh, model);
+
+                // Interleave a removal of an earlier triangle.
+                if (removeFlags[i] && inserted.length > 0) {
+                    const victim = inserted.splice(i % inserted.length, 1)[0];
+                    expect(mesh.remove(victim[0], victim[1], victim[2]))
+                        .toBe(model.remove(victim));
+                    expectMeshMatchesModel(mesh, model);
+                    // Removing it again fails on both.
+                    expect(mesh.remove(victim[0], victim[1], victim[2]))
+                        .toBe(false);
+                }
+            }
+
+            // Removing everything empties the mesh, edges included.
+            for (const t of Array.from(model.triangles.values())) {
+                expect(mesh.remove(t[0], t[1], t[2])).toBe(true);
+                model.remove(t);
+                expectMeshMatchesModel(mesh, model);
+            }
+            expect(mesh.getNumTriangles()).toBe(0);
+            expect(mesh.getNumEdges()).toBe(0);
+            expect(mesh.getEdges()).toEqual([]);
+            expect(mesh.getTriangles()).toEqual([]);
+        });
+    });
+
+    it('accepts every cyclic rotation as the same triangle and the reversal as another', () => {
+        check(triangleArb, t => {
+            const mesh = new ETNonmanifoldMesh();
+            expect(mesh.insert(t[0], t[1], t[2])).not.toBeNull();
+            expect(mesh.insert(t[1], t[2], t[0])).toBeNull();
+            expect(mesh.insert(t[2], t[0], t[1])).toBeNull();
+            expect(mesh.getNumTriangles()).toBe(1);
+            // The reversal is a different ordered key.
+            expect(mesh.insert(t[0], t[2], t[1])).not.toBeNull();
+            expect(mesh.getNumTriangles()).toBe(2);
+            // ... but shares all three unordered edges.
+            expect(mesh.getNumEdges()).toBe(3);
+            for (const edge of mesh.getEdges()) { expect(edge.T.size).toBe(2); }
+            expect(mesh.isClosed()).toBe(true);
+            expect(mesh.remove(t[1], t[2], t[0])).toBe(true);
+            expect(mesh.getNumEdges()).toBe(3);
+            expect(mesh.remove(t[2], t[1], t[0])).toBe(true);
+            expect(mesh.getNumEdges()).toBe(0);
+        });
+    });
+
+    it('computes the connected components of the edge-triangle graph', () => {
+        check(triangleListArb, triangles => {
+            const mesh = new ETNonmanifoldMesh();
+            const model = new MeshModel();
+            for (const t of triangles) {
+                mesh.insert(t[0], t[1], t[2]);
+                model.insert(t);
+            }
+
+            const components = mesh.getComponents().map(
+                c => c.map(t => triKey(t.V[0], t.V[1], t.V[2])));
+            const keyComponents = mesh.getComponentKeys().map(
+                c => c.map(k => k.V.join(',')));
+            expect(keyComponents).toEqual(components);
+
+            // Every triangle appears exactly once.
+            const all = components.flat();
+            expect(all.length).toBe(mesh.getNumTriangles());
+            expect(new Set(all).size).toBe(all.length);
+
+            // The partition matches the brute-force union-find.
+            const sortedGot = components.map(c => c.slice().sort(compareKeyStrings))
+                .sort((a, b) => compareKeyStrings(a[0], b[0]));
+            const sortedWant = model.components()
+                .sort((a, b) => compareKeyStrings(a[0], b[0]));
+            expect(sortedGot).toEqual(sortedWant);
+
+            // Upstream seeds the components by walking mTMap in key order, so
+            // the seeds appear in increasing key order.
+            const order = meshTriangleKeys(mesh);
+            const seeds = components.map(c => Math.min(
+                ...c.map(k => order.indexOf(k))));
+            for (let i = 1; i < seeds.length; ++i) {
+                expect(seeds[i]).toBeGreaterThan(seeds[i - 1]);
+            }
+        });
+    });
+
+    it('deep-copies the triangles through the triangle keys', () => {
+        check(triangleListArb, triangles => {
+            const mesh = new ETNonmanifoldMesh();
+            for (const t of triangles) { mesh.insert(t[0], t[1], t[2]); }
+
+            const copy = mesh.clone();
+            expect(meshTriangleKeys(copy)).toEqual(meshTriangleKeys(mesh));
+            expect(copy.getNumEdges()).toBe(mesh.getNumEdges());
+            // The copy owns its own objects.
+            for (const tri of copy.getTriangles()) {
+                expect(mesh.getTriangles()).not.toContain(tri);
+                // Upstream reinserts using the key vertices, so a copied
+                // triangle's V is the canonical rotation of the key.
+                expect(tri.V.join(',')).toBe(triKey(tri.V[0], tri.V[1], tri.V[2]));
+            }
+            for (const edge of copy.getEdges()) {
+                expect(mesh.getEdges()).not.toContain(edge);
+            }
+            // Clearing the source leaves the copy intact.
+            const before = meshTriangleKeys(copy);
+            mesh.clear();
+            expect(mesh.getNumTriangles()).toBe(0);
+            expect(meshTriangleKeys(copy)).toEqual(before);
+        });
+    });
+
+    it('uses the supplied creators for every edge and triangle', () => {
+        check(triangleListArb, triangles => {
+            let numEdges = 0;
+            let numTriangles = 0;
+            const mesh = new ETNonmanifoldMesh(
+                (v0, v1) => { ++numEdges; return new ETNonmanifoldMeshEdge(v0, v1); },
+                (v0, v1, v2) => {
+                    ++numTriangles;
+                    return new ETNonmanifoldMeshTriangle(v0, v1, v2);
+                });
+            const model = new MeshModel();
+            for (const t of triangles) {
+                mesh.insert(t[0], t[1], t[2]);
+                model.insert(t);
+            }
+            // One creator call per distinct triangle key and one per distinct
+            // edge that had to be created.
+            expect(numTriangles).toBe(model.triangles.size);
+            expect(numEdges).toBe(mesh.getNumEdges());
+        });
     });
 });

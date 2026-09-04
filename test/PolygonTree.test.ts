@@ -3,6 +3,7 @@ import {
     PolygonTree, PolygonTreeEx, PolygonTreeExNode
 } from '../src/PolygonTree.js';
 import { Vector } from '../src/Vector.js';
+import { check, fc, latticeVector } from './helpers/arbitraries.js';
 
 function pts(points: [number, number][]): Vector[] {
     return points.map(p => Vector.fromArray(p));
@@ -271,5 +272,253 @@ describe('PolygonTreeEx default construction', () => {
         expect(tree.insideNodeIndices).toEqual([]);
         expect(tree.outsideTriangles).toEqual([]);
         expect(tree.allTriangles).toEqual([]);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification block (V16).
+// ---------------------------------------------------------------------------
+
+// A counterclockwise lattice triangle with a strictly positive area, so the
+// sign tests below are exact in binary64.
+const ccwLatticeTriangle = fc.tuple(latticeVector(2, -6, 6),
+    latticeVector(2, -6, 6), latticeVector(2, -6, 6))
+    .map(([a, b, c]) => [a, b, c] as [Vector, Vector, Vector])
+    .filter(([a, b, c]) => {
+        const area = (b.values[0] - a.values[0]) * (c.values[1] - a.values[1])
+            - (b.values[1] - a.values[1]) * (c.values[0] - a.values[0]);
+        return area > 0;
+    });
+
+// A grid of unit squares over [0,gridN] x [0,gridN], split into two
+// counterclockwise triangles each. Coordinates are integers and the query
+// points are multiples of 1/2, so every predicate below is exact.
+const gridN = 4;
+const gridPoints: Vector[] = (() => {
+    const p: Vector[] = [];
+    for (let j = 0; j <= gridN; ++j) {
+        for (let i = 0; i <= gridN; ++i) { p.push(v2(i, j)); }
+    }
+    return p;
+})();
+const gridTriangles: [number, number, number][] = (() => {
+    const t: [number, number, number][] = [];
+    const at = (i: number, j: number) => i + (gridN + 1) * j;
+    for (let j = 0; j < gridN; ++j) {
+        for (let i = 0; i < gridN; ++i) {
+            t.push([at(i, j), at(i + 1, j), at(i + 1, j + 1)]);
+            t.push([at(i, j), at(i + 1, j + 1), at(i, j + 1)]);
+        }
+    }
+    return t;
+})();
+
+// A point with half-integer coordinates in [-1, gridN + 1], so roughly a
+// quarter of the draws land outside the grid.
+const halfIntegerPoint = fc.tuple(
+    fc.integer({ min: -2, max: 2 * gridN + 2 }),
+    fc.integer({ min: -2, max: 2 * gridN + 2 }))
+    .map(([a, b]) => v2(a / 2, b / 2));
+
+// Split the grid triangles into a root node and a chain of child nodes; every
+// triangle belongs to exactly one node, so the containment answer is unique
+// apart from shared edges.
+function buildPartitionTree(split: number[]): PolygonTreeEx {
+    const tree = new PolygonTreeEx();
+    const groups: [number, number, number][][] = [];
+    let start = 0;
+    for (const s of split.concat([gridTriangles.length])) {
+        const end = Math.min(Math.max(s, start), gridTriangles.length);
+        groups.push(gridTriangles.slice(start, end));
+        start = end;
+    }
+    tree.nodes = groups.map((g, index) => {
+        const node = new PolygonTreeExNode();
+        node.chirality = 1;
+        node.self = index;
+        node.parent = index === 0 ? 0 : index - 1;
+        node.minChild = index + 1 < groups.length ? index + 1 : 0;
+        node.supChild = index + 1 < groups.length ? index + 2 : 0;
+        node.triangulation = g;
+        return node;
+    });
+    for (let index = 0; index < groups.length; ++index) {
+        for (const t of groups[index]) {
+            tree.insideTriangles.push(t);
+            tree.insideNodeIndices.push(index);
+        }
+    }
+    tree.allTriangles = tree.insideTriangles.slice();
+    return tree;
+}
+
+describe('PolygonTreeEx verification', () => {
+    it('matches an exact sign test for a counterclockwise triangle', () => {
+        check(fc.tuple(ccwLatticeTriangle, latticeVector(2, -8, 8)),
+            ([[a, b, c], test]) => {
+                const points = [a, b, c];
+                const tri: [number, number, number] = [0, 1, 2];
+                const found = PolygonTreeEx.getContainingTriangleWithChirality(
+                    test, [tri], 1, points);
+                const inside = referenceInTriangle(test, tri, points);
+                expect(found === 0).toBe(inside);
+                expect(found === PolygonTreeEx.INVALID).toBe(!inside);
+            });
+    });
+
+    it('finds nothing for a nondegenerate triangle queried with the wrong chirality', () => {
+        // With the chirality reversed the test demands that the point be on
+        // the outer side of all three edges. The barycentric coordinates sum
+        // to one, so no point satisfies that for a triangle of positive area.
+        check(fc.tuple(ccwLatticeTriangle, latticeVector(2, -8, 8)),
+            ([[a, b, c], test]) => {
+                expect(PolygonTreeEx.getContainingTriangleWithChirality(
+                    test, [[0, 1, 2]], -1, [a, b, c]))
+                    .toBe(PolygonTreeEx.INVALID);
+            });
+    });
+
+    it('classifies clockwise triangles with chirality -1', () => {
+        check(fc.tuple(ccwLatticeTriangle, latticeVector(2, -8, 8)),
+            ([[a, b, c], test]) => {
+                // Reversing the vertex order makes the triangle clockwise.
+                const points = [a, c, b];
+                const tri: [number, number, number] = [0, 1, 2];
+                const found = PolygonTreeEx.getContainingTriangleWithChirality(
+                    test, [tri], -1, points);
+                expect(found === 0).toBe(referenceInTriangle(test, tri, points));
+            });
+    });
+
+    it('reports the first containing triangle of a list, as the linear scan does', () => {
+        check(fc.tuple(fc.shuffledSubarray(gridTriangles,
+            { minLength: 4, maxLength: gridTriangles.length }),
+        halfIntegerPoint), ([triangles, test]) => {
+            const found = PolygonTreeEx.getContainingTriangleWithChirality(
+                test, triangles, 1, gridPoints);
+            let expected = PolygonTreeEx.INVALID;
+            for (let t = 0; t < triangles.length; ++t) {
+                if (referenceInTriangle(test, triangles[t], gridPoints)) {
+                    expected = t;
+                    break;
+                }
+            }
+            expect(found).toBe(expected);
+        });
+    });
+
+    it('locates a point of a partitioned tree in the node that owns it', () => {
+        check(fc.tuple(fc.array(fc.integer({ min: 0, max: gridTriangles.length }),
+            { minLength: 1, maxLength: 3 }).map(a => a.slice().sort((x, y) => x - y)),
+        halfIntegerPoint), ([split, test]) => {
+            const tree = buildPartitionTree(split);
+            const { nIndex, tIndex } = tree.getContainingTriangle(test, gridPoints);
+            const anyContains = gridTriangles.some(
+                t => referenceInTriangle(test, t, gridPoints));
+            if (!anyContains) {
+                expect(nIndex).toBe(PolygonTreeEx.INVALID);
+                expect(tIndex).toBe(PolygonTreeEx.INVALID);
+                return;
+            }
+            expect(nIndex).toBeLessThan(tree.nodes.length);
+            const triangle = tree.nodes[nIndex].triangulation[tIndex];
+            expect(triangle).toBeDefined();
+            expect(referenceInTriangle(test, triangle, gridPoints)).toBe(true);
+        });
+    });
+
+    it('agrees with the list search over the same triangles', () => {
+        check(fc.tuple(fc.array(fc.integer({ min: 0, max: gridTriangles.length }),
+            { minLength: 1, maxLength: 3 }).map(a => a.slice().sort((x, y) => x - y)),
+        halfIntegerPoint), ([split, test]) => {
+            const tree = buildPartitionTree(split);
+            const inList = tree.getContainingTriangleInList(test,
+                tree.insideTriangles, tree.insideNodeIndices, gridPoints);
+            const anyContains = gridTriangles.some(
+                t => referenceInTriangle(test, t, gridPoints));
+            expect(inList.nIndex === PolygonTreeEx.INVALID).toBe(!anyContains);
+            if (anyContains) {
+                expect(referenceInTriangle(test,
+                    tree.insideTriangles[inList.tIndex], gridPoints)).toBe(true);
+                expect(tree.insideNodeIndices[inList.tIndex])
+                    .toBe(inList.nIndex);
+            }
+        });
+    });
+
+    it('prefers the node it pops first, reproducing the std::stack order', () => {
+        // The root is examined first; among the children the last pushed (the
+        // largest index) is popped first. Overlapping triangulations pin that
+        // order, which the port must reproduce with Array.pop().
+        check(fc.tuple(fc.integer({ min: 0, max: gridTriangles.length - 1 }),
+            fc.integer({ min: 2, max: 4 })), ([which, numChildren]) => {
+            const triangle = gridTriangles[which];
+            const inside = v2(
+                (gridPoints[triangle[0]].values[0]
+                    + gridPoints[triangle[1]].values[0]
+                    + gridPoints[triangle[2]].values[0]) / 3,
+                (gridPoints[triangle[0]].values[1]
+                    + gridPoints[triangle[1]].values[1]
+                    + gridPoints[triangle[2]].values[1]) / 3);
+
+            const withRoot = new PolygonTreeEx();
+            const root = new PolygonTreeExNode();
+            root.chirality = 1;
+            root.triangulation = [triangle];
+            root.minChild = 1;
+            root.supChild = 1 + numChildren;
+            withRoot.nodes = [root];
+            for (let c = 0; c < numChildren; ++c) {
+                const child = new PolygonTreeExNode();
+                child.chirality = 1;
+                child.self = 1 + c;
+                child.triangulation = [triangle];
+                withRoot.nodes.push(child);
+            }
+            // The root owns a containing triangle, so it wins.
+            expect(withRoot.getContainingTriangle(inside, gridPoints))
+                .toEqual({ nIndex: 0, tIndex: 0 });
+
+            // With an empty root the largest child index is popped first.
+            withRoot.nodes[0].triangulation = [];
+            expect(withRoot.getContainingTriangle(inside, gridPoints))
+                .toEqual({ nIndex: numChildren, tIndex: 0 });
+        });
+    });
+
+    it('treats edges and vertices of a triangle as inside', () => {
+        // Upstream rejects only when sign*(n.d) is strictly positive, so a
+        // point on an edge line inside the segment belongs to the triangle.
+        check(ccwLatticeTriangle, ([a, b, c]) => {
+            const points = [a, b, c];
+            const tri: [number, number, number] = [0, 1, 2];
+            for (const p of [a, b, c]) {
+                expect(PolygonTreeEx.getContainingTriangleWithChirality(
+                    p, [tri], 1, points)).toBe(0);
+            }
+            for (const [p, q] of [[a, b], [b, c], [c, a]]) {
+                const mid = v2(0.5 * (p.values[0] + q.values[0]),
+                    0.5 * (p.values[1] + q.values[1]));
+                expect(PolygonTreeEx.getContainingTriangleWithChirality(
+                    mid, [tri], 1, points)).toBe(0);
+            }
+            const centroid = v2(
+                (a.values[0] + b.values[0] + c.values[0]) / 3,
+                (a.values[1] + b.values[1] + c.values[1]) / 3);
+            expect(PolygonTreeEx.getContainingTriangleWithChirality(
+                centroid, [tri], 1, points)).toBe(0);
+        });
+    });
+
+    it('throws when the triangle and node-index arrays have different lengths', () => {
+        check(fc.tuple(fc.integer({ min: 0, max: 5 }),
+            fc.integer({ min: 0, max: 5 })), ([numTriangles, numIndices]) => {
+            if (numTriangles === numIndices) { return; }
+            const tree = buildPartitionTree([gridTriangles.length]);
+            const triangles = gridTriangles.slice(0, numTriangles);
+            const nodeIndices = new Array<number>(numIndices).fill(0);
+            expect(() => tree.getContainingTriangleInList(v2(0.5, 0.5),
+                triangles, nodeIndices, gridPoints)).toThrow('Invalid argument.');
+        });
     });
 });

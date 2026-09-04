@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { CurveExtractorSquares } from '../src/CurveExtractorSquares.js';
 import { CurveExtractorVertex } from '../src/CurveExtractor.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 // Build a pixel image from a function of the integer lattice.
 function image(xBound: number, yBound: number,
@@ -250,5 +251,205 @@ describe('CurveExtractorSquares extractReal', () => {
         for (const [px, py] of withoutDuplicates.vertices) {
             expect(3 * px + 5 * py - 20).toBeCloseTo(0, 12);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification block (V16).
+// ---------------------------------------------------------------------------
+
+// A canonical string for the reduced rational pair of a vertex, used to count
+// distinct vertex positions.
+function reducedKey(v: CurveExtractorVertex): string {
+    const gcd = (a: number, b: number): number => {
+        let x = Math.abs(a), y = Math.abs(b);
+        while (y !== 0) { const t = x % y; x = y; y = t; }
+        return x || 1;
+    };
+    const gx = gcd(v.xNumer, v.xDenom);
+    const gy = gcd(v.yNumer, v.yDenom);
+    return `${v.xNumer / gx}/${v.xDenom / gx},${v.yNumer / gy}/${v.yDenom / gy}`;
+}
+
+// Integer images of the form f(x,y) = a*x + b*y + c. All products used by the
+// extractor stay far below 2^53, so the rational arithmetic is exact.
+const linearImage = fc.tuple(
+    fc.integer({ min: -4, max: 4 }), fc.integer({ min: -4, max: 4 }),
+    fc.integer({ min: -20, max: 20 }),
+    fc.integer({ min: 2, max: 8 }), fc.integer({ min: 2, max: 8 }))
+    .map(([a, b, c, xBound, yBound]) => ({
+        a, b, c, xBound, yBound,
+        pixels: image(xBound, yBound, (x, y) => a * x + b * y + c)
+    }));
+
+// An image of +-1 pixels with a +1 border, so the level set is a union of
+// closed curves strictly inside the image.
+const signImage = fc.tuple(fc.integer({ min: 5, max: 8 }),
+    fc.integer({ min: 5, max: 8 }),
+    fc.array(fc.boolean(), { minLength: 64, maxLength: 64 }))
+    .map(([xBound, yBound, flags]) => ({
+        xBound, yBound,
+        pixels: image(xBound, yBound, (x, y) => {
+            if (x === 0 || y === 0 || x === xBound - 1 || y === yBound - 1) {
+                return 1;
+            }
+            return flags[(x + xBound * y) % flags.length] ? 1 : -1;
+        })
+    }));
+
+describe('CurveExtractorSquares verification', () => {
+    it('places every vertex of a linear image exactly on the level line', () => {
+        check(linearImage, ({ a, b, c, xBound, yBound, pixels }) => {
+            const r = new CurveExtractorSquares(xBound, yBound, pixels).extract(0);
+            for (const v of r.vertices) {
+                // The constructor normalizes the sign so both denominators
+                // are positive.
+                expect(v.xDenom).toBeGreaterThan(0);
+                expect(v.yDenom).toBeGreaterThan(0);
+                expect(onLine(v, a, b, c)).toBe(true);
+                const [px, py] = asPair(v);
+                expect(px).toBeGreaterThanOrEqual(0);
+                expect(px).toBeLessThanOrEqual(xBound - 1);
+                expect(py).toBeGreaterThanOrEqual(0);
+                expect(py).toBeLessThanOrEqual(yBound - 1);
+            }
+            for (const e of r.edges) {
+                expect(e.v[0]).toBeGreaterThanOrEqual(0);
+                expect(e.v[1]).toBeLessThan(r.vertices.length);
+                // The Edge constructor stores the pair in increasing order.
+                expect(e.v[0]).toBeLessThanOrEqual(e.v[1]);
+            }
+        });
+    });
+
+    it('extracts level L from the image exactly as level 0 from the shifted image', () => {
+        check(fc.tuple(linearImage, fc.integer({ min: -20, max: 20 })),
+            ([{ xBound, yBound, pixels }, level]) => {
+                const a = new CurveExtractorSquares(xBound, yBound, pixels)
+                    .extract(level);
+                const shifted = pixels.map(p => p - level);
+                const b = new CurveExtractorSquares(xBound, yBound, shifted)
+                    .extract(0);
+                expect(a.vertices.map(reducedKey))
+                    .toEqual(b.vertices.map(reducedKey));
+                expect(a.edges.map(e => e.v.slice()))
+                    .toEqual(b.edges.map(e => e.v.slice()));
+            });
+    });
+
+    it('is invariant when the image is negated', () => {
+        // The case analysis converts every sign pattern to one starting with
+        // a positive corner, so the extracted curve is the same set.
+        check(signImage, ({ xBound, yBound, pixels }) => {
+            const a = new CurveExtractorSquares(xBound, yBound, pixels).extract(0);
+            const b = new CurveExtractorSquares(xBound, yBound,
+                pixels.map(p => -p)).extract(0);
+            expect(new Set(b.vertices.map(reducedKey)))
+                .toEqual(new Set(a.vertices.map(reducedKey)));
+        });
+    });
+
+    it('produces closed level curves for an image with a positive border', () => {
+        // Every pixel is nonzero and the border is positive, so the level set
+        // is a union of closed curves in the interior of the image. In the
+        // deduplicated graph every vertex must then have even degree.
+        check(signImage, ({ xBound, yBound, pixels }) => {
+            const extractor = new CurveExtractorSquares(xBound, yBound, pixels);
+            const r = extractor.extract(0);
+            extractor.makeUnique(r.vertices, r.edges);
+            const degree = new Array<number>(r.vertices.length).fill(0);
+            for (const e of r.edges) {
+                ++degree[e.v[0]];
+                ++degree[e.v[1]];
+            }
+            for (let i = 0; i < degree.length; ++i) {
+                expect(degree[i]).toBeGreaterThan(0);
+                expect(degree[i] % 2).toBe(0);
+            }
+        });
+    });
+
+    it('collapses exactly the coincident vertices in makeUnique', () => {
+        check(signImage, ({ xBound, yBound, pixels }) => {
+            const extractor = new CurveExtractorSquares(xBound, yBound, pixels);
+            const r = extractor.extract(0);
+            const before = r.vertices.map(reducedKey);
+            const distinct = new Set(before);
+            const oldEdges = r.edges.map(e => e.v.slice());
+            extractor.makeUnique(r.vertices, r.edges);
+
+            expect(r.vertices.length).toBe(distinct.size);
+            // First-occurrence numbering: vertex i of the packed array is the
+            // i-th distinct key in the original order.
+            const order: string[] = [];
+            const seen = new Set<string>();
+            for (const key of before) {
+                if (!seen.has(key)) { seen.add(key); order.push(key); }
+            }
+            expect(r.vertices.map(reducedKey)).toEqual(order);
+
+            // Every remapped edge joins the images of its old endpoints, and
+            // the packed edges are the distinct ordered remapped pairs (the
+            // upstream MakeUnique does not reorder after remapping, which is
+            // upstream issue "duplicate edges when remapped vertices reverse
+            // order").
+            const index = new Map<string, number>();
+            order.forEach((key, i) => index.set(key, i));
+            const remapped = oldEdges.map(e => [
+                index.get(before[e[0]]) as number,
+                index.get(before[e[1]]) as number
+            ]);
+            const uniqueOrdered: number[][] = [];
+            const seenEdges = new Set<string>();
+            for (const e of remapped) {
+                const key = `${e[0]},${e[1]}`;
+                if (!seenEdges.has(key)) { seenEdges.add(key); uniqueOrdered.push(e); }
+            }
+            expect(r.edges.map(e => e.v.slice())).toEqual(uniqueOrdered);
+        });
+    });
+
+    it('converts the rational vertices to the quotient in extractReal', () => {
+        check(linearImage, ({ xBound, yBound, pixels }) => {
+            const extractor = new CurveExtractorSquares(xBound, yBound, pixels);
+            const rational = extractor.extract(0);
+            const real = new CurveExtractorSquares(xBound, yBound, pixels)
+                .extractReal(0, false);
+            expect(real.vertices.length).toBe(rational.vertices.length);
+            for (let i = 0; i < real.vertices.length; ++i) {
+                expect(real.vertices[i][0])
+                    .toBe(rational.vertices[i].xNumer / rational.vertices[i].xDenom);
+                expect(real.vertices[i][1])
+                    .toBe(rational.vertices[i].yNumer / rational.vertices[i].yDenom);
+            }
+        });
+    });
+
+    it('emits nothing when the level set misses the image', () => {
+        check(fc.tuple(fc.integer({ min: 2, max: 8 }),
+            fc.integer({ min: 2, max: 8 }), fc.integer({ min: 1, max: 9 })),
+        ([xBound, yBound, value]) => {
+            const pixels = image(xBound, yBound, () => value);
+            const r = new CurveExtractorSquares(xBound, yBound, pixels).extract(0);
+            expect(r.vertices).toEqual([]);
+            expect(r.edges).toEqual([]);
+            // Extracting at that constant value gives the all-zero case: the
+            // four boundary edges of every square.
+            const all = new CurveExtractorSquares(xBound, yBound, pixels)
+                .extract(value);
+            expect(all.edges.length)
+                .toBe(4 * (xBound - 1) * (yBound - 1));
+        });
+    });
+
+    it('rejects images smaller than a single square', () => {
+        check(fc.tuple(fc.integer({ min: 0, max: 1 }),
+            fc.integer({ min: 0, max: 8 })), ([small, other]) => {
+            const size = Math.max(small * other, 1);
+            expect(() => new CurveExtractorSquares(small, other,
+                new Array(size).fill(0))).toThrow('Invalid input.');
+            expect(() => new CurveExtractorSquares(other, small,
+                new Array(size).fill(0))).toThrow('Invalid input.');
+        });
     });
 });

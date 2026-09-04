@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { MeshSmoother } from '../src/MeshSmoother.js';
-import { Vector } from '../src/Vector.js';
+import { Vector, add, dot, length, mul as mulVector, sub } from '../src/Vector.js';
+import {
+    check, expectClose, expectVectorClose, fc, positive, rotationFrame,
+    wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -407,5 +411,250 @@ describe('MeshSmoother vertex influence', () => {
         // With t > 5 the first vertex moves too.
         smoother.update(10);
         expect(vertices[0].values).not.toEqual([0, 0, 0]);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification block (V16).
+// ---------------------------------------------------------------------------
+
+// A triangulated n-by-n grid with the vertices jittered in all three
+// coordinates. wellScaledVector keeps the jitter away from subnormals, which
+// matters because update() normalizes a cross product of vertex differences.
+const jitteredGrid = fc.tuple(fc.integer({ min: 3, max: 5 }),
+    fc.array(wellScaledVector(3, -0.4, 0.4), { minLength: 25, maxLength: 25 }))
+    .map(([n, jitter]) => {
+        const grid = makeGrid(n, () => 0);
+        for (let i = 0; i < grid.vertices.length; ++i) {
+            const j = jitter[i % jitter.length];
+            for (let k = 0; k < 3; ++k) {
+                grid.vertices[i].values[k] += j.values[k];
+            }
+        }
+        return grid;
+    });
+
+// An independent accumulation of the un-normalized means, in the order in
+// which update() visits the triangles.
+function referenceMeanSums(vertices: Vector[], indices: number[]): number[][] {
+    const sums: number[][] = vertices.map(() => [0, 0, 0]);
+    for (let t = 0; 3 * t < indices.length; ++t) {
+        const a = indices[3 * t], b = indices[3 * t + 1], c = indices[3 * t + 2];
+        const A = vertices[a].values, B = vertices[b].values, C = vertices[c].values;
+        for (let k = 0; k < 3; ++k) {
+            sums[a][k] += B[k] + C[k];
+            sums[b][k] += C[k] + A[k];
+            sums[c][k] += A[k] + B[k];
+        }
+    }
+    return sums;
+}
+
+describe('MeshSmoother verification', () => {
+    it('counts each vertex twice per incident triangle', () => {
+        check(jitteredGrid, grid => {
+            const smoother = new MeshSmoother();
+            smoother.initialize(grid.vertices, grid.indices);
+            const expected = new Array<number>(grid.vertices.length).fill(0);
+            for (const index of grid.indices) { expected[index] += 2; }
+            expect(smoother.getNeighborCounts()).toEqual(expected);
+        });
+    });
+
+    it('divides the mean by the reciprocal of the neighbor count, as Vector operator/= does', () => {
+        // Upstream 'mMeans[i] /= T(count)' multiplies by 1/count; a plain
+        // componentwise division differs in the last ulp. The reference
+        // accumulates in the same order, so the comparison is exact.
+        check(jitteredGrid, grid => {
+            const before = grid.vertices.map(v => v.clone());
+            const sums = referenceMeanSums(before, grid.indices);
+            const counts = new Array<number>(before.length).fill(0);
+            for (const index of grid.indices) { counts[index] += 2; }
+
+            const smoother = new MeshSmoother();
+            smoother.initialize(grid.vertices, grid.indices);
+            smoother.update();
+            const means = smoother.getMeans();
+            for (let i = 0; i < before.length; ++i) {
+                const inv = 1 / counts[i];
+                for (let k = 0; k < 3; ++k) {
+                    expect(means[i].values[k] + 0).toBe(sums[i][k] * inv + 0);
+                }
+            }
+        });
+    });
+
+    it('gives a vertex with no incident triangle a zero mean, not NaN', () => {
+        // Regression for the port defect fixed in V16. Upstream's
+        // 'mMeans[i] /= T(0)' is Vector operator/= with a zero divisor, which
+        // sets the vector to ZERO. A componentwise 0/0 gives NaN, which then
+        // propagates into the vertex position.
+        check(fc.tuple(wellScaledVector(3, -5, 5), fc.integer({ min: 1, max: 4 })),
+            ([orphanPosition, numOrphans]) => {
+                const vertices = [
+                    Vector.fromArray([0, 0, 0]),
+                    Vector.fromArray([1, 0, 0]),
+                    Vector.fromArray([0, 1, 0])
+                ];
+                for (let i = 0; i < numOrphans; ++i) {
+                    vertices.push(orphanPosition.clone());
+                }
+                const smoother = new MeshSmoother();
+                smoother.initialize(vertices, [0, 1, 2]);
+                smoother.update();
+
+                for (let i = 3; i < vertices.length; ++i) {
+                    expect(smoother.getNeighborCounts()[i]).toBe(0);
+                    expect(smoother.getMeans()[i].values).toEqual([0, 0, 0]);
+                    expect(smoother.getNormals()[i].values).toEqual([0, 0, 0]);
+                    // mean - v = -v, the normal is zero so the whole
+                    // displacement is tangential: v -> v + 0.5*(-v).
+                    for (let k = 0; k < 3; ++k) {
+                        expect(Number.isNaN(vertices[i].values[k])).toBe(false);
+                        expectClose(vertices[i].values[k],
+                            0.5 * orphanPosition.values[k], 1e-15, 1e-15);
+                    }
+                }
+            });
+    });
+
+    it('mutates the caller vertices in place and leaves the topology alone', () => {
+        check(jitteredGrid, grid => {
+            const objects = grid.vertices.slice();
+            const indices = grid.indices.slice();
+            const smoother = new MeshSmoother();
+            smoother.initialize(grid.vertices, grid.indices);
+            smoother.update();
+            smoother.update();
+            expect(smoother.getVertices()).toBe(grid.vertices);
+            for (let i = 0; i < objects.length; ++i) {
+                expect(grid.vertices[i]).toBe(objects[i]);
+                expect(grid.vertices[i].size).toBe(3);
+            }
+            expect(grid.indices).toEqual(indices);
+            expect(smoother.getNumTriangles()).toBe(indices.length / 3);
+            expect(smoother.getNumVertices()).toBe(objects.length);
+        });
+    });
+
+    it('moves every vertex tangentially when the normal weight is zero', () => {
+        // The default weights are 1/2 for the tangent and 0 for the normal, so
+        // the displacement is orthogonal to the (unit) vertex normal and is
+        // exactly half the tangential part of mean - position.
+        check(jitteredGrid, grid => {
+            const before = grid.vertices.map(v => v.clone());
+            const smoother = new MeshSmoother();
+            smoother.initialize(grid.vertices, grid.indices);
+            smoother.update();
+            const normals = smoother.getNormals();
+            const means = smoother.getMeans();
+            for (let i = 0; i < before.length; ++i) {
+                const delta = sub(grid.vertices[i], before[i]);
+                expectClose(dot(delta, normals[i]), 0, 1e-12, 1e-12);
+                const diff = sub(means[i], before[i]);
+                const tangent = sub(diff,
+                    mulVector(normals[i], dot(diff, normals[i])));
+                expectVectorClose(delta, mulVector(tangent, 0.5), 1e-12, 1e-12);
+            }
+        });
+    });
+
+    it('does not move anything when both weights are zero', () => {
+        class Frozen extends MeshSmoother {
+            protected override getTangentWeight(): number { return 0; }
+            protected override getNormalWeight(): number { return 0; }
+        }
+        check(jitteredGrid, grid => {
+            const before = grid.vertices.map(v => v.values.slice());
+            const smoother = new Frozen();
+            smoother.initialize(grid.vertices, grid.indices);
+            smoother.update();
+            for (let i = 0; i < before.length; ++i) {
+                expect(grid.vertices[i].values).toEqual(before[i]);
+            }
+        });
+    });
+
+    it('commutes with a rigid motion of the mesh', () => {
+        check(fc.tuple(jitteredGrid, rotationFrame(3),
+            wellScaledVector(3, -3, 3)), ([grid, R, t]) => {
+            const rot = (x: Vector): Vector => {
+                const r = new Vector(3);
+                for (let i = 0; i < 3; ++i) {
+                    r.values[i] = R[0].values[i] * x.values[0]
+                        + R[1].values[i] * x.values[1]
+                        + R[2].values[i] * x.values[2];
+                }
+                return r;
+            };
+            const moved = grid.vertices.map(v => add(rot(v), t));
+
+            const a = new MeshSmoother();
+            a.initialize(grid.vertices, grid.indices);
+            a.update();
+
+            const b = new MeshSmoother();
+            b.initialize(moved, grid.indices);
+            b.update();
+
+            for (let i = 0; i < moved.length; ++i) {
+                // The rotation of a smoothed vertex and the smoothing of a
+                // rotated vertex differ only by the round-off of the rotation
+                // itself, which is a few ulps of the coordinate magnitudes.
+                expectVectorClose(moved[i], add(rot(grid.vertices[i]), t),
+                    1e-11, 1e-11);
+            }
+        });
+    });
+
+    it('commutes with a positive uniform scale when the normal weight is zero', () => {
+        check(fc.tuple(jitteredGrid, positive(8, 0.05)), ([grid, s]) => {
+            const scaled = grid.vertices.map(v => mulVector(v, s));
+
+            const a = new MeshSmoother();
+            a.initialize(grid.vertices, grid.indices);
+            a.update();
+
+            const b = new MeshSmoother();
+            b.initialize(scaled, grid.indices);
+            b.update();
+
+            for (let i = 0; i < scaled.length; ++i) {
+                expectVectorClose(scaled[i], mulVector(grid.vertices[i], s),
+                    1e-11, 1e-11);
+            }
+        });
+    });
+
+    it('normalizes the accumulated triangle normals, or zeroes them', () => {
+        check(jitteredGrid, grid => {
+            const smoother = new MeshSmoother();
+            smoother.initialize(grid.vertices, grid.indices);
+            smoother.update();
+            for (const n of smoother.getNormals()) {
+                const len = length(n);
+                expect(len === 0 || Math.abs(len - 1) <= 1e-12).toBe(true);
+            }
+        });
+    });
+
+    it('rejects meshes with fewer than three vertices or no triangle', () => {
+        check(fc.tuple(fc.integer({ min: 0, max: 2 }),
+            fc.integer({ min: 0, max: 6 })), ([numVertices, numIndices]) => {
+            const vertices: Vector[] = [];
+            for (let i = 0; i < numVertices; ++i) { vertices.push(new Vector(3)); }
+            const indices = new Array<number>(numIndices).fill(0);
+            expect(() => new MeshSmoother().initialize(vertices, indices))
+                .toThrow('Invalid input.');
+        });
+        check(fc.integer({ min: 3, max: 10 }), numVertices => {
+            const vertices: Vector[] = [];
+            for (let i = 0; i < numVertices; ++i) { vertices.push(new Vector(3)); }
+            for (const numIndices of [0, 1, 2]) {
+                expect(() => new MeshSmoother()
+                    .initialize(vertices, new Array<number>(numIndices).fill(0)))
+                    .toThrow('Invalid input.');
+            }
+        });
     });
 });
