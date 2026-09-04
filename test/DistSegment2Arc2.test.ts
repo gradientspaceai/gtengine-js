@@ -3,6 +3,12 @@ import { Arc2 } from '../src/Arc2.js';
 import { DistSegment2Arc2 } from '../src/DistSegment2Arc2.js';
 import { Segment } from '../src/Segment.js';
 import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import { DistSegment2Circle2 } from '../src/DistSegment2Circle2.js';
+import { Hypersphere } from '../src/Hypersphere.js';
+import {
+    check, expectClose, expectVectorClose, fc, positive,
+    rotationFrame, unitVector, wellScaled, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -159,5 +165,186 @@ describe('DistSegment2Arc2', () => {
                     .toBeCloseTo(result.distance, 8);
             }
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Independent verification (V21): property-based tests against the upstream
+// header DistSegment2Arc2.h. Upstream runs the segment-circle query and keeps
+// the circle closest points that are on the arc; if none is, it sorts the two
+// arc endpoint distances and the two segment endpoint distances to the arc
+// and takes the minima.
+// ---------------------------------------------------------------------------
+
+const v21Arc = fc.tuple(wellScaledVector(2, -6, 6), positive(4, 0.2),
+    wellScaled(-Math.PI, Math.PI),
+    fc.double({ min: 0.05, max: 2 * Math.PI - 0.05, noNaN: true }))
+    .map(([c, r, a0, sweep]) => {
+        const a1 = a0 + sweep;
+        const e0 = add(c, Vector.fromArray(
+            [r * Math.cos(a0), r * Math.sin(a0)]));
+        const e1 = add(c, Vector.fromArray(
+            [r * Math.cos(a1), r * Math.sin(a1)]));
+        return [Arc2.fromCenterRadiusEnds(c, r, e0, e1), a0, a1] as
+            [Arc2, number, number];
+    });
+
+const v21Segment = fc.tuple(wellScaledVector(2, -8, 8),
+    wellScaledVector(2, -8, 8))
+    .filter(([a, b]) => length(sub(b, a)) > 1e-2)
+    .map(([a, b]) => Segment.fromEndpoints(a, b));
+
+function v21ArcPoint(a: Arc2, a0: number, a1: number, u: number): Vector {
+    let hi = a1;
+    while (hi < a0) {
+        hi += 2 * Math.PI;
+    }
+    const t = a0 + (hi - a0) * u;
+    return add(a.center,
+        Vector.fromArray([a.radius * Math.cos(t), a.radius * Math.sin(t)]));
+}
+
+describe('DistSegment2Arc2 verification', () => {
+    const query = new DistSegment2Arc2();
+
+    it('every reported pair is on the segment and on the arc', () => {
+        check(fc.tuple(v21Segment, v21Arc), ([seg, [a, a0, a1]]) => {
+            void a0;
+            void a1;
+            const res = query.compute(seg, a);
+            expect(res.numClosestPairs === 1 || res.numClosestPairs === 2)
+                .toBe(true);
+            expectClose(res.distance, Math.sqrt(res.sqrDistance), 1e-9, 1e-9);
+            const dir = sub(seg.p[1], seg.p[0]);
+            for (let j = 0; j < res.numClosestPairs; ++j) {
+                const onSeg = res.closest[j][0];
+                const onArc = res.closest[j][1];
+                // Upstream parameterizes the segment as P0 + t*(P1-P0) with
+                // 0 <= t <= 1.
+                expect(res.parameter[j]).toBeGreaterThanOrEqual(0);
+                expect(res.parameter[j]).toBeLessThanOrEqual(1);
+                expectVectorClose(onSeg,
+                    add(seg.p[0], mul(res.parameter[j], dir)), 1e-8, 1e-8);
+                expectClose(length(sub(onArc, a.center)), a.radius, 1e-8,
+                    1e-8);
+                expect(a.containsOnCircle(onArc)).toBe(true);
+                expectClose(length(sub(onSeg, onArc)), res.distance, 1e-8,
+                    1e-8);
+            }
+        });
+    });
+
+    it('matches a brute-force minimization over the arc', () => {
+        check(fc.tuple(v21Segment, v21Arc), ([seg, [a, a0, a1]]) => {
+            expectClose(query.compute(seg, a).distance,
+                bruteForce(seg, a, a0, a1), 1e-6, 1e-6);
+        }, 60);
+    }, 30000);
+
+    it('is not larger than the distance to any sampled arc point', () => {
+        check(fc.tuple(v21Segment, v21Arc,
+            fc.double({ min: 0, max: 1, noNaN: true })),
+        ([seg, [a, a0, a1], u]) => {
+            const q = v21ArcPoint(a, a0, a1, u);
+            expect(query.compute(seg, a).distance)
+                .toBeLessThanOrEqual(pointSegmentDistance(q, seg) + 1e-8);
+        });
+    });
+
+    it('reports zero distance when an endpoint is on the arc', () => {
+        check(fc.tuple(v21Arc, fc.double({ min: 0, max: 1, noNaN: true }),
+            wellScaledVector(2, -6, 6)), ([[a, a0, a1], u, other]) => {
+            const q = v21ArcPoint(a, a0, a1, u);
+            const seg = Segment.fromEndpoints(q, add(q, other));
+            expect(query.compute(seg, a).distance).toBeLessThanOrEqual(1e-8);
+        });
+    });
+
+    it('agrees with the segment-circle query when the arc is a full circle',
+        () => {
+            check(fc.tuple(v21Segment, wellScaledVector(2, -6, 6),
+                positive(4, 0.2), wellScaled(-Math.PI, Math.PI)),
+            ([seg, c, radius, a0]) => {
+                const e = add(c, Vector.fromArray(
+                    [radius * Math.cos(a0), radius * Math.sin(a0)]));
+                const a = Arc2.fromCenterRadiusEnds(c, radius, e, e.clone());
+                const circle = Hypersphere.fromCenterRadius(c, radius);
+                const sc = new DistSegment2Circle2().compute(seg, circle);
+                if (sc.numClosestPairs === 0) {
+                    // Upstream DistSegment2Circle2 returns a default-
+                    // constructed result (no pairs, zero distance) when the
+                    // segment is strictly inside the circle; see the API
+                    // notes. DistSegment2Arc2 recovers because it falls
+                    // through to the endpoint comparison, which is checked by
+                    // the brute-force property and by the dedicated test
+                    // below.
+                    return;
+                }
+                const sa = query.compute(seg, a);
+                expect(sa.numClosestPairs).toBe(sc.numClosestPairs);
+                expectClose(sa.distance, sc.distance, 0, 0);
+            });
+        });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(v21Segment, v21Arc, rotationFrame(2),
+            wellScaledVector(2, -5, 5)), ([seg, [a, a0, a1], R, tr]) => {
+            void a0;
+            void a1;
+            const rot = (x: Vector): Vector => add(mul(x.values[0], R[0]),
+                mul(x.values[1], R[1]));
+            const moved = Arc2.fromCenterRadiusEnds(add(rot(a.center), tr),
+                a.radius, add(rot(a.end[0]), tr), add(rot(a.end[1]), tr));
+            const movedSeg = Segment.fromEndpoints(add(rot(seg.p[0]), tr),
+                add(rot(seg.p[1]), tr));
+            expectClose(query.compute(seg, a).distance,
+                query.compute(movedSeg, moved).distance, 1e-7, 1e-7);
+        });
+    });
+
+    it('does not mutate its inputs', () => {
+        check(fc.tuple(v21Segment, v21Arc), ([seg, [a, a0, a1]]) => {
+            void a0;
+            void a1;
+            const p0 = seg.p[0].clone();
+            const p1 = seg.p[1].clone();
+            const snapshot = [...a.center.values, a.radius,
+                ...a.end[0].values, ...a.end[1].values];
+            const res = query.compute(seg, a);
+            expect(seg.p[0].values).toEqual(p0.values);
+            expect(seg.p[1].values).toEqual(p1.values);
+            expect([...a.center.values, a.radius, ...a.end[0].values,
+                ...a.end[1].values]).toEqual(snapshot);
+            for (let j = 0; j < res.numClosestPairs; ++j) {
+                res.closest[j][0].values[0] = 777;
+                res.closest[j][1].values[0] = 777;
+            }
+            expect(seg.p[0].values).toEqual(p0.values);
+            expect([...a.center.values, a.radius, ...a.end[0].values,
+                ...a.end[1].values]).toEqual(snapshot);
+        });
+    });
+    it('is correct for a segment strictly inside the circle of the arc', () => {
+        // DistSegment2Circle2 reports no closest pairs here (upstream
+        // defect), so the query falls through to the arc-endpoint and
+        // segment-endpoint comparison. The true minimum is r - max_i |Pi-C|
+        // when the nearest circle point of the farther endpoint is on the
+        // arc, so use the full circle to make that certain.
+        check(fc.tuple(wellScaledVector(2, -1, 1), wellScaledVector(2, -1, 1),
+            positive(4, 1.5), wellScaled(-Math.PI, Math.PI)),
+        ([p0, p1, radius, a0]) => {
+            if (length(sub(p1, p0)) < 1e-2) {
+                return;
+            }
+            const c = new Vector(2);
+            const e = Vector.fromArray(
+                [radius * Math.cos(a0), radius * Math.sin(a0)]);
+            const a = Arc2.fromCenterRadiusEnds(c, radius, e, e.clone());
+            const seg = Segment.fromEndpoints(p0, p1);
+            const expected = radius - Math.max(length(p0), length(p1));
+            const res = query.compute(seg, a);
+            expectClose(res.distance, expected, 1e-9, 1e-9);
+            expect(res.numClosestPairs).toBeGreaterThanOrEqual(1);
+        });
     });
 });
