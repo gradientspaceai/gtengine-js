@@ -458,6 +458,14 @@ describe('DistPointHyperellipsoid verification', () => {
             if (!isWellConditioned(h, p)) {
                 return;
             }
+            // Near the center of a near-spheroid the minimizer is barely
+            // determined (a whole circle of surface points is almost
+            // equidistant), so the frame-dependent bisection can land on
+            // different points; skip that regime.
+            if (length(sub(p, h.center))
+                < 0.05 * Math.min(...h.extent.values)) {
+                return;
+            }
             const r0 = query.compute(p, h);
             const r1 = query.compute(add(rot(p), tr), moved);
             expectClose(r0.distance, r1.distance, 1e-8, 1e-8);

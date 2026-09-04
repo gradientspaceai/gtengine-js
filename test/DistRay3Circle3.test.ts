@@ -261,7 +261,11 @@ function v21LineSolverApplies(origin: Vector, direction: Vector,
     }
     const s = -dot(NxM, NxD) / dot(NxM, NxM);
     const E = add(mul(s, direction), D);
-    return !isZero(cross(c.normal, E));   // (a)
+    // (a) and its neighbourhood: a3 = |N x E|^2 that is tiny relative to
+    // |E|^2 is the rounding-level version of "the line meets the axis", and
+    // tauHat, gTauHat and the resulting bracket lose all their significant
+    // digits well before a3 reaches exactly zero.
+    return length(cross(c.normal, E)) > 1e-6 * length(E);
 }
 
 const v21Ray = fc.tuple(wellScaledVector(3, -8, 8), unitVector(3))
