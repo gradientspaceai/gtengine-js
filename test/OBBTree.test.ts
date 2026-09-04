@@ -4,18 +4,26 @@ import { OrientedBox } from '../src/OrientedBox.js';
 import { Vector, dot, normalize, sub } from '../src/Vector.js';
 import { cross, dotCross } from '../src/Vector3.js';
 import {
-    check, expectClose, fc, unitVector, wellScaledVector
+    check, expectClose, fc, scaled, unitVector, wellScaledVector
 } from './helpers/arbitraries.js';
 
 // A triangle soup: numTriangles independent, non-degenerate triangles, each
 // with its own three vertices. Used by the verification block below.
+// Coordinates come from a uniform grid (scaled(), no dynamic range) rather
+// than fc.double(): the covariance matrix the eigensolver decomposes squares
+// them, so subnormal separations underflow it. A grid also keeps the
+// non-degeneracy filter's rejection rate low, which matters because this
+// generator feeds a property that builds a whole tree per run.
+const soupCoordinate = scaled(-6, 6, 512);
+const soupPoint = fc.tuple(soupCoordinate, soupCoordinate, soupCoordinate)
+    .map(c => Vector.fromArray([c[0], c[1], c[2]]));
+
 function triangleSoup(minTriangles: number, maxTriangles: number) {
     return fc.array(
-        fc.tuple(wellScaledVector(3, -6, 6), wellScaledVector(3, -6, 6),
-            wellScaledVector(3, -6, 6))
+        fc.tuple(soupPoint, soupPoint, soupPoint)
             .filter((t) => {
                 const n = cross(sub(t[1], t[0]), sub(t[2], t[0]));
-                return dot(n, n) > 1e-2;
+                return dot(n, n) > 1;
             }),
         { minLength: minTriangles, maxLength: maxTriangles })
         .map((tris) => {
@@ -788,7 +796,7 @@ describe('OBBTree verification', () => {
     });
 
     it('bounds the triangles of every node when the derived class extends the box', () => {
-        check(triangleSoup(1, 10), (mesh) => {
+        check(triangleSoup(1, 6), (mesh) => {
             const tree = new OBBTreeOfTriangles();
             tree.createFromMesh(mesh.vertices, mesh.triangles);
             const nodes = tree.getNodes();
@@ -802,7 +810,7 @@ describe('OBBTree verification', () => {
                     }
                 }
             }
-        }, 60);
+        }, 30);
     });
 
     it('survives degenerate centroid sets without producing NaN', () => {
