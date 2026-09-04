@@ -4,7 +4,11 @@ import { DistLine2AlignedBox2 } from '../src/DistLine2AlignedBox2.js';
 import { DistLine2OrientedBox2 } from '../src/DistLine2OrientedBox2.js';
 import { Line } from '../src/Line.js';
 import { OrientedBox } from '../src/OrientedBox.js';
-import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, rotationFrame,
+    unitVector, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -135,5 +139,128 @@ describe('DistLine2OrientedBox2', () => {
             }
             expect(result.sqrDistance).toBeLessThanOrEqual(best + 1e-8);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (see VERIFYING.md): property-based cross-checks of the
+// port against the upstream DistLine2OrientedBox2.h.
+// ---------------------------------------------------------------------------
+
+describe('DistLine2OrientedBox2 verification', () => {
+    const query = new DistLine2OrientedBox2();
+    const alignedQuery = new DistLine2AlignedBox2();
+
+    // A well-scaled oriented box: rotation-frame axes and extents bounded
+    // away from zero keep the box-frame coordinates non-subnormal.
+    const boxArb = fc.tuple(wellScaledVector(2, -5, 5), rotationFrame(2),
+        fc.tuple(finite(0, 4), finite(0, 4)))
+        .map(([c, axis, e]) => OrientedBox.fromCenterAxisExtent(c, axis,
+            v(e[0], e[1])));
+
+    const lineArb = fc.tuple(wellScaledVector(2, -8, 8), unitVector(2))
+        .map(([o, d]) => Line.fromOriginDirection(o, d));
+
+    // Independent closed-form distance from a point to a solid oriented box.
+    function pointBoxDistance(p: Vector, b: OrientedBox): number {
+        const delta = sub(p, b.center);
+        let sum = 0;
+        for (let i = 0; i < 2; ++i) {
+            const y = dot(b.axis[i], delta);
+            const over = Math.abs(y) - b.extent.values[i];
+            if (over > 0) { sum += over * over; }
+        }
+        return Math.sqrt(sum);
+    }
+
+    // Minimize the convex function f over [lo,hi] by ternary search. The
+    // distance from a point moving along a line to a convex set is convex in
+    // the line parameter, so this converges to the true minimum.
+    function ternaryMin(f: (t: number) => number, lo: number,
+        hi: number): number {
+        let a = lo, b = hi;
+        for (let i = 0; i < 200; ++i) {
+            const m0 = a + (b - a) / 3;
+            const m1 = b - (b - a) / 3;
+            if (f(m0) <= f(m1)) { b = m1; } else { a = m0; }
+        }
+        return f(0.5 * (a + b));
+    }
+
+    it('reports consistent distances and on-primitive closest points', () => {
+        check(fc.tuple(lineArb, boxArb), ([ln, b]) => {
+            const r = query.compute(ln, b);
+            expectClose(r.distance, Math.sqrt(r.sqrDistance), 1e-12, 1e-12);
+            expectClose(length(sub(r.closest[0], r.closest[1])), r.distance,
+                1e-9, 1e-9);
+            expectVectorClose(r.closest[0],
+                add(ln.origin, mul(r.parameter, ln.direction)), 1e-9, 1e-9);
+            // closest[1] lies in the box.
+            const delta = sub(r.closest[1], b.center);
+            for (let i = 0; i < 2; ++i) {
+                expect(Math.abs(dot(b.axis[i], delta)))
+                    .toBeLessThanOrEqual(b.extent.values[i] + 1e-9);
+            }
+        });
+    });
+
+    it('matches an independent convex minimization along the line', () => {
+        check(fc.tuple(lineArb, boxArb), ([ln, b]) => {
+            const r = query.compute(ln, b);
+            const best = ternaryMin(
+                t => pointBoxDistance(add(ln.origin, mul(t, ln.direction)), b),
+                -100, 100);
+            expectClose(r.distance, best, 1e-7, 1e-7);
+        }, 100);
+    });
+
+    it('agrees with the aligned-box query for an identity frame', () => {
+        const axes = [v(1, 0), v(0, 1)];
+        check(fc.tuple(lineArb, wellScaledVector(2, -5, 5),
+            fc.tuple(finite(0, 4), finite(0, 4))), ([ln, c, e]) => {
+            const ext = v(e[0], e[1]);
+            const ob = OrientedBox.fromCenterAxisExtent(c, axes, ext);
+            const ab = AlignedBox.fromMinMax(sub(c, ext), add(c, ext));
+            const r0 = query.compute(ln, ob);
+            const r1 = alignedQuery.compute(ln, ab);
+            expectClose(r0.distance, r1.distance, 1e-9, 1e-9);
+            expectVectorClose(r0.closest[0], r1.closest[0], 1e-9, 1e-9);
+            expectVectorClose(r0.closest[1], r1.closest[1], 1e-9, 1e-9);
+        });
+    });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(lineArb, boxArb, rotationFrame(2),
+            wellScaledVector(2, -5, 5)), ([ln, b, frame, shift]) => {
+            const rot = (p: Vector): Vector =>
+                v(frame[0].values[0] * p.values[0]
+                    + frame[1].values[0] * p.values[1],
+                    frame[0].values[1] * p.values[0]
+                    + frame[1].values[1] * p.values[1]);
+            const movedLine = Line.fromOriginDirection(
+                add(shift, rot(ln.origin)), rot(ln.direction));
+            const movedBox = OrientedBox.fromCenterAxisExtent(
+                add(shift, rot(b.center)),
+                [rot(b.axis[0]), rot(b.axis[1])], b.extent);
+            const r0 = query.compute(ln, b);
+            const r1 = query.compute(movedLine, movedBox);
+            expectClose(r0.distance, r1.distance, 1e-9, 1e-9);
+            expectVectorClose(add(shift, rot(r0.closest[1])), r1.closest[1],
+                1e-7, 1e-7);
+        });
+    });
+
+    it('handles a degenerate box with zero extents as a point query', () => {
+        check(fc.tuple(lineArb, wellScaledVector(2, -5, 5), rotationFrame(2)),
+            ([ln, c, frame]) => {
+                const b = OrientedBox.fromCenterAxisExtent(c, frame, v(0, 0));
+                const r = query.compute(ln, b);
+                const diff = sub(c, ln.origin);
+                const t = dot(diff, ln.direction)
+                    / dot(ln.direction, ln.direction);
+                expectClose(r.distance,
+                    length(sub(diff, mul(t, ln.direction))), 1e-9, 1e-9);
+                expectVectorClose(r.closest[1], c, 1e-9, 1e-9);
+            });
     });
 });

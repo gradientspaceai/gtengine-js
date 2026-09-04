@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { Arc2 } from '../src/Arc2.js';
 import { DistPoint2Arc2 } from '../src/DistPoint2Arc2.js';
-import { Vector, dot, sub } from '../src/Vector.js';
+import { DistPoint2Circle2 } from '../src/DistPoint2Circle2.js';
+import { Hypersphere } from '../src/Hypersphere.js';
+import { Vector, add, dot, length, sub } from '../src/Vector.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, positive,
+    rotationFrame, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -124,5 +130,112 @@ describe('DistPoint2Arc2', () => {
             }
             expect(result.sqrDistance).toBeLessThanOrEqual(best + 1e-6);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (see VERIFYING.md): property-based cross-checks of the
+// port against the upstream DistPoint2Arc2.h.
+// ---------------------------------------------------------------------------
+
+describe('DistPoint2Arc2 verification', () => {
+    const query = new DistPoint2Arc2();
+
+    const arcArb = fc.tuple(wellScaledVector(2, -5, 5), positive(4, 0.5),
+        finite(-Math.PI, Math.PI), finite(0.05, 2 * Math.PI - 0.05))
+        .map(([c, r, a0, sweep]) => {
+            const e0 = v(c.values[0] + r * Math.cos(a0),
+                c.values[1] + r * Math.sin(a0));
+            const e1 = v(c.values[0] + r * Math.cos(a0 + sweep),
+                c.values[1] + r * Math.sin(a0 + sweep));
+            return { arc: Arc2.fromCenterRadiusEnds(c, r, e0, e1), a0, sweep };
+        });
+
+    it('reports consistent distances and on-primitive closest points', () => {
+        check(fc.tuple(wellScaledVector(2, -8, 8), arcArb),
+            ([p, { arc }]) => {
+                const r = query.compute(p, arc);
+                expectClose(r.distance, Math.sqrt(r.sqrDistance), 1e-12,
+                    1e-12);
+                // closest[0] is the input point and is a copy of it.
+                expectVectorClose(r.closest[0], p, 0, 0);
+                expect(r.closest[0]).not.toBe(p);
+                // closest[1] is on the circle of the arc.
+                expectClose(length(sub(r.closest[1], arc.center)), arc.radius,
+                    1e-9, 1e-9);
+                // The reported distance is the distance of the pair.
+                expectClose(length(sub(r.closest[0], r.closest[1])),
+                    r.distance, 1e-9, 1e-9);
+                // equidistant is true only when the point is the center.
+                if (r.equidistant) {
+                    expectVectorClose(p, arc.center, 0, 0);
+                }
+            }, 200);
+    });
+
+    it('is the minimum over sampled arc points', () => {
+        check(fc.tuple(wellScaledVector(2, -8, 8), arcArb),
+            ([p, { arc, a0, sweep }]) => {
+                const r = query.compute(p, arc);
+                const n = 2048;
+                let best = Number.POSITIVE_INFINITY;
+                for (let i = 0; i <= n; ++i) {
+                    const a = a0 + (i / n) * sweep;
+                    const q = v(
+                        arc.center.values[0] + arc.radius * Math.cos(a),
+                        arc.center.values[1] + arc.radius * Math.sin(a));
+                    best = Math.min(best, length(sub(q, p)));
+                }
+                expect(r.distance).toBeLessThanOrEqual(best + 1e-9);
+                expect(r.distance).toBeGreaterThan(best - 1e-3);
+            }, 60, );
+    });
+
+    it('returns an arc endpoint when the closest circle point is off the arc',
+        () => {
+            check(fc.tuple(wellScaledVector(2, -8, 8), arcArb),
+                ([p, { arc }]) => {
+                    const r = query.compute(p, arc);
+                    if (r.equidistant) { return; }
+                    const onArc = arc.containsOnCircle(r.closest[1]);
+                    const atEnd =
+                        length(sub(r.closest[1], arc.end[0])) < 1e-9
+                        || length(sub(r.closest[1], arc.end[1])) < 1e-9;
+                    expect(onArc || atEnd).toBe(true);
+                }, 200);
+        });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(wellScaledVector(2, -8, 8), arcArb, rotationFrame(2),
+            wellScaledVector(2, -5, 5)), ([p, { arc }, frame, shift]) => {
+            const xf = (q: Vector): Vector => add(shift,
+                v(frame[0].values[0] * q.values[0]
+                    + frame[1].values[0] * q.values[1],
+                    frame[0].values[1] * q.values[0]
+                    + frame[1].values[1] * q.values[1]));
+            const moved = Arc2.fromCenterRadiusEnds(xf(arc.center),
+                arc.radius, xf(arc.end[0]), xf(arc.end[1]));
+            const r0 = query.compute(p, arc);
+            const r1 = query.compute(xf(p), moved);
+            expectClose(r0.distance, r1.distance, 1e-9, 1e-9);
+        }, 150);
+    });
+
+    it('agrees with the point-circle query on a nearly full arc', () => {
+        const c = v(-2, 1);
+        const rad = 2.5;
+        const a0 = -1.1;
+        const wide = Arc2.fromCenterRadiusEnds(c, rad,
+            v(c.values[0] + rad * Math.cos(a0),
+                c.values[1] + rad * Math.sin(a0)),
+            v(c.values[0] + rad * Math.cos(a0 + 2 * Math.PI - 1e-7),
+                c.values[1] + rad * Math.sin(a0 + 2 * Math.PI - 1e-7)));
+        const circle = Hypersphere.fromCenterRadius(c, rad);
+        const pc = new DistPoint2Circle2();
+        check(wellScaledVector(2, -8, 8), p => {
+            const ra = query.compute(p, wide);
+            const rc = pc.compute(p, circle);
+            expectClose(ra.distance, rc.distance, 1e-9, 1e-9);
+        }, 150);
     });
 });

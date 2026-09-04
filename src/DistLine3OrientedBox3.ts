@@ -61,10 +61,23 @@ export class DistLine3OrientedBox3
             new DistLine3CanonicalBox3().compute(xfrmLine, cbox);
 
         // Rotate and translate the closest points to the original
-        // coordinates. Upstream first assigns closest[0] to
-        // line.origin + t * line.direction and then overwrites both closest
-        // points with the rotated ones; the two expressions produce the same
-        // line point, so the port omits the redundant assignment.
+        // coordinates.
+        //
+        // Upstream bug (fixed here): DistLine3OrientedBox3.h assigns
+        //   result.closest[0] = line.origin + result.parameter * line.direction
+        // (world coordinates) *before* the loop that reads result.closest[i]
+        // as box-frame coordinates and maps them to the world. The line point
+        // is therefore transformed a second time, so upstream returns
+        //   box.center + sum_j (world closest[0])[j] * box.axis[j]
+        // for the closest line point whenever the box is not the canonical
+        // box. Example: box center (10,0,0), identity axes, extent (1,1,1),
+        // line origin (10,5,0) with direction (0,0,1); the query reports
+        // parameter 1, so the line point is (10,5,1), but upstream returns
+        // closest[0] = (10,0,0) + 10*(1,0,0) + 5*(0,1,0) + 1*(0,0,1)
+        // = (20,5,1). The distance and sqrDistance come from the
+        // canonical-box query and are unaffected, and DistLine2OrientedBox2.h
+        // (which lacks the extra assignment) is correct. The port drops the
+        // assignment so that closest[0] is the line point.
         const closest: [Vector, Vector] = [box.center.clone(),
             box.center.clone()];
         for (let i = 0; i < 2; ++i) {

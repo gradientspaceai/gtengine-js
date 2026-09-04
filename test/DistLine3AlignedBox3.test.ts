@@ -4,7 +4,11 @@ import { CanonicalBox } from '../src/CanonicalBox.js';
 import { DistLine3AlignedBox3 } from '../src/DistLine3AlignedBox3.js';
 import { DistLine3CanonicalBox3 } from '../src/DistLine3CanonicalBox3.js';
 import { Line } from '../src/Line.js';
-import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, unitVector,
+    wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -135,5 +139,116 @@ describe('DistLine3AlignedBox3', () => {
             }
             expect(result.sqrDistance).toBeLessThanOrEqual(best + 1e-8);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (see VERIFYING.md): property-based cross-checks of the
+// port against the upstream DistLine3AlignedBox3.h.
+// ---------------------------------------------------------------------------
+
+describe('DistLine3AlignedBox3 verification', () => {
+    const query = new DistLine3AlignedBox3();
+    const canonicalQuery = new DistLine3CanonicalBox3();
+
+    const boxArb = fc.tuple(wellScaledVector(3, -5, 5),
+        fc.array(finite(0, 4), { minLength: 3, maxLength: 3 }))
+        .map(([c, e]) => AlignedBox.fromMinMax(
+            v(c.values[0] - e[0], c.values[1] - e[1], c.values[2] - e[2]),
+            v(c.values[0] + e[0], c.values[1] + e[1], c.values[2] + e[2])));
+
+    const lineArb = fc.tuple(wellScaledVector(3, -8, 8), unitVector(3))
+        .map(([o, d]) => Line.fromOriginDirection(o, d));
+
+    // Independent closed-form distance from a point to a solid aligned box.
+    function pointBoxDistance(p: Vector, b: AlignedBox): number {
+        let sum = 0;
+        for (let i = 0; i < 3; ++i) {
+            const under = b.min.values[i] - p.values[i];
+            const over = p.values[i] - b.max.values[i];
+            const d = Math.max(under, over, 0);
+            sum += d * d;
+        }
+        return Math.sqrt(sum);
+    }
+
+    function ternaryMin(f: (t: number) => number, lo: number,
+        hi: number): number {
+        let a = lo, b = hi;
+        for (let i = 0; i < 200; ++i) {
+            const m0 = a + (b - a) / 3;
+            const m1 = b - (b - a) / 3;
+            if (f(m0) <= f(m1)) { b = m1; } else { a = m0; }
+        }
+        return f(0.5 * (a + b));
+    }
+
+    it('reports consistent distances and on-primitive closest points', () => {
+        check(fc.tuple(lineArb, boxArb), ([ln, b]) => {
+            const r = query.compute(ln, b);
+            expectClose(r.distance, Math.sqrt(r.sqrDistance), 1e-12, 1e-12);
+            expectClose(length(sub(r.closest[0], r.closest[1])), r.distance,
+                1e-9, 1e-9);
+            expectVectorClose(r.closest[0],
+                add(ln.origin, mul(r.parameter, ln.direction)), 1e-9, 1e-9);
+            for (let i = 0; i < 3; ++i) {
+                expect(r.closest[1].values[i])
+                    .toBeGreaterThanOrEqual(b.min.values[i] - 1e-9);
+                expect(r.closest[1].values[i])
+                    .toBeLessThanOrEqual(b.max.values[i] + 1e-9);
+            }
+        });
+    });
+
+    it('matches an independent convex minimization along the line', () => {
+        check(fc.tuple(lineArb, boxArb), ([ln, b]) => {
+            const r = query.compute(ln, b);
+            const best = ternaryMin(
+                t => pointBoxDistance(add(ln.origin, mul(t, ln.direction)), b),
+                -100, 100);
+            expectClose(r.distance, best, 1e-7, 1e-7);
+        }, 100);
+    });
+
+    it('equals the canonical-box query on the translated line', () => {
+        check(fc.tuple(lineArb, boxArb), ([ln, b]) => {
+            const { center, extent } = b.getCenteredForm();
+            const cbox = CanonicalBox.fromExtent(extent);
+            const shifted = Line.fromOriginDirection(sub(ln.origin, center),
+                ln.direction);
+            const r0 = query.compute(ln, b);
+            const r1 = canonicalQuery.compute(shifted, cbox);
+            expectClose(r0.distance, r1.distance, 1e-12, 1e-12);
+            expectClose(r0.parameter, r1.parameter, 1e-12, 1e-12);
+            expectVectorClose(r0.closest[1], add(r1.closest[1], center),
+                1e-9, 1e-9);
+        });
+    });
+
+    it('is equivariant under translation', () => {
+        check(fc.tuple(lineArb, boxArb, wellScaledVector(3, -6, 6)),
+            ([ln, b, shift]) => {
+                const movedLine = Line.fromOriginDirection(
+                    add(ln.origin, shift), ln.direction);
+                const movedBox = AlignedBox.fromMinMax(add(b.min, shift),
+                    add(b.max, shift));
+                const r0 = query.compute(ln, b);
+                const r1 = query.compute(movedLine, movedBox);
+                expectClose(r0.distance, r1.distance, 1e-9, 1e-9);
+                expectVectorClose(add(r0.closest[1], shift), r1.closest[1],
+                    1e-7, 1e-7);
+            });
+    });
+
+    it('reduces to the point-line distance for a degenerate box', () => {
+        check(fc.tuple(lineArb, wellScaledVector(3, -5, 5)), ([ln, c]) => {
+            const b = AlignedBox.fromMinMax(c, c);
+            const r = query.compute(ln, b);
+            const diff = sub(c, ln.origin);
+            const t = dot(diff, ln.direction) / dot(ln.direction, ln.direction);
+            expectClose(r.distance, length(sub(diff, mul(t, ln.direction))),
+                1e-9, 1e-9);
+            expectVectorClose(r.closest[1], c, 1e-12, 1e-12);
+        });
     });
 });
