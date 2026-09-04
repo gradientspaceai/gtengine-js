@@ -567,7 +567,7 @@ describe('DistLine3Circle3 tauHat bracket (upstream issue #247)', () => {
                 best = Math.min(best, pointLineDistance(p, ln));
             }
             expect(r.distance).toBeLessThanOrEqual(best + 1e-9);
-            expect(r.distance).toBeGreaterThan(best - 1e-2);
+            expect(r.distance).toBeGreaterThanOrEqual(best - 1e-2);
         }
     }, 30000);
 });

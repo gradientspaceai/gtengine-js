@@ -218,7 +218,7 @@ describe('DistLine2Arc2 verification', () => {
     it('is not larger than the distance to any sampled arc point', () => {
         check(fc.tuple(lineArb, arcArb), ([ln, { arc, a0, sweep }]) => {
             const r = query.compute(ln, arc);
-            const n = 512;
+            const n = 4096;
             let best = Number.POSITIVE_INFINITY;
             for (let i = 0; i <= n; ++i) {
                 const a = a0 + (i / n) * sweep;
@@ -227,9 +227,11 @@ describe('DistLine2Arc2 verification', () => {
                 best = Math.min(best, pointLineDistance(p, ln));
             }
             expect(r.distance).toBeLessThanOrEqual(best + 1e-9);
-            // The sampling is dense enough that the query cannot be much
-            // smaller either; a wrong branch would show up as a large gap.
-            expect(r.distance).toBeGreaterThan(best - 1e-2);
+            // The distance to a line is 1-Lipschitz in arc length, so the
+            // sampled minimum overestimates the true minimum by at most half
+            // an arc-length step; a wrong branch shows up as a larger gap.
+            const step = (arc.radius * sweep) / n;
+            expect(r.distance).toBeGreaterThanOrEqual(best - step);
         }, 100);
     });
 

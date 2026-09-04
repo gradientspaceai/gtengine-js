@@ -177,7 +177,7 @@ describe('DistPoint2Arc2 verification', () => {
         check(fc.tuple(wellScaledVector(2, -8, 8), arcArb),
             ([p, { arc, a0, sweep }]) => {
                 const r = query.compute(p, arc);
-                const n = 2048;
+                const n = 4096;
                 let best = Number.POSITIVE_INFINITY;
                 for (let i = 0; i <= n; ++i) {
                     const a = a0 + (i / n) * sweep;
@@ -187,7 +187,11 @@ describe('DistPoint2Arc2 verification', () => {
                     best = Math.min(best, length(sub(q, p)));
                 }
                 expect(r.distance).toBeLessThanOrEqual(best + 1e-9);
-                expect(r.distance).toBeGreaterThan(best - 1e-3);
+                // The distance to a fixed point is 1-Lipschitz in arc length,
+                // so the sampled minimum overestimates the true minimum by at
+                // most half an arc-length step.
+                const step = (arc.radius * sweep) / n;
+                expect(r.distance).toBeGreaterThanOrEqual(best - step);
             }, 60, );
     });
 
