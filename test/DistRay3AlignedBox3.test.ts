@@ -2,7 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { AlignedBox } from '../src/AlignedBox.js';
 import { DistRay3AlignedBox3 } from '../src/DistRay3AlignedBox3.js';
 import { Ray } from '../src/Ray.js';
-import { Vector, add, length, mul, sub } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, sub }
+    from '../src/Vector.js';
+import { DistLine3AlignedBox3 } from '../src/DistLine3AlignedBox3.js';
+import { DistPointAlignedBox } from '../src/DistPointAlignedBox.js';
+import { Line } from '../src/Line.js';
+import {
+    check, expectClose, expectVectorClose, fc, positive,
+    rotationFrame, unitVector, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -136,5 +144,172 @@ describe('DistRay3AlignedBox3', () => {
             expect(result.distance).toBeCloseTo(brute, 6);
             verifyClosest(r, b, result);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Independent verification (V21): property-based tests against the upstream
+// header DistRay3AlignedBox3.h. Upstream solves the query on the line containing the
+// ray and clamps the result to the ray domain, so the properties below
+// check the line/point agreement as well as the geometric invariants.
+// ---------------------------------------------------------------------------
+
+const v21Shape = fc.tuple(wellScaledVector(3, -8, 8),
+    wellScaledVector(3, -8, 8)).map(([a, b]) => {
+    const lo = new Vector(3);
+    const hi = new Vector(3);
+    for (let i = 0; i < 3; ++i) {
+        lo.values[i] = Math.min(a.values[i], b.values[i]);
+        hi.values[i] = Math.max(a.values[i], b.values[i]);
+    }
+    return AlignedBox.fromMinMax(lo, hi);
+});
+
+// A box together with one of its points.
+const v21ShapePoint = fc.tuple(v21Shape,
+    fc.array(fc.double({ min: 0, max: 1, noNaN: true }),
+        { minLength: 3, maxLength: 3 }))
+    .map(([b, u]) => {
+        const q = new Vector(3);
+        for (let i = 0; i < 3; ++i) {
+            q.values[i] = (1 - u[i]) * b.min.values[i] + u[i] * b.max.values[i];
+        }
+        return [b, q] as [AlignedBox, Vector];
+    });
+
+function v21PointDistance(p: Vector, b: AlignedBox): number {
+    return new DistPointAlignedBox().compute(p, b).distance;
+}
+
+function v21CheckShapePoint(b: AlignedBox,
+    res: { closest: [Vector, Vector] }): void {
+    for (let i = 0; i < 3; ++i) {
+        expect(res.closest[1].values[i])
+            .toBeGreaterThanOrEqual(b.min.values[i] - 1e-9);
+        expect(res.closest[1].values[i])
+            .toBeLessThanOrEqual(b.max.values[i] + 1e-9);
+    }
+}
+
+// An aligned box is not closed under rotation, so the equivariance property
+// uses translations only (rot is ignored).
+function v21MoveShape(b: AlignedBox, rot: (x: Vector) => Vector,
+    tr: Vector): AlignedBox {
+    void rot;
+    return AlignedBox.fromMinMax(add(b.min, tr), add(b.max, tr));
+}
+
+function v21ShapeSnapshot(b: AlignedBox): number[] {
+    return [...b.min.values, ...b.max.values];
+}
+
+const v21Ray = fc.tuple(wellScaledVector(3, -8, 8), unitVector(3))
+    .map(([o, d]) => Ray.fromOriginDirection(o, d));
+
+// Minimum of a convex function on [lo,hi] by ternary search. The distance
+// from a point to a convex set is convex and the ray is an affine image of
+// its parameter, so the composition is convex and the search is exact.
+function v21MinOnInterval(f: (t: number) => number, lo: number,
+    hi: number): number {
+    let a = lo;
+    let b = hi;
+    for (let i = 0; i < 140; ++i) {
+        const m1 = a + (b - a) / 3;
+        const m2 = b - (b - a) / 3;
+        if (f(m1) <= f(m2)) {
+            b = m2;
+        }
+        else {
+            a = m1;
+        }
+    }
+    return Math.min(f(a), Math.min(f(b), f(0.5 * (a + b))));
+}
+
+describe('DistRay3AlignedBox3 verification', () => {
+    const query = new DistRay3AlignedBox3();
+
+    it('result is self consistent and the points lie on their primitives',
+        () => {
+            check(fc.tuple(v21Ray, v21Shape), ([r, s]) => {
+                const res = query.compute(r, s);
+                expectClose(res.distance, Math.sqrt(res.sqrDistance), 1e-12,
+                    1e-12);
+                const diff = sub(res.closest[0], res.closest[1]);
+                expectClose(res.sqrDistance, dot(diff, diff), 1e-9, 1e-9);
+                expect(res.parameter).toBeGreaterThanOrEqual(0);
+                expectVectorClose(res.closest[0],
+                    add(r.origin, mul(res.parameter, r.direction)), 1e-9,
+                    1e-9);
+                v21CheckShapePoint(s, res);
+            });
+        });
+
+    it('matches a convex minimization along the ray', () => {
+        check(fc.tuple(v21Ray, v21Shape), ([r, s]) => {
+            const f = (t: number): number =>
+                v21PointDistance(add(r.origin, mul(t, r.direction)), s);
+            expectClose(query.compute(r, s).distance,
+                v21MinOnInterval(f, 0, 100), 1e-7, 1e-7);
+        }, 60);
+    }, 30000);
+
+    it('agrees with the line query on the ray and with the point query off it',
+        () => {
+            check(fc.tuple(v21Ray, v21Shape), ([r, s]) => {
+                const line = Line.fromOriginDirection(r.origin, r.direction);
+                const lr = new DistLine3AlignedBox3().compute(line, s);
+                const rr = query.compute(r, s);
+                if (lr.parameter >= 0) {
+                    expect(rr.parameter).toBe(lr.parameter);
+                    expect(rr.distance).toBe(lr.distance);
+                    expectVectorClose(rr.closest[0], lr.closest[0], 0, 0);
+                    expectVectorClose(rr.closest[1], lr.closest[1], 0, 0);
+                }
+                else {
+                    expect(rr.parameter).toBe(0);
+                    expectVectorClose(rr.closest[0], r.origin, 0, 0);
+                    expect(rr.distance)
+                        .toBe(v21PointDistance(r.origin, s));
+                }
+            });
+        });
+
+    it('reports zero distance when the ray starts on the shape', () => {
+        check(fc.tuple(v21ShapePoint, unitVector(3)), ([[s, q], d]) => {
+            const r = Ray.fromOriginDirection(q, d);
+            expect(query.compute(r, s).distance).toBeLessThanOrEqual(1e-9);
+        });
+    });
+
+    it('is invariant under a common translation', () => {
+        // An aligned box is not closed under rotation, so only translations
+        // move the whole configuration rigidly.
+        check(fc.tuple(v21Ray, v21Shape, rotationFrame(3),
+            wellScaledVector(3, -5, 5)), ([r, s, R, tr]) => {
+            void R;
+            const rot = (x: Vector): Vector => x.clone();
+            const movedRay = Ray.fromOriginDirection(add(rot(r.origin), tr),
+                rot(r.direction));
+            const r0 = query.compute(r, s);
+            const r1 = query.compute(movedRay, v21MoveShape(s, rot, tr));
+            expectClose(r0.distance, r1.distance, 1e-8, 1e-8);
+        });
+    });
+
+    it('does not mutate its inputs', () => {
+        check(fc.tuple(v21Ray, v21Shape), ([r, s]) => {
+            const o = r.origin.clone();
+            const d = r.direction.clone();
+            const snapshot = v21ShapeSnapshot(s);
+            const res = query.compute(r, s);
+            expect(r.origin.values).toEqual(o.values);
+            expect(r.direction.values).toEqual(d.values);
+            expect(v21ShapeSnapshot(s)).toEqual(snapshot);
+            res.closest[0].values[0] = 4242;
+            res.closest[1].values[0] = 4242;
+            expect(r.origin.values).toEqual(o.values);
+            expect(v21ShapeSnapshot(s)).toEqual(snapshot);
+        });
     });
 });

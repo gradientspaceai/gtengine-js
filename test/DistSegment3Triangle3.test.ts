@@ -5,7 +5,15 @@ import type { DistSegment3Triangle3Result }
     from '../src/DistSegment3Triangle3.js';
 import { Segment } from '../src/Segment.js';
 import { Triangle } from '../src/Triangle.js';
-import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, sub }
+    from '../src/Vector.js';
+import { DistLine3Triangle3 } from '../src/DistLine3Triangle3.js';
+import { Line } from '../src/Line.js';
+import { cross } from '../src/Vector3.js';
+import {
+    check, expectClose, expectVectorClose, fc, positive,
+    rotationFrame, unitVector, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -249,4 +257,203 @@ describe('DistSegment3Triangle3', () => {
             expectConsistent(result, s, t);
         }
     }, 30000);
+});
+
+// ---------------------------------------------------------------------------
+// Independent verification (V21): property-based tests against the upstream
+// header DistSegment3Triangle3.h. Upstream solves the query on the line containing the
+// segment and clamps the result to the segment domain, so the properties below
+// check the line/point agreement as well as the geometric invariants.
+// ---------------------------------------------------------------------------
+
+const v21Shape = fc.tuple(wellScaledVector(3, -8, 8),
+    wellScaledVector(3, -8, 8), wellScaledVector(3, -8, 8))
+    .filter(([a, b, c]) => {
+        const e0 = sub(b, a);
+        const e1 = sub(c, a);
+        return length(cross(e0, e1)) > 1e-2;
+    })
+    .map(([a, b, c]) => Triangle.fromVertices(a, b, c));
+
+// A triangle together with one of its points.
+const v21ShapePoint = fc.tuple(v21Shape,
+    fc.double({ min: 0, max: 1, noNaN: true }),
+    fc.double({ min: 0, max: 1, noNaN: true }))
+    .map(([tri, u, w]) => {
+        // Map the unit square onto the triangle by folding.
+        let b1 = u;
+        let b2 = w;
+        if (b1 + b2 > 1) {
+            b1 = 1 - b1;
+            b2 = 1 - b2;
+        }
+        const q = add(tri.v[0], add(mul(b1, sub(tri.v[1], tri.v[0])),
+            mul(b2, sub(tri.v[2], tri.v[0]))));
+        return [tri, q] as [Triangle, Vector];
+    });
+
+function v21PointDistance(p: Vector, tri: Triangle): number {
+    return new DistPointTriangle().compute(p, tri).distance;
+}
+
+function v21CheckShapePoint(tri: Triangle,
+    res: { closest: [Vector, Vector],
+        barycentric: [number, number, number] }): void {
+    let sum = 0;
+    for (let i = 0; i < 3; ++i) {
+        expect(res.barycentric[i]).toBeGreaterThanOrEqual(-1e-9);
+        expect(res.barycentric[i]).toBeLessThanOrEqual(1 + 1e-9);
+        sum += res.barycentric[i];
+    }
+    expectClose(sum, 1, 1e-9, 1e-9);
+    let x = new Vector(3);
+    for (let i = 0; i < 3; ++i) {
+        x = add(x, mul(res.barycentric[i], tri.v[i]));
+    }
+    expectVectorClose(res.closest[1], x, 1e-8, 1e-8);
+}
+
+function v21MoveShape(tri: Triangle, rot: (x: Vector) => Vector,
+    tr: Vector): Triangle {
+    return Triangle.fromVertexArray(tri.v.map(x => add(rot(x), tr)));
+}
+
+function v21ShapeSnapshot(tri: Triangle): number[] {
+    return tri.v.flatMap(x => [...x.values]);
+}
+
+const v21Segment = fc.tuple(wellScaledVector(3, -8, 8),
+    wellScaledVector(3, -8, 8))
+    .filter(([a, b]) => length(sub(b, a)) > 1e-2)
+    .map(([a, b]) => Segment.fromEndpoints(a, b));
+
+// Minimum of a convex function on [lo,hi] by ternary search. The distance
+// from a point to a convex set is convex and the segment is an affine image of
+// its parameter, so the composition is convex and the search is exact.
+function v21MinOnInterval(f: (t: number) => number, lo: number,
+    hi: number): number {
+    let a = lo;
+    let b = hi;
+    for (let i = 0; i < 140; ++i) {
+        const m1 = a + (b - a) / 3;
+        const m2 = b - (b - a) / 3;
+        if (f(m1) <= f(m2)) {
+            b = m2;
+        }
+        else {
+            a = m1;
+        }
+    }
+    return Math.min(f(a), Math.min(f(b), f(0.5 * (a + b))));
+}
+
+describe('DistSegment3Triangle3 verification', () => {
+    const query = new DistSegment3Triangle3();
+
+    it('result is self consistent and the points lie on their primitives',
+        () => {
+            check(fc.tuple(v21Segment, v21Shape), ([seg, s]) => {
+                const res = query.compute(seg, s);
+                expectClose(res.distance, Math.sqrt(res.sqrDistance), 1e-12,
+                    1e-12);
+                const diff = sub(res.closest[0], res.closest[1]);
+                expectClose(res.sqrDistance, dot(diff, diff), 1e-9, 1e-9);
+                // Upstream parameterizes the segment as P0 + t*(P1-P0) with
+                // 0 <= t <= 1 (not the centered form), so the parameter must
+                // be in [0,1].
+                expect(res.parameter).toBeGreaterThanOrEqual(0);
+                expect(res.parameter).toBeLessThanOrEqual(1);
+                expectVectorClose(res.closest[0],
+                    add(seg.p[0],
+                        mul(res.parameter, sub(seg.p[1], seg.p[0]))), 1e-9,
+                    1e-9);
+                v21CheckShapePoint(s, res);
+            });
+        });
+
+    it('matches a convex minimization along the segment', () => {
+        check(fc.tuple(v21Segment, v21Shape), ([seg, s]) => {
+            const dir = sub(seg.p[1], seg.p[0]);
+            const f = (t: number): number =>
+                v21PointDistance(add(seg.p[0], mul(t, dir)), s);
+            expectClose(query.compute(seg, s).distance,
+                v21MinOnInterval(f, 0, 1), 1e-7, 1e-7);
+        }, 60);
+    }, 30000);
+
+    it('agrees with the line query inside [0,1] and the point query outside',
+        () => {
+            check(fc.tuple(v21Segment, v21Shape), ([seg, s]) => {
+                const line = Line.fromOriginDirection(seg.p[0],
+                    sub(seg.p[1], seg.p[0]));
+                const lr = new DistLine3Triangle3().compute(line, s);
+                const sr = query.compute(seg, s);
+                if (lr.parameter >= 0 && lr.parameter <= 1) {
+                    expect(sr.parameter).toBe(lr.parameter);
+                    expect(sr.distance).toBe(lr.distance);
+                    expectVectorClose(sr.closest[0], lr.closest[0], 0, 0);
+                    expectVectorClose(sr.closest[1], lr.closest[1], 0, 0);
+                }
+                else {
+                    const end = lr.parameter < 0 ? 0 : 1;
+                    expect(sr.parameter).toBe(end);
+                    expectVectorClose(sr.closest[0], seg.p[end], 0, 0);
+                    expect(sr.distance)
+                        .toBe(v21PointDistance(seg.p[end], s));
+                }
+            });
+        });
+
+    it('reports zero distance when an endpoint is on the shape', () => {
+        check(fc.tuple(v21ShapePoint, wellScaledVector(3, -6, 6)),
+            ([[s, q], other]) => {
+                const seg = Segment.fromEndpoints(q, add(q, other));
+                expect(query.compute(seg, s).distance)
+                    .toBeLessThanOrEqual(1e-9);
+            });
+    });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(v21Segment, v21Shape, rotationFrame(3),
+            wellScaledVector(3, -5, 5)), ([seg, s, R, tr]) => {
+            const rot = (x: Vector): Vector => {
+                let y = new Vector(3);
+                for (let i = 0; i < 3; ++i) {
+                    y = add(y, mul(x.values[i], R[i]));
+                }
+                return y;
+            };
+            const moved = Segment.fromEndpoints(add(rot(seg.p[0]), tr),
+                add(rot(seg.p[1]), tr));
+            const r0 = query.compute(seg, s);
+            const r1 = query.compute(moved, v21MoveShape(s, rot, tr));
+            expectClose(r0.distance, r1.distance, 1e-8, 1e-8);
+        });
+    });
+
+    it('a short segment agrees with the point query at its first endpoint',
+        () => {
+            check(fc.tuple(wellScaledVector(3, -8, 8), unitVector(3),
+                v21Shape), ([p0, d, s]) => {
+                const seg = Segment.fromEndpoints(p0, add(p0, mul(1e-9, d)));
+                expectClose(query.compute(seg, s).distance,
+                    v21PointDistance(p0, s), 1e-7, 1e-7);
+            });
+        });
+
+    it('does not mutate its inputs', () => {
+        check(fc.tuple(v21Segment, v21Shape), ([seg, s]) => {
+            const p0 = seg.p[0].clone();
+            const p1 = seg.p[1].clone();
+            const snapshot = v21ShapeSnapshot(s);
+            const res = query.compute(seg, s);
+            expect(seg.p[0].values).toEqual(p0.values);
+            expect(seg.p[1].values).toEqual(p1.values);
+            expect(v21ShapeSnapshot(s)).toEqual(snapshot);
+            res.closest[0].values[0] = 4242;
+            res.closest[1].values[0] = 4242;
+            expect(seg.p[0].values).toEqual(p0.values);
+            expect(v21ShapeSnapshot(s)).toEqual(snapshot);
+        });
+    });
 });

@@ -3,7 +3,15 @@ import { DistPointTriangle } from '../src/DistPointTriangle.js';
 import { DistRay3Triangle3 } from '../src/DistRay3Triangle3.js';
 import { Ray } from '../src/Ray.js';
 import { Triangle } from '../src/Triangle.js';
-import { Vector, add, length, mul, sub } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, sub }
+    from '../src/Vector.js';
+import { DistLine3Triangle3 } from '../src/DistLine3Triangle3.js';
+import { Line } from '../src/Line.js';
+import { cross } from '../src/Vector3.js';
+import {
+    check, expectClose, expectVectorClose, fc, positive,
+    rotationFrame, unitVector, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -139,5 +147,182 @@ describe('DistRay3Triangle3', () => {
             expect(result.distance).toBeCloseTo(brute, 6);
             verifyClosest(r, t, result);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Independent verification (V21): property-based tests against the upstream
+// header DistRay3Triangle3.h. Upstream solves the query on the line containing the
+// ray and clamps the result to the ray domain, so the properties below
+// check the line/point agreement as well as the geometric invariants.
+// ---------------------------------------------------------------------------
+
+const v21Shape = fc.tuple(wellScaledVector(3, -8, 8),
+    wellScaledVector(3, -8, 8), wellScaledVector(3, -8, 8))
+    .filter(([a, b, c]) => {
+        const e0 = sub(b, a);
+        const e1 = sub(c, a);
+        return length(cross(e0, e1)) > 1e-2;
+    })
+    .map(([a, b, c]) => Triangle.fromVertices(a, b, c));
+
+// A triangle together with one of its points.
+const v21ShapePoint = fc.tuple(v21Shape,
+    fc.double({ min: 0, max: 1, noNaN: true }),
+    fc.double({ min: 0, max: 1, noNaN: true }))
+    .map(([tri, u, w]) => {
+        // Map the unit square onto the triangle by folding.
+        let b1 = u;
+        let b2 = w;
+        if (b1 + b2 > 1) {
+            b1 = 1 - b1;
+            b2 = 1 - b2;
+        }
+        const q = add(tri.v[0], add(mul(b1, sub(tri.v[1], tri.v[0])),
+            mul(b2, sub(tri.v[2], tri.v[0]))));
+        return [tri, q] as [Triangle, Vector];
+    });
+
+function v21PointDistance(p: Vector, tri: Triangle): number {
+    return new DistPointTriangle().compute(p, tri).distance;
+}
+
+function v21CheckShapePoint(tri: Triangle,
+    res: { closest: [Vector, Vector],
+        barycentric: [number, number, number] }): void {
+    let sum = 0;
+    for (let i = 0; i < 3; ++i) {
+        expect(res.barycentric[i]).toBeGreaterThanOrEqual(-1e-9);
+        expect(res.barycentric[i]).toBeLessThanOrEqual(1 + 1e-9);
+        sum += res.barycentric[i];
+    }
+    expectClose(sum, 1, 1e-9, 1e-9);
+    let x = new Vector(3);
+    for (let i = 0; i < 3; ++i) {
+        x = add(x, mul(res.barycentric[i], tri.v[i]));
+    }
+    expectVectorClose(res.closest[1], x, 1e-8, 1e-8);
+}
+
+function v21MoveShape(tri: Triangle, rot: (x: Vector) => Vector,
+    tr: Vector): Triangle {
+    return Triangle.fromVertexArray(tri.v.map(x => add(rot(x), tr)));
+}
+
+function v21ShapeSnapshot(tri: Triangle): number[] {
+    return tri.v.flatMap(x => [...x.values]);
+}
+
+const v21Ray = fc.tuple(wellScaledVector(3, -8, 8), unitVector(3))
+    .map(([o, d]) => Ray.fromOriginDirection(o, d));
+
+// Minimum of a convex function on [lo,hi] by ternary search. The distance
+// from a point to a convex set is convex and the ray is an affine image of
+// its parameter, so the composition is convex and the search is exact.
+function v21MinOnInterval(f: (t: number) => number, lo: number,
+    hi: number): number {
+    let a = lo;
+    let b = hi;
+    for (let i = 0; i < 140; ++i) {
+        const m1 = a + (b - a) / 3;
+        const m2 = b - (b - a) / 3;
+        if (f(m1) <= f(m2)) {
+            b = m2;
+        }
+        else {
+            a = m1;
+        }
+    }
+    return Math.min(f(a), Math.min(f(b), f(0.5 * (a + b))));
+}
+
+describe('DistRay3Triangle3 verification', () => {
+    const query = new DistRay3Triangle3();
+
+    it('result is self consistent and the points lie on their primitives',
+        () => {
+            check(fc.tuple(v21Ray, v21Shape), ([r, s]) => {
+                const res = query.compute(r, s);
+                expectClose(res.distance, Math.sqrt(res.sqrDistance), 1e-12,
+                    1e-12);
+                const diff = sub(res.closest[0], res.closest[1]);
+                expectClose(res.sqrDistance, dot(diff, diff), 1e-9, 1e-9);
+                expect(res.parameter).toBeGreaterThanOrEqual(0);
+                expectVectorClose(res.closest[0],
+                    add(r.origin, mul(res.parameter, r.direction)), 1e-9,
+                    1e-9);
+                v21CheckShapePoint(s, res);
+            });
+        });
+
+    it('matches a convex minimization along the ray', () => {
+        check(fc.tuple(v21Ray, v21Shape), ([r, s]) => {
+            const f = (t: number): number =>
+                v21PointDistance(add(r.origin, mul(t, r.direction)), s);
+            expectClose(query.compute(r, s).distance,
+                v21MinOnInterval(f, 0, 100), 1e-7, 1e-7);
+        }, 60);
+    }, 30000);
+
+    it('agrees with the line query on the ray and with the point query off it',
+        () => {
+            check(fc.tuple(v21Ray, v21Shape), ([r, s]) => {
+                const line = Line.fromOriginDirection(r.origin, r.direction);
+                const lr = new DistLine3Triangle3().compute(line, s);
+                const rr = query.compute(r, s);
+                if (lr.parameter >= 0) {
+                    expect(rr.parameter).toBe(lr.parameter);
+                    expect(rr.distance).toBe(lr.distance);
+                    expectVectorClose(rr.closest[0], lr.closest[0], 0, 0);
+                    expectVectorClose(rr.closest[1], lr.closest[1], 0, 0);
+                }
+                else {
+                    expect(rr.parameter).toBe(0);
+                    expectVectorClose(rr.closest[0], r.origin, 0, 0);
+                    expect(rr.distance)
+                        .toBe(v21PointDistance(r.origin, s));
+                }
+            });
+        });
+
+    it('reports zero distance when the ray starts on the shape', () => {
+        check(fc.tuple(v21ShapePoint, unitVector(3)), ([[s, q], d]) => {
+            const r = Ray.fromOriginDirection(q, d);
+            expect(query.compute(r, s).distance).toBeLessThanOrEqual(1e-9);
+        });
+    });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(v21Ray, v21Shape, rotationFrame(3),
+            wellScaledVector(3, -5, 5)), ([r, s, R, tr]) => {
+            const rot = (x: Vector): Vector => {
+                let y = new Vector(3);
+                for (let i = 0; i < 3; ++i) {
+                    y = add(y, mul(x.values[i], R[i]));
+                }
+                return y;
+            };
+            const movedRay = Ray.fromOriginDirection(add(rot(r.origin), tr),
+                rot(r.direction));
+            const r0 = query.compute(r, s);
+            const r1 = query.compute(movedRay, v21MoveShape(s, rot, tr));
+            expectClose(r0.distance, r1.distance, 1e-8, 1e-8);
+        });
+    });
+
+    it('does not mutate its inputs', () => {
+        check(fc.tuple(v21Ray, v21Shape), ([r, s]) => {
+            const o = r.origin.clone();
+            const d = r.direction.clone();
+            const snapshot = v21ShapeSnapshot(s);
+            const res = query.compute(r, s);
+            expect(r.origin.values).toEqual(o.values);
+            expect(r.direction.values).toEqual(d.values);
+            expect(v21ShapeSnapshot(s)).toEqual(snapshot);
+            res.closest[0].values[0] = 4242;
+            res.closest[1].values[0] = 4242;
+            expect(r.origin.values).toEqual(o.values);
+            expect(v21ShapeSnapshot(s)).toEqual(snapshot);
+        });
     });
 });

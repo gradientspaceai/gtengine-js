@@ -2,7 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { DistRay3Rectangle3 } from '../src/DistRay3Rectangle3.js';
 import { Ray } from '../src/Ray.js';
 import { Rectangle } from '../src/Rectangle.js';
-import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, sub }
+    from '../src/Vector.js';
+import { DistLine3Rectangle3 } from '../src/DistLine3Rectangle3.js';
+import { DistPointRectangle } from '../src/DistPointRectangle.js';
+import { Line } from '../src/Line.js';
+import { cross } from '../src/Vector3.js';
+import {
+    check, expectClose, expectVectorClose, fc, positive,
+    rotationFrame, unitVector, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -153,5 +162,173 @@ describe('DistRay3Rectangle3', () => {
             expect(result.distance).toBeCloseTo(brute, 6);
             verifyClosest(r, rect, result);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Independent verification (V21): property-based tests against the upstream
+// header DistRay3Rectangle3.h. Upstream solves the query on the line containing the
+// ray and clamps the result to the ray domain, so the properties below
+// check the line/point agreement as well as the geometric invariants.
+// ---------------------------------------------------------------------------
+
+const v21Shape = fc.tuple(wellScaledVector(3, -8, 8), rotationFrame(3),
+    positive(4, 0.1), positive(4, 0.1))
+    .map(([c, axes, e0, e1]) => Rectangle.fromCenterAxisExtent(c,
+        [axes[0], axes[1]], Vector.fromArray([e0, e1])));
+
+// A rectangle together with one of its points.
+const v21ShapePoint = fc.tuple(v21Shape,
+    fc.double({ min: -1, max: 1, noNaN: true }),
+    fc.double({ min: -1, max: 1, noNaN: true }))
+    .map(([rect, u0, u1]) => {
+        const q = add(rect.center,
+            add(mul(u0 * rect.extent.values[0], rect.axis[0]),
+                mul(u1 * rect.extent.values[1], rect.axis[1])));
+        return [rect, q] as [Rectangle, Vector];
+    });
+
+function v21PointDistance(p: Vector, rect: Rectangle): number {
+    return new DistPointRectangle().compute(p, rect).distance;
+}
+
+function v21CheckShapePoint(rect: Rectangle,
+    res: { closest: [Vector, Vector], cartesian: [number, number] }): void {
+    const d = sub(res.closest[1], rect.center);
+    for (let i = 0; i < 2; ++i) {
+        expectClose(dot(d, rect.axis[i]), res.cartesian[i], 1e-8, 1e-8);
+        expect(Math.abs(res.cartesian[i]))
+            .toBeLessThanOrEqual(rect.extent.values[i] + 1e-9);
+    }
+    // The closest point is in the plane of the rectangle.
+    const normal = cross(rect.axis[0], rect.axis[1]);
+    expectClose(dot(d, normal), 0, 1e-8, 1e-8);
+    expectVectorClose(res.closest[1], add(rect.center,
+        add(mul(res.cartesian[0], rect.axis[0]),
+            mul(res.cartesian[1], rect.axis[1]))), 1e-8, 1e-8);
+}
+
+function v21MoveShape(rect: Rectangle, rot: (x: Vector) => Vector,
+    tr: Vector): Rectangle {
+    return Rectangle.fromCenterAxisExtent(add(rot(rect.center), tr),
+        rect.axis.map(a => rot(a)), rect.extent);
+}
+
+function v21ShapeSnapshot(rect: Rectangle): number[] {
+    return [...rect.center.values, ...rect.extent.values,
+        ...rect.axis.flatMap(a => [...a.values])];
+}
+
+const v21Ray = fc.tuple(wellScaledVector(3, -8, 8), unitVector(3))
+    .map(([o, d]) => Ray.fromOriginDirection(o, d));
+
+// Minimum of a convex function on [lo,hi] by ternary search. The distance
+// from a point to a convex set is convex and the ray is an affine image of
+// its parameter, so the composition is convex and the search is exact.
+function v21MinOnInterval(f: (t: number) => number, lo: number,
+    hi: number): number {
+    let a = lo;
+    let b = hi;
+    for (let i = 0; i < 140; ++i) {
+        const m1 = a + (b - a) / 3;
+        const m2 = b - (b - a) / 3;
+        if (f(m1) <= f(m2)) {
+            b = m2;
+        }
+        else {
+            a = m1;
+        }
+    }
+    return Math.min(f(a), Math.min(f(b), f(0.5 * (a + b))));
+}
+
+describe('DistRay3Rectangle3 verification', () => {
+    const query = new DistRay3Rectangle3();
+
+    it('result is self consistent and the points lie on their primitives',
+        () => {
+            check(fc.tuple(v21Ray, v21Shape), ([r, s]) => {
+                const res = query.compute(r, s);
+                expectClose(res.distance, Math.sqrt(res.sqrDistance), 1e-12,
+                    1e-12);
+                const diff = sub(res.closest[0], res.closest[1]);
+                expectClose(res.sqrDistance, dot(diff, diff), 1e-9, 1e-9);
+                expect(res.parameter).toBeGreaterThanOrEqual(0);
+                expectVectorClose(res.closest[0],
+                    add(r.origin, mul(res.parameter, r.direction)), 1e-9,
+                    1e-9);
+                v21CheckShapePoint(s, res);
+            });
+        });
+
+    it('matches a convex minimization along the ray', () => {
+        check(fc.tuple(v21Ray, v21Shape), ([r, s]) => {
+            const f = (t: number): number =>
+                v21PointDistance(add(r.origin, mul(t, r.direction)), s);
+            expectClose(query.compute(r, s).distance,
+                v21MinOnInterval(f, 0, 100), 1e-7, 1e-7);
+        }, 60);
+    }, 30000);
+
+    it('agrees with the line query on the ray and with the point query off it',
+        () => {
+            check(fc.tuple(v21Ray, v21Shape), ([r, s]) => {
+                const line = Line.fromOriginDirection(r.origin, r.direction);
+                const lr = new DistLine3Rectangle3().compute(line, s);
+                const rr = query.compute(r, s);
+                if (lr.parameter >= 0) {
+                    expect(rr.parameter).toBe(lr.parameter);
+                    expect(rr.distance).toBe(lr.distance);
+                    expectVectorClose(rr.closest[0], lr.closest[0], 0, 0);
+                    expectVectorClose(rr.closest[1], lr.closest[1], 0, 0);
+                }
+                else {
+                    expect(rr.parameter).toBe(0);
+                    expectVectorClose(rr.closest[0], r.origin, 0, 0);
+                    expect(rr.distance)
+                        .toBe(v21PointDistance(r.origin, s));
+                }
+            });
+        });
+
+    it('reports zero distance when the ray starts on the shape', () => {
+        check(fc.tuple(v21ShapePoint, unitVector(3)), ([[s, q], d]) => {
+            const r = Ray.fromOriginDirection(q, d);
+            expect(query.compute(r, s).distance).toBeLessThanOrEqual(1e-9);
+        });
+    });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(v21Ray, v21Shape, rotationFrame(3),
+            wellScaledVector(3, -5, 5)), ([r, s, R, tr]) => {
+            const rot = (x: Vector): Vector => {
+                let y = new Vector(3);
+                for (let i = 0; i < 3; ++i) {
+                    y = add(y, mul(x.values[i], R[i]));
+                }
+                return y;
+            };
+            const movedRay = Ray.fromOriginDirection(add(rot(r.origin), tr),
+                rot(r.direction));
+            const r0 = query.compute(r, s);
+            const r1 = query.compute(movedRay, v21MoveShape(s, rot, tr));
+            expectClose(r0.distance, r1.distance, 1e-8, 1e-8);
+        });
+    });
+
+    it('does not mutate its inputs', () => {
+        check(fc.tuple(v21Ray, v21Shape), ([r, s]) => {
+            const o = r.origin.clone();
+            const d = r.direction.clone();
+            const snapshot = v21ShapeSnapshot(s);
+            const res = query.compute(r, s);
+            expect(r.origin.values).toEqual(o.values);
+            expect(r.direction.values).toEqual(d.values);
+            expect(v21ShapeSnapshot(s)).toEqual(snapshot);
+            res.closest[0].values[0] = 4242;
+            res.closest[1].values[0] = 4242;
+            expect(r.origin.values).toEqual(o.values);
+            expect(v21ShapeSnapshot(s)).toEqual(snapshot);
+        });
     });
 });
