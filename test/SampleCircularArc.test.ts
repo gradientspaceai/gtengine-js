@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { SampleCircularArc } from '../src/SampleCircularArc.js';
 import { Arc2 } from '../src/Arc2.js';
-import { Vector } from '../src/Vector.js';
+import { Vector, div, sub } from '../src/Vector.js';
 
 function arcFromAngle(center: readonly number[], radius: number,
     a0: number, a1: number): Arc2 {
@@ -215,14 +215,13 @@ function circlePoint(center: readonly number[], radius: number,
 }
 
 // The unit direction vectors of the arc endpoints, as the class computes them.
+// This reproduces upstream's '(end - center) / radius', whose 'operator/'
+// multiplies by the reciprocal of the radius; a plain division here would
+// differ in the last ulp and move the truncation boundary of the sample count.
 function endDirections(arc: Arc2): { P0: number[], P2: number[] } {
-    const c = arc.center.values;
-    const r = arc.radius;
     return {
-        P0: [(arc.end[0].values[0] - c[0]) / r,
-            (arc.end[0].values[1] - c[1]) / r],
-        P2: [(arc.end[1].values[0] - c[0]) / r,
-            (arc.end[1].values[1] - c[1]) / r]
+        P0: div(sub(arc.end[0], arc.center), arc.radius).values,
+        P2: div(sub(arc.end[1], arc.center), arc.radius).values
     };
 }
 
@@ -422,5 +421,22 @@ describe('SampleCircularArc verification', () => {
                 expect(Number.isFinite(p.values[1])).toBe(true);
             }
         });
+    });
+});
+
+// Regression test for the port's use of upstream's vector operator/, which
+// multiplies by the reciprocal of the scalar and yields the ZERO vector when
+// the scalar is zero (Vector.h). The class normalizes the arc by dividing the
+// endpoint offsets by the radius, so a zero radius gives upstream two zero
+// direction vectors, an angle of acos(0) = pi/2, a sample count of
+// trunc(0 * pi/2) = 0 and an empty result. A componentwise division would
+// produce NaN and, through trunc(NaN), a RangeError from the array
+// allocation.
+describe('SampleCircularArc degenerate radius', () => {
+    it('returns no samples for a zero-radius arc', () => {
+        const sampler = new SampleCircularArc();
+        const arc = Arc2.fromCenterRadiusEnds(Vector.fromArray([3, -4]), 0,
+            Vector.fromArray([3, -4]), Vector.fromArray([3, -4]));
+        expect(sampler.compute(arc)).toEqual([]);
     });
 });

@@ -23,7 +23,7 @@
 
 import { logAssert } from './Logger.js';
 import { ParametricCurve } from './ParametricCurve.js';
-import { Vector, length as vectorLength } from './Vector.js';
+import { Vector, div, length as vectorLength } from './Vector.js';
 
 export class TCBSplineCurve extends ParametricCurve {
     // The constructor inputs.
@@ -166,30 +166,35 @@ export class TCBSplineCurve extends ParametricCurve {
         jet[0] = jet0;
 
         if (order >= 1) {
-            // Compute the first-order derivative.
+            // Compute the first-order derivative. Upstream divides the vector
+            // with 'operator/=', which multiplies by the reciprocal of the
+            // scalar and produces the ZERO vector when the scalar is zero (see
+            // Vector.h); the port's div() has the same semantics. A plain
+            // componentwise division would differ in the last ulp and would
+            // produce infinities for a zero-length segment.
             const delta = this.mTime[key + 1] - this.mTime[key];
             const jet1 = new Vector(n);
             for (let k = 0; k < n; ++k) {
-                jet1.values[k] = (B[k] + u * (2 * C[k] + (3 * u) * D[k])) / delta;
+                jet1.values[k] = B[k] + u * (2 * C[k] + (3 * u) * D[k]);
             }
-            jet[1] = jet1;
+            jet[1] = div(jet1, delta);
 
             if (order >= 2) {
                 // Compute the second-order derivative.
                 const deltaSqr = delta * delta;
                 const jet2 = new Vector(n);
                 for (let k = 0; k < n; ++k) {
-                    jet2.values[k] = (2 * C[k] + (6 * u) * D[k]) / deltaSqr;
+                    jet2.values[k] = 2 * C[k] + (6 * u) * D[k];
                 }
-                jet[2] = jet2;
+                jet[2] = div(jet2, deltaSqr);
 
                 if (order === 3) {
                     const deltaCub = deltaSqr * delta;
                     const jet3 = new Vector(n);
                     for (let k = 0; k < n; ++k) {
-                        jet3.values[k] = (6 * D[k]) / deltaCub;
+                        jet3.values[k] = 6 * D[k];
                     }
-                    jet[3] = jet3;
+                    jet[3] = div(jet3, deltaCub);
                 }
             }
         }
