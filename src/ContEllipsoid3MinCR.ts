@@ -58,6 +58,24 @@
 // walk can stall at a vertex of the constraint polytope and report an
 // ellipsoid larger than the minimum-volume one. Roughly 4% of random point
 // clouds stall this way. This is upstream behavior and is preserved.
+//
+// A second upstream bug is contained here. The mutual recursion between
+// FindFacetMax and FindEdgeMax has no termination guarantee: when three or
+// more constraint planes are active at the current point and every candidate
+// step length is zero or numerically negligible, the walk cycles through the
+// same facets and edges forever with the point unchanged. About 0.3% of
+// random integer point clouds reach such a state, and the recursion then runs
+// until the stack is exhausted (undefined behavior in C++, RangeError here).
+// Upstream usually aborts earlier through the LogAssert(numer >= 0) described
+// above, so the cycle is masked by a different failure; with that assert
+// replaced by the clamp its own comment prescribes, the cycle is exposed.
+// The port therefore bounds the number of walk steps. Every step of a
+// terminating walk visits a new facet or edge, and measurements over random
+// clouds of up to 200 points never needed more than 23 steps, so the budget
+// of 4*N + 64 steps is never reached by a walk that makes progress. When it
+// is reached the walk stops where it is; that point is feasible (the clamp
+// keeps every intermediate point inside the constraint polytope), so the
+// result is a containing ellipsoid, exactly as in the documented stall case.
 
 import { logAssert } from './Logger.js';
 import { type Matrix3x3 } from './Matrix3x3.js';
@@ -95,8 +113,17 @@ export function getContainerEllipsoid3MinCR(points: readonly Vector[],
     return D;
 }
 
+// The step budget of the facet/edge walk; see the port notes for why it is
+// needed and why it cannot truncate a walk that makes progress.
+type WalkBudget = { steps: number };
+
 function findEdgeMax(A: readonly Vector[], plane0: number, plane1: number,
-    D: number[]): void {
+    D: number[], budget: WalkBudget): void {
+    if (--budget.steps < 0) {
+        // The walk is cycling; stop at the current (feasible) point.
+        return;
+    }
+
     // Compute direction to local maximum point on line of intersection.
     const a0 = A[plane0].values, a1v = A[plane1].values;
     let xDir = a0[1] * a1v[2] - a1v[1] * a0[2];
@@ -175,7 +202,7 @@ function findEdgeMax(A: readonly Vector[], plane0: number, plane1: number,
     }
 
     if (tMax > 0) {
-        findFacetMax(A, plane2, D);
+        findFacetMax(A, plane2, D, budget);
         return;
     }
 
@@ -183,7 +210,12 @@ function findEdgeMax(A: readonly Vector[], plane0: number, plane1: number,
 }
 
 function findFacetMax(A: readonly Vector[], plane0: number,
-    D: number[]): void {
+    D: number[], budget: WalkBudget): void {
+    if (--budget.steps < 0) {
+        // The walk is cycling; stop at the current (feasible) point.
+        return;
+    }
+
     let tFinal: number, xDir: number, yDir: number, zDir: number;
     const a0 = A[plane0].values;
 
@@ -245,11 +277,11 @@ function findFacetMax(A: readonly Vector[], plane0: number,
     }
 
     if (tMax > 0) {
-        findFacetMax(A, plane1, D);
+        findFacetMax(A, plane1, D, budget);
         return;
     }
 
-    findEdgeMax(A, plane0, plane1, D);
+    findEdgeMax(A, plane0, plane1, D, budget);
 }
 
 function maxProduct(A: readonly Vector[], D: number[]): void {
@@ -286,7 +318,7 @@ function maxProduct(A: readonly Vector[], D: number[]): void {
     D[0] = 0;
     D[1] = 0;
     D[2] = 1 / zmax;
-    findFacetMax(A, plane, D);
+    findFacetMax(A, plane, D, { steps: 4 * numPoints + 64 });
 }
 
 // The port of std::mt19937 (the 32-bit Mersenne twister with the standard

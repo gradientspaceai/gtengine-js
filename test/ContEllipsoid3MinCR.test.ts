@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { getContainerEllipsoid3MinCR } from '../src/ContEllipsoid3MinCR.js';
 import { Matrix } from '../src/Matrix.js';
-import { Vector, sub } from '../src/Vector.js';
+import { Vector, add, mul, sub } from '../src/Vector.js';
+import {
+    check, expectClose, fc, latticeVector, rotationFrame, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -380,5 +383,172 @@ describe('getContainerEllipsoid3MinCR', () => {
             .toThrow('3D');
         expect(() => getContainerEllipsoid3MinCR([v(1, 1, 1)], v(0, 0, 0),
             new Matrix(2, 2))).toThrow('3x3');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (VERIFYING.md): property-based cross-checks of the port
+// against the upstream ContEllipsoid3MinCR.h semantics.
+// ---------------------------------------------------------------------------
+
+describe('ContEllipsoid3MinCR verification', () => {
+    // Lattice data in the identity frame: the constraint coefficients are
+    // small exact integers, so no two planes are nearly parallel and the
+    // comparison against the enumeration solver is well conditioned. (The
+    // 1e-12 jitter upstream applies is far below that scale.)
+    const problem = fc.tuple(
+        fc.array(latticeVector(3, -5, 5), { minLength: 1, maxLength: 8 }),
+        latticeVector(3, -2, 2))
+        .map(([points, C]) => ({
+            points, C,
+            R: Matrix.fromArray(3, 3, [1, 0, 0, 0, 1, 0, 0, 0, 1])
+        }))
+        .filter(({ points, C }) =>
+            [0, 1, 2].every(k => points.some(p => p.get(k) !== C.get(k))));
+
+    // Arbitrary center and frame.
+    const rotatedProblem = fc.tuple(
+        fc.array(latticeVector(3, -5, 5), { minLength: 1, maxLength: 8 }),
+        rotationFrame(3), wellScaledVector(3, -2, 2))
+        .map(([points, frame, C]) => ({
+            points, C,
+            R: Matrix.fromArray(3, 3, [
+                frame[0].get(0), frame[1].get(0), frame[2].get(0),
+                frame[0].get(1), frame[1].get(1), frame[2].get(1),
+                frame[0].get(2), frame[1].get(2), frame[2].get(2)])
+        }))
+        .filter(({ points, C, R }) => {
+            const A = constraints(points, C, R);
+            return [0, 1, 2].every(k => A.some(a => a[k] > 0));
+        });
+
+    // The regression that matters for upstream issue #234: with the numer
+    // clamp in place the walk never leaves the feasible region, so every
+    // input point is inside the resulting ellipsoid. (Upstream instead
+    // asserts numer >= 0 and, with assertions removed, walks out of the
+    // feasible region.)
+    it('every input point is inside the resulting ellipsoid', () => {
+        check(rotatedProblem, ({ points, C, R }:
+            { points: Vector[], C: Vector, R: Matrix }) => {
+            const D = getContainerEllipsoid3MinCR(points, C, R);
+            for (let k = 0; k < 3; ++k) {
+                expect(Number.isFinite(D[k])).toBe(true);
+                expect(D[k]).toBeGreaterThanOrEqual(0);
+            }
+            for (const P of points) {
+                // The jitter added to the constraint coefficients is 1e-12,
+                // and the coefficients here are at most about 100, so the
+                // slack of an active constraint is bounded by ~1e-10.
+                expect(form(P, C, R, D)).toBeLessThanOrEqual(1 + 1e-9);
+            }
+        });
+    });
+
+    // Regression for the non-terminating facet/edge walk (see the port
+    // notes). Before the step budget was added, both of these clouds sent
+    // FindFacetMax and FindEdgeMax cycling through the same three active
+    // planes with the point unchanged, until the stack was exhausted.
+    it('terminates on clouds where the facet/edge walk cycles', () => {
+        const C = v(0, 0, 0);
+        const R = Matrix.fromArray(3, 3, [1, 0, 0, 0, 1, 0, 0, 0, 1]);
+        const clouds = [
+            [v(1, -5, 2), v(2, -2, 2), v(3, -2, -1), v(-1, 1, 5), v(0, 3, -2)],
+            [v(-5, 3, -1), v(0, 0, 0), v(-5, -1, 4), v(0, 0, 0), v(0, 0, 0),
+                v(-1, 4, -5), v(0, 0, 0)]
+        ];
+        for (const points of clouds) {
+            const D = getContainerEllipsoid3MinCR(points, C, R);
+            for (let k = 0; k < 3; ++k) {
+                expect(Number.isFinite(D[k])).toBe(true);
+                expect(D[k]).toBeGreaterThan(0);
+            }
+            // The walk stops at a feasible point, so the ellipsoid contains
+            // the input.
+            for (const P of points) {
+                expect(form(P, C, R, D)).toBeLessThanOrEqual(1 + 1e-9);
+            }
+        }
+    });
+
+    // The walk is a heuristic (see the port notes): it can stall at a vertex
+    // of the constraint polytope and return a non-maximal product. It can
+    // never exceed the true maximum, though, because the result is feasible.
+    it('never exceeds the maximum product found by enumeration', () => {
+        check(problem, ({ points, C, R }:
+            { points: Vector[], C: Vector, R: Matrix }) => {
+            const D = getContainerEllipsoid3MinCR(points, C, R);
+            const A = constraints(points, C, R);
+            const best = maxProductByEnumeration(A);
+            const got = D[0] * D[1] * D[2];
+            const want = best[0] * best[1] * best[2];
+            expect(got).toBeLessThanOrEqual(want * (1 + 1e-6) + 1e-12);
+        });
+    });
+
+    // Transformations that leave the constraint coefficients
+    // A[i] = ((u,v,w) of P[i]-C, squared) bit-identical must leave D
+    // bit-identical: translating the points and the center together by an
+    // integer vector, and reflecting a coordinate of the points and the
+    // center. (Note that a general rotation is *not* such a transformation:
+    // it perturbs the coefficients in the last bits, and the facet/edge walk
+    // is path dependent, so a near-tie between two planes can break the other
+    // way and the heuristic can stall at a different vertex. Rotational
+    // equivariance is therefore not a property of this algorithm; the
+    // containment property above is what survives.)
+    it('is invariant under exact translations and reflections', () => {
+        check(fc.tuple(problem, latticeVector(3, -20, 20),
+            fc.integer({ min: 0, max: 2 })),
+            ([{ points, C, R }, t, axis]:
+                [{ points: Vector[], C: Vector, R: Matrix }, Vector, number]) => {
+                const D0 = getContainerEllipsoid3MinCR(points, C, R);
+
+                const shifted = getContainerEllipsoid3MinCR(
+                    points.map(P => add(P, t)), add(C, t), R);
+                for (let k = 0; k < 3; ++k) {
+                    expect(shifted[k]).toBe(D0[k]);
+                }
+
+                const flip = (p: Vector): Vector => {
+                    const q = p.clone();
+                    q.set(axis, -q.get(axis));
+                    return q;
+                };
+                const mirrored = getContainerEllipsoid3MinCR(
+                    points.map(flip), flip(C), R);
+                for (let k = 0; k < 3; ++k) {
+                    expect(mirrored[k]).toBe(D0[k]);
+                }
+            });
+    });
+
+    // Determinism: the Mersenne twister is constructed fresh in every call,
+    // so repeated calls with the same input return bit-identical results.
+    it('is bit-for-bit deterministic across repeated calls', () => {
+        check(rotatedProblem, ({ points, C, R }:
+            { points: Vector[], C: Vector, R: Matrix }) => {
+            const D0 = getContainerEllipsoid3MinCR(points, C, R);
+            const D1 = getContainerEllipsoid3MinCR(points, C, R);
+            for (let k = 0; k < 3; ++k) {
+                expect(D1[k]).toBe(D0[k]);
+            }
+        });
+    });
+
+    // The jitter must not be visible in the answer beyond its own magnitude:
+    // a point set whose optimum is known analytically (a single point, where
+    // the maximum of x*y*z on the plane a.D = 1 is at D = 1/(3a)) is
+    // recovered to within the jitter.
+    it('the 1e-12 jitter does not move the answer beyond its magnitude', () => {
+        check(latticeVector(3, -5, 5).filter(p =>
+            p.get(0) !== 0 && p.get(1) !== 0 && p.get(2) !== 0),
+            (P: Vector) => {
+                const C = v(0, 0, 0);
+                const R = Matrix.fromArray(3, 3, [1, 0, 0, 0, 1, 0, 0, 0, 1]);
+                const D = getContainerEllipsoid3MinCR([P], C, R);
+                for (let k = 0; k < 3; ++k) {
+                    const a = P.get(k) * P.get(k);
+                    expectClose(D[k], 1 / (3 * a), 1e-9, 1e-9);
+                }
+            });
     });
 });
