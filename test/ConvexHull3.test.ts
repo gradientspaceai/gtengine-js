@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { ConvexHull3 } from '../src/ConvexHull3.js';
 import { Vector } from '../src/Vector.js';
+import { fc, check, latticeVector } from './helpers/arbitraries.js';
+import { orient3 } from './helpers/exact.js';
 
 const v3 = (x: number, y: number, z: number): Vector =>
     Vector.fromArray([x, y, z]);
@@ -280,4 +282,330 @@ describe('ConvexHull3', () => {
         expect(ch.getVertices().length).toBe(1);
         expect(ch.getHullMesh().getNumTriangles()).toBe(0);
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V11): property-based cross-checks against exact bigint
+// oracles. The generators are integer lattices, so every predicate below is
+// evaluated exactly and the assertions are deterministic.
+// ---------------------------------------------------------------------------
+
+type BigPoint = [bigint, bigint, bigint];
+
+const toBig = (p: Vector): BigPoint =>
+    [BigInt(p.values[0]), BigInt(p.values[1]), BigInt(p.values[2])];
+
+const bigEquals = (a: BigPoint, b: BigPoint): boolean =>
+    a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
+
+const bigSub = (a: BigPoint, b: BigPoint): BigPoint =>
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+
+const bigCross = (a: BigPoint, b: BigPoint): BigPoint =>
+    [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0]];
+
+const bigDot = (a: BigPoint, b: BigPoint): bigint =>
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+const isZero = (a: BigPoint): boolean =>
+    a[0] === 0n && a[1] === 0n && a[2] === 0n;
+
+function uniquePoints(points: readonly Vector[]): BigPoint[] {
+    const uniq: BigPoint[] = [];
+    for (const p of points) {
+        const b = toBig(p);
+        if (!uniq.some(q => bigEquals(q, b))) { uniq.push(b); }
+    }
+    return uniq;
+}
+
+/**
+ * The intrinsic dimension of an integer point set, computed exactly: 0 for a
+ * single point, 1 when all points are collinear, 2 when all are coplanar and
+ * 3 otherwise. This is the independent oracle for getDimension().
+ */
+function exactDimension(points: readonly Vector[]): number {
+    const uniq = uniquePoints(points);
+    if (uniq.length === 1) { return 0; }
+    const a = uniq[0], b = uniq[1];
+    let c: BigPoint | null = null;
+    for (let i = 2; i < uniq.length; ++i) {
+        if (!isZero(bigCross(bigSub(b, a), bigSub(uniq[i], a)))) {
+            c = uniq[i];
+            break;
+        }
+    }
+    if (c === null) { return 1; }
+    for (const d of uniq) {
+        if (orient3(a, b, c, d) !== 0) { return 3; }
+    }
+    return 2;
+}
+
+/** Lexicographic order on integer points, matching the port's point sort. */
+function lexLess(a: BigPoint, b: BigPoint): boolean {
+    for (let i = 0; i < 3; ++i) {
+        if (a[i] !== b[i]) { return a[i] < b[i]; }
+    }
+    return false;
+}
+
+/** Canonical string for a face, invariant under cyclic rotation. */
+function faceKey(a: BigPoint, b: BigPoint, c: BigPoint): string {
+    const s = [a, b, c].map(p => p.join(',')) as [string, string, string];
+    const rotations = [
+        s[0] + '|' + s[1] + '|' + s[2],
+        s[1] + '|' + s[2] + '|' + s[0],
+        s[2] + '|' + s[0] + '|' + s[1]
+    ];
+    rotations.sort();
+    return rotations[0];
+}
+
+function faceKeys(points: readonly Vector[], hull: readonly number[]): string[] {
+    const keys: string[] = [];
+    for (let f = 0; f < hull.length; f += 3) {
+        keys.push(faceKey(toBig(points[hull[f]]), toBig(points[hull[f + 1]]),
+            toBig(points[hull[f + 2]])));
+    }
+    keys.sort();
+    return keys;
+}
+
+const latticeCloud3 = (count: number, range: number): fc.Arbitrary<Vector[]> =>
+    fc.array(latticeVector(3, -range, range),
+        { minLength: count, maxLength: count });
+
+describe('ConvexHull3 verification', () => {
+    it('classifies the intrinsic dimension exactly', () => {
+        // A tiny lattice range makes duplicate, collinear and coplanar draws
+        // common, so all four branches of the classification are exercised.
+        // ConvexHull3 uses exact colocated/colinear/toPlane predicates rather
+        // than the hardcoded epsilon of Delaunay2/Delaunay3 (issue #391), so
+        // there is no misclassification to fix here.
+        // Degenerate families are generated explicitly: random lattice
+        // clouds are almost always 3-dimensional.
+        const repeated = fc.tuple(latticeVector(3, -6, 6),
+            fc.integer({ min: 1, max: 5 }))
+            .map(([p, n]) => new Array<Vector>(n).fill(p));
+        const collinear = fc.tuple(latticeVector(3, -6, 6),
+            latticeVector(3, -3, 3), fc.array(fc.integer({ min: -4, max: 4 }),
+                { minLength: 2, maxLength: 6 }))
+            .map(([o, d, ts]) => ts.map(t => Vector.fromArray([
+                o.values[0] + t * d.values[0], o.values[1] + t * d.values[1],
+                o.values[2] + t * d.values[2]])));
+        const coplanar = fc.tuple(fc.integer({ min: -3, max: 3 }),
+            fc.integer({ min: -3, max: 3 }), fc.integer({ min: -3, max: 3 }),
+            fc.array(fc.tuple(fc.integer({ min: -4, max: 4 }),
+                fc.integer({ min: -4, max: 4 })),
+                { minLength: 2, maxLength: 7 }))
+            .map(([a, b, c, xy]) => xy.map(([x, y]) =>
+                Vector.fromArray([x, y, a * x + b * y + c])));
+        check(fc.oneof(repeated, collinear, coplanar, latticeCloud3(5, 1),
+            latticeCloud3(7, 2), latticeCloud3(9, 4)), points => {
+            const ch = new ConvexHull3();
+            ch.compute(points);
+            expect(ch.getDimension()).toBe(exactDimension(points));
+            return true;
+        }, 200);
+    }, 30000);
+
+    it('reports the lexicographic extremes for a 1-dimensional hull', () => {
+        check(fc.tuple(latticeVector(3, -6, 6), latticeVector(3, -6, 6),
+            fc.array(fc.integer({ min: -6, max: 6 }),
+                { minLength: 1, maxLength: 6 })),
+            ([origin, direction, ts]) => {
+                if (isZero(toBig(direction))) { return true; }
+                const points = ts.map(t => Vector.fromArray([
+                    origin.values[0] + t * direction.values[0],
+                    origin.values[1] + t * direction.values[1],
+                    origin.values[2] + t * direction.values[2]]));
+                const ch = new ConvexHull3();
+                ch.compute(points);
+                if (ch.getDimension() !== 1) {
+                    // All the sample parameters coincided: a single point.
+                    expect(ch.getDimension()).toBe(0);
+                    return true;
+                }
+                const hull = ch.getHull();
+                expect(hull.length).toBe(2);
+                const uniq = uniquePoints(points);
+                let lo = uniq[0], hi = uniq[0];
+                for (const p of uniq) {
+                    if (lexLess(p, lo)) { lo = p; }
+                    if (lexLess(hi, p)) { hi = p; }
+                }
+                expect(toBig(points[hull[0]])).toEqual(lo);
+                expect(toBig(points[hull[1]])).toEqual(hi);
+                expect(ch.getVertices().slice()).toEqual(hull.slice());
+                return true;
+            }, 200);
+    }, 30000);
+
+    it('reports a convex ordered polygon for a 2-dimensional hull', () => {
+        // Points on the plane z = a*x + b*y + c are exactly coplanar for
+        // integer coefficients.
+        check(fc.tuple(fc.integer({ min: -3, max: 3 }),
+            fc.integer({ min: -3, max: 3 }), fc.integer({ min: -3, max: 3 }),
+            fc.array(fc.tuple(fc.integer({ min: -5, max: 5 }),
+                fc.integer({ min: -5, max: 5 })),
+                { minLength: 4, maxLength: 9 })),
+            ([a, b, c, xy]) => {
+                const points = xy.map(([x, y]) =>
+                    Vector.fromArray([x, y, a * x + b * y + c]));
+                const ch = new ConvexHull3();
+                ch.compute(points);
+                if (ch.getDimension() !== 2) { return true; }
+
+                const hull = ch.getHull();
+                expect(hull.length).toBeGreaterThanOrEqual(3);
+                // The polygon vertices are distinct hull points and the
+                // vertex list agrees with the hull list.
+                expect(ch.getVertices().slice()).toEqual(hull.slice());
+                const poly = hull.map(h => toBig(points[h]));
+                for (let i = 0; i < poly.length; ++i) {
+                    for (let j = i + 1; j < poly.length; ++j) {
+                        expect(bigEquals(poly[i], poly[j])).toBe(false);
+                    }
+                }
+
+                // The polygon is counterclockwise when viewed from the side
+                // its own normal points to, and every input point is inside
+                // or on the boundary.
+                const normal = bigCross(bigSub(poly[1], poly[0]),
+                    bigSub(poly[2], poly[0]));
+                expect(isZero(normal)).toBe(false);
+                const uniq = uniquePoints(points);
+                for (let i = 0; i < poly.length; ++i) {
+                    const p0 = poly[i];
+                    const p1 = poly[(i + 1) % poly.length];
+                    const edge = bigSub(p1, p0);
+                    for (const q of uniq) {
+                        const side = bigDot(normal, bigCross(edge, bigSub(q, p0)));
+                        expect(side >= 0n).toBe(true);
+                    }
+                    // Strict convexity: the next vertex is strictly left of
+                    // the current edge, so no three consecutive polygon
+                    // vertices are collinear.
+                    const p2 = poly[(i + 2) % poly.length];
+                    expect(bigDot(normal, bigCross(edge, bigSub(p2, p0))) > 0n)
+                        .toBe(true);
+                }
+                return true;
+            }, 150);
+    }, 30000);
+
+    it('is a closed oriented manifold that contains every input point', () => {
+        check(fc.oneof(latticeCloud3(8, 3), latticeCloud3(12, 5),
+            latticeCloud3(16, 8)), points => {
+            const ch = new ConvexHull3();
+            ch.compute(points);
+            if (ch.getDimension() !== 3) { return true; }
+
+            const hull = ch.getHull();
+            expect(hull.length % 3).toBe(0);
+            const numTriangles = hull.length / 3;
+            const uniq = uniquePoints(points);
+
+            // Every face is nondegenerate and supports the point set: with
+            // counterclockwise-outward ordering, orient3 <= 0 for every
+            // input point (exact).
+            for (let f = 0; f < hull.length; f += 3) {
+                const a = toBig(points[hull[f]]);
+                const b = toBig(points[hull[f + 1]]);
+                const c = toBig(points[hull[f + 2]]);
+                expect(isZero(bigCross(bigSub(b, a), bigSub(c, a)))).toBe(false);
+                for (const q of uniq) {
+                    expect(orient3(a, b, c, q) <= 0).toBe(true);
+                }
+            }
+
+            // Every directed edge occurs exactly once and its reverse occurs
+            // exactly once: the surface is closed, oriented and manifold.
+            const directed = new Set<string>();
+            for (let f = 0; f < hull.length; f += 3) {
+                for (let i = 0; i < 3; ++i) {
+                    const key = hull[f + i] + '->' + hull[f + (i + 1) % 3];
+                    expect(directed.has(key)).toBe(false);
+                    directed.add(key);
+                }
+            }
+            for (const key of directed) {
+                const [u, v] = key.split('->');
+                expect(directed.has(v + '->' + u)).toBe(true);
+            }
+
+            // Euler's formula with E = 3T/2 (the header claims E = T/2, an
+            // upstream documentation bug corrected in the port).
+            const numEdges = directed.size / 2;
+            expect(numEdges).toBe(3 * numTriangles / 2);
+            const vertexSet = new Set<number>(hull);
+            expect(ch.getVertices().slice().sort((p, q) => p - q))
+                .toEqual(Array.from(vertexSet).sort((p, q) => p - q));
+            expect(vertexSet.size - numEdges + numTriangles).toBe(2);
+            return true;
+        }, 120);
+    }, 30000);
+
+    it('does not depend on the order of the input points', () => {
+        // The port sorts the points lexicographically before building the
+        // hull, so a permutation of the input must produce the same faces
+        // (compared by coordinates, since duplicates may pick a different
+        // representative index).
+        check(fc.tuple(latticeCloud3(11, 4), fc.array(fc.nat(1000),
+            { minLength: 11, maxLength: 11 })), ([points, keys]) => {
+            const ch = new ConvexHull3();
+            ch.compute(points);
+            const expected = faceKeys(points, ch.getHull());
+            const dimension = ch.getDimension();
+
+            const order = points.map((p, i) => i);
+            order.sort((i, j) => (keys[i] - keys[j]) || (i - j));
+            const permuted = order.map(i => points[i]);
+            const ch2 = new ConvexHull3();
+            ch2.compute(permuted);
+            expect(ch2.getDimension()).toBe(dimension);
+            if (dimension === 3) {
+                expect(faceKeys(permuted, ch2.getHull())).toEqual(expected);
+            }
+            return true;
+        }, 120);
+    }, 30000);
+
+    it('is idempotent on its own hull vertices', () => {
+        // Recomputing the hull from just the hull vertices must produce the
+        // same faces, which pins down that no extreme point was dropped.
+        check(fc.oneof(latticeCloud3(10, 4), latticeCloud3(14, 7)), points => {
+            const ch = new ConvexHull3();
+            ch.compute(points);
+            if (ch.getDimension() !== 3) { return true; }
+            const expected = faceKeys(points, ch.getHull());
+
+            const reduced = ch.getVertices().map(i => points[i]);
+            const ch2 = new ConvexHull3();
+            ch2.compute(reduced);
+            expect(ch2.getDimension()).toBe(3);
+            expect(faceKeys(reduced, ch2.getHull())).toEqual(expected);
+            return true;
+        }, 120);
+    }, 30000);
+
+    it('reuses the functor without leaking state between data sets', () => {
+        check(fc.tuple(latticeCloud3(9, 4), latticeCloud3(9, 4)),
+            ([first, second]) => {
+                const fresh = new ConvexHull3();
+                fresh.compute(second);
+
+                const reused = new ConvexHull3();
+                reused.compute(first);
+                reused.compute(second);
+
+                expect(reused.getDimension()).toBe(fresh.getDimension());
+                expect(reused.getHull().slice()).toEqual(fresh.getHull().slice());
+                expect(reused.getVertices().slice())
+                    .toEqual(fresh.getVertices().slice());
+                return true;
+            }, 120);
+    }, 30000);
 });
