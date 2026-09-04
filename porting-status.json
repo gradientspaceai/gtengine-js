@@ -371,7 +371,8 @@
   "verified": 2
  },
  "ConvexHull2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 9
  },
  "ConvexHull3.h": {
   "status": "ported"
@@ -419,13 +420,15 @@
   "verified": 15
  },
  "Delaunay2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 9
  },
  "Delaunay2Mesh.h": {
   "status": "ported"
  },
  "Delaunay3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 9
  },
  "Delaunay3Mesh.h": {
   "status": "ported"
