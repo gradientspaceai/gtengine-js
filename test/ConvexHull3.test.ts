@@ -373,6 +373,23 @@ function faceKeys(points: readonly Vector[], hull: readonly number[]): string[] 
     return keys;
 }
 
+/**
+ * Six times the exact volume enclosed by a closed, outward-oriented triangle
+ * mesh (the divergence formula). Positive when the faces are counterclockwise
+ * as seen from outside.
+ */
+function sixTimesVolumeExact(points: readonly Vector[],
+    hull: readonly number[]): bigint {
+    let sum = 0n;
+    for (let f = 0; f < hull.length; f += 3) {
+        const a = toBig(points[hull[f]]);
+        const b = toBig(points[hull[f + 1]]);
+        const c = toBig(points[hull[f + 2]]);
+        sum += bigDot(a, bigCross(b, c));
+    }
+    return sum;
+}
+
 const latticeCloud3 = (count: number, range: number): fc.Arbitrary<Vector[]> =>
     fc.array(latticeVector(3, -range, range),
         { minLength: count, maxLength: count });
@@ -574,19 +591,39 @@ describe('ConvexHull3 verification', () => {
     }, 30000);
 
     it('is idempotent on its own hull vertices', () => {
-        // Recomputing the hull from just the hull vertices must produce the
-        // same faces, which pins down that no extreme point was dropped.
+        // Recomputing the hull from just the hull vertices must enclose the
+        // same solid: the exact volume is unchanged and every recomputed
+        // face still supports the original point set. Neither the face
+        // triangulation nor even the vertex list is required to match --
+        // dropping the interior points changes the insertion history, and
+        // upstream documents that coplanar faces may be triangulated
+        // differently (and may retain non-extreme vertices) depending on how
+        // the points were fed in.
         check(fc.oneof(latticeCloud3(10, 4), latticeCloud3(14, 7)), points => {
             const ch = new ConvexHull3();
             ch.compute(points);
             if (ch.getDimension() !== 3) { return true; }
-            const expected = faceKeys(points, ch.getHull());
+            const expectedVolume = sixTimesVolumeExact(points, ch.getHull());
+            expect(expectedVolume > 0n).toBe(true);
 
             const reduced = ch.getVertices().map(i => points[i]);
             const ch2 = new ConvexHull3();
             ch2.compute(reduced);
             expect(ch2.getDimension()).toBe(3);
-            expect(faceKeys(reduced, ch2.getHull())).toEqual(expected);
+            expect(sixTimesVolumeExact(reduced, ch2.getHull()))
+                .toBe(expectedVolume);
+
+            // Every recomputed face still supports the full input set.
+            const uniq = uniquePoints(points);
+            const hull = ch2.getHull();
+            for (let f = 0; f < hull.length; f += 3) {
+                const a = toBig(reduced[hull[f]]);
+                const b = toBig(reduced[hull[f + 1]]);
+                const c = toBig(reduced[hull[f + 2]]);
+                for (const q of uniq) {
+                    expect(orient3(a, b, c, q) <= 0).toBe(true);
+                }
+            }
             return true;
         }, 120);
     }, 30000);
