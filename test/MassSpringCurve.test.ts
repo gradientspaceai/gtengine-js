@@ -277,3 +277,203 @@ describe('MassSpringCurve energy', () => {
         expect(energy()).toBeCloseTo(e0, 6);
     });
 });
+
+// ---------------------------------------------------------------------------
+// Independent verification pass (VERIFYING.md). MassSpringCurve.h was read
+// line by line against src/MassSpringCurve.ts. The whole file is the
+// Acceleration callback, so the properties below check it against the physics
+// it is supposed to implement: the force is the negative gradient of the
+// Hooke potential, the forces on the two ends of a spring cancel, and the
+// result is invariant under rigid motions of the configuration.
+import {
+    check, fc, expectClose, wellScaledVector, rotationFrame
+} from './helpers/arbitraries.js';
+
+// Exposes the protected acceleration callback.
+class ProbeChain extends MassSpringCurve {
+    accelerationAt(i: number, time: number, position: readonly Vector[],
+        velocity: readonly Vector[]): Vector {
+        return this.acceleration(i, time, position, velocity);
+    }
+}
+
+interface ChainData {
+    chain: ProbeChain;
+    position: Vector[];
+    mass: number[];
+    constant: number[];
+    restLength: number[];
+}
+
+// Random chains whose particles are well separated: Length(diff) appears in a
+// denominator, so nearly coincident particles make the force arbitrarily
+// large and the finite-difference cross-check meaningless.
+const chainData = (dim: number): fc.Arbitrary<ChainData> =>
+    fc.integer({ min: 2, max: 6 }).chain(n => fc.tuple(
+        fc.array(wellScaledVector(dim, -4, 4), { minLength: n, maxLength: n }),
+        fc.array(fc.double({ min: 0.5, max: 4, noNaN: true,
+            noDefaultInfinity: true }), { minLength: n, maxLength: n }),
+        fc.array(fc.double({ min: 0.5, max: 5, noNaN: true,
+            noDefaultInfinity: true }), { minLength: n - 1, maxLength: n - 1 }),
+        fc.array(fc.double({ min: 0.2, max: 3, noNaN: true,
+            noDefaultInfinity: true }), { minLength: n - 1, maxLength: n - 1 })))
+        .map(([position, mass, constant, restLength]) => {
+            const chain = new ProbeChain(dim, position.length, 0.01);
+            for (let i = 0; i < position.length; ++i) {
+                chain.setMass(i, mass[i]);
+                chain.setPosition(i, position[i]);
+                chain.setVelocity(i, new Vector(dim));
+            }
+            for (let i = 0; i + 1 < position.length; ++i) {
+                chain.setConstant(i, constant[i]);
+                chain.setLength(i, restLength[i]);
+            }
+            return { chain, position, mass, constant, restLength };
+        })
+        .filter(d => {
+            for (let i = 0; i + 1 < d.position.length; ++i) {
+                if (vectorLength(sub(d.position[i + 1], d.position[i])) < 0.5) {
+                    return false;
+                }
+            }
+            return true;
+        });
+
+// The Hooke potential of the whole chain, U = sum_j c_j (|d_j| - L_j)^2 / 2.
+function potential(d: ChainData, position: readonly Vector[]): number {
+    let u = 0;
+    for (let j = 0; j + 1 < position.length; ++j) {
+        const len = vectorLength(sub(position[j + 1], position[j]));
+        u += 0.5 * d.constant[j] * (len - d.restLength[j]) ** 2;
+    }
+    return u;
+}
+
+describe('MassSpringCurve verification', () => {
+    it('acceleration is minus the potential gradient over the mass', () => {
+        // m_i * a_i = -dU/dP_i for the Hooke potential; the gradient is taken
+        // by centered differences of an independently written U.
+        check(chainData(3), d => {
+            const dim = 3;
+            const h = 1e-5;
+            for (let i = 0; i < d.position.length; ++i) {
+                const a = d.chain.accelerationAt(i, 0, d.position, d.position);
+                for (let k = 0; k < dim; ++k) {
+                    const plus = d.position.map(p => p.clone());
+                    const minus = d.position.map(p => p.clone());
+                    plus[i].values[k] += h;
+                    minus[i].values[k] -= h;
+                    const grad = (potential(d, plus) - potential(d, minus)) /
+                        (2 * h);
+                    expectClose(d.mass[i] * a.values[k], -grad, 1e-6, 1e-6);
+                }
+            }
+        });
+    });
+
+    it('the spring forces of the whole chain sum to zero', () => {
+        // Newton's third law: with no external force the total force on the
+        // chain vanishes, so sum_i m_i a_i = 0. This catches a sign or index
+        // error in either branch of Acceleration.
+        check(chainData(3), d => {
+            const total = new Vector(3);
+            for (let i = 0; i < d.position.length; ++i) {
+                const a = d.chain.accelerationAt(i, 0, d.position, d.position);
+                for (let k = 0; k < 3; ++k) {
+                    total.values[k] += d.mass[i] * a.values[k];
+                }
+            }
+            const scale = Math.max(1, ...d.constant) *
+                Math.max(1, ...d.restLength);
+            for (let k = 0; k < 3; ++k) {
+                expect(Math.abs(total.values[k])).toBeLessThan(1e-9 * scale);
+            }
+        });
+    });
+
+    it('a chain at its resting lengths has zero acceleration', () => {
+        // Place the particles on a ray so that consecutive distances are
+        // exactly the resting lengths.
+        check(fc.tuple(fc.integer({ min: 2, max: 6 }),
+            fc.array(fc.double({ min: 0.3, max: 3, noNaN: true,
+                noDefaultInfinity: true }), { minLength: 5, maxLength: 5 }),
+            fc.array(fc.double({ min: 0.5, max: 4, noNaN: true,
+                noDefaultInfinity: true }), { minLength: 6, maxLength: 6 })),
+        ([n, lengths, constants]) => {
+            const chain = new ProbeChain(2, n, 0.01);
+            const position: Vector[] = [];
+            let x = 0;
+            for (let i = 0; i < n; ++i) {
+                position.push(Vector.fromArray([x, 0]));
+                chain.setMass(i, 1 + i);
+                chain.setPosition(i, position[i]);
+                chain.setVelocity(i, new Vector(2));
+                if (i + 1 < n) { x += lengths[i]; }
+            }
+            for (let i = 0; i + 1 < n; ++i) {
+                chain.setConstant(i, constants[i]);
+                chain.setLength(i, lengths[i]);
+            }
+            for (let i = 0; i < n; ++i) {
+                const a = chain.accelerationAt(i, 0, position, position);
+                expectClose(a.values[0], 0, 1e-12, 1e-12);
+                expectClose(a.values[1], 0, 1e-12, 1e-12);
+            }
+        });
+    });
+
+    it('is invariant under translation and equivariant under rotation', () => {
+        check(fc.tuple(chainData(3), wellScaledVector(3, -6, 6),
+            rotationFrame(3)), ([d, shift, frame]) => {
+            const moved: Vector[] = d.position.map(p => {
+                const q = Vector.fromArray([0, 1, 2].map(k =>
+                    frame[0].values[k] * p.values[0] +
+                    frame[1].values[k] * p.values[1] +
+                    frame[2].values[k] * p.values[2] + shift.values[k]));
+                return q;
+            });
+            for (let i = 0; i < d.position.length; ++i) {
+                const a = d.chain.accelerationAt(i, 0, d.position, d.position);
+                const b = d.chain.accelerationAt(i, 0, moved, moved);
+                const rotated = [0, 1, 2].map(k =>
+                    frame[0].values[k] * a.values[0] +
+                    frame[1].values[k] * a.values[1] +
+                    frame[2].values[k] * a.values[2]);
+                for (let k = 0; k < 3; ++k) {
+                    expectClose(b.values[k], rotated[k], 1e-9, 1e-9);
+                }
+            }
+        });
+    });
+
+    it('ignores the velocities and the time', () => {
+        // The spring model is position-only; a translation-in-time or a
+        // different velocity array must not change the acceleration.
+        check(fc.tuple(chainData(2), fc.double({ min: -10, max: 10,
+            noNaN: true, noDefaultInfinity: true })), ([d, time]) => {
+            const other = d.position.map(() => Vector.fromArray([3, -7]));
+            for (let i = 0; i < d.position.length; ++i) {
+                const a = d.chain.accelerationAt(i, 0, d.position, d.position);
+                const b = d.chain.accelerationAt(i, time, d.position, other);
+                expect(b.values).toEqual(a.values);
+            }
+        });
+    });
+
+    it('an immovable particle stays put through an update', () => {
+        // setMass(i, 0) gives an infinite mass; ParticleSystem skips those in
+        // every stage of the RK4 update.
+        check(chainData(2), d => {
+            const n = d.position.length;
+            d.chain.setMass(0, 0);
+            d.chain.update(0);
+            expect(d.chain.getPosition(0).values)
+                .toEqual(d.position[0].values);
+            for (let i = 0; i < n; ++i) {
+                for (const x of d.chain.getPosition(i).values) {
+                    expect(Number.isFinite(x)).toBe(true);
+                }
+            }
+        });
+    });
+});
