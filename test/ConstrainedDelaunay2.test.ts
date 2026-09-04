@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { ConstrainedDelaunay2 } from '../src/ConstrainedDelaunay2.js';
 import { Vector } from '../src/Vector.js';
+import { fc, check, latticeVector } from './helpers/arbitraries.js';
 
 const v2 = (x: number, y: number): Vector => Vector.fromArray([x, y]);
 
@@ -364,4 +365,213 @@ describe('ConstrainedDelaunay2', () => {
             expect(totalArea(cdt)).toBeCloseTo(areaBefore, 9);
         }
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V11): property-based cross-checks against exact integer
+// oracles. All generators are integer lattices, so every orientation and area
+// computation below is exact in bigint and the assertions are deterministic.
+// ---------------------------------------------------------------------------
+
+/** Exact twice-signed-area of the triangle (a, b, c) with integer coordinates. */
+function twiceAreaExact(a: Vector, b: Vector, c: Vector): bigint {
+    const ax = BigInt(a.values[0]), ay = BigInt(a.values[1]);
+    const bx = BigInt(b.values[0]), by = BigInt(b.values[1]);
+    const cx = BigInt(c.values[0]), cy = BigInt(c.values[1]);
+    return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+}
+
+/**
+ * Exact twice-area of the convex hull of integer points, computed with an
+ * independent monotone-chain hull in bigint. This is the oracle for "the
+ * triangulation covers the hull": a set of positively oriented triangles from
+ * a manifold mesh whose areas sum to the hull area covers the hull exactly
+ * once.
+ */
+function hullTwiceAreaExact(points: readonly Vector[]): bigint {
+    const pts = points.map(p =>
+        [BigInt(p.values[0]), BigInt(p.values[1])] as [bigint, bigint]);
+    pts.sort((p, q) => (p[0] < q[0] ? -1 : p[0] > q[0] ? 1
+        : p[1] < q[1] ? -1 : p[1] > q[1] ? 1 : 0));
+    const unique: [bigint, bigint][] = [];
+    for (const p of pts) {
+        const last = unique[unique.length - 1];
+        if (!last || last[0] !== p[0] || last[1] !== p[1]) { unique.push(p); }
+    }
+    if (unique.length < 3) { return 0n; }
+    const cross = (o: [bigint, bigint], a: [bigint, bigint],
+        b: [bigint, bigint]): bigint =>
+        (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    const build = (src: [bigint, bigint][]): [bigint, bigint][] => {
+        const out: [bigint, bigint][] = [];
+        for (const p of src) {
+            while (out.length >= 2
+                && cross(out[out.length - 2], out[out.length - 1], p) <= 0n) {
+                out.pop();
+            }
+            out.push(p);
+        }
+        out.pop();
+        return out;
+    };
+    const hull = build(unique).concat(build(unique.slice().reverse()));
+    let twice = 0n;
+    for (let i = 0, j = hull.length - 1; i < hull.length; j = i++) {
+        twice += hull[j][0] * hull[i][1] - hull[i][0] * hull[j][1];
+    }
+    return twice;
+}
+
+/**
+ * Exact twice-area of the graph triangles; also asserts that every triangle
+ * is counterclockwise, so the sum is the covered area with multiplicity.
+ */
+function graphTwiceAreaExact(cdt: ConstrainedDelaunay2): bigint {
+    const vertices = cdt.getVertices();
+    let sum = 0n;
+    for (const tri of cdt.getGraph().getTriangles()) {
+        const a = twiceAreaExact(vertices[tri.V[0]], vertices[tri.V[1]],
+            vertices[tri.V[2]]);
+        expect(a > 0n).toBe(true);
+        sum += a;
+    }
+    return sum;
+}
+
+function triangleKeys(cdt: ConstrainedDelaunay2): string[] {
+    const keys: string[] = [];
+    for (const tri of cdt.getGraph().getTriangles()) {
+        keys.push(triangleKey(tri.V[0], tri.V[1], tri.V[2]));
+    }
+    keys.sort();
+    return keys;
+}
+
+/** Lattice point sets large enough to have a 2D Delaunay triangulation. */
+const latticeCloud = (count: number, range = 6): fc.Arbitrary<Vector[]> =>
+    fc.array(latticeVector(2, -range, range),
+        { minLength: count, maxLength: count });
+
+describe('ConstrainedDelaunay2 verification', () => {
+    it('covers the convex hull exactly before and after edge insertion', () => {
+        check(fc.tuple(latticeCloud(12), fc.nat(200), fc.nat(200)),
+            ([points, a, b]) => {
+                const cdt = new ConstrainedDelaunay2();
+                if (!cdt.compute(points) || cdt.getDimension() !== 2) {
+                    return true;
+                }
+                const hullArea = hullTwiceAreaExact(points);
+                expect(graphTwiceAreaExact(cdt)).toBe(hullArea);
+
+                const dup = cdt.getDuplicates();
+                const e0 = dup[a % points.length];
+                const e1 = dup[b % points.length];
+                if (e0 === e1) {
+                    return true;
+                }
+                const partitioned = cdt.insert([e0, e1]);
+                expect(partitioned[0]).toBe(e0);
+                expect(partitioned[partitioned.length - 1]).toBe(e1);
+                // The retriangulated strip still covers exactly the hull.
+                expect(graphTwiceAreaExact(cdt)).toBe(hullArea);
+                return true;
+            }, 60);
+    }, 30000);
+
+    it('contains every constrained subedge after insertion', () => {
+        check(fc.tuple(latticeCloud(11), fc.nat(200), fc.nat(200)),
+            ([points, a, b]) => {
+                const cdt = new ConstrainedDelaunay2();
+                if (!cdt.compute(points) || cdt.getDimension() !== 2) {
+                    return true;
+                }
+                const dup = cdt.getDuplicates();
+                const e0 = dup[a % points.length];
+                const e1 = dup[b % points.length];
+                if (e0 === e1) {
+                    return true;
+                }
+                const partitioned = cdt.insert([e0, e1]);
+                // Every consecutive pair of the partition is a graph edge...
+                for (let i = 0; i + 1 < partitioned.length; ++i) {
+                    expect(hasEdge(cdt, partitioned[i], partitioned[i + 1]))
+                        .toBe(true);
+                }
+                // ...and getInsertedEdges() reports exactly those subedges.
+                const reported = cdt.getInsertedEdges()
+                    .map(k => k.V[0] + ',' + k.V[1]).sort();
+                const expected: string[] = [];
+                for (let i = 0; i + 1 < partitioned.length; ++i) {
+                    const u = Math.min(partitioned[i], partitioned[i + 1]);
+                    const v = Math.max(partitioned[i], partitioned[i + 1]);
+                    expected.push(u + ',' + v);
+                }
+                expected.sort();
+                expect(reported).toEqual(expected);
+                // Every point of the partition lies on the segment <e0,e1>,
+                // exactly (integer arithmetic).
+                const vertices = cdt.getVertices();
+                for (const p of partitioned) {
+                    expect(twiceAreaExact(vertices[e0], vertices[e1],
+                        vertices[p])).toBe(0n);
+                }
+                return true;
+            }, 60);
+    }, 30000);
+
+    it('gives the same result on a reused instance as on a fresh one', () => {
+        // Upstream never clears mInsertedEdges (issue #325); the port does.
+        // This property checks the whole state, not just that set.
+        check(fc.tuple(latticeCloud(10), latticeCloud(10),
+            fc.nat(200), fc.nat(200)),
+            ([warmup, points, a, b]) => {
+                const fresh = new ConstrainedDelaunay2();
+                if (!fresh.compute(points) || fresh.getDimension() !== 2) {
+                    return true;
+                }
+                const dup = fresh.getDuplicates();
+                const e0 = dup[a % points.length];
+                const e1 = dup[b % points.length];
+                if (e0 === e1) {
+                    return true;
+                }
+                const freshPartition = fresh.insert([e0, e1]);
+
+                const reused = new ConstrainedDelaunay2();
+                if (reused.compute(warmup) && reused.getDimension() === 2) {
+                    const wdup = reused.getDuplicates();
+                    const w0 = wdup[0];
+                    const w1 = wdup[warmup.length - 1];
+                    if (w0 !== w1) {
+                        reused.insert([w0, w1]);
+                    }
+                }
+                expect(reused.compute(points)).toBe(true);
+                expect(reused.insert([e0, e1])).toEqual(freshPartition);
+                expect(triangleKeys(reused)).toEqual(triangleKeys(fresh));
+                expect(reused.getInsertedEdges().map(k => k.V[0] + ',' + k.V[1]))
+                    .toEqual(fresh.getInsertedEdges()
+                        .map(k => k.V[0] + ',' + k.V[1]));
+                return true;
+            }, 40);
+    }, 30000);
+
+    it('inserting an existing edge leaves the triangulation unchanged', () => {
+        check(latticeCloud(10), points => {
+            const cdt = new ConstrainedDelaunay2();
+            if (!cdt.compute(points) || cdt.getDimension() !== 2) {
+                return true;
+            }
+            const before = triangleKeys(cdt);
+            // Every graph edge is already in the triangulation, so inserting
+            // one must be a no-op that reports the edge as its own partition.
+            for (const tri of cdt.getGraph().getTriangles()) {
+                const v0 = tri.V[0], v1 = tri.V[1];
+                expect(cdt.insert([v0, v1])).toEqual([v0, v1]);
+                break;
+            }
+            expect(triangleKeys(cdt)).toEqual(before);
+            return true;
+        }, 60);
+    }, 30000);
 });
