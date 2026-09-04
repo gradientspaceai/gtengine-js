@@ -4,6 +4,7 @@ import type {
     BVTreeBoundingVolume, BVTreeSplittingAxis, BVTreeVolumeOps
 } from '../src/BVTree.js';
 import { Vector, dot, sub } from '../src/Vector.js';
+import { check, fc, unitVector, vector } from './helpers/arbitraries.js';
 
 // ---------------------------------------------------------------------------
 // A concrete BoundingVolume: an axis-aligned bounding box. Upstream this is
@@ -174,6 +175,11 @@ class AABBTreeOfPoints extends BVTree<AABB> {
     protected computeLeafBoundingVolume(i: number, bv: AABB): void {
         bv.reset();
         bv.grow(this.mCentroids[this.mPartition[i]]);
+    }
+
+    // Expose the protected traversal for testing.
+    leafIndices(queryType: number, P: Vector, Q: Vector): number[] {
+        return this.getLeafIndices(queryType, P, Q);
     }
 
     partitionOf(i: number): number {
@@ -675,5 +681,241 @@ describe('BVTree', () => {
                 });
             }
         });
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V07): property-based re-check of BVTree.h against the
+// port. The properties target the translation hazards of BVTree.h -- the
+// integer median index (numProjections - 1) / 2, the size_t wrap-around of j0
+// in SplitPoints, the reversed fill of the right partition, the size_t
+// wrap-around loop terminator in GetLeafIndices, and the interior-only
+// bounding-volume test.
+// ---------------------------------------------------------------------------
+
+// A cloud of n 3D points, 1 <= n <= 17. The upper bound crosses two
+// power-of-two boundaries so the height computation is exercised on both
+// complete and incomplete trees.
+const pointCloud = fc.array(vector(3, -8, 8), { minLength: 1, maxLength: 17 });
+
+// The reachable nodes of a tree, as { index, depth } records.
+function reachable<BV extends BVTreeBoundingVolume>(tree: BVTree<BV>):
+    Array<{ index: number; depth: number }> {
+    const list: Array<{ index: number; depth: number }> = [];
+    walk(tree, (index, depth) => { list.push({ index: index, depth: depth }); });
+    return list;
+}
+
+function isLeafNode<BV>(node: BVTreeNode<BV>): boolean {
+    return node.leftChild === BVTreeNode.invalid
+        && node.rightChild === BVTreeNode.invalid;
+}
+
+describe('BVTree verification', () => {
+    it('keeps the tree structure invariants for random clouds and heights', () => {
+        check(fc.tuple(pointCloud, fc.integer({ min: 0, max: 6 }), fc.boolean()),
+            ([points, requested, useFullHeight]) => {
+                const tree = new AABBTreeOfPoints();
+                const height = useFullHeight ? BVTree.fullHeight : requested;
+                tree.create(points, height);
+
+                const n = points.length;
+                const nodes = tree.getNodes();
+                const partition = tree.getPartition();
+
+                // The requested height is honored exactly: fullHeight gives
+                // ceil(log2(n)) (BitHacks::RoundUpToPowerOfTwo then Log2), an
+                // explicit height is clamped to 31.
+                const expectedHeight = useFullHeight
+                    ? Math.ceil(Math.log2(n)) : Math.min(requested, 31);
+                expect(tree.getHeight()).toBe(expectedHeight);
+                expect(nodes.length).toBe(2 ** (expectedHeight + 1) - 1);
+
+                // mPartition is a permutation of the centroid indices.
+                expect([...partition].sort((a, b) => a - b))
+                    .toEqual([...Array(n).keys()]);
+
+                // The reachable leaves tile [0, n-1] exactly once, and the
+                // depth never exceeds the tree height.
+                const covered = new Array<number>(n).fill(0);
+                for (const record of reachable(tree)) {
+                    expect(record.depth).toBeLessThanOrEqual(tree.getHeight());
+                    const node = nodes[record.index];
+                    expect(node.minIndex).toBeLessThanOrEqual(node.maxIndex);
+                    if (isLeafNode(node)) {
+                        for (let i = node.minIndex; i <= node.maxIndex; ++i) {
+                            ++covered[i];
+                        }
+                    } else {
+                        // The children partition the parent range with no gap
+                        // and no overlap, and the two halves differ in size by
+                        // at most one (the balanced median split).
+                        const left = nodes[node.leftChild];
+                        const right = nodes[node.rightChild];
+                        expect(left.minIndex).toBe(node.minIndex);
+                        expect(right.maxIndex).toBe(node.maxIndex);
+                        expect(right.minIndex).toBe(left.maxIndex + 1);
+                        const sizeL = left.maxIndex - left.minIndex + 1;
+                        const sizeR = right.maxIndex - right.minIndex + 1;
+                        expect(Math.abs(sizeL - sizeR)).toBeLessThanOrEqual(1);
+                        // medianIndex = (m - 1) / 2 with integer division, so
+                        // the left child gets ceil(m / 2) of the m elements.
+                        expect(sizeL).toBe(Math.ceil((sizeL + sizeR) / 2));
+                    }
+                }
+                expect(covered.every(c => c === 1)).toBe(true);
+            }, 100);
+    });
+
+    it('splits at the median of the projections onto the splitting axis', () => {
+        check(pointCloud.filter(p => p.length >= 2), (points) => {
+            const tree = new AABBTreeOfPoints();
+            tree.create(points);
+            const nodes = tree.getNodes();
+            const centroids = tree.getCentroids();
+
+            for (const record of reachable(tree)) {
+                const node = nodes[record.index];
+                if (isLeafNode(node)) {
+                    continue;
+                }
+                // The splitting axis comes from the node's own bounding
+                // volume, which is computed before the split.
+                const axis = node.boundingVolume.getSplittingAxis();
+                const project = (i: number): number =>
+                    dot(axis.direction,
+                        sub(centroids[tree.partitionOf(i)], axis.origin));
+
+                const left = nodes[node.leftChild];
+                const right = nodes[node.rightChild];
+                let maxLeft = -Infinity;
+                for (let i = left.minIndex; i <= left.maxIndex; ++i) {
+                    maxLeft = Math.max(maxLeft, project(i));
+                }
+                let minRight = +Infinity;
+                for (let i = right.minIndex; i <= right.maxIndex; ++i) {
+                    minRight = Math.min(minRight, project(i));
+                }
+                // The postcondition of std::nth_element: everything before the
+                // median is <= everything after it.
+                expect(maxLeft).toBeLessThanOrEqual(minRight);
+            }
+        }, 100);
+    });
+
+    it('bounds every node by its own primitives and nests child in parent', () => {
+        check(pointCloud, (points) => {
+            const tree = new AABBTreeOfPoints();
+            tree.create(points);
+            const nodes = tree.getNodes();
+            const centroids = tree.getCentroids();
+
+            for (const record of reachable(tree)) {
+                const node = nodes[record.index];
+                for (let i = node.minIndex; i <= node.maxIndex; ++i) {
+                    expect(node.boundingVolume.contains(
+                        centroids[tree.partitionOf(i)])).toBe(true);
+                }
+                if (!isLeafNode(node)) {
+                    const children = [nodes[node.leftChild], nodes[node.rightChild]];
+                    for (const child of children) {
+                        for (let j = 0; j < 3; ++j) {
+                            expect(child.boundingVolume.min[j])
+                                .toBeGreaterThanOrEqual(node.boundingVolume.min[j]);
+                            expect(child.boundingVolume.max[j])
+                                .toBeLessThanOrEqual(node.boundingVolume.max[j]);
+                        }
+                    }
+                }
+            }
+        }, 100);
+    });
+
+    it('getLeafIndices never misses a leaf whose own volume is hit', () => {
+        // Upstream tests only interior nodes (issue #103), so the reported set
+        // is a conservative superset. The property that must hold is the
+        // absence of false negatives: a leaf whose own box the linear
+        // component meets is always reported.
+        check(fc.tuple(pointCloud.filter(p => p.length >= 2), vector(3, -8, 8),
+            unitVector(3), vector(3, -8, 8)),
+            (input) => {
+                const points = input[0];
+                const P = input[1];
+                const D = input[2];
+                const Q = input[3];
+                const tree = new AABBTreeOfPoints();
+                tree.create(points);
+                const nodes = tree.getNodes();
+                const allLeaves = reachable(tree)
+                    .filter(r => isLeafNode(nodes[r.index])).map(r => r.index);
+
+                const cases: Array<{
+                    queryType: number; A: Vector; B: Vector;
+                    hit: (bv: AABB) => boolean;
+                }> = [
+                    {
+                        queryType: BVTree.LINE_QUERY, A: P, B: D,
+                        hit: (bv) => intersectSlabs(P, D, -Infinity, Infinity, bv)
+                    },
+                    {
+                        queryType: BVTree.RAY_QUERY, A: P, B: D,
+                        hit: (bv) => intersectSlabs(P, D, 0, Infinity, bv)
+                    },
+                    {
+                        queryType: BVTree.SEGMENT_QUERY, A: P, B: Q,
+                        hit: (bv) => intersectSlabs(P, sub(Q, P), 0, 1, bv)
+                    }
+                ];
+
+                for (const c of cases) {
+                    const reported = new Set(tree.leafIndices(c.queryType, c.A, c.B));
+                    // Only leaves are ever reported, never an interior node.
+                    for (const index of reported) {
+                        expect(isLeafNode(nodes[index])).toBe(true);
+                    }
+                    for (const leaf of allLeaves) {
+                        if (c.hit(nodes[leaf].boundingVolume)) {
+                            expect(reported.has(leaf)).toBe(true);
+                        }
+                    }
+                }
+            }, 60);
+    });
+
+    it('handles coincident centroids without degenerating the partition', () => {
+        check(fc.tuple(vector(3, -8, 8), fc.integer({ min: 1, max: 12 })),
+            (input) => {
+                const n = input[1];
+                const points: Vector[] = [];
+                for (let i = 0; i < n; ++i) {
+                    points.push(input[0].clone());
+                }
+                const tree = new AABBTreeOfPoints();
+                tree.create(points);
+                expect([...tree.getPartition()].sort((a, b) => a - b))
+                    .toEqual([...Array(n).keys()]);
+                // Every projection is zero, so the split is purely positional;
+                // the tree must still be complete and every box must be the
+                // degenerate box at the common point.
+                const nodes = tree.getNodes();
+                for (const record of reachable(tree)) {
+                    const node = nodes[record.index];
+                    expect(Number.isFinite(node.boundingVolume.min[0])).toBe(true);
+                    expect(node.boundingVolume.contains(input[0])).toBe(true);
+                }
+            });
+    });
+
+    it('copies the centroids so later input mutation cannot reach the tree', () => {
+        check(pointCloud, (points) => {
+            const tree = new AABBTreeOfPoints();
+            tree.create(points);
+            const before = tree.getCentroids().map(c => [...c.values]);
+            for (const p of points) {
+                p.values[0] += 1000;
+            }
+            const after = tree.getCentroids().map(c => [...c.values]);
+            expect(after).toEqual(before);
+        }, 50);
     });
 });

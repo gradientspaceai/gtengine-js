@@ -44,8 +44,8 @@
 //     depending on tree partition/traversal order. That corrupts results, so
 //     the port FIXES it: hits are ordered lexicographically by
 //     (parameter, triangleIndex) and every hit is kept. See upstream issue
-//     #167, filed for the identical bug in BVTreeOfTriangles.h (where the
-//     port preserved the quirk).
+//     #167, filed for the identical bug in BVTreeOfTriangles.h, whose port is
+//     fixed the same way.
 
 import { IntrLine3OrientedBox3TI } from './IntrLine3OrientedBox3.js';
 import { IntrLine3Triangle3FI } from './IntrLine3Triangle3.js';

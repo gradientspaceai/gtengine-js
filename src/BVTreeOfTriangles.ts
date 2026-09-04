@@ -80,6 +80,16 @@ export function intersectRayTriangle(P: Vector, Q: Vector,
 }
 
 // The segment has endpoints P and Q.
+//
+// NOTE (upstream quirk, preserved): IntrSegment3Triangle3 reports the
+// parameter s of the centered segment form C + s * D with |s| <= e, not the
+// t in [0,1] of (1-t)*P + t*Q that BVTree.h documents for SEGMENT_QUERY.
+// Upstream BVTreeOfTriangles.h forwards s unchanged, while the older
+// OBBTreeOfTriangles.h converts it with t = s / Length(Q - P) + 1/2. The
+// discrepancy does not affect which triangles are reported nor their order
+// (the map from s to t is increasing), only the reported number, so the
+// upstream value is preserved here; see OBBTreeOfTriangles.ts for the
+// converting variant.
 export function intersectSegmentTriangle(P: Vector, Q: Vector,
     triangle: Triangle): LinearTriangleResult {
     const query = new IntrSegment3Triangle3FI();

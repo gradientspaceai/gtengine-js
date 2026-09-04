@@ -5,6 +5,9 @@ import type {
 } from '../src/BVTree.js';
 import { BVTreeOfPoints } from '../src/BVTreeOfPoints.js';
 import { Vector, sub } from '../src/Vector.js';
+import {
+    check, fc, unitVector, vector
+} from './helpers/arbitraries.js';
 
 // ---------------------------------------------------------------------------
 // A concrete BoundingVolume: an axis-aligned bounding box, the same minimal
@@ -321,5 +324,186 @@ describe('BVTreeOfPoints', () => {
         const tree = new AABBTreeOfPoints();
         expect(() => tree.create([])).toThrow(
             'Expecting vertices to create a bounding volume tree.');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V07): property-based re-check of BVTreeOfPoints.h. The
+// derived class adds only the vertex copy and the "vertices are already the
+// centroids" pass-through, so the properties target those plus the inherited
+// Execute/GetLeafIndices contract.
+// ---------------------------------------------------------------------------
+
+const bvPointCloud = fc.array(vector(3, -8, 8), { minLength: 1, maxLength: 17 });
+
+function bvpReachable(tree: AABBTreeOfPoints): number[] {
+    const nodes = tree.getNodes();
+    const list: number[] = [];
+    const stack = [0];
+    while (stack.length > 0) {
+        const index = stack.pop()!;
+        list.push(index);
+        const node = nodes[index];
+        if (!isLeaf(node)) {
+            stack.push(node.leftChild, node.rightChild);
+        }
+    }
+    return list;
+}
+
+describe('BVTreeOfPoints verification', () => {
+    it('uses the vertices as the centroids and copies both', () => {
+        check(bvPointCloud, (points) => {
+            const tree = new AABBTreeOfPoints();
+            tree.create(points);
+
+            const vertices = tree.getVertices();
+            const centroids = tree.getCentroids();
+            expect(vertices.length).toBe(points.length);
+            expect(centroids.length).toBe(points.length);
+            for (let i = 0; i < points.length; ++i) {
+                expect([...vertices[i].values]).toEqual([...points[i].values]);
+                expect([...centroids[i].values]).toEqual([...points[i].values]);
+                // Upstream copies the input into mVertices and then copies
+                // again into the centroids, so neither aliases the caller's
+                // array nor each other.
+                expect(vertices[i]).not.toBe(points[i]);
+                expect(centroids[i]).not.toBe(vertices[i]);
+            }
+
+            for (const p of points) {
+                p.values[2] += 100;
+            }
+            for (let i = 0; i < points.length; ++i) {
+                expect(vertices[i].values[2]).not.toBe(points[i].values[2]);
+            }
+        }, 100);
+    });
+
+    it('bounds every node by its own points and tiles the partition', () => {
+        check(bvPointCloud, (points) => {
+            const tree = new AABBTreeOfPoints();
+            tree.create(points);
+            const nodes = tree.getNodes();
+            const vertices = tree.getVertices();
+            const partition = tree.getPartition();
+
+            expect([...partition].sort((a, b) => a - b))
+                .toEqual([...Array(points.length).keys()]);
+
+            const covered = new Array<number>(points.length).fill(0);
+            for (const index of bvpReachable(tree)) {
+                const node = nodes[index];
+                for (let i = node.minIndex; i <= node.maxIndex; ++i) {
+                    expect(node.boundingVolume.contains(vertices[partition[i]]))
+                        .toBe(true);
+                }
+                if (isLeaf(node)) {
+                    for (let i = node.minIndex; i <= node.maxIndex; ++i) {
+                        ++covered[i];
+                    }
+                    // With the full height every leaf holds exactly one point.
+                    expect(node.minIndex).toBe(node.maxIndex);
+                }
+            }
+            expect(covered.every(c => c === 1)).toBe(true);
+        }, 100);
+    });
+
+    it('execute never misses a leaf whose own volume is hit', () => {
+        check(fc.tuple(bvPointCloud, vector(3, -8, 8), unitVector(3),
+            vector(3, -8, 8)), (input) => {
+                const tree = new AABBTreeOfPoints();
+                tree.create(input[0]);
+                const P = input[1];
+                const D = input[2];
+                const Q = input[3];
+                const nodes = tree.getNodes();
+                const leaves = bvpReachable(tree).filter(i => isLeaf(nodes[i]));
+
+                const cases: Array<{
+                    queryType: number; A: Vector; B: Vector;
+                    hit: (bv: AABB) => boolean;
+                }> = [
+                    {
+                        queryType: BVTree.LINE_QUERY, A: P, B: D,
+                        hit: (bv) => intersectSlabs(P, D, -Infinity, Infinity, bv)
+                    },
+                    {
+                        queryType: BVTree.RAY_QUERY, A: P, B: D,
+                        hit: (bv) => intersectSlabs(P, D, 0, Infinity, bv)
+                    },
+                    {
+                        queryType: BVTree.SEGMENT_QUERY, A: P, B: Q,
+                        hit: (bv) => intersectSlabs(P, sub(Q, P), 0, 1, bv)
+                    }
+                ];
+
+                for (const c of cases) {
+                    const reported = tree.execute(c.queryType, c.A, c.B);
+                    // Every reported index is a leaf, reported once.
+                    expect(new Set(reported).size).toBe(reported.length);
+                    for (const index of reported) {
+                        expect(isLeaf(nodes[index])).toBe(true);
+                    }
+                    // No false negatives (the set is a superset: upstream
+                    // never tests a leaf's own volume, issue #103).
+                    for (const leaf of leaves) {
+                        if (c.hit(nodes[leaf].boundingVolume)) {
+                            expect(reported).toContain(leaf);
+                        }
+                    }
+                }
+            }, 60);
+    });
+
+    it('honors an explicit height and keeps multi-point leaves bounded', () => {
+        check(fc.tuple(bvPointCloud, fc.integer({ min: 0, max: 4 })), (input) => {
+            const points = input[0];
+            const height = input[1];
+            const tree = new AABBTreeOfPoints();
+            tree.create(points, height);
+            expect(tree.getHeight()).toBe(height);
+
+            const nodes = tree.getNodes();
+            const vertices = tree.getVertices();
+            const partition = tree.getPartition();
+            const covered = new Array<number>(points.length).fill(0);
+            for (const index of bvpReachable(tree)) {
+                const node = nodes[index];
+                if (!isLeaf(node)) {
+                    continue;
+                }
+                for (let i = node.minIndex; i <= node.maxIndex; ++i) {
+                    ++covered[i];
+                    expect(node.boundingVolume.contains(vertices[partition[i]]))
+                        .toBe(true);
+                }
+                // A truncated leaf holds at most ceil(n / 2^height) points.
+                const size = node.maxIndex - node.minIndex + 1;
+                expect(size).toBeLessThanOrEqual(
+                    Math.ceil(points.length / 2 ** height));
+            }
+            expect(covered.every(c => c === 1)).toBe(true);
+        }, 100);
+    });
+
+    it('handles coincident points', () => {
+        check(fc.tuple(vector(3, -8, 8), fc.integer({ min: 1, max: 12 })),
+            (input) => {
+                const points: Vector[] = [];
+                for (let i = 0; i < input[1]; ++i) {
+                    points.push(input[0].clone());
+                }
+                const tree = new AABBTreeOfPoints();
+                tree.create(points);
+                const hits = tree.execute(BVTree.LINE_QUERY, input[0],
+                    Vector.unit(3, 0));
+                expect(hits.length).toBeGreaterThan(0);
+                for (const index of hits) {
+                    expect(tree.getNodes()[index].boundingVolume.contains(input[0]))
+                        .toBe(true);
+                }
+            });
     });
 });

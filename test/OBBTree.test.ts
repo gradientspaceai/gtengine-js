@@ -3,6 +3,40 @@ import { OBBNode, OBBTree } from '../src/OBBTree.js';
 import { OrientedBox } from '../src/OrientedBox.js';
 import { Vector, dot, normalize, sub } from '../src/Vector.js';
 import { cross, dotCross } from '../src/Vector3.js';
+import {
+    check, expectClose, fc, scaled, unitVector, wellScaledVector
+} from './helpers/arbitraries.js';
+
+// A triangle soup: numTriangles independent, non-degenerate triangles, each
+// with its own three vertices. Used by the verification block below.
+// Coordinates come from a uniform grid (scaled(), no dynamic range) rather
+// than fc.double(): the covariance matrix the eigensolver decomposes squares
+// them, so subnormal separations underflow it. A grid also keeps the
+// non-degeneracy filter's rejection rate low, which matters because this
+// generator feeds a property that builds a whole tree per run.
+const soupCoordinate = scaled(-6, 6, 512);
+const soupPoint = fc.tuple(soupCoordinate, soupCoordinate, soupCoordinate)
+    .map(c => Vector.fromArray([c[0], c[1], c[2]]));
+
+function triangleSoup(minTriangles: number, maxTriangles: number) {
+    return fc.array(
+        fc.tuple(soupPoint, soupPoint, soupPoint)
+            .filter((t) => {
+                const n = cross(sub(t[1], t[0]), sub(t[2], t[0]));
+                return dot(n, n) > 1;
+            }),
+        { minLength: minTriangles, maxLength: maxTriangles })
+        .map((tris) => {
+            const vertices: Vector[] = [];
+            const triangles: [number, number, number][] = [];
+            for (const t of tris) {
+                const b = vertices.length;
+                vertices.push(t[0], t[1], t[2]);
+                triangles.push([b, b + 1, b + 2]);
+            }
+            return { vertices: vertices, triangles: triangles };
+        });
+}
 
 // ---------------------------------------------------------------------------
 // A concrete OBBTree of triangles, modeled on upstream OBBTreeOfTriangles.h.
@@ -109,6 +143,10 @@ class OBBTreeOfPointsRaw extends OBBTree {
     protected computeLeafBox(i: number, box: OrientedBox): void {
         box.center = this.mCentroids[this.mPartition[i]].clone();
         box.extent = new Vector(3);
+    }
+
+    partitionOf(i: number): number {
+        return this.mPartition[i];
     }
 }
 
@@ -564,5 +602,262 @@ describe('OBBTree', () => {
                 });
             }
         });
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V07): property-based re-check of OBBTree.h against the
+// port. OBBTree duplicates the BVTree tree-building code with an oriented box
+// as the bounding volume, so the properties cover the same translation
+// hazards (integer median index, size_t wrap-around of j0, reversed right
+// partition) plus the eigen-decomposition that supplies the box frame.
+// ---------------------------------------------------------------------------
+
+// wellScaledVector rather than vector: the closed-form eigensolver of
+// SymmetricEigensolver3x3 squares the centroid coordinates, so subnormal
+// separations (which fc.double() produces readily) underflow the covariance
+// matrix to zero and its eigenvectors stop being orthonormal. That is an
+// upstream conditioning limit, not a port defect; see the eigensolver's own
+// upstream-bug issue.
+const obbPointCloud = fc.array(wellScaledVector(3, -8, 8),
+    { minLength: 1, maxLength: 17 });
+
+function obbReachable(tree: OBBTree): Array<{ index: number; depth: number }> {
+    const list: Array<{ index: number; depth: number }> = [];
+    walk(tree, (index, depth) => { list.push({ index: index, depth: depth }); });
+    return list;
+}
+
+function obbIsLeaf(node: OBBNode): boolean {
+    return node.leftChild === OBBNode.invalid && node.rightChild === OBBNode.invalid;
+}
+
+describe('OBBTree verification', () => {
+    it('keeps the tree structure invariants for random clouds and heights', () => {
+        check(fc.tuple(obbPointCloud, fc.integer({ min: 0, max: 6 }), fc.boolean()),
+            (input) => {
+                const points = input[0];
+                const requested = input[1];
+                const useFullHeight = input[2];
+                const tree = new OBBTreeOfPointsRaw();
+                tree.create(points, useFullHeight ? OBBTree.fullHeight : requested);
+
+                const n = points.length;
+                const nodes = tree.getNodes();
+                const expectedHeight = useFullHeight
+                    ? Math.ceil(Math.log2(n)) : Math.min(requested, 31);
+                expect(tree.getHeight()).toBe(expectedHeight);
+                expect(nodes.length).toBe(2 ** (expectedHeight + 1) - 1);
+                expect([...tree.getPartition()].sort((a, b) => a - b))
+                    .toEqual([...Array(n).keys()]);
+
+                const covered = new Array<number>(n).fill(0);
+                for (const record of obbReachable(tree)) {
+                    expect(record.depth).toBeLessThanOrEqual(tree.getHeight());
+                    const node = nodes[record.index];
+                    expect(node.minIndex).toBeLessThanOrEqual(node.maxIndex);
+                    if (obbIsLeaf(node)) {
+                        for (let i = node.minIndex; i <= node.maxIndex; ++i) {
+                            ++covered[i];
+                        }
+                    } else {
+                        const left = nodes[node.leftChild];
+                        const right = nodes[node.rightChild];
+                        expect(node.leftChild).toBe(2 * record.index + 1);
+                        expect(node.rightChild).toBe(2 * record.index + 2);
+                        expect(left.minIndex).toBe(node.minIndex);
+                        expect(right.maxIndex).toBe(node.maxIndex);
+                        expect(right.minIndex).toBe(left.maxIndex + 1);
+                        const sizeL = left.maxIndex - left.minIndex + 1;
+                        const sizeR = right.maxIndex - right.minIndex + 1;
+                        expect(sizeL).toBe(Math.ceil((sizeL + sizeR) / 2));
+                    }
+                }
+                expect(covered.every(c => c === 1)).toBe(true);
+            }, 100);
+    });
+
+    it('gives every interior box the eigen frame of the centroid covariance', () => {
+        // Independent cross-check of ComputeInteriorBox: recompute the mean
+        // and the covariance matrix, then verify that each stored axis is an
+        // eigenvector of that matrix with the stored extent as eigenvalue.
+        check(obbPointCloud.filter(p => p.length >= 2), (points) => {
+            const tree = new OBBTreeOfPointsRaw();
+            tree.create(points);
+            const nodes = tree.getNodes();
+            const centroids = tree.getCentroids();
+
+            for (const record of obbReachable(tree)) {
+                const node = nodes[record.index];
+                if (obbIsLeaf(node)) {
+                    continue;
+                }
+                const box = node.box;
+                const denom = node.maxIndex - node.minIndex + 1;
+
+                // The box center is the mean of the node's centroids.
+                const mean = new Vector(3);
+                for (let i = node.minIndex; i <= node.maxIndex; ++i) {
+                    const c = centroids[tree.partitionOf(i)];
+                    for (let j = 0; j < 3; ++j) {
+                        mean.values[j] += c.values[j];
+                    }
+                }
+                for (let j = 0; j < 3; ++j) {
+                    mean.values[j] /= denom;
+                    // Not bit-exact: ComputeInteriorBox sums in the mPartition
+                    // order that held *before* SplitPoints permuted the node's
+                    // range, so the recomputation adds the same terms in a
+                    // different order (a 1-ulp difference).
+                    expectClose(box.center.values[j], mean.values[j], 1e-12, 1e-12);
+                }
+
+                // The covariance matrix of the node's centroids.
+                const cov = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+                for (let i = node.minIndex; i <= node.maxIndex; ++i) {
+                    const diff = sub(centroids[tree.partitionOf(i)], mean);
+                    for (let r = 0; r < 3; ++r) {
+                        for (let c = 0; c < 3; ++c) {
+                            cov[r][c] += diff.values[r] * diff.values[c];
+                        }
+                    }
+                }
+                let scale = 0;
+                for (let r = 0; r < 3; ++r) {
+                    for (let c = 0; c < 3; ++c) {
+                        cov[r][c] /= denom;
+                        scale = Math.max(scale, Math.abs(cov[r][c]));
+                    }
+                }
+
+                // The frame is orthonormal and right-handed, the eigenvalues
+                // are stored increasingly in the extents (sortType +1), and
+                // axis[2] belongs to the largest eigenvalue.
+                for (let a = 0; a < 3; ++a) {
+                    expect(Math.abs(dot(box.axis[a], box.axis[a]) - 1))
+                        .toBeLessThan(1e-9);
+                    for (let b = a + 1; b < 3; ++b) {
+                        expect(Math.abs(dot(box.axis[a], box.axis[b])))
+                            .toBeLessThan(1e-9);
+                    }
+                }
+                expect(Math.abs(dotCross(box.axis[0], box.axis[1], box.axis[2]) - 1))
+                    .toBeLessThan(1e-9);
+                expect(box.extent.values[0]).toBeLessThanOrEqual(box.extent.values[1]);
+                expect(box.extent.values[1]).toBeLessThanOrEqual(box.extent.values[2]);
+
+                // cov * axis[j] = extent[j] * axis[j]. The tolerance scales
+                // with the covariance magnitude because the closed-form
+                // eigensolver works with squared coordinates.
+                for (let j = 0; j < 3; ++j) {
+                    const u = box.axis[j];
+                    for (let r = 0; r < 3; ++r) {
+                        const lhs = cov[r][0] * u.values[0] + cov[r][1] * u.values[1]
+                            + cov[r][2] * u.values[2];
+                        const rhs = box.extent.values[j] * u.values[r];
+                        expect(Math.abs(lhs - rhs))
+                            .toBeLessThanOrEqual(1e-8 * (1 + scale));
+                    }
+                }
+            }
+        }, 60);
+    });
+
+    it('splits at the median of the projections onto the largest-eigenvalue axis', () => {
+        check(obbPointCloud.filter(p => p.length >= 2), (points) => {
+            const tree = new OBBTreeOfPointsRaw();
+            tree.create(points);
+            const nodes = tree.getNodes();
+            const centroids = tree.getCentroids();
+
+            for (const record of obbReachable(tree)) {
+                const node = nodes[record.index];
+                if (obbIsLeaf(node)) {
+                    continue;
+                }
+                // SplitPoints is called with the box center and box.axis[2],
+                // the eigenvector of the largest eigenvalue.
+                const project = (i: number): number =>
+                    dot(node.box.axis[2],
+                        sub(centroids[tree.partitionOf(i)], node.box.center));
+                const left = nodes[node.leftChild];
+                const right = nodes[node.rightChild];
+                let maxLeft = -Infinity;
+                for (let i = left.minIndex; i <= left.maxIndex; ++i) {
+                    maxLeft = Math.max(maxLeft, project(i));
+                }
+                let minRight = +Infinity;
+                for (let i = right.minIndex; i <= right.maxIndex; ++i) {
+                    minRight = Math.min(minRight, project(i));
+                }
+                expect(maxLeft).toBeLessThanOrEqual(minRight);
+            }
+        }, 100);
+    });
+
+    it('bounds the triangles of every node when the derived class extends the box', () => {
+        check(triangleSoup(1, 6), (mesh) => {
+            const tree = new OBBTreeOfTriangles();
+            tree.createFromMesh(mesh.vertices, mesh.triangles);
+            const nodes = tree.getNodes();
+            for (const record of obbReachable(tree)) {
+                const node = nodes[record.index];
+                for (let i = node.minIndex; i <= node.maxIndex; ++i) {
+                    const tri = mesh.triangles[tree.partitionOf(i)];
+                    for (let k = 0; k < 3; ++k) {
+                        expect(boxContains(node.box, mesh.vertices[tri[k]], 1e-9))
+                            .toBe(true);
+                    }
+                }
+            }
+        }, 30);
+    });
+
+    it('survives degenerate centroid sets without producing NaN', () => {
+        check(fc.tuple(wellScaledVector(3, -8, 8), unitVector(3),
+            fc.integer({ min: 1, max: 10 }), fc.boolean()), (input) => {
+                const base = input[0];
+                const dir = input[1];
+                const n = input[2];
+                const collinear = input[3];
+                const points: Vector[] = [];
+                for (let i = 0; i < n; ++i) {
+                    // All coincident, or all on one line (rank-deficient
+                    // covariance either way).
+                    points.push(collinear
+                        ? Vector.fromArray([
+                            base.values[0] + i * dir.values[0],
+                            base.values[1] + i * dir.values[1],
+                            base.values[2] + i * dir.values[2]])
+                        : base.clone());
+                }
+                const tree = new OBBTreeOfPointsRaw();
+                tree.create(points);
+                expect([...tree.getPartition()].sort((a, b) => a - b))
+                    .toEqual([...Array(n).keys()]);
+                const nodes = tree.getNodes();
+                for (const record of obbReachable(tree)) {
+                    const box = nodes[record.index].box;
+                    for (let j = 0; j < 3; ++j) {
+                        expect(Number.isFinite(box.center.values[j])).toBe(true);
+                        expect(Number.isFinite(box.extent.values[j])).toBe(true);
+                        for (let k = 0; k < 3; ++k) {
+                            expect(Number.isFinite(box.axis[j].values[k])).toBe(true);
+                        }
+                    }
+                }
+            }, 60);
+    });
+
+    it('copies the centroids so later input mutation cannot reach the tree', () => {
+        check(obbPointCloud, (points) => {
+            const tree = new OBBTreeOfPointsRaw();
+            tree.create(points);
+            const before = tree.getCentroids().map(c => [...c.values]);
+            for (const p of points) {
+                p.values[1] -= 500;
+            }
+            expect(tree.getCentroids().map(c => [...c.values])).toEqual(before);
+        }, 50);
     });
 });

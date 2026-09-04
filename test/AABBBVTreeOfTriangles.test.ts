@@ -10,6 +10,7 @@ import {
 import type { LinearTriangleResult } from '../src/BVTreeOfTriangles.js';
 import { Triangle } from '../src/Triangle.js';
 import { Vector, normalize } from '../src/Vector.js';
+import { check, fc, scaled } from './helpers/arbitraries.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -685,5 +686,263 @@ describe('AABBBVTreeOfTriangles queries', () => {
                 expect(a[i]).toBeCloseTo(b[i], 12);
             }
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V07): property-based re-check of AABBBVTreeOfTriangles.h.
+//
+// Coordinates are drawn from a uniform grid (scaled(), no dynamic range at
+// all) rather than fc.double(), which samples bit patterns and reaches 1e-320
+// readily. The per-triangle FIQuery divides the barycentric numerators by
+// Dot(D, N), so a subnormal Dot(D, N) yields infinite parameters and "hits"
+// that no bounding volume contains, which would make the brute-force
+// comparison meaningless. Exactly-parallel configurations are still generated
+// and are harmless: both sides run the same query and both report no hit.
+// ---------------------------------------------------------------------------
+
+const gridCoordinate = scaled(-6, 6, 512);
+
+const gridPoint = fc.tuple(gridCoordinate, gridCoordinate, gridCoordinate)
+    .map(c => v3(c[0], c[1], c[2]));
+
+const gridDirection = fc.tuple(scaled(-1, 1, 64), scaled(-1, 1, 64),
+    scaled(-1, 1, 64))
+    .map(c => v3(c[0], c[1], c[2]))
+    .filter(v => v.get(0) ** 2 + v.get(1) ** 2 + v.get(2) ** 2 > 0.05)
+    .map(v => { const u = v.clone(); normalize(u); return u; });
+
+// Independent, non-degenerate triangles, each with its own three vertices.
+const gridSoup: fc.Arbitrary<Mesh> = fc.array(
+    fc.tuple(gridPoint, gridPoint, gridPoint)
+        .filter((t) => {
+            const ax = t[1].get(0) - t[0].get(0);
+            const ay = t[1].get(1) - t[0].get(1);
+            const az = t[1].get(2) - t[0].get(2);
+            const bx = t[2].get(0) - t[0].get(0);
+            const by = t[2].get(1) - t[0].get(1);
+            const bz = t[2].get(2) - t[0].get(2);
+            const nx = ay * bz - az * by;
+            const ny = az * bx - ax * bz;
+            const nz = ax * by - ay * bx;
+            return nx * nx + ny * ny + nz * nz > 1;
+        }),
+    { minLength: 1, maxLength: 9 })
+    .map((tris) => {
+        const vertices: Vector[] = [];
+        const triangles: Tri[] = [];
+        for (const t of tris) {
+            const b = vertices.length;
+            vertices.push(t[0], t[1], t[2]);
+            triangles.push([b, b + 1, b + 2]);
+        }
+        return { vertices: vertices, triangles: triangles };
+    });
+
+function aabbReachable(tree: AABBBVTreeOfTriangles): number[] {
+    const nodes = tree.getNodes();
+    const list: number[] = [];
+    const stack = [0];
+    while (stack.length > 0) {
+        const index = stack.pop()!;
+        list.push(index);
+        const node = nodes[index];
+        if (node.leftChild !== BVTreeNode.invalid
+            && node.rightChild !== BVTreeNode.invalid) {
+            stack.push(node.leftChild, node.rightChild);
+        }
+    }
+    return list;
+}
+
+describe('AABBBVTreeOfTriangles verification', () => {
+    it('gives every reachable node the tight box of its triangle range', () => {
+        // ComputeInteriorBoundingVolume seeds min = max = the first vertex of
+        // the first triangle in the range and then uses an if/else-if update.
+        // Because min <= max holds from the seed onwards that is an exact
+        // min/max, so the box must equal the independently computed tight box
+        // bit for bit -- unlike the OBBTree family's zero-seeded version.
+        check(fc.tuple(gridSoup, fc.integer({ min: 0, max: 4 }), fc.boolean()),
+            (input) => {
+                const mesh = input[0];
+                const tree = buildTree(mesh,
+                    input[2] ? BVTree.fullHeight : input[1]);
+                const nodes = tree.getNodes();
+                const partition = tree.getPartition();
+
+                for (const index of aabbReachable(tree)) {
+                    const node = nodes[index];
+                    const range: number[] = [];
+                    for (let i = node.minIndex; i <= node.maxIndex; ++i) {
+                        range.push(partition[i]);
+                    }
+                    const tight = tightBox(mesh, range);
+                    expect([...node.boundingVolume.box.min.values])
+                        .toEqual([...tight.min.values]);
+                    expect([...node.boundingVolume.box.max.values])
+                        .toEqual([...tight.max.values]);
+                }
+            }, 100);
+    });
+
+    it('nests every child box inside its parent box', () => {
+        check(gridSoup, (mesh) => {
+            const tree = buildTree(mesh);
+            const nodes = tree.getNodes();
+            for (const index of aabbReachable(tree)) {
+                const node = nodes[index];
+                if (node.leftChild === BVTreeNode.invalid) {
+                    continue;
+                }
+                const parent = node.boundingVolume.box;
+                for (const childIndex of [node.leftChild, node.rightChild]) {
+                    const child = nodes[childIndex].boundingVolume.box;
+                    for (let k = 0; k < 3; ++k) {
+                        expect(child.min.get(k))
+                            .toBeGreaterThanOrEqual(parent.min.get(k));
+                        expect(child.max.get(k))
+                            .toBeLessThanOrEqual(parent.max.get(k));
+                    }
+                }
+            }
+        }, 100);
+    });
+
+    it('splits along the coordinate axis of largest box extent', () => {
+        check(gridSoup, (mesh) => {
+            const tree = buildTree(mesh);
+            const nodes = tree.getNodes();
+            for (const index of aabbReachable(tree)) {
+                const node = nodes[index];
+                const box = node.boundingVolume.box;
+                const axis = node.boundingVolume.getSplittingAxis();
+
+                // The origin is the box center.
+                for (let k = 0; k < 3; ++k) {
+                    expect(axis.origin.get(k))
+                        .toBe(0.5 * (box.max.get(k) + box.min.get(k)));
+                }
+                // The direction is a coordinate unit vector, the axis of
+                // largest half-extent, ties broken toward the lower index
+                // because the comparisons are strict.
+                const extents = [0, 1, 2].map(
+                    k => 0.5 * (box.max.get(k) - box.min.get(k)));
+                let expected = 0;
+                for (let k = 1; k < 3; ++k) {
+                    if (extents[k] > extents[expected]) {
+                        expected = k;
+                    }
+                }
+                expect([...axis.direction.values])
+                    .toEqual([...Vector.unit(3, expected).values]);
+            }
+        }, 100);
+    });
+
+    it('matches brute force for line, ray and segment queries', () => {
+        check(fc.tuple(gridSoup, gridPoint, gridDirection, gridPoint,
+            fc.integer({ min: 0, max: 4 }), fc.boolean()), (input) => {
+                const mesh = input[0];
+                const P = input[1];
+                const D = input[2];
+                const Q = input[3];
+                const tree = buildTree(mesh,
+                    input[5] ? BVTree.fullHeight : input[4]);
+
+                const cases: Array<{ queryType: number; A: Vector; B: Vector }> = [
+                    { queryType: BVTree.LINE_QUERY, A: P, B: D },
+                    { queryType: BVTree.RAY_QUERY, A: P, B: D },
+                    { queryType: BVTree.SEGMENT_QUERY, A: P, B: Q }
+                ];
+                for (const c of cases) {
+                    const result = tree.execute(c.queryType, c.A, c.B);
+                    const expected = bruteForceExecute(mesh, c.queryType, c.A, c.B);
+                    expect(result.intersections.map(h => h.triangleIndex))
+                        .toEqual(expected.map(h => h.triangleIndex));
+                    for (let k = 0; k < expected.length; ++k) {
+                        expect(result.intersections[k].parameter)
+                            .toBe(expected[k].parameter);
+                        expect([...result.intersections[k].point.values])
+                            .toEqual([...expected[k].point.values]);
+                    }
+                    // Every hit triangle is among the reported candidates, so
+                    // the traversal never prunes a triangle it should test.
+                    const candidates = candidateTriangles(tree, result.nodeIndices);
+                    for (const hit of expected) {
+                        expect(candidates.has(hit.triangleIndex)).toBe(true);
+                    }
+                }
+            }, 50);
+    });
+
+    it('reports leaves conservatively but never misses one whose box is hit', () => {
+        check(fc.tuple(gridSoup, gridPoint, gridDirection, gridPoint),
+            (input) => {
+                const mesh = input[0];
+                const P = input[1];
+                const D = input[2];
+                const Q = input[3];
+                const tree = buildTree(mesh);
+                const nodes = tree.getNodes();
+                const leaves = aabbReachable(tree).filter(
+                    i => nodes[i].leftChild === BVTreeNode.invalid);
+
+                const cases: Array<{
+                    queryType: number; A: Vector; B: Vector;
+                    hit: (bv: AABBBoundingVolume) => boolean;
+                }> = [
+                    {
+                        queryType: BVTree.LINE_QUERY, A: P, B: D,
+                        hit: (bv) => AABBBoundingVolume.intersectLine(P, D, bv)
+                    },
+                    {
+                        queryType: BVTree.RAY_QUERY, A: P, B: D,
+                        hit: (bv) => AABBBoundingVolume.intersectRay(P, D, bv)
+                    },
+                    {
+                        queryType: BVTree.SEGMENT_QUERY, A: P, B: Q,
+                        hit: (bv) => AABBBoundingVolume.intersectSegment(P, Q, bv)
+                    }
+                ];
+                for (const c of cases) {
+                    const reported = tree.leafIndices(c.queryType, c.A, c.B);
+                    expect(new Set(reported).size).toBe(reported.length);
+                    for (const index of reported) {
+                        expect(nodes[index].leftChild).toBe(BVTreeNode.invalid);
+                    }
+                    // Upstream never tests a leaf's own volume (issue #103),
+                    // so the reported set is a superset; what must hold is
+                    // that no hit leaf is missing.
+                    for (const leaf of leaves) {
+                        if (c.hit(nodes[leaf].boundingVolume)) {
+                            expect(reported).toContain(leaf);
+                        }
+                    }
+                }
+            }, 50);
+    });
+
+    it('is invariant to the input triangle order', () => {
+        check(fc.tuple(gridSoup, gridPoint, gridDirection), (input) => {
+            const mesh = input[0];
+            const P = input[1];
+            const D = input[2];
+
+            // Reverse the triangle list; the tree partition changes but the
+            // set of reported hits must not.
+            const reversed: Mesh = {
+                vertices: mesh.vertices,
+                triangles: [...mesh.triangles].reverse()
+            };
+            const n = mesh.triangles.length;
+            const direct = buildTree(mesh).execute(BVTree.LINE_QUERY, P, D);
+            const flipped = buildTree(reversed).execute(BVTree.LINE_QUERY, P, D);
+
+            const a = direct.intersections.map(h => h.triangleIndex)
+                .sort((x, y) => x - y);
+            const b = flipped.intersections.map(h => n - 1 - h.triangleIndex)
+                .sort((x, y) => x - y);
+            expect(b).toEqual(a);
+        }, 60);
     });
 });
