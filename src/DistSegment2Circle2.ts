@@ -101,6 +101,16 @@ function updateForSegment(segment: Segment2, circle: Circle2,
     else if (t0 < 0 && t1 > 1) {
         // The segment is strictly inside the circle. Remove both the
         // t0-point and the t1-point.
+        //
+        // Upstream quirk (preserved): DistSegment2Circle2.h resets the whole
+        // result ('lcResult = Result{}'), which reports numClosestPairs = 0
+        // even though the file header documents the value as 1 or 2, and
+        // leaves distance = sqrDistance = 0 even though the segment does not
+        // touch the circle. The true minimum is attained at the segment
+        // endpoint farthest from the circle center. Fixing this would change
+        // the behavior of DistSegment2Arc2 (which relies on
+        // numClosestPairs == 0 to fall through to its arc-endpoint tests), so
+        // the port preserves upstream.
         lcResult.distance = 0;
         lcResult.sqrDistance = 0;
         lcResult.numClosestPairs = 0;

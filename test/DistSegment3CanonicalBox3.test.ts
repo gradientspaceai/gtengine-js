@@ -3,7 +3,12 @@ import { CanonicalBox } from '../src/CanonicalBox.js';
 import { DistPointCanonicalBox } from '../src/DistPointCanonicalBox.js';
 import { DistSegment3CanonicalBox3 } from '../src/DistSegment3CanonicalBox3.js';
 import { Segment } from '../src/Segment.js';
-import { Vector, add, mul, sub } from '../src/Vector.js';
+import { DistLine3CanonicalBox3 } from '../src/DistLine3CanonicalBox3.js';
+import { Line } from '../src/Line.js';
+import { Vector, add, length, mul, sub } from '../src/Vector.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -240,5 +245,133 @@ describe('DistSegment3CanonicalBox3', () => {
                 Segment.fromEndpoints(s.p[1], s.p[0]), b);
             expect(reversed.distance).toBeCloseTo(result.distance, 6);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (see VERIFYING.md): property-based cross-checks of the
+// port against the upstream DistSegment3CanonicalBox3.h.
+// ---------------------------------------------------------------------------
+
+describe('DistSegment3CanonicalBox3 verification', () => {
+    const query = new DistSegment3CanonicalBox3();
+    const lineQuery = new DistLine3CanonicalBox3();
+    const pointQuery = new DistPointCanonicalBox();
+
+    const boxArb = fc.array(finite(0, 4), { minLength: 3, maxLength: 3 })
+        .map(e => CanonicalBox.fromExtent(Vector.fromArray(e)));
+
+    const segmentArb = fc.tuple(wellScaledVector(3, -8, 8),
+        wellScaledVector(3, -8, 8))
+        .filter(([p0, p1]) => length(sub(p1, p0)) > 0.5)
+        .map(([p0, p1]) => Segment.fromEndpoints(p0, p1));
+
+    function pointBoxDistance(p: Vector, b: CanonicalBox): number {
+        let sum = 0;
+        for (let i = 0; i < 3; ++i) {
+            const over = Math.abs(p.values[i]) - b.extent.values[i];
+            if (over > 0) { sum += over * over; }
+        }
+        return Math.sqrt(sum);
+    }
+
+    function ternaryMin(f: (t: number) => number, lo: number,
+        hi: number): number {
+        let a = lo, b = hi;
+        for (let i = 0; i < 200; ++i) {
+            const m0 = a + (b - a) / 3;
+            const m1 = b - (b - a) / 3;
+            if (f(m0) <= f(m1)) { b = m1; } else { a = m0; }
+        }
+        return f(0.5 * (a + b));
+    }
+
+    it('reports consistent distances and on-primitive closest points', () => {
+        check(fc.tuple(segmentArb, boxArb), ([seg, b]) => {
+            const r = query.compute(seg, b);
+            expectClose(r.distance, Math.sqrt(r.sqrDistance), 1e-12, 1e-12);
+            expect(r.parameter).toBeGreaterThanOrEqual(0);
+            expect(r.parameter).toBeLessThanOrEqual(1);
+            const d = sub(seg.p[1], seg.p[0]);
+            expectVectorClose(r.closest[0], add(seg.p[0], mul(r.parameter, d)),
+                1e-9, 1e-9);
+            expectClose(length(sub(r.closest[0], r.closest[1])), r.distance,
+                1e-8, 1e-8);
+            for (let i = 0; i < 3; ++i) {
+                expect(Math.abs(r.closest[1].values[i]))
+                    .toBeLessThanOrEqual(b.extent.values[i] + 1e-9);
+            }
+        });
+    });
+
+    it('matches an independent convex minimization along the segment', () => {
+        check(fc.tuple(segmentArb, boxArb), ([seg, b]) => {
+            const r = query.compute(seg, b);
+            const d = sub(seg.p[1], seg.p[0]);
+            const best = ternaryMin(
+                t => pointBoxDistance(add(seg.p[0], mul(t, d)), b), 0, 1);
+            // See the DistLine3AlignedBox3 note on the incremental
+            // canonical-box accumulation.
+            expectClose(r.distance, best, 2e-6, 1e-9);
+        }, 100);
+    });
+
+    it('clamps the line parameter to the segment', () => {
+        check(fc.tuple(segmentArb, boxArb), ([seg, b]) => {
+            const d = sub(seg.p[1], seg.p[0]);
+            const line = Line.fromOriginDirection(seg.p[0], d);
+            const rl = lineQuery.compute(line, b);
+            const rs = query.compute(seg, b);
+            if (rl.parameter >= 0 && rl.parameter <= 1) {
+                expectClose(rs.distance, rl.distance, 1e-12, 1e-12);
+                expectClose(rs.parameter, rl.parameter, 1e-12, 1e-12);
+                expectVectorClose(rs.closest[1], rl.closest[1], 1e-12, 1e-12);
+            } else {
+                const endpoint = rl.parameter < 0 ? seg.p[0] : seg.p[1];
+                expect(rs.parameter).toBe(rl.parameter < 0 ? 0 : 1);
+                expectVectorClose(rs.closest[0], endpoint, 1e-12, 1e-12);
+                const rp = pointQuery.compute(endpoint, b);
+                expectClose(rs.distance, rp.distance, 1e-12, 1e-12);
+                expectVectorClose(rs.closest[1], rp.closest[1], 1e-12, 1e-12);
+            }
+            expect(rs.distance).toBeGreaterThanOrEqual(rl.distance - 1e-12);
+        });
+    });
+
+    it('is symmetric under swapping the segment endpoints', () => {
+        check(fc.tuple(segmentArb, boxArb), ([seg, b]) => {
+            const reversed = Segment.fromEndpoints(seg.p[1], seg.p[0]);
+            const r0 = query.compute(seg, b);
+            const r1 = query.compute(reversed, b);
+            expectClose(r0.distance, r1.distance, 2e-6, 1e-9);
+        });
+    });
+
+    it('reports zero distance for a segment inside the box', () => {
+        check(fc.tuple(boxArb, fc.array(finite(-1, 1),
+            { minLength: 3, maxLength: 3 }), fc.array(finite(-1, 1),
+                { minLength: 3, maxLength: 3 })), ([b, u0, u1]) => {
+            const p0 = Vector.fromArray([u0[0] * b.extent.values[0],
+                u0[1] * b.extent.values[1], u0[2] * b.extent.values[2]]);
+            const p1 = Vector.fromArray([u1[0] * b.extent.values[0],
+                u1[1] * b.extent.values[1], u1[2] * b.extent.values[2]]);
+            if (length(sub(p1, p0)) < 1e-6) { return; }
+            const r = query.compute(Segment.fromEndpoints(p0, p1), b);
+            expectClose(r.distance, 0, 1e-9, 1e-9);
+        });
+    });
+
+    it('is invariant under reflection of any coordinate axis', () => {
+        check(fc.tuple(segmentArb, boxArb, fc.nat(2)), ([seg, b, k]) => {
+            const flip = (p: Vector): Vector => {
+                const q = p.clone();
+                q.values[k] = -q.values[k];
+                return q;
+            };
+            const r0 = query.compute(seg, b);
+            const r1 = query.compute(
+                Segment.fromEndpoints(flip(seg.p[0]), flip(seg.p[1])), b);
+            expectClose(r0.distance, r1.distance, 1e-9, 1e-9);
+        });
     });
 });

@@ -3,7 +3,13 @@ import { DistPointTriangle } from '../src/DistPointTriangle.js';
 import { DistSegment2Triangle2 } from '../src/DistSegment2Triangle2.js';
 import { Segment } from '../src/Segment.js';
 import { Triangle } from '../src/Triangle.js';
-import { Vector, add, mul, sub } from '../src/Vector.js';
+import { DistLine2Triangle2 } from '../src/DistLine2Triangle2.js';
+import { Line } from '../src/Line.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, rotationFrame,
+    wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -229,5 +235,162 @@ describe('DistSegment2Triangle2', () => {
                 Segment.fromEndpoints(s.p[1], s.p[0]), t);
             expect(reversed.distance).toBeCloseTo(result.distance, 6);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (see VERIFYING.md): property-based cross-checks of the
+// port against the upstream DistSegment2Triangle2.h.
+// ---------------------------------------------------------------------------
+
+describe('DistSegment2Triangle2 verification', () => {
+    const query = new DistSegment2Triangle2();
+    const lineQuery = new DistLine2Triangle2();
+
+    const triArb = fc.tuple(wellScaledVector(2, -5, 5),
+        wellScaledVector(2, -5, 5), wellScaledVector(2, -5, 5))
+        .filter(([a, b, c]) => Math.abs(
+            (b.values[0] - a.values[0]) * (c.values[1] - a.values[1])
+            - (b.values[1] - a.values[1]) * (c.values[0] - a.values[0])) > 1)
+        .map(([a, b, c]) => Triangle.fromVertices(a, b, c));
+
+    const segmentArb = fc.tuple(wellScaledVector(2, -8, 8),
+        wellScaledVector(2, -8, 8))
+        .filter(([p0, p1]) => length(sub(p1, p0)) > 0.5)
+        .map(([p0, p1]) => Segment.fromEndpoints(p0, p1));
+
+    function pointSegmentDistance(p: Vector, a: Vector, b: Vector): number {
+        const d = sub(b, a);
+        const dd = dot(d, d);
+        const t = dd > 0 ? Math.min(Math.max(dot(sub(p, a), d) / dd, 0), 1) : 0;
+        return length(sub(p, add(a, mul(t, d))));
+    }
+
+    function pointTriangleDistance(p: Vector, tri: Triangle): number {
+        let positive = 0;
+        let negative = 0;
+        for (let i = 0; i < 3; ++i) {
+            const a = tri.v[i];
+            const b = tri.v[(i + 1) % 3];
+            const side = (b.values[0] - a.values[0]) * (p.values[1]
+                - a.values[1]) - (b.values[1] - a.values[1])
+                * (p.values[0] - a.values[0]);
+            if (side > 0) { ++positive; }
+            else if (side < 0) { ++negative; }
+        }
+        if (positive === 0 || negative === 0) { return 0; }
+        return Math.min(
+            pointSegmentDistance(p, tri.v[0], tri.v[1]),
+            pointSegmentDistance(p, tri.v[1], tri.v[2]),
+            pointSegmentDistance(p, tri.v[2], tri.v[0]));
+    }
+
+    function ternaryMin(f: (t: number) => number, lo: number,
+        hi: number): number {
+        let a = lo, b = hi;
+        for (let i = 0; i < 200; ++i) {
+            const m0 = a + (b - a) / 3;
+            const m1 = b - (b - a) / 3;
+            if (f(m0) <= f(m1)) { b = m1; } else { a = m0; }
+        }
+        return f(0.5 * (a + b));
+    }
+
+    it('reports consistent distances and on-primitive closest points', () => {
+        check(fc.tuple(segmentArb, triArb), ([seg, tri]) => {
+            const r = query.compute(seg, tri);
+            expectClose(r.distance, Math.sqrt(r.sqrDistance), 1e-12, 1e-12);
+            expect(r.parameter).toBeGreaterThanOrEqual(0);
+            expect(r.parameter).toBeLessThanOrEqual(1);
+            const d = sub(seg.p[1], seg.p[0]);
+            expectVectorClose(r.closest[0], add(seg.p[0], mul(r.parameter, d)),
+                1e-8, 1e-8);
+            expectClose(length(sub(r.closest[0], r.closest[1])), r.distance,
+                1e-8, 1e-8);
+            const b = r.barycentric;
+            expectClose(b[0] + b[1] + b[2], 1, 1e-9, 1e-9);
+            for (let i = 0; i < 3; ++i) {
+                expect(b[i]).toBeGreaterThanOrEqual(-1e-12);
+            }
+            expectVectorClose(r.closest[1],
+                add(add(mul(b[0], tri.v[0]), mul(b[1], tri.v[1])),
+                    mul(b[2], tri.v[2])), 1e-7, 1e-7);
+        });
+    });
+
+    it('matches an independent convex minimization along the segment', () => {
+        check(fc.tuple(segmentArb, triArb), ([seg, tri]) => {
+            const r = query.compute(seg, tri);
+            const d = sub(seg.p[1], seg.p[0]);
+            const best = ternaryMin(t => pointTriangleDistance(
+                add(seg.p[0], mul(t, d)), tri), 0, 1);
+            expectClose(r.distance, best, 1e-7, 1e-7);
+        }, 100);
+    });
+
+    it('clamps the line parameter to the segment', () => {
+        check(fc.tuple(segmentArb, triArb), ([seg, tri]) => {
+            const d = sub(seg.p[1], seg.p[0]);
+            const line = Line.fromOriginDirection(seg.p[0], d);
+            const rl = lineQuery.compute(line, tri);
+            const rs = query.compute(seg, tri);
+            if (rl.parameter >= 0 && rl.parameter <= 1) {
+                expectClose(rs.distance, rl.distance, 1e-12, 1e-12);
+                expectClose(rs.parameter, rl.parameter, 1e-12, 1e-12);
+            } else {
+                const endpoint = rl.parameter < 0 ? seg.p[0] : seg.p[1];
+                expect(rs.parameter).toBe(rl.parameter < 0 ? 0 : 1);
+                expectVectorClose(rs.closest[0], endpoint, 1e-12, 1e-12);
+                expectClose(rs.distance,
+                    pointTriangleDistance(endpoint, tri), 1e-8, 1e-8);
+            }
+            expect(rs.distance).toBeGreaterThanOrEqual(rl.distance - 1e-12);
+        });
+    });
+
+    it('is symmetric under swapping the segment endpoints', () => {
+        check(fc.tuple(segmentArb, triArb), ([seg, tri]) => {
+            const reversed = Segment.fromEndpoints(seg.p[1], seg.p[0]);
+            const r0 = query.compute(seg, tri);
+            const r1 = query.compute(reversed, tri);
+            // Only the distance is compared: a segment that crosses the
+            // triangle has a whole chord of closest pairs and the header says
+            // only one of them is returned, so the two orders may report
+            // different (equally valid) closest points.
+            expectClose(r0.distance, r1.distance, 1e-9, 1e-9);
+        });
+    });
+
+    it('reports zero distance for a segment inside the triangle', () => {
+        check(fc.tuple(triArb, finite(0.05, 0.85), finite(0.05, 0.85),
+            finite(0.05, 0.85), finite(0.05, 0.85)),
+            ([tri, s0, t0, s1, t1]) => {
+                if (s0 + t0 > 0.9 || s1 + t1 > 0.9) { return; }
+                const e1 = sub(tri.v[1], tri.v[0]);
+                const e2 = sub(tri.v[2], tri.v[0]);
+                const p0 = add(tri.v[0], add(mul(s0, e1), mul(t0, e2)));
+                const p1 = add(tri.v[0], add(mul(s1, e1), mul(t1, e2)));
+                if (length(sub(p1, p0)) < 1e-3) { return; }
+                const r = query.compute(Segment.fromEndpoints(p0, p1), tri);
+                expectClose(r.distance, 0, 1e-9, 1e-9);
+            });
+    });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(segmentArb, triArb, rotationFrame(2),
+            wellScaledVector(2, -5, 5)), ([seg, tri, frame, shift]) => {
+            const rot = (p: Vector): Vector =>
+                v(frame[0].values[0] * p.values[0]
+                    + frame[1].values[0] * p.values[1],
+                    frame[0].values[1] * p.values[0]
+                    + frame[1].values[1] * p.values[1]);
+            const movedSeg = Segment.fromEndpoints(add(shift, rot(seg.p[0])),
+                add(shift, rot(seg.p[1])));
+            const movedTri = Triangle.fromVertices(add(shift, rot(tri.v[0])),
+                add(shift, rot(tri.v[1])), add(shift, rot(tri.v[2])));
+            const r0 = query.compute(seg, tri);
+            const r1 = query.compute(movedSeg, movedTri);
+            expectClose(r0.distance, r1.distance, 1e-8, 1e-8);
+        });
     });
 });

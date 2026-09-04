@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { Arc2 } from '../src/Arc2.js';
 import { DistLine2Arc2 } from '../src/DistLine2Arc2.js';
 import { Line } from '../src/Line.js';
-import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { DistLine2Circle2 } from '../src/DistLine2Circle2.js';
+import { Hypersphere } from '../src/Hypersphere.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, positive,
+    rotationFrame, unitVector, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -148,4 +154,130 @@ describe('DistLine2Arc2', () => {
             expect(result.sqrDistance).toBeLessThanOrEqual(best + 1e-6);
         }
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (see VERIFYING.md): property-based cross-checks of the
+// port against the upstream DistLine2Arc2.h.
+// ---------------------------------------------------------------------------
+
+describe('DistLine2Arc2 verification', () => {
+    const query = new DistLine2Arc2();
+
+    // An arc is generated from a center, a radius, a start angle and a sweep
+    // in (0, 2*pi). wellScaledVector/positive keep the geometry away from the
+    // subnormal range so that the |P-C| = r invariants hold to 1e-12.
+    const arcArb = fc.tuple(wellScaledVector(2, -5, 5), positive(4, 0.5),
+        finite(-Math.PI, Math.PI), finite(0.05, 2 * Math.PI - 0.05))
+        .map(([c, r, a0, sweep]) => {
+            const e0 = v(c.values[0] + r * Math.cos(a0),
+                c.values[1] + r * Math.sin(a0));
+            const e1 = v(c.values[0] + r * Math.cos(a0 + sweep),
+                c.values[1] + r * Math.sin(a0 + sweep));
+            return { arc: Arc2.fromCenterRadiusEnds(c, r, e0, e1), a0, sweep };
+        });
+
+    const lineArb = fc.tuple(wellScaledVector(2, -6, 6), unitVector(2))
+        .map(([o, d]) => Line.fromOriginDirection(o, d));
+
+    // Distance from a point to the line P + t*D (D is not required to be unit
+    // length), computed independently of the query under test.
+    function pointLineDistance(p: Vector, ln: Line): number {
+        const diff = sub(p, ln.origin);
+        const t = dot(diff, ln.direction) / dot(ln.direction, ln.direction);
+        return length(sub(diff, mul(t, ln.direction)));
+    }
+
+    it('reports consistent distances and on-primitive closest points', () => {
+        check(fc.tuple(lineArb, arcArb), ([ln, { arc }]) => {
+            const r = query.compute(ln, arc);
+            expect(r.numClosestPairs === 1 || r.numClosestPairs === 2)
+                .toBe(true);
+            expectClose(r.distance, Math.sqrt(r.sqrDistance), 1e-12, 1e-12);
+            for (let j = 0; j < r.numClosestPairs; ++j) {
+                // closest[j][0] is the line point at parameter[j].
+                expectVectorClose(r.closest[j][0],
+                    add(ln.origin, mul(r.parameter[j], ln.direction)),
+                    1e-9, 1e-9);
+                // closest[j][1] is on the circle of the arc and on the arc.
+                expectClose(length(sub(r.closest[j][1], arc.center)),
+                    arc.radius, 1e-9, 1e-9);
+                expect(arc.containsOnCircle(r.closest[j][1])
+                    // Endpoints can fall marginally outside the halfplane
+                    // test because of rounding; accept them explicitly.
+                    || length(sub(r.closest[j][1], arc.end[0])) < 1e-9
+                    || length(sub(r.closest[j][1], arc.end[1])) < 1e-9)
+                    .toBe(true);
+                // The reported distance is the distance of this pair.
+                expectClose(length(sub(r.closest[j][0], r.closest[j][1])),
+                    r.distance, 1e-9, 1e-9);
+            }
+        }, 150);
+    });
+
+    it('is not larger than the distance to any sampled arc point', () => {
+        check(fc.tuple(lineArb, arcArb), ([ln, { arc, a0, sweep }]) => {
+            const r = query.compute(ln, arc);
+            const n = 4096;
+            let best = Number.POSITIVE_INFINITY;
+            for (let i = 0; i <= n; ++i) {
+                const a = a0 + (i / n) * sweep;
+                const p = v(arc.center.values[0] + arc.radius * Math.cos(a),
+                    arc.center.values[1] + arc.radius * Math.sin(a));
+                best = Math.min(best, pointLineDistance(p, ln));
+            }
+            expect(r.distance).toBeLessThanOrEqual(best + 1e-9);
+            // The distance to a line is 1-Lipschitz in arc length, so the
+            // sampled minimum overestimates the true minimum by at most half
+            // an arc-length step; a wrong branch shows up as a larger gap.
+            const step = (arc.radius * sweep) / n;
+            expect(r.distance).toBeGreaterThanOrEqual(best - step);
+        }, 100);
+    });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(lineArb, arcArb, rotationFrame(2),
+            wellScaledVector(2, -5, 5)), ([ln, { arc }, frame, shift]) => {
+            const xf = (p: Vector): Vector => add(shift,
+                v(frame[0].values[0] * p.values[0]
+                    + frame[1].values[0] * p.values[1],
+                    frame[0].values[1] * p.values[0]
+                    + frame[1].values[1] * p.values[1]));
+            const xfDir = (d: Vector): Vector =>
+                v(frame[0].values[0] * d.values[0]
+                    + frame[1].values[0] * d.values[1],
+                    frame[0].values[1] * d.values[0]
+                    + frame[1].values[1] * d.values[1]);
+            const movedLine = Line.fromOriginDirection(xf(ln.origin),
+                xfDir(ln.direction));
+            const movedArc = Arc2.fromCenterRadiusEnds(xf(arc.center),
+                arc.radius, xf(arc.end[0]), xf(arc.end[1]));
+            const r0 = query.compute(ln, arc);
+            const r1 = query.compute(movedLine, movedArc);
+            expectClose(r0.distance, r1.distance, 1e-9, 1e-9);
+        }, 100);
+    });
+
+    it('matches the line-circle query when the arc is nearly a full circle',
+        () => {
+            // An arc whose sweep is close to 2*pi contains almost every
+            // circle point, so the arc query must agree with the circle
+            // query for lines that do not pass near the omitted sliver.
+            const c = v(1, -2);
+            const r = 3;
+            const a0 = 0.3;
+            const a1 = a0 + 2 * Math.PI - 1e-6;
+            const wide = Arc2.fromCenterRadiusEnds(c, r,
+                v(c.values[0] + r * Math.cos(a0),
+                    c.values[1] + r * Math.sin(a0)),
+                v(c.values[0] + r * Math.cos(a1),
+                    c.values[1] + r * Math.sin(a1)));
+            const circle = Hypersphere.fromCenterRadius(c, r);
+            const lc = new DistLine2Circle2();
+            check(lineArb, ln => {
+                const ra = query.compute(ln, wide);
+                const rc = lc.compute(ln, circle);
+                expectClose(ra.distance, rc.distance, 1e-9, 1e-9);
+            }, 100);
+        });
 });

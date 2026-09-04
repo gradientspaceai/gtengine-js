@@ -3,7 +3,13 @@ import { DistPoint2Circle2 } from '../src/DistPoint2Circle2.js';
 import { DistRay2Circle2 } from '../src/DistRay2Circle2.js';
 import { Hypersphere } from '../src/Hypersphere.js';
 import { Ray } from '../src/Ray.js';
-import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { DistLine2Circle2 } from '../src/DistLine2Circle2.js';
+import { Line } from '../src/Line.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, rotationFrame,
+    unitVector, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -130,5 +136,151 @@ describe('DistRay2Circle2', () => {
             }
             expect(result.sqrDistance).toBeLessThanOrEqual(best + 1e-6);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (see VERIFYING.md): property-based cross-checks of the
+// port against the upstream DistRay2Circle2.h.
+// ---------------------------------------------------------------------------
+
+describe('DistRay2Circle2 verification', () => {
+    const query = new DistRay2Circle2();
+    const lineQuery = new DistLine2Circle2();
+
+    const circleArb = fc.tuple(wellScaledVector(2, -5, 5), finite(0.25, 4))
+        .map(([c, r]) => Hypersphere.fromCenterRadius(c, r));
+
+    const rayArb = fc.tuple(wellScaledVector(2, -8, 8), unitVector(2))
+        .map(([o, d]) => Ray.fromOriginDirection(o, d));
+
+    // Distance from a point to the circle (a curve, not a disk).
+    function pointCircleDistance(p: Vector, c: Hypersphere): number {
+        return Math.abs(length(sub(p, c.center)) - c.radius);
+    }
+
+    // The distance along the ray is |P(t)-C| - r in absolute value; |P(t)-C|
+    // is convex so the composite has at most two local minima. A dense scan
+    // followed by a golden-section refinement therefore finds the global
+    // minimum. Beyond tMax the ray is monotonically leaving the circle.
+    function bruteForce(ray: Ray, c: Hypersphere): number {
+        const f = (t: number): number => pointCircleDistance(
+            add(ray.origin, mul(t, ray.direction)), c);
+        const tMax = 2 * (length(sub(ray.origin, c.center)) + c.radius) + 1;
+        const n = 20000;
+        let bestI = 0;
+        let best = Number.POSITIVE_INFINITY;
+        for (let i = 0; i <= n; ++i) {
+            const y = f((i / n) * tMax);
+            if (y < best) { best = y; bestI = i; }
+        }
+        const h = tMax / n;
+        let lo = Math.max((bestI / n) * tMax - h, 0);
+        let hi = lo + 2 * h;
+        const phi = (Math.sqrt(5) - 1) / 2;
+        for (let i = 0; i < 200; ++i) {
+            const m0 = hi - phi * (hi - lo);
+            const m1 = lo + phi * (hi - lo);
+            if (f(m0) <= f(m1)) { hi = m1; } else { lo = m0; }
+        }
+        return Math.min(best, f(0.5 * (lo + hi)));
+    }
+
+    it('reports consistent distances and on-primitive closest points', () => {
+        check(fc.tuple(rayArb, circleArb), ([ray, circle]) => {
+            const r = query.compute(ray, circle);
+            expect(r.numClosestPairs === 1 || r.numClosestPairs === 2)
+                .toBe(true);
+            expectClose(r.distance, Math.sqrt(r.sqrDistance), 1e-12, 1e-12);
+            for (let j = 0; j < r.numClosestPairs; ++j) {
+                expect(r.parameter[j]).toBeGreaterThanOrEqual(0);
+                expectVectorClose(r.closest[j][0],
+                    add(ray.origin, mul(r.parameter[j], ray.direction)),
+                    1e-8, 1e-8);
+                expectClose(length(sub(r.closest[j][1], circle.center)),
+                    circle.radius, 1e-8, 1e-8);
+                expectClose(length(sub(r.closest[j][0], r.closest[j][1])),
+                    r.distance, 1e-8, 1e-8);
+            }
+        });
+    });
+
+    it('matches an independent minimization along the ray', () => {
+        check(fc.tuple(rayArb, circleArb), ([ray, circle]) => {
+            const r = query.compute(ray, circle);
+            expectClose(r.distance, bruteForce(ray, circle), 1e-7, 1e-7);
+        }, 60);
+    }, 30000);
+
+    it('is at least the line-circle distance', () => {
+        check(fc.tuple(rayArb, circleArb), ([ray, circle]) => {
+            const line = Line.fromOriginDirection(ray.origin, ray.direction);
+            const rl = lineQuery.compute(line, circle);
+            const rr = query.compute(ray, circle);
+            expect(rr.distance).toBeGreaterThanOrEqual(rl.distance - 1e-12);
+            // When every line closest point is on the ray the two agree.
+            if (rl.numClosestPairs === 2 && rl.parameter[0] >= 0) {
+                expectClose(rr.distance, rl.distance, 1e-12, 1e-12);
+                expect(rr.numClosestPairs).toBe(2);
+            }
+            if (rl.numClosestPairs === 1 && rl.parameter[0] >= 0) {
+                expectClose(rr.distance, rl.distance, 1e-12, 1e-12);
+            }
+        });
+    });
+
+    it('falls back to the origin when the line closest point is behind',
+        () => {
+            check(fc.tuple(rayArb, circleArb), ([ray, circle]) => {
+                const line = Line.fromOriginDirection(ray.origin,
+                    ray.direction);
+                const rl = lineQuery.compute(line, circle);
+                if (rl.numClosestPairs !== 1 || rl.parameter[0] >= 0) {
+                    return;
+                }
+                const rr = query.compute(ray, circle);
+                expect(rr.numClosestPairs).toBe(1);
+                expect(rr.parameter[0]).toBe(0);
+                expectClose(rr.distance,
+                    pointCircleDistance(ray.origin, circle), 1e-12, 1e-12);
+            });
+        });
+
+    it('drops only the negative intersection when the origin is inside',
+        () => {
+            check(fc.tuple(circleArb, unitVector(2), finite(0, 0.95),
+                finite(-Math.PI, Math.PI)),
+                ([circle, dir, frac, angle]) => {
+                    const inside = add(circle.center,
+                        v(frac * circle.radius * Math.cos(angle),
+                            frac * circle.radius * Math.sin(angle)));
+                    const ray = Ray.fromOriginDirection(inside, dir);
+                    const r = query.compute(ray, circle);
+                    // The ray leaves the disk through exactly one point.
+                    expect(r.numClosestPairs).toBe(1);
+                    expectClose(r.distance, 0, 1e-9, 1e-9);
+                    expect(r.parameter[0]).toBeGreaterThanOrEqual(0);
+                    expectClose(length(sub(r.closest[0][1], circle.center)),
+                        circle.radius, 1e-9, 1e-9);
+                });
+        });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(rayArb, circleArb, rotationFrame(2),
+            wellScaledVector(2, -5, 5)), ([ray, circle, frame, shift]) => {
+            const rot = (p: Vector): Vector =>
+                v(frame[0].values[0] * p.values[0]
+                    + frame[1].values[0] * p.values[1],
+                    frame[0].values[1] * p.values[0]
+                    + frame[1].values[1] * p.values[1]);
+            const movedRay = Ray.fromOriginDirection(
+                add(shift, rot(ray.origin)), rot(ray.direction));
+            const movedCircle = Hypersphere.fromCenterRadius(
+                add(shift, rot(circle.center)), circle.radius);
+            const r0 = query.compute(ray, circle);
+            const r1 = query.compute(movedRay, movedCircle);
+            expectClose(r0.distance, r1.distance, 1e-8, 1e-8);
+            expect(r0.numClosestPairs).toBe(r1.numClosestPairs);
+        });
     });
 });

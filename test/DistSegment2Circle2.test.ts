@@ -3,7 +3,11 @@ import { DistPoint2Circle2 } from '../src/DistPoint2Circle2.js';
 import { DistSegment2Circle2 } from '../src/DistSegment2Circle2.js';
 import { Hypersphere } from '../src/Hypersphere.js';
 import { Segment } from '../src/Segment.js';
-import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, rotationFrame,
+    unitVector, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -146,5 +150,148 @@ describe('DistSegment2Circle2', () => {
             }
             expect(result.sqrDistance).toBeLessThanOrEqual(best + 1e-6);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (see VERIFYING.md): property-based cross-checks of the
+// port against the upstream DistSegment2Circle2.h.
+// ---------------------------------------------------------------------------
+
+describe('DistSegment2Circle2 verification', () => {
+    const query = new DistSegment2Circle2();
+
+    const circleArb = fc.tuple(wellScaledVector(2, -5, 5), finite(0.25, 4))
+        .map(([c, r]) => Hypersphere.fromCenterRadius(c, r));
+
+    const segmentArb = fc.tuple(wellScaledVector(2, -8, 8),
+        wellScaledVector(2, -8, 8))
+        .filter(([p0, p1]) => length(sub(p1, p0)) > 0.5)
+        .map(([p0, p1]) => Segment.fromEndpoints(p0, p1));
+
+    function pointCircleDistance(p: Vector, c: Hypersphere): number {
+        return Math.abs(length(sub(p, c.center)) - c.radius);
+    }
+
+    // |P(t)-C| is convex on [0,1], so | |P(t)-C| - r | has at most two local
+    // minima; a dense scan plus a golden-section refinement finds the global
+    // one.
+    function bruteForce(seg: Segment, c: Hypersphere): number {
+        const d = sub(seg.p[1], seg.p[0]);
+        const f = (t: number): number => pointCircleDistance(
+            add(seg.p[0], mul(t, d)), c);
+        const n = 20000;
+        let bestI = 0;
+        let best = Number.POSITIVE_INFINITY;
+        for (let i = 0; i <= n; ++i) {
+            const y = f(i / n);
+            if (y < best) { best = y; bestI = i; }
+        }
+        let lo = Math.max(bestI / n - 1 / n, 0);
+        let hi = Math.min(lo + 2 / n, 1);
+        const phi = (Math.sqrt(5) - 1) / 2;
+        for (let i = 0; i < 200; ++i) {
+            const m0 = hi - phi * (hi - lo);
+            const m1 = lo + phi * (hi - lo);
+            if (f(m0) <= f(m1)) { hi = m1; } else { lo = m0; }
+        }
+        return Math.min(best, f(0.5 * (lo + hi)));
+    }
+
+    it('reports consistent distances and on-primitive closest points', () => {
+        check(fc.tuple(segmentArb, circleArb), ([seg, circle]) => {
+            const r = query.compute(seg, circle);
+            expectClose(r.distance, Math.sqrt(r.sqrDistance), 1e-12, 1e-12);
+            const d = sub(seg.p[1], seg.p[0]);
+            for (let j = 0; j < r.numClosestPairs; ++j) {
+                expect(r.parameter[j]).toBeGreaterThanOrEqual(0);
+                expect(r.parameter[j]).toBeLessThanOrEqual(1);
+                expectVectorClose(r.closest[j][0],
+                    add(seg.p[0], mul(r.parameter[j], d)), 1e-8, 1e-8);
+                expectClose(length(sub(r.closest[j][1], circle.center)),
+                    circle.radius, 1e-8, 1e-8);
+                expectClose(length(sub(r.closest[j][0], r.closest[j][1])),
+                    r.distance, 1e-8, 1e-8);
+            }
+        });
+    });
+
+    it('matches an independent minimization along the segment', () => {
+        check(fc.tuple(segmentArb, circleArb), ([seg, circle]) => {
+            const r = query.compute(seg, circle);
+            // The "segment strictly inside the circle" case is the upstream
+            // quirk documented in src/DistSegment2Circle2.ts: the whole
+            // result is reset, so the reported distance is not the segment
+            // distance. It is pinned by its own test below.
+            if (r.numClosestPairs === 0) { return; }
+            expectClose(r.distance, bruteForce(seg, circle), 1e-7, 1e-7);
+        }, 60);
+    }, 30000);
+
+    it('preserves the upstream zeroed result for an interior segment', () => {
+        // Upstream resets the whole Result, so numClosestPairs is 0 (the
+        // header documents 1 or 2) and the distance is 0 even though the
+        // segment does not touch the circle. The true minimum is attained at
+        // the endpoint farthest from the center.
+        check(fc.tuple(circleArb, finite(0, 0.4), finite(-Math.PI, Math.PI),
+            finite(0, 0.4), finite(-Math.PI, Math.PI)),
+            ([circle, f0, a0, f1, a1]) => {
+                const at = (f: number, a: number): Vector =>
+                    add(circle.center, v(f * circle.radius * Math.cos(a),
+                        f * circle.radius * Math.sin(a)));
+                const p0 = at(f0, a0);
+                const p1 = at(f1, a1);
+                if (length(sub(p1, p0)) < 1e-3) { return; }
+                const seg = Segment.fromEndpoints(p0, p1);
+                const r = query.compute(seg, circle);
+                expect(r.numClosestPairs).toBe(0);
+                expect(r.distance).toBe(0);
+                // The distance the query should have reported.
+                const trueDistance = Math.min(
+                    pointCircleDistance(p0, circle),
+                    pointCircleDistance(p1, circle));
+                expect(trueDistance).toBeGreaterThan(0);
+                expectClose(trueDistance, bruteForce(seg, circle), 1e-7, 1e-7);
+            }, 60);
+    }, 30000);
+
+    it('reduces to the point-circle query for a short segment', () => {
+        check(fc.tuple(circleArb, wellScaledVector(2, -8, 8), unitVector(2)),
+            ([circle, p, dir]) => {
+                const seg = Segment.fromEndpoints(p, add(p, mul(1e-6, dir)));
+                const r = query.compute(seg, circle);
+                if (r.numClosestPairs === 0) { return; }
+                expectClose(r.distance, pointCircleDistance(p, circle),
+                    1e-5, 1e-5);
+            });
+    });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(segmentArb, circleArb, rotationFrame(2),
+            wellScaledVector(2, -5, 5)), ([seg, circle, frame, shift]) => {
+            const rot = (p: Vector): Vector =>
+                v(frame[0].values[0] * p.values[0]
+                    + frame[1].values[0] * p.values[1],
+                    frame[0].values[1] * p.values[0]
+                    + frame[1].values[1] * p.values[1]);
+            const movedSeg = Segment.fromEndpoints(add(shift, rot(seg.p[0])),
+                add(shift, rot(seg.p[1])));
+            const movedCircle = Hypersphere.fromCenterRadius(
+                add(shift, rot(circle.center)), circle.radius);
+            const r0 = query.compute(seg, circle);
+            const r1 = query.compute(movedSeg, movedCircle);
+            expectClose(r0.distance, r1.distance, 1e-8, 1e-8);
+            expect(r0.numClosestPairs).toBe(r1.numClosestPairs);
+        });
+    });
+
+    it('reverses the parameters when the endpoints are swapped', () => {
+        check(fc.tuple(segmentArb, circleArb), ([seg, circle]) => {
+            const reversed = Segment.fromEndpoints(seg.p[1], seg.p[0]);
+            const r0 = query.compute(seg, circle);
+            const r1 = query.compute(reversed, circle);
+            expectClose(r0.distance, r1.distance, 1e-9, 1e-9);
+            expect(r0.numClosestPairs).toBe(r1.numClosestPairs);
+        });
     });
 });
