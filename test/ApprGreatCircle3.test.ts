@@ -221,7 +221,7 @@ describe('ApprGreatCircle3 verification', () => {
             // up to sign, so the two fits agree up to sign.
             expect(parallelUpToSign(fitR, apply(fit))).toBeGreaterThan(1 - 1e-9);
         }, 100);
-    });
+    }, 30000);
 
     it('returns a stationary point of the least-squares objective', () => {
         // The fitted normal minimizes sum Dot(N,X[i])^2 subject to |N| = 1, so

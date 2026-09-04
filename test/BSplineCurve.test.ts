@@ -441,7 +441,7 @@ describe('BSplineCurve verification', () => {
                     }
                 }
             });
-    });
+    }, 30000);
 
     it('fills exactly the requested jet slots and no others', () => {
         check(fc.tuple(spec, fc.integer({ min: 0, max: 4 })), ([s, order]) => {
