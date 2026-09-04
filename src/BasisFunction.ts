@@ -197,7 +197,13 @@ export class BasisFunction {
 
         this.mOpen = (mult0 === mult1 && mult0 === this.mDegree + 1);
 
-        this.mKnots = new Array<number>(this.mNumControls + this.mDegree + 1);
+        // Upstream 'mKnots.resize(mNumControls + mDegree + 1)' value-
+        // initializes to zero. Nothing validates that the multiplicities sum
+        // to that many knots, so a caller that supplies too few leaves a tail
+        // of zeros upstream; fill explicitly so the port has the same values
+        // instead of holes that read back as 'undefined'.
+        this.mKnots = new Array<number>(this.mNumControls + this.mDegree + 1)
+            .fill(0);
         this.mKeys = new Array<{ t: number; lastIndex: number }>(input.numUniqueKnots);
         let sum = 0;
         for (let i = 0, j = 0; i < input.numUniqueKnots; ++i) {

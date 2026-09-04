@@ -5,7 +5,8 @@ import {
 } from '../src/NURBSSphere.js';
 import { NURBSSurface } from '../src/NURBSSurface.js';
 import { ParametricSurface } from '../src/ParametricSurface.js';
-import { Vector } from '../src/Vector.js';
+import { Vector, dot, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
 
 function positionOf(surface: NURBSSurface, u: number, v: number): Vector {
     const jet = surface.createJet();
@@ -61,9 +62,11 @@ describe('NURBSEighthSphereDegree4', () => {
                 expect(p.values[2]).toBeGreaterThanOrEqual(-1e-12);
             }
         }
-        // The degree-4 triangular NURBS is an approximation of the eighth
-        // sphere, accurate to better than 1e-3 (see the upstream document).
-        expect(maxError).toBeLessThan(1e-3);
+        // The degree-4 rational triangular patch represents the sphere
+        // octant EXACTLY (section 3.1.2 of the upstream document); the
+        // residual is pure floating-point rounding. The original bound of
+        // 1e-3 here was far weaker than the construction warrants.
+        expect(maxError).toBeLessThan(1e-14);
         expect(maxError).toBeGreaterThan(0);
     });
 
@@ -298,5 +301,199 @@ describe('NURBSFullSphereDegree3', () => {
                 }
             }
         }
+    });
+});
+
+
+// ---------------------------------------------------------------------------
+// Independent verification pass (VERIFYING.md). NURBSSphere.h was read line by
+// line against src/NURBSSphere.ts: every control point, every weight and every
+// Bernstein/derivative table entry of NURBSEighthSphereDegree4 was compared
+// term by term. The properties below check the constructions against the
+// geometry they claim rather than against the formulas: the patches lie on the
+// unit sphere, the triangular patch degenerates to the correct coordinate
+// planes on its three edges, and the derivative tables agree with numerical
+// differentiation of the position.
+import {
+    check, fc, expectClose
+} from './helpers/arbitraries.js';
+
+// Barycentric-like parameters of the triangular domain u >= 0, v >= 0,
+// u + v <= 1.
+const triangleParam = fc.tuple(
+    fc.double({ min: 0, max: 1, noNaN: true, noDefaultInfinity: true }),
+    fc.double({ min: 0, max: 1, noNaN: true, noDefaultInfinity: true }))
+    .map(([a, b]) => (a + b <= 1 ? [a, b] : [1 - a, 1 - b]));
+
+const square = fc.tuple(
+    fc.double({ min: 0, max: 1, noNaN: true, noDefaultInfinity: true }),
+    fc.double({ min: 0, max: 1, noNaN: true, noDefaultInfinity: true }));
+
+describe('NURBSSphere verification', () => {
+    const eighth = new NURBSEighthSphereDegree4();
+
+    it('the degree-4 triangular patch is exactly the unit sphere octant', () => {
+        check(triangleParam, ([u, v]) => {
+            const values = createEighthSphereValues();
+            eighth.evaluate(u, v, 0, values);
+            const p = values[0];
+            expectClose(norm(p), 1, 1e-13, 1e-13);
+            for (let k = 0; k < 3; ++k) {
+                expect(p.values[k]).toBeGreaterThanOrEqual(-1e-13);
+                expect(p.values[k]).toBeLessThanOrEqual(1 + 1e-13);
+            }
+        });
+    });
+
+    it('the three edges of the triangular patch lie in the coordinate planes', () => {
+        // On v = 0 only the j0 = 0 controls contribute and all of them have
+        // y = 0; on u = 0 only the j1 = 0 controls contribute and all have
+        // x = 0; on u + v = 1 only the controls with j0 + j1 = 4 contribute
+        // and all have z = 0. Each edge is therefore an exact quarter circle.
+        check(fc.double({ min: 0, max: 1, noNaN: true,
+            noDefaultInfinity: true }), t => {
+            const values = createEighthSphereValues();
+            eighth.evaluate(t, 0, 0, values);
+            expect(values[0].values[1]).toBe(0);
+            expectClose(norm(values[0]), 1, 1e-13, 1e-13);
+
+            eighth.evaluate(0, t, 0, values);
+            expect(values[0].values[0]).toBe(0);
+            expectClose(norm(values[0]), 1, 1e-13, 1e-13);
+
+            eighth.evaluate(t, 1 - t, 0, values);
+            expect(values[0].values[2]).toBe(0);
+            expectClose(norm(values[0]), 1, 1e-13, 1e-13);
+        });
+    });
+
+    it('the triangular patch is symmetric in u and v', () => {
+        // The control net is symmetric under the reflection that swaps x and
+        // y, so X(v,u) is X(u,v) with the first two components swapped.
+        check(triangleParam, ([u, v]) => {
+            const a = createEighthSphereValues();
+            const b = createEighthSphereValues();
+            eighth.evaluate(u, v, 0, a);
+            eighth.evaluate(v, u, 0, b);
+            expectClose(a[0].values[0], b[0].values[1], 1e-14, 1e-14);
+            expectClose(a[0].values[1], b[0].values[0], 1e-14, 1e-14);
+            expectClose(a[0].values[2], b[0].values[2], 1e-14, 1e-14);
+        });
+    });
+
+    it('the triangular patch derivative tables agree with differencing', () => {
+        // Five-point stencils at two step sizes; the tolerance is calibrated
+        // from the observed convergence, which keeps the property meaningful
+        // near the corners where the rational patch varies quickly.
+        check(triangleParam, ([u, v]) => {
+            // Keep the whole stencil strictly inside the triangle.
+            const h = 5e-3;
+            if (u < 3 * h || v < 3 * h || u + v > 1 - 3 * h) { return; }
+            const values = createEighthSphereValues();
+            eighth.evaluate(u, v, 2, values);
+            const at = (a: number, b: number, order: number): number[] => {
+                const p = createEighthSphereValues();
+                eighth.evaluate(a, b, order, p);
+                return p[order].values.slice();
+            };
+            const stencil = (step: number, k: number, du: boolean,
+                order: number): number => {
+                const p1 = du ? at(u + step, v, order) : at(u, v + step, order);
+                const m1 = du ? at(u - step, v, order) : at(u, v - step, order);
+                const p2 = du ? at(u + 2 * step, v, order)
+                    : at(u, v + 2 * step, order);
+                const m2 = du ? at(u - 2 * step, v, order)
+                    : at(u, v - 2 * step, order);
+                return (8 * (p1[k] - m1[k]) - (p2[k] - m2[k])) / (12 * step);
+            };
+            for (let k = 0; k < 3; ++k) {
+                for (const [du, index] of [[true, 1], [false, 2]] as
+                    [boolean, number][]) {
+                    const coarse = stencil(h, k, du, 0);
+                    const fine = stencil(0.5 * h, k, du, 0);
+                    expectClose(fine, values[index].values[k],
+                        1e-9 + Math.abs(coarse - fine), 1e-9);
+                }
+                // d2X/du2 and d2X/dudv from differencing dX/du; d2X/dv2 from
+                // differencing dX/dv.
+                for (const [du, index, order] of [[true, 3, 1], [false, 4, 1],
+                    [false, 5, 2]] as [boolean, number, number][]) {
+                    const coarse = stencil(h, k, du, order);
+                    const fine = stencil(0.5 * h, k, du, order);
+                    expectClose(fine, values[index].values[k],
+                        1e-8 + Math.abs(coarse - fine), 1e-8);
+                }
+            }
+        }, 40);
+    });
+
+    it('the degree-3 half and full spheres lie on the unit sphere', () => {
+        const half = new NURBSHalfSphereDegree3();
+        const full = new NURBSFullSphereDegree3();
+        check(square, ([u, v]) => {
+            for (const surface of [half, full]) {
+                const p = positionOf(surface, u, v);
+                expectClose(norm(p), 1, 1e-13, 1e-13);
+            }
+            // The half sphere covers y >= 0 only.
+            expect(positionOf(half, u, v).values[1])
+                .toBeGreaterThanOrEqual(-1e-13);
+        });
+    });
+
+    it('the degree-3 sphere normals are parallel to the position', () => {
+        // A sphere centered at the origin has an outward normal along the
+        // position vector, so Cross(dX/du, dX/dv) must be parallel to X.
+        const full = new NURBSFullSphereDegree3();
+        check(square, ([u, v]) => {
+            const jet = full.createJet();
+            full.evaluate(u, v, 1, jet);
+            const n = cross(jet[1], jet[2]);
+            const len = norm(n);
+            if (len < 1e-6) { return; }   // the poles are seam points
+            const p = jet[0];
+            for (let k = 0; k < 3; ++k) {
+                expectClose(n.values[k] / len,
+                    Math.sign(dot(n, p)) * p.values[k], 1e-8, 1e-8);
+            }
+        });
+    });
+
+    it('the full sphere reproduces the half sphere on its first half', () => {
+        // The v knot vector of the full sphere has the interior knot 0.5 with
+        // multiplicity 3, so v in [0,1/2] is the half sphere reparameterized
+        // by v -> v/2.
+        const half = new NURBSHalfSphereDegree3();
+        const full = new NURBSFullSphereDegree3();
+        // The two surfaces transpose the roles of the parameters: for the
+        // full sphere u is latitude and v is longitude, while for the half
+        // sphere u is longitude and v is latitude.
+        check(square, ([latitude, longitude]) => {
+            const a = positionOf(full, latitude, 0.5 * longitude);
+            const b = positionOf(half, longitude, latitude);
+            for (let k = 0; k < 3; ++k) {
+                expectClose(a.values[k], b.values[k], 1e-12, 1e-12);
+            }
+        });
+    });
+
+    it('the degree-3 seams collapse to the poles', () => {
+        const half = new NURBSHalfSphereDegree3();
+        const full = new NURBSFullSphereDegree3();
+        check(fc.double({ min: 0, max: 1, noNaN: true,
+            noDefaultInfinity: true }), t => {
+            // Half sphere: v = 0 and v = 1 are the two poles.
+            expectClose(norm(sub(positionOf(half, t, 0),
+                Vector.fromArray([0, 0, 1]))), 0, 1e-13, 1e-13);
+            expectClose(norm(sub(positionOf(half, t, 1),
+                Vector.fromArray([0, 0, -1]))), 0, 1e-13, 1e-13);
+            // Full sphere: u = 0 and u = 1 are the poles, and v wraps.
+            expectClose(norm(sub(positionOf(full, 0, t),
+                Vector.fromArray([0, 0, 1]))), 0, 1e-13, 1e-13);
+            expectClose(norm(sub(positionOf(full, 1, t),
+                Vector.fromArray([0, 0, -1]))), 0, 1e-13, 1e-13);
+            expectClose(norm(sub(positionOf(full, t, 0),
+                positionOf(full, t, 1))), 0, 1e-12, 1e-12);
+        });
     });
 });

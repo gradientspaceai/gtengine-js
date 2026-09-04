@@ -229,3 +229,187 @@ describe('BezierCurve', () => {
         expect(curve.getTotalLength()).toBeCloseTo(3, 8);
     });
 });
+
+
+// ---------------------------------------------------------------------------
+// Independent verification pass (VERIFYING.md). BezierCurve.h was read line by
+// line against src/BezierCurve.ts. The Horner-style Compute with its
+// combinatorial table is cross-checked against de Casteljau's algorithm for
+// the position and against the hodograph (the de Casteljau evaluation of the
+// scaled forward differences) for each of the first three derivatives, which
+// is what the mControls[order] tables are supposed to encode.
+import {
+    check, fc, expectClose, expectVectorClose, wellScaledVector
+} from './helpers/arbitraries.js';
+
+// The de Casteljau evaluation above (shared with the earlier tests in this
+// file) is the independent reference for the position.
+
+// The r-th derivative of a degree-d Bezier curve is the degree-(d-r) Bezier
+// curve on the r-th forward differences of the control points, scaled by
+// d*(d-1)*...*(d-r+1).
+function hodograph(controls: readonly Vector[], order: number): Vector[] {
+    let p = controls.map(c => c.clone());
+    const degree = controls.length - 1;
+    let scale = 1;
+    for (let r = 0; r < order; ++r) {
+        const q: Vector[] = [];
+        for (let i = 0; i + 1 < p.length; ++i) {
+            const d = new Vector(p[i].size);
+            for (let k = 0; k < d.size; ++k) {
+                d.values[k] = p[i + 1].values[k] - p[i].values[k];
+            }
+            q.push(d);
+        }
+        p = q;
+        scale *= degree - r;
+    }
+    return p.map(v => {
+        const s = new Vector(v.size);
+        for (let k = 0; k < s.size; ++k) { s.values[k] = scale * v.values[k]; }
+        return s;
+    });
+}
+
+const bezierData = (dim: number, minDegree = 2, maxDegree = 7):
+    fc.Arbitrary<Vector[]> =>
+    fc.integer({ min: minDegree, max: maxDegree }).chain(d =>
+        fc.array(wellScaledVector(dim, -8, 8),
+            { minLength: d + 1, maxLength: d + 1 }));
+
+const inUnit = fc.double({ min: 0, max: 1, noNaN: true,
+    noDefaultInfinity: true });
+
+describe('BezierCurve verification', () => {
+    it('agrees with de Casteljau for the position', () => {
+        check(fc.tuple(bezierData(3), inUnit), ([controls, t]) => {
+            const curve = new BezierCurve(3, controls.length - 1, controls);
+            const jet = curve.createJet();
+            curve.evaluate(t, 0, jet);
+            // Both evaluations are numerically stable on [0,1] for control
+            // points of this scale; the difference is a few ulps.
+            expectVectorClose(jet[0], deCasteljau(controls, t), 1e-11, 1e-11);
+        });
+    });
+
+    it('agrees with the hodograph for derivatives 1 through 3', () => {
+        check(fc.tuple(bezierData(3), inUnit), ([controls, t]) => {
+            const degree = controls.length - 1;
+            const curve = new BezierCurve(3, degree, controls);
+            const jet = curve.createJet();
+            curve.evaluate(t, 3, jet);
+            for (let order = 1; order <= 3; ++order) {
+                if (order > degree) {
+                    // Upstream only builds the third-difference table for
+                    // degree >= 3 and returns a zero third derivative below
+                    // that; a degree-2 curve has no third derivative anyway.
+                    expectVectorClose(jet[order], new Vector(3), 1e-12, 1e-12);
+                    continue;
+                }
+                const expected = deCasteljau(hodograph(controls, order), t);
+                expectVectorClose(jet[order], expected, 1e-10, 1e-10);
+            }
+        });
+    });
+
+    it('interpolates the endpoints and their tangents exactly', () => {
+        check(bezierData(2), controls => {
+            const degree = controls.length - 1;
+            const curve = new BezierCurve(2, degree, controls);
+            const jet = curve.createJet();
+            curve.evaluate(0, 1, jet);
+            expectVectorClose(jet[0], controls[0], 1e-12, 1e-12);
+            for (let k = 0; k < 2; ++k) {
+                expectClose(jet[1].values[k], degree *
+                    (controls[1].values[k] - controls[0].values[k]),
+                1e-10, 1e-10);
+            }
+            curve.evaluate(1, 1, jet);
+            expectVectorClose(jet[0], controls[degree], 1e-12, 1e-12);
+            for (let k = 0; k < 2; ++k) {
+                expectClose(jet[1].values[k], degree *
+                    (controls[degree].values[k] -
+                        controls[degree - 1].values[k]), 1e-10, 1e-10);
+            }
+        });
+    });
+
+    it('is equivariant under affine maps of the control points', () => {
+        // X(t) = sum B_i(t) C_i with sum B_i(t) = 1, so A*X(t) + b is the
+        // curve of the mapped control points.
+        check(fc.tuple(bezierData(2), inUnit,
+            fc.array(fc.double({ min: -3, max: 3, noNaN: true,
+                noDefaultInfinity: true }), { minLength: 6, maxLength: 6 })),
+        ([controls, t, m]) => {
+            const mapped = controls.map(c => Vector.fromArray([
+                m[0] * c.values[0] + m[1] * c.values[1] + m[2],
+                m[3] * c.values[0] + m[4] * c.values[1] + m[5]]));
+            const degree = controls.length - 1;
+            const a = new BezierCurve(2, degree, controls);
+            const b = new BezierCurve(2, degree, mapped);
+            const ja = a.createJet();
+            const jb = b.createJet();
+            a.evaluate(t, 1, ja);
+            b.evaluate(t, 1, jb);
+            expectClose(jb[0].values[0],
+                m[0] * ja[0].values[0] + m[1] * ja[0].values[1] + m[2],
+                1e-9, 1e-9);
+            expectClose(jb[0].values[1],
+                m[3] * ja[0].values[0] + m[4] * ja[0].values[1] + m[5],
+                1e-9, 1e-9);
+            // The derivative transforms by the linear part only.
+            expectClose(jb[1].values[0],
+                m[0] * ja[1].values[0] + m[1] * ja[1].values[1], 1e-9, 1e-9);
+            expectClose(jb[1].values[1],
+                m[3] * ja[1].values[0] + m[4] * ja[1].values[1], 1e-9, 1e-9);
+        });
+    });
+
+    it('stays inside the bounding box of its control polygon', () => {
+        // The Bernstein basis is nonnegative and sums to 1 on [0,1], so the
+        // curve lies in the convex hull of the control points; the axis
+        // aligned box is a cheap consequence that any sign error in the
+        // combinatorial table would violate.
+        check(fc.tuple(bezierData(2), inUnit), ([controls, t]) => {
+            const curve = new BezierCurve(2, controls.length - 1, controls);
+            const jet = curve.createJet();
+            curve.evaluate(t, 0, jet);
+            for (let k = 0; k < 2; ++k) {
+                const lo = Math.min(...controls.map(c => c.values[k]));
+                const hi = Math.max(...controls.map(c => c.values[k]));
+                const span = Math.max(1, hi - lo);
+                expect(jet[0].values[k]).toBeGreaterThanOrEqual(lo - 1e-9 * span);
+                expect(jet[0].values[k]).toBeLessThanOrEqual(hi + 1e-9 * span);
+            }
+        });
+    });
+
+    it('copies the control points and reports the domain', () => {
+        check(bezierData(3), controls => {
+            const curve = new BezierCurve(3, controls.length - 1, controls);
+            expect(curve.getTMin()).toBe(0);
+            expect(curve.getTMax()).toBe(1);
+            expect(curve.getNumControls()).toBe(controls.length);
+            expect(curve.getDegree()).toBe(controls.length - 1);
+            expect(curve.isConstructed()).toBe(true);
+            const stored = curve.getControls();
+            for (let i = 0; i < controls.length; ++i) {
+                expect(stored[i]).not.toBe(controls[i]);
+                expectVectorClose(stored[i], controls[i], 0, 0);
+            }
+        });
+    });
+
+    it('zeroes the whole jet when the order is at least SUP_ORDER', () => {
+        check(fc.tuple(bezierData(2), inUnit,
+            fc.integer({ min: 4, max: 9 })), ([controls, t, order]) => {
+            const curve = new BezierCurve(2, controls.length - 1, controls);
+            const jet = curve.createJet();
+            for (let i = 0; i < jet.length; ++i) { jet[i] = vec(5, 7); }
+            curve.evaluate(t, order, jet);
+            for (const j of jet) {
+                expect(j.values).toEqual([0, 0]);
+            }
+        });
+    });
+});

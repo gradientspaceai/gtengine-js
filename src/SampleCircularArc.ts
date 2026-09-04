@@ -27,7 +27,7 @@
 
 import { Arc2 } from './Arc2.js';
 import { GTE_C_TWO_PI } from './Constants.js';
-import { Vector, dot, normalize } from './Vector.js';
+import { Vector, add, div, dot, mul, normalize, sub } from './Vector.js';
 import { dotPerp, perp } from './Vector2.js';
 
 export class SampleCircularArc {
@@ -35,14 +35,13 @@ export class SampleCircularArc {
         // Translate and scale the arc to the unit circle centered at the
         // origin. Compute the angle subtended by the arc.
         const twoPi = GTE_C_TWO_PI;
-        const P0 = Vector.fromArray([
-            (arc.end[0].values[0] - arc.center.values[0]) / arc.radius,
-            (arc.end[0].values[1] - arc.center.values[1]) / arc.radius
-        ]);
-        const P2 = Vector.fromArray([
-            (arc.end[1].values[0] - arc.center.values[0]) / arc.radius,
-            (arc.end[1].values[1] - arc.center.values[1]) / arc.radius
-        ]);
+        // Upstream divides the vector with 'operator/', which multiplies by
+        // the reciprocal of the scalar and produces the ZERO vector when the
+        // scalar is zero (Vector.h); div() has those semantics. A plain
+        // componentwise division would differ in the last ulp and would turn
+        // a zero-radius arc into NaN instead of upstream's empty sample set.
+        const P0 = div(sub(arc.end[0], arc.center), arc.radius);
+        const P2 = div(sub(arc.end[1], arc.center), arc.radius);
         const d = Math.max(-1, Math.min(dot(P0, P2), 1));
         const angle = Math.acos(d);
 
@@ -139,26 +138,16 @@ export class SampleCircularArc {
     private sampleAcuteArc(center: Vector, radius: number, P0: Vector,
         P2: Vector, numPoints: number, points: Vector[], offset: number): void {
         // The ordered points of the arc are {P0,P1,P2}.
-        const diff = Vector.fromArray([
-            P2.values[0] - P0.values[0], P2.values[1] - P0.values[1]
-        ]);
-        const denom = dotPerp(P0, P2);
-        const pp = perp(diff);
-        const P1 = Vector.fromArray([
-            pp.values[0] / denom, pp.values[1] / denom
-        ]);
+        const P1 = div(perp(sub(P2, P0)), dotPerp(P0, P2));
 
         // Compute the NURBS weights for the parameterization. The weights
         // w1 = 1 and w2 = w0.
         const w0 = Math.sqrt(2 * (dot(P1, P1) - 1) / (1 - dot(P0, P2)));
 
         // Compute the NURBS control points for the parameterization.
-        const C0x = center.values[0] + radius * P0.values[0];
-        const C0y = center.values[1] + radius * P0.values[1];
-        const C1x = center.values[0] + radius * P1.values[0];
-        const C1y = center.values[1] + radius * P1.values[1];
-        const C2x = center.values[0] + radius * P2.values[0];
-        const C2y = center.values[1] + radius * P2.values[1];
+        const C0 = add(center, mul(radius, P0));
+        const C1 = add(center, mul(radius, P1));
+        const C2 = add(center, mul(radius, P2));
 
         // Compute the samples for u in [0,1).
         for (let i = 0; i < numPoints; ++i) {
@@ -167,11 +156,12 @@ export class SampleCircularArc {
             const k0 = w0 * onemu * onemu;
             const k1 = 2 * u * onemu;
             const k2 = w0 * u * u;
-            const k = k0 + k1 + k2;
-            points[offset + i] = Vector.fromArray([
-                (k0 * C0x + k1 * C1x + k2 * C2x) / k,
-                (k0 * C0y + k1 * C1y + k2 * C2y) / k
-            ]);
+            const numer = new Vector(2);
+            for (let j = 0; j < 2; ++j) {
+                numer.values[j] = k0 * C0.values[j] + k1 * C1.values[j] +
+                    k2 * C2.values[j];
+            }
+            points[offset + i] = div(numer, k0 + k1 + k2);
         }
     }
 }

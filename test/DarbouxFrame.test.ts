@@ -232,3 +232,177 @@ describe('DarbouxFrame3', () => {
         expect(length(sub(n, result.normal))).toBeLessThan(1e-12);
     });
 });
+
+
+// ---------------------------------------------------------------------------
+// Independent verification pass (VERIFYING.md). DarbouxFrame.h was read line
+// by line against src/DarbouxFrame.ts. The principal curvatures are the
+// generalized eigenvalues of the curvature tensor with respect to the metric
+// tensor; the properties below compare their product and their sum against the
+// classical closed forms for the Gaussian and mean curvature of a Monge patch
+// z = f(x,y), which share no code with the implementation.
+import {
+    check, fc, expectClose, expectVectorClose, wellScaled
+} from './helpers/arbitraries.js';
+
+// The Monge patch X(u,v) = (u, v, f(u,v)) for the quadratic
+// f = a*u^2 + b*u*v + c*v^2 + d*u + e*v, whose derivatives are exact.
+class MongePatch extends ParametricSurface {
+    constructor(private coeff: number[]) {
+        super(3, -1, 1, -1, 1, true);
+        this.mConstructed = true;
+    }
+
+    fu(u: number, v: number): number {
+        return 2 * this.coeff[0] * u + this.coeff[1] * v + this.coeff[3];
+    }
+
+    fv(u: number, v: number): number {
+        return this.coeff[1] * u + 2 * this.coeff[2] * v + this.coeff[4];
+    }
+
+    override evaluate(u: number, v: number, order: number,
+        jet: Vector[]): void {
+        const [a, b, c, d, e] = this.coeff;
+        jet[0] = Vector.fromArray([u, v,
+            a * u * u + b * u * v + c * v * v + d * u + e * v]);
+        if (order >= 1) {
+            jet[1] = Vector.fromArray([1, 0, this.fu(u, v)]);
+            jet[2] = Vector.fromArray([0, 1, this.fv(u, v)]);
+        }
+        if (order >= 2) {
+            jet[3] = Vector.fromArray([0, 0, 2 * a]);
+            jet[4] = Vector.fromArray([0, 0, b]);
+            jet[5] = Vector.fromArray([0, 0, 2 * c]);
+        }
+    }
+}
+
+// wellScaled snaps magnitudes below 1e-3 to exactly zero. That matters here:
+// a subnormal mixed second derivative makes the principal direction a
+// subnormal vector whose Normalize loses most of its mantissa (the same
+// hazard as the Vector Length/Normalize subnormal issue), which has nothing to
+// do with the code under test.
+const mongeCoefficients = fc.array(wellScaled(-1.5, 1.5),
+    { minLength: 5, maxLength: 5 })
+    // A plane (all second derivatives zero) is umbilic with zero curvature and
+    // exercises the fallback path, which the deterministic tests already
+    // cover; require a genuinely curved patch here.
+    .filter(c => Math.abs(c[0]) + Math.abs(c[1]) + Math.abs(c[2]) > 0.2);
+
+const mongeParam = fc.tuple(wellScaled(-0.9, 0.9), wellScaled(-0.9, 0.9));
+
+describe('DarbouxFrame verification', () => {
+    it('reproduces the Gaussian and mean curvature of a Monge patch', () => {
+        // For X(u,v) = (u,v,f), with W^2 = 1 + fu^2 + fv^2,
+        //   K = (fuu*fvv - fuv^2) / W^4
+        //   H = ((1+fu^2)*fvv - 2*fu*fv*fuv + (1+fv^2)*fuu) / (2*W^3)
+        // The Darboux curvature tensor is the negative of the usual second
+        // fundamental form (it uses -Dot(N, X_ij)), so the product of the two
+        // principal curvatures is K and their mean is -H.
+        check(fc.tuple(mongeCoefficients, mongeParam),
+            ([coeff, [u, v]]) => {
+                const surface = new MongePatch(coeff);
+                const frame = new DarbouxFrame3(surface);
+                const r = frame.getPrincipalInformation(u, v);
+                const fu = surface.fu(u, v), fv = surface.fv(u, v);
+                const fuu = 2 * coeff[0], fuv = coeff[1], fvv = 2 * coeff[2];
+                const w2 = 1 + fu * fu + fv * fv;
+                const w = Math.sqrt(w2);
+                const K = (fuu * fvv - fuv * fuv) / (w2 * w2);
+                const H = ((1 + fu * fu) * fvv - 2 * fu * fv * fuv +
+                    (1 + fv * fv) * fuu) / (2 * w2 * w);
+                expectClose(r.curvature0 * r.curvature1, K, 1e-9, 1e-9);
+                expectClose(0.5 * (r.curvature0 + r.curvature1), -H,
+                    1e-9, 1e-9);
+                // The roots are returned in increasing order because
+                // -0.5*(c1 + temp)/c2 <= -0.5*(c1 - temp)/c2 for c2 > 0.
+                expect(r.curvature0).toBeLessThanOrEqual(r.curvature1);
+            });
+    });
+
+    it('returns an orthonormal principal frame', () => {
+        check(fc.tuple(mongeCoefficients, mongeParam),
+            ([coeff, [u, v]]) => {
+                const surface = new MongePatch(coeff);
+                const frame = new DarbouxFrame3(surface);
+                const r = frame.getPrincipalInformation(u, v);
+                const normal = frame.compute(u, v).normal;
+                expectClose(length(r.direction0), 1, 1e-9, 1e-9);
+                expectClose(length(r.direction1), 1, 1e-9, 1e-9);
+                expectClose(dot(r.direction0, r.direction1), 0, 1e-9, 1e-9);
+                expectClose(dot(r.direction0, normal), 0, 1e-9, 1e-9);
+                expectClose(dot(r.direction1, normal), 0, 1e-9, 1e-9);
+                // direction1 = Cross(direction0, normal).
+                expectVectorClose(r.direction1, cross(r.direction0, normal),
+                    1e-9, 1e-9);
+            });
+    });
+
+    it('returns a right-handed orthonormal coordinate frame', () => {
+        check(fc.tuple(mongeCoefficients, mongeParam),
+            ([coeff, [u, v]]) => {
+                const surface = new MongePatch(coeff);
+                const { position, tangent0, tangent1, normal } =
+                    new DarbouxFrame3(surface).compute(u, v);
+                for (const w of [tangent0, tangent1, normal]) {
+                    expectClose(length(w), 1, 1e-12, 1e-12);
+                }
+                expectClose(dot(tangent0, tangent1), 0, 1e-12, 1e-12);
+                expectClose(dot(tangent0, normal), 0, 1e-12, 1e-12);
+                expectClose(dot(tangent1, normal), 0, 1e-12, 1e-12);
+                expectVectorClose(cross(tangent0, tangent1), normal,
+                    1e-9, 1e-9);
+                // T0 is the normalized dX/du, and the position is on the
+                // surface.
+                expectClose(position.values[0], u, 1e-12, 1e-12);
+                expectClose(position.values[1], v, 1e-12, 1e-12);
+                const speed = Math.hypot(1, surface.fu(u, v));
+                expectClose(tangent0.values[0], 1 / speed, 1e-12, 1e-12);
+                expectClose(tangent0.values[2], surface.fu(u, v) / speed,
+                    1e-12, 1e-12);
+            });
+    });
+
+    it('is invariant under rigid motions of the surface', () => {
+        // Curvatures are intrinsic to the embedded surface, so rotating the
+        // Monge patch about the z-axis and translating it leaves the principal
+        // curvatures unchanged.
+        class Moved extends ParametricSurface {
+            constructor(private base: MongePatch, private angle: number,
+                private shift: number[]) {
+                super(3, -1, 1, -1, 1, true);
+                this.mConstructed = true;
+            }
+
+            override evaluate(u: number, v: number, order: number,
+                jet: Vector[]): void {
+                const inner = this.base.createJet();
+                this.base.evaluate(u, v, order, inner);
+                const c = Math.cos(this.angle), s = Math.sin(this.angle);
+                for (let i = 0; i <= Math.min(order === 0 ? 0 : 5, 5); ++i) {
+                    const p = inner[i];
+                    const t = (i === 0 ? this.shift : [0, 0, 0]);
+                    jet[i] = Vector.fromArray([
+                        c * p.values[0] - s * p.values[1] + t[0],
+                        s * p.values[0] + c * p.values[1] + t[1],
+                        p.values[2] + t[2]]);
+                }
+            }
+        }
+
+        check(fc.tuple(mongeCoefficients, mongeParam,
+            fc.double({ min: -Math.PI, max: Math.PI, noNaN: true,
+                noDefaultInfinity: true }),
+            fc.array(fc.double({ min: -5, max: 5, noNaN: true,
+                noDefaultInfinity: true }), { minLength: 3, maxLength: 3 })),
+        ([coeff, [u, v], angle, shift]) => {
+            const base = new MongePatch(coeff);
+            const moved = new Moved(base, angle, shift);
+            const a = new DarbouxFrame3(base).getPrincipalInformation(u, v);
+            const b = new DarbouxFrame3(moved).getPrincipalInformation(u, v);
+            expectClose(b.curvature0, a.curvature0, 1e-8, 1e-8);
+            expectClose(b.curvature1, a.curvature1, 1e-8, 1e-8);
+        });
+    });
+});

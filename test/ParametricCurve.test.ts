@@ -376,3 +376,216 @@ describe('ParametricCurve randomized cross-check', () => {
         }
     });
 });
+
+// ---------------------------------------------------------------------------
+// Independent verification pass (VERIFYING.md). ParametricCurve.h was read
+// line by line against src/ParametricCurve.ts. The properties below drive the
+// arc-length machinery on a smooth curve whose arc length has a closed form,
+// with randomly placed interior knots so that every branch of GetLength (the
+// leading partial segment, the trailing partial segment, whole segments, and
+// the single-integration fallback) is exercised against an exact answer. That
+// also covers the port's hand-written std::lower_bound.
+import {
+    check, fc, expectClose
+} from './helpers/arbitraries.js';
+
+// X(t) = (t, t^2/2), so X'(t) = (1, t) and the speed is sqrt(1+t^2). The arc
+// length from 0 to t is (t*sqrt(1+t^2) + asinh(t))/2, an independent closed
+// form. The curve is smooth, so the segment decomposition must not change the
+// answer no matter where the knots are placed.
+class ParabolaCurve extends ParametricCurve {
+    constructor(times: readonly number[]) {
+        super(2, times.length - 1, times);
+        this.mConstructed = true;
+    }
+
+    evaluate(t: number, order: number, jet: Vector[]): void {
+        jet[0].set(0, t);
+        jet[0].set(1, 0.5 * t * t);
+        if (order >= 1) {
+            jet[1].set(0, 1);
+            jet[1].set(1, t);
+        }
+        if (order >= 2) {
+            jet[2].set(0, 0);
+            jet[2].set(1, 1);
+        }
+        if (order >= 3) {
+            jet[3].set(0, 0);
+            jet[3].set(1, 0);
+        }
+    }
+}
+
+// A curve whose speed is 1 + |t-1| on [0,2]: continuous but with a corner at
+// t = 1. The arc length from 0 is the piecewise quadratic below.
+function kinkedArc(t: number): number {
+    return t <= 1 ? 2 * t - 0.5 * t * t : 1.5 + (t - 1) + 0.5 * (t - 1) ** 2;
+}
+
+class KinkedSpeedCurve extends ParametricCurve {
+    constructor(times: readonly number[]) {
+        super(2, times.length - 1, times);
+        this.mConstructed = true;
+    }
+
+    evaluate(t: number, order: number, jet: Vector[]): void {
+        jet[0].set(0, kinkedArc(t));
+        jet[0].set(1, 0);
+        if (order >= 1) {
+            jet[1].set(0, 1 + Math.abs(t - 1));
+            jet[1].set(1, 0);
+        }
+    }
+}
+
+function parabolaArc(t: number): number {
+    return 0.5 * (t * Math.sqrt(1 + t * t) + Math.asinh(t));
+}
+
+// Strictly increasing knot times covering [0, tmax] with 1 to 5 segments.
+const knotTimes = fc.array(fc.double({ min: 0.2, max: 1.5, noNaN: true,
+    noDefaultInfinity: true }), { minLength: 1, maxLength: 5 })
+    .map(gaps => {
+        const times = [0];
+        for (const g of gaps) { times.push(times[times.length - 1] + g); }
+        return times;
+    });
+
+const unit = fc.double({ min: 0, max: 1, noNaN: true,
+    noDefaultInfinity: true });
+
+describe('ParametricCurve verification', () => {
+    it('arc length matches the closed form on every subinterval', () => {
+        check(fc.tuple(knotTimes, unit, unit), ([times, u0, u1]) => {
+            const curve = new ParabolaCurve(times);
+            const tmax = times[times.length - 1];
+            const a = Math.min(u0, u1) * tmax;
+            const b = Math.max(u0, u1) * tmax;
+            // Romberg of order 8 on a smooth integrand; the residual is well
+            // below 1e-11 for this curve and these interval lengths.
+            expectClose(curve.getLength(a, b), parabolaArc(b) - parabolaArc(a),
+                1e-10, 1e-10);
+            expectClose(curve.getTotalLength(), parabolaArc(tmax), 1e-10, 1e-10);
+            // Clamping outside the domain.
+            expectClose(curve.getLength(-3, tmax + 3), parabolaArc(tmax),
+                1e-10, 1e-10);
+            expect(curve.getLength(b, b)).toBe(0);
+        });
+    });
+
+    it('the segment decomposition does not change the arc length', () => {
+        // The same curve declared with one segment and with several: GetLength
+        // splits at the knots and adds cached segment lengths, which must
+        // reproduce the single integration for a smooth speed.
+        check(fc.tuple(knotTimes, unit, unit), ([times, u0, u1]) => {
+            const tmax = times[times.length - 1];
+            const many = new ParabolaCurve(times);
+            const one = new ParabolaCurve([0, tmax]);
+            const a = Math.min(u0, u1) * tmax;
+            const b = Math.max(u0, u1) * tmax;
+            expectClose(many.getLength(a, b), one.getLength(a, b),
+                1e-10, 1e-10);
+        });
+    });
+
+    it('getTime inverts getLength on a smooth curve', () => {
+        check(fc.tuple(knotTimes, unit), ([times, u]) => {
+            const curve = new ParabolaCurve(times);
+            const total = curve.getTotalLength();
+            const s = u * total;
+            const t = curve.getTime(s);
+            expect(t).toBeGreaterThanOrEqual(curve.getTMin());
+            expect(t).toBeLessThanOrEqual(curve.getTMax());
+            // The bisection stops at 1024 iterations or at machine precision,
+            // whichever comes first; the residual is dominated by the Romberg
+            // error of F, not by the bracketing.
+            expectClose(parabolaArc(t), s, 1e-9, 1e-9);
+            expect(curve.getTime(-1)).toBe(curve.getTMin());
+            expect(curve.getTime(0)).toBe(curve.getTMin());
+            expect(curve.getTime(total * 2)).toBe(curve.getTMax());
+        }, 40);
+    });
+
+    it('subdivideByLength is uniform in arc length', () => {
+        check(fc.tuple(knotTimes, fc.integer({ min: 2, max: 9 })),
+            ([times, numPoints]) => {
+                const curve = new ParabolaCurve(times);
+                const points = curve.subdivideByLength(numPoints);
+                expect(points.length).toBe(numPoints);
+                const total = curve.getTotalLength();
+                const delta = total / (numPoints - 1);
+                for (let i = 0; i < numPoints; ++i) {
+                    // Every point lies on the curve and is at the requested
+                    // arc length from the start.
+                    expectClose(points[i].values[1],
+                        0.5 * points[i].values[0] ** 2, 1e-9, 1e-9);
+                    expectClose(parabolaArc(points[i].values[0]), i * delta,
+                        1e-8, 1e-8);
+                }
+            }, 20);
+    });
+
+    it('subdivideByTime is uniform in the parameter', () => {
+        check(fc.tuple(knotTimes, fc.integer({ min: 2, max: 9 })),
+            ([times, numPoints]) => {
+                const curve = new ParabolaCurve(times);
+                const tmax = times[times.length - 1];
+                const points = curve.subdivideByTime(numPoints);
+                expect(points.length).toBe(numPoints);
+                for (let i = 0; i < numPoints; ++i) {
+                    const t = (i * tmax) / (numPoints - 1);
+                    expectClose(points[i].values[0], t, 1e-12, 1e-12);
+                    expectClose(points[i].values[1], 0.5 * t * t, 1e-12, 1e-12);
+                }
+            });
+    });
+
+    it('getTangent is the unit derivative and getSpeed is its length', () => {
+        check(fc.tuple(knotTimes, unit), ([times, u]) => {
+            const curve = new ParabolaCurve(times);
+            const t = u * times[times.length - 1];
+            const speed = Math.sqrt(1 + t * t);
+            expectClose(curve.getSpeed(t), speed, 1e-12, 1e-12);
+            const tangent = curve.getTangent(t);
+            expectClose(vectorLength(tangent), 1, 1e-12, 1e-12);
+            expectClose(tangent.values[0], 1 / speed, 1e-12, 1e-12);
+            expectClose(tangent.values[1], t / speed, 1e-12, 1e-12);
+            // getPosition returns a copy of the jet slot, so mutating it does
+            // not disturb a later evaluation.
+            const p = curve.getPosition(t);
+            p.set(0, 12345);
+            expectClose(curve.getPosition(t).values[0], t, 1e-12, 1e-12);
+        });
+    });
+
+    it('getTime ignores the segment decomposition that getLength honors', () => {
+        // Upstream issue #113, preserved. GetLength splits the interval at the
+        // knots and integrates each piece, but GetTime builds
+        // F(t) = Romberg(tmin, t, speed) - length as a single integration
+        // across every knot. On a curve whose speed has a corner at a knot the
+        // Richardson extrapolation of that single integration is invalid, so
+        // GetTime returns a t at which GetLength does not report the requested
+        // length.
+        //
+        // The curve below has speed 1 + |t-1| on [0,2] with a knot at t = 1,
+        // so each segment has a linear speed that the trapezoid rule
+        // integrates exactly: GetLength is exact to rounding, and the total is
+        // exactly 3.
+        const curve = new KinkedSpeedCurve([0, 1, 2]);
+        expect(curve.getTotalLength()).toBe(3);
+        expect(curve.getLength(0, 1.5)).toBeCloseTo(kinkedArc(1.5), 12);
+
+        // Inside a single segment GetTime is exact.
+        expect(Math.abs(curve.getLength(curve.getTMin(),
+            curve.getTime(1.25)) - 1.25)).toBeLessThan(1e-12);
+
+        // Across the corner it is not: the requested arc length 2.25 comes
+        // back as roughly 2.25005.
+        const t = curve.getTime(2.25);
+        expect(Math.abs(curve.getLength(curve.getTMin(), t) - 2.25))
+            .toBeGreaterThan(1e-6);
+        expect(Math.abs(curve.getLength(curve.getTMin(), t) - 2.25))
+            .toBeLessThan(1e-3);
+    });
+});

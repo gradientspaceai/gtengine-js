@@ -348,10 +348,20 @@ export class NURBSEighthSphereDegree4 {
     }
 }
 
+// The port of upstream's 'Vector<3,Real> / Real'. That operator multiplies by
+// the reciprocal of the scalar and yields the ZERO vector when the scalar is
+// zero (Vector.h), which is not the same as a componentwise division: the
+// results differ in the last ulp, and a zero divisor gives zero rather than
+// NaN. For parameters in the documented triangular domain the denominator D is
+// a positive combination of positive weights, so only the last-ulp difference
+// is in play there.
 function divideVec(v: Vector, s: number): Vector {
     const result = new Vector(v.size);
-    for (let k = 0; k < v.size; ++k) {
-        result.values[k] = v.values[k] / s;
+    if (s !== 0) {
+        const invS = 1 / s;
+        for (let k = 0; k < v.size; ++k) {
+            result.values[k] = v.values[k] * invS;
+        }
     }
     return result;
 }

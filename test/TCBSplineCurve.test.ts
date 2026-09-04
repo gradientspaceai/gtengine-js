@@ -264,3 +264,275 @@ describe('TCBSplineCurve', () => {
         }
     });
 });
+
+
+// ---------------------------------------------------------------------------
+// Independent verification pass (VERIFYING.md). TCBSplineCurve.h was read line
+// by line against src/TCBSplineCurve.ts. The class is a cubic Hermite spline
+// whose tangents come from the Kochanek-Bartels formulas, so the properties
+// below check the Hermite identities (each segment interpolates its two key
+// frames and matches the stored out/in tangents at its ends), the closed-form
+// reductions for special TCB values, and the speed-continuity guarantee that
+// the lambda array is documented to provide.
+import {
+    check, fc, expectClose, expectVectorClose, wellScaledVector
+} from './helpers/arbitraries.js';
+
+interface TCBData {
+    curve: TCBSplineCurve;
+    point: Vector[];
+    time: number[];
+    tension: number[];
+    continuity: number[];
+    bias: number[];
+}
+
+const tcbParam = fc.double({ min: -0.9, max: 0.9, noNaN: true,
+    noDefaultInfinity: true });
+
+const tcbData = (dim: number, withLambda: boolean):
+    fc.Arbitrary<TCBData> =>
+    fc.integer({ min: 2, max: 6 }).chain(n => fc.tuple(
+        fc.array(wellScaledVector(dim, -5, 5), { minLength: n, maxLength: n }),
+        fc.array(fc.double({ min: 0.3, max: 2, noNaN: true,
+            noDefaultInfinity: true }), { minLength: n - 1, maxLength: n - 1 }),
+        fc.array(tcbParam, { minLength: n, maxLength: n }),
+        fc.array(tcbParam, { minLength: n, maxLength: n }),
+        fc.array(tcbParam, { minLength: n, maxLength: n }),
+        fc.array(fc.double({ min: 0.2, max: 3, noNaN: true,
+            noDefaultInfinity: true }), { minLength: n, maxLength: n })))
+        .filter(([point]) => {
+            // Consecutive key frames must be distinct: coincident points make
+            // every tangent zero, and the lambda rescaling then divides by the
+            // sum of two zero lengths (upstream does the same).
+            for (let i = 1; i < point.length; ++i) {
+                let sum = 0;
+                for (let k = 0; k < point[i].size; ++k) {
+                    sum += (point[i].values[k] - point[i - 1].values[k]) ** 2;
+                }
+                if (sum < 0.01) { return false; }
+            }
+            return true;
+        })
+        .map(([point, gaps, tension, continuity, bias, lambda]) => {
+            const time = [0];
+            for (const g of gaps) { time.push(time[time.length - 1] + g); }
+            return {
+                curve: new TCBSplineCurve(dim, point, time, tension,
+                    continuity, bias, withLambda ? lambda : []),
+                point, time, tension, continuity, bias
+            };
+        });
+
+function jetAt(curve: TCBSplineCurve, t: number, order: number): Vector[] {
+    const jet = curve.createJet();
+    curve.evaluate(t, order, jet);
+    return jet;
+}
+
+describe('TCBSplineCurve verification', () => {
+    it('each segment is the cubic Hermite interpolant of its key frames', () => {
+        // X(t_k) = P_k, X'(t_k) from the right is outTangent[k] and from the
+        // left is inTangent[k]. Those three identities characterize the
+        // segment polynomial completely, independently of how the tangents
+        // were derived.
+        check(fc.tuple(tcbData(3, false), fc.boolean()),
+            ([{ curve, point, time }, withLambda]) => {
+                void withLambda;
+                const outTan = curve.getOutTangents();
+                const inTan = curve.getInTangents();
+                for (let k = 0; k + 1 < point.length; ++k) {
+                    const delta = time[k + 1] - time[k];
+                    // Interpolation at both ends of the segment, evaluated
+                    // strictly inside so getKeyInfo selects this segment, then
+                    // extrapolated exactly with the cubic Taylor series.
+                    const mid = time[k] + 0.5 * delta;
+                    const j = jetAt(curve, mid, 3);
+                    const at = (h: number): Vector => {
+                        const v = new Vector(3);
+                        for (let i = 0; i < 3; ++i) {
+                            v.values[i] = j[0].values[i] + h * j[1].values[i] +
+                                0.5 * h * h * j[2].values[i] +
+                                h * h * h * j[3].values[i] / 6;
+                        }
+                        return v;
+                    };
+                    const der = (h: number): Vector => {
+                        const v = new Vector(3);
+                        for (let i = 0; i < 3; ++i) {
+                            v.values[i] = j[1].values[i] + h * j[2].values[i] +
+                                0.5 * h * h * j[3].values[i];
+                        }
+                        return v;
+                    };
+                    expectVectorClose(at(-0.5 * delta), point[k], 1e-9, 1e-9);
+                    expectVectorClose(at(0.5 * delta), point[k + 1],
+                        1e-9, 1e-9);
+                    expectVectorClose(der(-0.5 * delta), outTan[k],
+                        1e-9, 1e-9);
+                    expectVectorClose(der(0.5 * delta), inTan[k + 1],
+                        1e-9, 1e-9);
+                }
+            });
+    });
+
+    it('reduces to Catmull-Rom for zero tension, continuity and bias', () => {
+        // With T = C = B = 0 the interior tangents are
+        // (P1-P0)/(2*delta0) + (P2-P1)/(2*delta1), which for uniform times is
+        // the Catmull-Rom tangent (P2-P0)/(2h). Comparing against the standard
+        // Catmull-Rom basis is an independent closed form.
+        check(fc.tuple(fc.integer({ min: 4, max: 7 }),
+            fc.double({ min: 0.3, max: 2, noNaN: true,
+                noDefaultInfinity: true }),
+            fc.double({ min: 0, max: 1, noNaN: true,
+                noDefaultInfinity: true })).chain(([n, h, u]) =>
+            fc.tuple(fc.constant(h), fc.constant(u),
+                fc.array(wellScaledVector(2, -5, 5),
+                    { minLength: n, maxLength: n }))),
+        ([h, u, point]) => {
+            const n = point.length;
+            const time = Array.from({ length: n }, (_v, i) => i * h);
+            const curve = new TCBSplineCurve(2, point, time, zeros(n),
+                zeros(n), zeros(n), []);
+            // Evaluate on an interior segment, where both tangents are the
+            // Catmull-Rom ones.
+            const k = 1 + Math.min(n - 4, Math.floor(u * (n - 3)));
+            const t = time[k] + u * h;
+            const s = u;
+            const m0 = new Vector(2);
+            const m1 = new Vector(2);
+            for (let i = 0; i < 2; ++i) {
+                m0.values[i] = (point[k + 1].values[i] -
+                    point[k - 1].values[i]) / 2;
+                m1.values[i] = (point[k + 2].values[i] -
+                    point[k].values[i]) / 2;
+            }
+            const h00 = 2 * s ** 3 - 3 * s ** 2 + 1;
+            const h10 = s ** 3 - 2 * s ** 2 + s;
+            const h01 = -2 * s ** 3 + 3 * s ** 2;
+            const h11 = s ** 3 - s ** 2;
+            const expected = new Vector(2);
+            for (let i = 0; i < 2; ++i) {
+                expected.values[i] = h00 * point[k].values[i] +
+                    h10 * m0.values[i] + h01 * point[k + 1].values[i] +
+                    h11 * m1.values[i];
+            }
+            expectVectorClose(jetAt(curve, t, 0)[0], expected, 1e-9, 1e-9);
+        });
+    });
+
+    it('flattens to a smoothstep blend when the tension is one', () => {
+        // Tension 1 makes every coefficient omT = 0, so all tangents vanish
+        // and the segment is P0 + (3u^2 - 2u^3)*(P1 - P0).
+        check(fc.tuple(tcbData(2, false), fc.double({ min: 0, max: 1,
+            noNaN: true, noDefaultInfinity: true })),
+        ([{ point, time }, u]) => {
+            const n = point.length;
+            const curve = new TCBSplineCurve(2, point, time,
+                new Array<number>(n).fill(1), zeros(n), zeros(n), []);
+            for (let k = 0; k + 1 < n; ++k) {
+                const t = time[k] + u * (time[k + 1] - time[k]);
+                const blend = u * u * (3 - 2 * u);
+                const expected = new Vector(2);
+                for (let i = 0; i < 2; ++i) {
+                    expected.values[i] = point[k].values[i] + blend *
+                        (point[k + 1].values[i] - point[k].values[i]);
+                }
+                expectVectorClose(jetAt(curve, t, 0)[0], expected, 1e-9, 1e-9);
+            }
+        });
+    });
+
+    it('lambda makes the speed continuous across interior key frames', () => {
+        // The lambda pass rescales the interior tangents so that
+        // |inTangent[k]| == |outTangent[k]|; that is exactly what the
+        // documentation promises about a continuous speed.
+        check(tcbData(3, true), ({ curve, point }) => {
+            const inTan = curve.getInTangents();
+            const outTan = curve.getOutTangents();
+            for (let k = 1; k + 1 < point.length; ++k) {
+                const li = vectorLength(inTan[k]);
+                const lo = vectorLength(outTan[k]);
+                // A key frame whose two Kochanek-Bartels tangents both vanish
+                // makes the rescaling divide by zero; that case is pinned
+                // separately below.
+                if (!Number.isFinite(li) || !Number.isFinite(lo)) { return; }
+                expectClose(li, lo, 1e-9, 1e-9);
+            }
+        });
+    });
+
+    it('produces NaN tangents when lambda rescales a vanishing tangent', () => {
+        // Upstream bug suspect (minor), preserved. ComputeInteriorTangents
+        // rescales with common = 2*lambda[k] / (|inTangent| + |outTangent|).
+        // For a key frame whose two Kochanek-Bartels tangents are both zero -
+        // for example P2 == P0 with uniform times and zero tension,
+        // continuity and bias - that is a division by zero, and the
+        // subsequent 0 * infinity makes both tangents NaN. Without lambda the
+        // same configuration simply gives zero tangents.
+        const point = [vec(0, 0), vec(1, 0), vec(0, 0)];
+        const time = [0, 1, 2];
+        const withLambda = new TCBSplineCurve(2, point, time, zeros(3),
+            zeros(3), zeros(3), [1, 1, 1]);
+        expect(Number.isNaN(withLambda.getInTangents()[1].values[0]))
+            .toBe(true);
+        expect(Number.isNaN(withLambda.getOutTangents()[1].values[0]))
+            .toBe(true);
+
+        const without = new TCBSplineCurve(2, point, time, zeros(3), zeros(3),
+            zeros(3), []);
+        expect(without.getInTangents()[1].values).toEqual([0, 0]);
+        expect(without.getOutTangents()[1].values).toEqual([0, 0]);
+    });
+
+    it('is C0 and speed-continuous but generally not C1 without lambda', () => {
+        check(tcbData(3, false), ({ curve, point, time }) => {
+            for (let k = 0; k < point.length; ++k) {
+                expectVectorClose(jetAt(curve, time[k], 0)[0], point[k],
+                    1e-9, 1e-9);
+            }
+            // Continuity of the position across every interior knot.
+            for (let k = 1; k + 1 < point.length; ++k) {
+                const before = jetAt(curve, time[k] - 1e-7, 0)[0];
+                const after = jetAt(curve, time[k] + 1e-7, 0)[0];
+                expectVectorClose(before, after, 1e-5, 1e-5);
+            }
+        });
+    });
+
+    it('clamps evaluation outside the time domain', () => {
+        check(fc.tuple(tcbData(3, false), fc.double({ min: 0.001, max: 100,
+            noNaN: true, noDefaultInfinity: true })),
+        ([{ curve, point, time }, d]) => {
+            const last = point.length - 1;
+            expectVectorClose(jetAt(curve, time[0] - d, 0)[0], point[0],
+                1e-9, 1e-9);
+            expectVectorClose(jetAt(curve, time[last] + d, 0)[0], point[last],
+                1e-9, 1e-9);
+        });
+    });
+
+    it('reports a successful construction (upstream never sets mConstructed)',
+        () => {
+            check(tcbData(2, false), ({ curve }) => {
+                expect(curve.isConstructed()).toBe(true);
+            });
+        });
+
+    it('yields a zero derivative for a zero-length segment', () => {
+        // Regression test for the port's use of upstream's vector operator/=,
+        // which multiplies by the reciprocal of the scalar and assigns the
+        // ZERO vector when the scalar is zero. Evaluate divides the derivative
+        // coefficients by the segment length, so a repeated key time makes
+        // upstream return zero derivatives; a componentwise division would
+        // return NaN.
+        const point = [vec(0, 0), vec(1, 0), vec(2, 1)];
+        const time = [0, 0, 1];
+        const curve = new TCBSplineCurve(2, point, time, zeros(3), zeros(3),
+            zeros(3), []);
+        const jet = jetAt(curve, 0, 3);
+        expect(jet[1].values).toEqual([0, 0]);
+        expect(jet[2].values).toEqual([0, 0]);
+        expect(jet[3].values).toEqual([0, 0]);
+    });
+});

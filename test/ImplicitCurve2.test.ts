@@ -211,3 +211,149 @@ describe('ImplicitCurve2', () => {
         }
     });
 });
+
+
+// ---------------------------------------------------------------------------
+// Independent verification pass (VERIFYING.md). ImplicitCurve2.h was read line
+// by line against src/ImplicitCurve2.ts. The only nontrivial member is
+// GetCurvature; the properties below check it against the curvature of the
+// same level set computed from an explicit parameterization (an ellipse) and
+// against the invariances the formula must have, and they check GetGradient,
+// GetHessian and GetFrame against numerical differentiation and the frame
+// conventions.
+import {
+    check, fc, expectClose
+} from './helpers/arbitraries.js';
+
+// F(x,y) = s * ((x/a)^2 + (y/b)^2 - 1), a scaled ellipse. Scaling by s does
+// not move the level set, so the curvature must be invariant for s > 0 and
+// must flip sign for s < 0.
+class ScaledEllipse2 extends ImplicitCurve2 {
+    constructor(private a: number, private b: number,
+        private s: number) {
+        super();
+    }
+
+    override f(p: Vector): number {
+        return this.s * ((p.values[0] / this.a) ** 2 +
+            (p.values[1] / this.b) ** 2 - 1);
+    }
+
+    override fx(p: Vector): number {
+        return this.s * 2 * p.values[0] / (this.a * this.a);
+    }
+
+    override fy(p: Vector): number {
+        return this.s * 2 * p.values[1] / (this.b * this.b);
+    }
+
+    override fxx(_p: Vector): number {
+        return this.s * 2 / (this.a * this.a);
+    }
+
+    override fxy(_p: Vector): number {
+        return 0;
+    }
+
+    override fyy(_p: Vector): number {
+        return this.s * 2 / (this.b * this.b);
+    }
+}
+
+const semiAxis = fc.double({ min: 0.4, max: 4, noNaN: true,
+    noDefaultInfinity: true });
+const angleParam = fc.double({ min: -Math.PI, max: Math.PI, noNaN: true,
+    noDefaultInfinity: true });
+
+describe('ImplicitCurve2 verification', () => {
+    it('matches the parametric curvature of the ellipse it defines', () => {
+        // The ellipse (a cos t, b sin t) has signed curvature
+        // a*b / (a^2 sin^2 t + b^2 cos^2 t)^{3/2} for the counterclockwise
+        // parameterization. The implicit formula of the class returns the
+        // negative of that for F = (x/a)^2 + (y/b)^2 - 1, whose gradient
+        // points outward.
+        check(fc.tuple(semiAxis, semiAxis, angleParam), ([a, b, t]) => {
+            const curve = new ScaledEllipse2(a, b, 1);
+            const p = Vector.fromArray([a * Math.cos(t), b * Math.sin(t)]);
+            expect(curve.isOnCurve(p, 1e-12)).toBe(true);
+            const result = curve.getCurvature(p);
+            expect(result.valid).toBe(true);
+            const denom = Math.pow(a * a * Math.sin(t) ** 2 +
+                b * b * Math.cos(t) ** 2, 1.5);
+            expectClose(result.curvature, -(a * b) / denom, 1e-9, 1e-9);
+        });
+    });
+
+    it('is invariant under positive rescaling of the implicit function', () => {
+        // The level set of F and of s*F is the same curve, so the curvature
+        // must not change for s > 0 and must negate for s < 0 (the gradient,
+        // which orients the curve, reverses).
+        check(fc.tuple(semiAxis, semiAxis, angleParam,
+            fc.double({ min: 0.05, max: 20, noNaN: true,
+                noDefaultInfinity: true })), ([a, b, t, s]) => {
+            const p = Vector.fromArray([a * Math.cos(t), b * Math.sin(t)]);
+            const base = new ScaledEllipse2(a, b, 1).getCurvature(p);
+            const up = new ScaledEllipse2(a, b, s).getCurvature(p);
+            const down = new ScaledEllipse2(a, b, -s).getCurvature(p);
+            expectClose(up.curvature, base.curvature, 1e-9, 1e-9);
+            expectClose(down.curvature, -base.curvature, 1e-9, 1e-9);
+        });
+    });
+
+    it('gradient and Hessian match numerical differentiation', () => {
+        check(fc.tuple(semiAxis, semiAxis,
+            fc.double({ min: -3, max: 3, noNaN: true,
+                noDefaultInfinity: true }),
+            fc.double({ min: -3, max: 3, noNaN: true,
+                noDefaultInfinity: true })), ([a, b, x, y]) => {
+            const curve = new ScaledEllipse2(a, b, 1);
+            const p = Vector.fromArray([x, y]);
+            const h = 1e-5;
+            const at = (dx: number, dy: number): number =>
+                curve.f(Vector.fromArray([x + dx, y + dy]));
+            const g = curve.getGradient(p);
+            expectClose(g.values[0], (at(h, 0) - at(-h, 0)) / (2 * h),
+                1e-6, 1e-6);
+            expectClose(g.values[1], (at(0, h) - at(0, -h)) / (2 * h),
+                1e-6, 1e-6);
+            const H = curve.getHessian(p);
+            expect(H.numRows).toBe(2);
+            expect(H.numCols).toBe(2);
+            expect(H.get(0, 1)).toBe(H.get(1, 0));
+            expectClose(H.get(0, 0),
+                (at(h, 0) - 2 * at(0, 0) + at(-h, 0)) / (h * h), 1e-4, 1e-4);
+            expectClose(H.get(1, 1),
+                (at(0, h) - 2 * at(0, 0) + at(0, -h)) / (h * h), 1e-4, 1e-4);
+            expectClose(H.get(0, 1),
+                (at(h, h) - at(h, -h) - at(-h, h) + at(-h, -h)) / (4 * h * h),
+                1e-4, 1e-4);
+        });
+    });
+
+    it('the frame is orthonormal with the unit gradient as normal', () => {
+        check(fc.tuple(semiAxis, semiAxis, angleParam), ([a, b, t]) => {
+            const curve = new ScaledEllipse2(a, b, 1);
+            const p = Vector.fromArray([a * Math.cos(t), b * Math.sin(t)]);
+            const { tangent, normal } = curve.getFrame(p);
+            expectClose(length(tangent), 1, 1e-12, 1e-12);
+            expectClose(length(normal), 1, 1e-12, 1e-12);
+            expectClose(dot(tangent, normal), 0, 1e-12, 1e-12);
+            const g = curve.getGradient(p);
+            const gl = length(g);
+            expectClose(normal.values[0], g.values[0] / gl, 1e-12, 1e-12);
+            expectClose(normal.values[1], g.values[1] / gl, 1e-12, 1e-12);
+            // {T, N} is right handed in the sense DotPerp(N, T) = 1.
+            expectClose(dotPerp(normal, tangent), 1, 1e-12, 1e-12);
+        });
+    });
+
+    it('reports an invalid curvature exactly where the gradient vanishes', () => {
+        check(fc.tuple(semiAxis, semiAxis), ([a, b]) => {
+            const curve = new ScaledEllipse2(a, b, 1);
+            const origin = new Vector(2);
+            const result = curve.getCurvature(origin);
+            expect(result.valid).toBe(false);
+            expect(result.curvature).toBe(0);
+        });
+    });
+});
