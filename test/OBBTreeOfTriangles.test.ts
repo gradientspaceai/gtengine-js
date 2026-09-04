@@ -12,6 +12,7 @@ import { Segment } from '../src/Segment.js';
 import { Triangle } from '../src/Triangle.js';
 import { Vector, add, div, dot, length, mul, normalize, sub } from '../src/Vector.js';
 import { cross } from '../src/Vector3.js';
+import { check, fc, scaled } from './helpers/arbitraries.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -602,5 +603,283 @@ describe('OBBTreeOfTriangles execute', () => {
             (h) => h.triangleIndex === backward[0].triangleIndex);
         expect(negative).toBeDefined();
         expect(negative!.parameter).toBeCloseTo(-backward[0].parameter, 12);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V07): property-based re-check of OBBTreeOfTriangles.h.
+//
+// Coordinates come from a uniform grid (scaled(), no dynamic range) rather
+// than fc.double(), which samples bit patterns and reaches 1e-320 readily.
+// Two computations in this file square their inputs: the covariance matrix
+// that SymmetricEigensolver3x3 decomposes, and the barycentric divisions of
+// the per-triangle FIQuery by Dot(D, N). Subnormal inputs underflow both, and
+// the resulting non-orthonormal frames and infinite parameters would make the
+// brute-force comparison meaningless. Exactly-parallel configurations are
+// still generated and are harmless: both sides run the same query.
+// ---------------------------------------------------------------------------
+
+const obbtCoordinate = scaled(-6, 6, 512);
+
+const obbtPoint = fc.tuple(obbtCoordinate, obbtCoordinate, obbtCoordinate)
+    .map(c => v3(c[0], c[1], c[2]));
+
+const obbtDirection = fc.tuple(scaled(-1, 1, 64), scaled(-1, 1, 64),
+    scaled(-1, 1, 64))
+    .map(c => v3(c[0], c[1], c[2]))
+    .filter(v => dot(v, v) > 0.05)
+    .map(v => { const u = v.clone(); normalize(u); return u; });
+
+// Independent, non-degenerate triangles, each with its own three vertices.
+const obbtSoup: fc.Arbitrary<Mesh> = fc.array(
+    fc.tuple(obbtPoint, obbtPoint, obbtPoint)
+        .filter((t) => {
+            const n = cross(sub(t[1], t[0]), sub(t[2], t[0]));
+            return dot(n, n) > 1;
+        }),
+    { minLength: 1, maxLength: 9 })
+    .map((tris) => {
+        const vertices: Vector[] = [];
+        const triangles: Tri[] = [];
+        for (const t of tris) {
+            const b = vertices.length;
+            vertices.push(t[0], t[1], t[2]);
+            triangles.push([b, b + 1, b + 2]);
+        }
+        return { vertices: vertices, triangles: triangles };
+    });
+
+function obbtReachable(tree: OBBTreeOfTriangles): number[] {
+    const nodes = tree.getNodes();
+    const list: number[] = [];
+    const stack = [0];
+    while (stack.length > 0) {
+        const index = stack.pop()!;
+        list.push(index);
+        const node = nodes[index];
+        if (node.leftChild !== OBBNode.invalid) {
+            stack.push(node.leftChild, node.rightChild);
+        }
+    }
+    return list;
+}
+
+describe('OBBTreeOfTriangles verification', () => {
+    it('matches brute force for line, ray and segment queries', () => {
+        check(fc.tuple(obbtSoup, obbtPoint, obbtDirection, obbtPoint,
+            fc.integer({ min: 0, max: 4 }), fc.boolean()), (input) => {
+                const mesh = input[0];
+                const P = input[1];
+                const D = input[2];
+                const Q = input[3];
+                const tree = new OBBTreeOfTriangles();
+                tree.createFromTriangles(mesh.vertices, mesh.triangles,
+                    input[5] ? OBBTree.fullHeight : input[4]);
+
+                const cases: Array<{ queryType: number; A: Vector; B: Vector }> = [
+                    { queryType: OBBTreeOfTriangles.LINE_QUERY, A: P, B: D },
+                    { queryType: OBBTreeOfTriangles.RAY_QUERY, A: P, B: D },
+                    { queryType: OBBTreeOfTriangles.SEGMENT_QUERY, A: P, B: Q }
+                ];
+                for (const c of cases) {
+                    const hits = tree.execute(c.queryType, c.A, c.B);
+                    // The box rejection must never prune a triangle that the
+                    // per-triangle query would have hit, and the per-triangle
+                    // query is the same one brute force runs.
+                    expectHitsEqual(hits,
+                        bruteForce(mesh, c.queryType, c.A, c.B), 1e-12);
+                }
+            }, 50);
+    });
+
+    it('keeps every hit and sorts by (parameter, triangleIndex)', () => {
+        check(fc.tuple(obbtSoup, obbtPoint, obbtDirection), (input) => {
+            const tree = new OBBTreeOfTriangles();
+            tree.createFromTriangles(input[0].vertices, input[0].triangles);
+            const hits = tree.execute(OBBTreeOfTriangles.LINE_QUERY,
+                input[1], input[2]);
+            for (let k = 1; k < hits.length; ++k) {
+                expect(hits[k - 1].lessThan(hits[k])).toBe(true);
+                expect(hits[k].lessThan(hits[k - 1])).toBe(false);
+            }
+            // Upstream's std::set<Intersection> orders by parameter alone and
+            // would drop coincident hits (issue #167). The port keeps them,
+            // so no triangle is lost and none is reported twice.
+            expect(new Set(hits.map(h => h.triangleIndex)).size)
+                .toBe(hits.length);
+        }, 100);
+    });
+
+    it('places each hit on its triangle and on the linear component', () => {
+        check(fc.tuple(obbtSoup, obbtPoint, obbtDirection, obbtPoint),
+            (input) => {
+                const mesh = input[0];
+                const P = input[1];
+                const D = input[2];
+                const Q = input[3];
+                const tree = new OBBTreeOfTriangles();
+                tree.createFromTriangles(mesh.vertices, mesh.triangles);
+
+                const onTriangle = (point: Vector, t: number): void => {
+                    const tri = mesh.triangles[t];
+                    const v0 = mesh.vertices[tri[0]];
+                    const e1 = sub(mesh.vertices[tri[1]], v0);
+                    const e2 = sub(mesh.vertices[tri[2]], v0);
+                    const n = cross(e1, e2);
+                    const d = sub(point, v0);
+                    const nn = dot(n, n);
+                    // The plane test is scaled by |n|^2 so the tolerance is
+                    // relative to the triangle size, not absolute.
+                    expect(Math.abs(dot(n, d))).toBeLessThanOrEqual(1e-8 * nn);
+                    const b1 = dot(cross(d, e2), n) / nn;
+                    const b2 = dot(cross(e1, d), n) / nn;
+                    expect(b1).toBeGreaterThanOrEqual(-1e-8);
+                    expect(b2).toBeGreaterThanOrEqual(-1e-8);
+                    expect(b1 + b2).toBeLessThanOrEqual(1 + 1e-8);
+                };
+
+                for (const queryType of [OBBTreeOfTriangles.LINE_QUERY,
+                    OBBTreeOfTriangles.RAY_QUERY]) {
+                    for (const hit of tree.execute(queryType, P, D)) {
+                        if (queryType === OBBTreeOfTriangles.RAY_QUERY) {
+                            expect(hit.parameter).toBeGreaterThanOrEqual(0);
+                        }
+                        for (let k = 0; k < 3; ++k) {
+                            expect(Math.abs(hit.point.get(k)
+                                - (P.get(k) + hit.parameter * D.get(k))))
+                                .toBeLessThan(1e-9);
+                        }
+                        onTriangle(hit.point, hit.triangleIndex);
+                    }
+                }
+
+                // Unlike BVTreeOfTriangles.h, this header converts the
+                // centered-form parameter s back to t in [0,1] of
+                // (1-t)*P + t*Q, so the point must be the affine combination.
+                const len = length(sub(Q, P));
+                if (len > 1e-3) {
+                    for (const hit of tree.execute(
+                        OBBTreeOfTriangles.SEGMENT_QUERY, P, Q)) {
+                        expect(hit.parameter).toBeGreaterThanOrEqual(-1e-9);
+                        expect(hit.parameter).toBeLessThanOrEqual(1 + 1e-9);
+                        for (let k = 0; k < 3; ++k) {
+                            const expected = (1 - hit.parameter) * P.get(k)
+                                + hit.parameter * Q.get(k);
+                            expect(Math.abs(hit.point.get(k) - expected))
+                                .toBeLessThan(1e-8);
+                        }
+                        onTriangle(hit.point, hit.triangleIndex);
+                    }
+                }
+            }, 50);
+    });
+
+    it('bounds every node by the vertices of its triangles', () => {
+        check(fc.tuple(obbtSoup, fc.integer({ min: 0, max: 4 }), fc.boolean()),
+            (input) => {
+                const mesh = input[0];
+                const tree = new OBBTreeOfTriangles();
+                tree.createFromTriangles(mesh.vertices, mesh.triangles,
+                    input[2] ? OBBTree.fullHeight : input[1]);
+                checkContainment(tree, mesh, 1e-8);
+
+                // The partition is a permutation and the leaves tile it.
+                const nodes = tree.getNodes();
+                const partition = tree.getPartition();
+                expect([...partition].sort((a, b) => a - b))
+                    .toEqual([...Array(mesh.triangles.length).keys()]);
+                const covered = new Array<number>(mesh.triangles.length).fill(0);
+                for (const index of obbtReachable(tree)) {
+                    const node = nodes[index];
+                    if (node.leftChild === OBBNode.invalid) {
+                        for (let i = node.minIndex; i <= node.maxIndex; ++i) {
+                            ++covered[i];
+                        }
+                    }
+                }
+                expect(covered.every(c => c === 1)).toBe(true);
+            }, 60);
+    });
+
+    it('gives every leaf the triangle frame ComputeLeafBox specifies', () => {
+        check(obbtSoup, (mesh) => {
+            const tree = new OBBTreeOfTriangles();
+            tree.createFromTriangles(mesh.vertices, mesh.triangles);
+            const nodes = tree.getNodes();
+            const partition = tree.getPartition();
+
+            for (const index of obbtReachable(tree)) {
+                const node = nodes[index];
+                if (node.leftChild !== OBBNode.invalid) {
+                    continue;
+                }
+                const t = partition[node.minIndex];
+                const tri = mesh.triangles[t];
+                const box = node.box;
+
+                // Center is the centroid; axis[0] is the normalized edge
+                // V1 - V0; axis[2] is the unit triangle normal; axis[1] is
+                // Cross(axis[2], axis[0]); extent[2] is zero.
+                const centroid = div(add(add(mesh.vertices[tri[0]],
+                    mesh.vertices[tri[1]]), mesh.vertices[tri[2]]), 3);
+                for (let k = 0; k < 3; ++k) {
+                    expect(box.center.get(k)).toBe(centroid.get(k));
+                }
+                expect(box.extent.get(2)).toBe(0);
+
+                const edge10 = sub(mesh.vertices[tri[1]], mesh.vertices[tri[0]]);
+                normalize(edge10);
+                for (let k = 0; k < 3; ++k) {
+                    expect(Math.abs(box.axis[0].get(k) - edge10.get(k)))
+                        .toBeLessThan(1e-12);
+                }
+                for (let a = 0; a < 3; ++a) {
+                    expect(Math.abs(dot(box.axis[a], box.axis[a]) - 1))
+                        .toBeLessThan(1e-9);
+                    for (let b = a + 1; b < 3; ++b) {
+                        expect(Math.abs(dot(box.axis[a], box.axis[b])))
+                            .toBeLessThan(1e-9);
+                    }
+                }
+                const n = cross(sub(mesh.vertices[tri[1]], mesh.vertices[tri[0]]),
+                    sub(mesh.vertices[tri[2]], mesh.vertices[tri[0]]));
+                normalize(n);
+                expect(Math.abs(Math.abs(dot(box.axis[2], n)) - 1))
+                    .toBeLessThan(1e-9);
+
+                // extent[0] and extent[1] are the largest |projection| of the
+                // three vertices, so the flat box contains the triangle and
+                // is tight in both in-plane directions.
+                for (const j of [0, 1]) {
+                    let maxAbs = 0;
+                    for (let k = 0; k < 3; ++k) {
+                        maxAbs = Math.max(maxAbs, Math.abs(dot(box.axis[j],
+                            sub(mesh.vertices[tri[k]], box.center))));
+                    }
+                    expect(Math.abs(box.extent.get(j) - maxAbs))
+                        .toBeLessThan(1e-12 * (1 + maxAbs));
+                }
+                expect(box.center).not.toBe(tree.getCentroids()[t]);
+            }
+        }, 60);
+    });
+
+    it('gives the same hits for a line as for the two opposing rays', () => {
+        check(fc.tuple(obbtSoup, obbtPoint, obbtDirection), (input) => {
+            const tree = new OBBTreeOfTriangles();
+            tree.createFromTriangles(input[0].vertices, input[0].triangles);
+            const P = input[1];
+            const D = input[2];
+            const line = tree.execute(OBBTreeOfTriangles.LINE_QUERY, P, D);
+            const forward = tree.execute(OBBTreeOfTriangles.RAY_QUERY, P, D);
+            const backward = tree.execute(OBBTreeOfTriangles.RAY_QUERY, P,
+                mul(-1, D));
+
+            const lineSet = new Set(line.map(h => h.triangleIndex));
+            const raySet = new Set([...forward, ...backward]
+                .map(h => h.triangleIndex));
+            expect([...raySet].sort((a, b) => a - b))
+                .toEqual([...lineSet].sort((a, b) => a - b));
+        }, 60);
     });
 });
