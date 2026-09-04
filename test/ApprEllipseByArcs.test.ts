@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { approximateEllipseByArcs } from '../src/ApprEllipseByArcs.js';
 import { Vector, length, sub } from '../src/Vector.js';
+import { check, expectClose, fc, finite } from './helpers/arbitraries.js';
 
 function vec(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -166,5 +167,128 @@ describe('approximateEllipseByArcs arcs', () => {
                 .toBeCloseTo(wide!.points[n - i].values[0], 10);
         }
         expect(maxArcDeviation(1, 3, 8, 64)).toBeLessThan(6e-2);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Property-based verification (VERIFYING.md).
+
+describe('approximateEllipseByArcs verification', () => {
+    // Semi-axis lengths that are well separated from each other so that the
+    // eccentricity is bounded away from 0 (a == b is rejected by the
+    // function) and the curvature-weighted point placement is meaningful.
+    const shape = fc.tuple(finite(0.2, 5), finite(0.2, 5),
+        fc.integer({ min: 2, max: 12 }))
+        .filter(([a, b]) => Math.abs(a - b) > 1e-2);
+
+    it('places every generated point on the ellipse in the first quadrant', () => {
+        check(shape, ([a, b, numArcs]) => {
+            const result = approximateEllipseByArcs(a, b, numArcs);
+            expect(result).not.toBeNull();
+            const { points } = result!;
+            expect(points.length).toBe(numArcs + 1);
+            for (const p of points) {
+                expect(p.values[0]).toBeGreaterThanOrEqual(-1e-12);
+                expect(p.values[1]).toBeGreaterThanOrEqual(-1e-12);
+                expectClose(implicit(a, b, p), 1, 1e-9, 1e-9);
+            }
+            // The endpoints are exactly (a,0) and (0,b).
+            expect(points[0].values[0]).toBe(a);
+            expect(points[0].values[1]).toBe(0);
+            expect(points[numArcs].values[0]).toBe(0);
+            expect(points[numArcs].values[1]).toBe(b);
+        });
+    });
+
+    it('orders the points counterclockwise from (a,0) to (0,b)', () => {
+        check(shape, ([a, b, numArcs]) => {
+            const { points } = approximateEllipseByArcs(a, b, numArcs)!;
+            for (let i = 0; i + 1 < points.length; ++i) {
+                expect(points[i + 1].values[0]).toBeLessThanOrEqual(
+                    points[i].values[0] + 1e-12);
+                expect(points[i + 1].values[1]).toBeGreaterThanOrEqual(
+                    points[i].values[1] - 1e-12);
+            }
+        });
+    });
+
+    it('produces arcs through their two endpoints', () => {
+        check(shape, ([a, b, numArcs]) => {
+            const { points, centers, radii } =
+                approximateEllipseByArcs(a, b, numArcs)!;
+            expect(centers.length).toBe(numArcs);
+            expect(radii.length).toBe(numArcs);
+            for (let i = 0; i < numArcs; ++i) {
+                // The circumscribed circle of each triple passes through both
+                // endpoints of the arc it supports.
+                expectClose(length(sub(points[i], centers[i])), radii[i],
+                    1e-9, 1e-9);
+                expectClose(length(sub(points[i + 1], centers[i])), radii[i],
+                    1e-9, 1e-9);
+                expect(radii[i]).toBeGreaterThan(0);
+            }
+        });
+    });
+
+    it('circumscribes the documented point triple for every arc', () => {
+        // Arc 0 circumscribes {(x1,-y1), p0, p1}, arc numArcs-1
+        // circumscribes {(-x[n-1], y[n-1]), p[n], p[n-1]} and interior arc i
+        // circumscribes {p[i-1], p[i], p[i+1]}. Checking the third (non
+        // endpoint) point of each triple pins the iM/i/iP loop indices and
+        // the two reflections, which an off-by-one would break.
+        check(shape.filter(([, , numArcs]) => numArcs >= 3),
+            ([a, b, numArcs]) => {
+                const { points, centers, radii } =
+                    approximateEllipseByArcs(a, b, numArcs)!;
+                const last = numArcs - 1;
+
+                const reflect0 = vec(points[1].values[0],
+                    -points[1].values[1]);
+                expectClose(length(sub(reflect0, centers[0])), radii[0],
+                    1e-9, 1e-9);
+
+                const reflectN = vec(-points[last].values[0],
+                    points[last].values[1]);
+                expectClose(length(sub(reflectN, centers[last])), radii[last],
+                    1e-9, 1e-9);
+
+                for (let i = 1; i < last; ++i) {
+                    expectClose(length(sub(points[i - 1], centers[i])),
+                        radii[i], 1e-9, 1e-9);
+                }
+            });
+    });
+
+    it('is equivariant under swapping the semi-axis lengths', () => {
+        // Swapping a and b reflects the first-quadrant arc across the line
+        // y = x, so the point list is the reversed, mirrored one.
+        check(shape, ([a, b, numArcs]) => {
+            const direct = approximateEllipseByArcs(a, b, numArcs)!;
+            const swapped = approximateEllipseByArcs(b, a, numArcs)!;
+            for (let i = 0; i <= numArcs; ++i) {
+                const p = direct.points[i];
+                const q = swapped.points[numArcs - i];
+                expectClose(p.values[0], q.values[1], 1e-9, 1e-9);
+                expectClose(p.values[1], q.values[0], 1e-9, 1e-9);
+            }
+            // Only the points mirror. The arcs do not: an interior arc's
+            // circle is determined by the backward-looking triple
+            // {p[i-1], p[i], p[i+1]}, so reflecting the point list does not
+            // reflect the arc list. The first and last arcs, whose triples
+            // are symmetric by construction, do correspond.
+            expectClose(direct.radii[0], swapped.radii[numArcs - 1],
+                1e-9, 1e-9);
+            expectClose(direct.radii[numArcs - 1], swapped.radii[0],
+                1e-9, 1e-9);
+        });
+    });
+
+    it('rejects the documented degenerate inputs', () => {
+        check(fc.tuple(finite(0.2, 5), fc.integer({ min: -3, max: 1 })),
+            ([a, numArcs]) => {
+                expect(approximateEllipseByArcs(a, a, 4)).toBeNull();
+                expect(approximateEllipseByArcs(a, 2 * a + 1, numArcs))
+                    .toBeNull();
+            });
     });
 });
