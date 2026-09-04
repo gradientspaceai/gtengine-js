@@ -6,6 +6,9 @@ import { Hyperplane } from '../src/Hyperplane.js';
 import type { Plane3 } from '../src/Hyperplane.js';
 import { Vector, dot, sub } from '../src/Vector.js';
 import { cross } from '../src/Vector3.js';
+import {
+    check, fc, rotationFrame, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -423,5 +426,172 @@ describe('PointInPolyhedron3 face-plane culling', () => {
         // Just inside and just outside the z = 0 face.
         expect(query.contains(v3(0.5, 0.5, 1e-8))).toBe(true);
         expect(query.contains(v3(0.5, 0.5, -1e-8))).toBe(false);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (VERIFYING.md): property-based cross-checks of the port
+// against the upstream ContPointInPolyhedron3.h semantics.
+// ---------------------------------------------------------------------------
+
+describe('ContPointInPolyhedron3 verification', () => {
+    // Query points on a half-integer lattice: the cube, the tetrahedron and
+    // the L-prism all have integer or half-integer face planes, so a query
+    // point at (i/4, j/4, k/4) with odd numerators is never on a face and the
+    // even-odd answer is unambiguous.
+    const quarterPoint = (lo: number, hi: number): fc.Arbitrary<Vector> =>
+        fc.tuple(fc.integer({ min: lo, max: hi }), fc.integer({ min: lo, max: hi }),
+            fc.integer({ min: lo, max: hi }))
+            .map(([i, j, k]) => v3((2 * i + 1) / 8, (2 * j + 1) / 8,
+                (2 * k + 1) / 8));
+
+    // Rigid motion of a polyhedron: transform the vertices and rebuild the
+    // faces so the stored planes stay consistent with them.
+    const moveFaces = (points: readonly Vector[], indices: number[][],
+        xform: (p: Vector) => Vector): {
+            points: Vector[], faces: PointInPolyhedron3Face[]
+        } => {
+        const moved = points.map(xform);
+        return { points: moved, faces: indices.map(f => makeFace(moved, f)) };
+    };
+
+    const rigid = (frame: Vector[], t: Vector) => (p: Vector): Vector => {
+        const out = new Vector(3);
+        for (let r = 0; r < 3; ++r) {
+            out.values[r] = p.get(0) * frame[0].get(r)
+                + p.get(1) * frame[1].get(r) + p.get(2) * frame[2].get(r)
+                + t.get(r);
+        }
+        return out;
+    };
+
+    // Every supported (face type, method) combination must agree with the
+    // analytic test on the cube. The CONVEX cases use quadrilateral faces,
+    // which is what upstream's fixed-size std::array<int32_t,3> broke
+    // (issue #343): with the truncated faces the cube's own center is
+    // reported outside.
+    it('all face types and methods agree with the analytic cube test', () => {
+        const queries: [PointInPolyhedron3FaceType, PointInPolyhedron3Face[],
+            number][] = [
+            [PointInPolyhedron3FaceType.TRIANGLE, cubeTriangleFaces, 0],
+            [PointInPolyhedron3FaceType.CONVEX, cubeConvexFaces, 0],
+            [PointInPolyhedron3FaceType.CONVEX, cubeConvexFaces, 1],
+            [PointInPolyhedron3FaceType.CONVEX, cubeConvexFaces, 2],
+            [PointInPolyhedron3FaceType.SIMPLE, cubeConvexFaces, 0],
+            [PointInPolyhedron3FaceType.SIMPLE, cubeConvexFaces, 1]
+        ];
+        check(quarterPoint(-4, 11), (p: Vector) => {
+            const expected = cubeContains(p);
+            for (const [type, faces, method] of queries) {
+                const query = new PointInPolyhedron3(type, cubePoints, faces,
+                    dirs7, method);
+                expect(query.contains(p)).toBe(expected);
+            }
+        });
+    });
+
+    // Regression pin for upstream issue #343: the cube's center must be
+    // inside for the quad-faced CONVEX methods 0, 1 and 2. With upstream's
+    // three-element indices array the faces are truncated to triangles and
+    // the center is reported outside.
+    it('reports the cube center inside for quad CONVEX faces (#343)', () => {
+        for (const method of [0, 1, 2]) {
+            const query = new PointInPolyhedron3(
+                PointInPolyhedron3FaceType.CONVEX, cubePoints, cubeConvexFaces,
+                dirs7, method);
+            expect(query.contains(v3(0.5, 0.5, 0.5))).toBe(true);
+        }
+        // Each face really does carry four indices.
+        for (const face of cubeConvexFaces) {
+            expect(face.indices.length).toBe(4);
+        }
+    });
+
+    // The non-convex L-prism: both supported simple-face methods must agree
+    // with the analytic test.
+    it('simple faces agree with the analytic L-prism test', () => {
+        check(quarterPoint(-4, 19), (p: Vector) => {
+            const expected = lContains(p);
+            for (const method of [0, 1]) {
+                const query = new PointInPolyhedron3(
+                    PointInPolyhedron3FaceType.SIMPLE, lPoints, lFaces,
+                    dirs7, method);
+                expect(query.contains(p)).toBe(expected);
+            }
+        });
+    });
+
+    // Rigid motions: the answer depends only on the relative geometry, so the
+    // transformed query on the transformed polyhedron must agree. Points near
+    // a face are excluded, because a rotated face plane no longer separates
+    // them cleanly.
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(quarterPoint(-2, 9), rotationFrame(3),
+            wellScaledVector(3)),
+            ([p, frame, t]: [Vector, Vector[], Vector]) => {
+                const xform = rigid(frame, t);
+                const base = new PointInPolyhedron3(
+                    PointInPolyhedron3FaceType.CONVEX, cubePoints,
+                    cubeConvexFaces, dirs7, 1);
+                const moved = moveFaces(cubePoints, cubeQuads, xform);
+                const movedQuery = new PointInPolyhedron3(
+                    PointInPolyhedron3FaceType.CONVEX, moved.points,
+                    moved.faces, dirs7, 1);
+                expect(movedQuery.contains(xform(p))).toBe(base.contains(p));
+            });
+    });
+
+    // Cross-check the CONVEX query against the halfspace test that defines a
+    // convex polyhedron: a point is inside exactly when it is strictly on the
+    // negative side of every face plane.
+    it('convex faces agree with the halfspace test on a rotated cube', () => {
+        check(fc.tuple(quarterPoint(-2, 9), rotationFrame(3),
+            wellScaledVector(3)),
+            ([p, frame, t]: [Vector, Vector[], Vector]) => {
+                const xform = rigid(frame, t);
+                const moved = moveFaces(cubePoints, cubeQuads, xform);
+                const q = xform(p);
+                let minSlack = Infinity;
+                for (const face of moved.faces) {
+                    minSlack = Math.min(minSlack,
+                        face.plane.constant - dot(face.plane.normal, q));
+                }
+                if (Math.abs(minSlack) < 1e-9) {
+                    return;   // on a face, where the even-odd rule is moot
+                }
+                const query = new PointInPolyhedron3(
+                    PointInPolyhedron3FaceType.CONVEX, moved.points,
+                    moved.faces, dirs7, 2);
+                expect(query.contains(q)).toBe(minSlack > 0);
+            });
+    });
+
+    // The majority vote is over an odd number of rays; for a point well away
+    // from the boundary every individual ray agrees, so the answer does not
+    // depend on the ray set.
+    it('the answer does not depend on the ray set for generic points', () => {
+        check(fc.tuple(quarterPoint(-4, 11), fc.integer({ min: 1, max: 5000 })),
+            ([p, seed]: [Vector, number]) => {
+                const expected = cubeContains(p);
+                for (const count of [1, 3, 5]) {
+                    const query = new PointInPolyhedron3(
+                        PointInPolyhedron3FaceType.TRIANGLE, cubePoints,
+                        cubeTriangleFaces, randomDirections(count, seed), 0);
+                    expect(query.contains(p)).toBe(expected);
+                    expect(query.numRays).toBe(count);
+                }
+            });
+    });
+
+    // Upstream returns a silent 'false' for an unsupported (type, method)
+    // pair, which is indistinguishable from "outside". Preserved; pinned for
+    // every interior point, where the correct answer would be 'true'.
+    it('unsupported simple-face methods report false everywhere', () => {
+        check(quarterPoint(0, 7), (p: Vector) => {
+            const query = new PointInPolyhedron3(
+                PointInPolyhedron3FaceType.SIMPLE, cubePoints, cubeConvexFaces,
+                dirs7, 2);
+            expect(query.contains(p)).toBe(false);
+        });
     });
 });

@@ -5,7 +5,10 @@ import {
     mergeContainersSphere3
 } from '../src/ContSphere3.js';
 import { Hypersphere, type Sphere3 } from '../src/Hypersphere.js';
-import { Vector, length, sub } from '../src/Vector.js';
+import { Vector, add, div, length, mul, sub } from '../src/Vector.js';
+import {
+    check, expectClose, fc, rotationFrame, seededRandom, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -213,5 +216,131 @@ describe('mergeContainersSphere3', () => {
     it('throws when the inputs are not 3D', () => {
         expect(() => mergeContainersSphere3(sphere(0, 0, 0, 1), new Hypersphere(2)))
             .toThrow('mergeContainersSphere3: inputs must be 3D.');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (VERIFYING.md): property-based cross-checks of the port
+// against the upstream ContSphere3.h semantics.
+// ---------------------------------------------------------------------------
+
+describe('ContSphere3 verification', () => {
+    // Upstream builds the average-center sphere: C is the mean of the points
+    // and r is the largest distance from C to a point.
+    it('center is the mean and radius the largest distance', () => {
+        check(fc.array(wellScaledVector(3), { minLength: 1, maxLength: 12 }),
+            (points: Vector[]) => {
+                const sph = getContainerSphere3(points);
+
+                let mean = new Vector(3);
+                for (const p of points) { mean = add(mean, p); }
+                mean = div(mean, points.length);
+                for (let d = 0; d < 3; ++d) {
+                    expectClose(sph.center.get(d), mean.get(d), 1e-12, 1e-12);
+                }
+
+                let maxDist = 0;
+                for (const p of points) {
+                    maxDist = Math.max(maxDist, length(sub(p, sph.center)));
+                }
+                expectClose(sph.radius, maxDist, 1e-12, 1e-12);
+
+                for (const p of points) {
+                    expect(inContainerSphere3(p, sph)).toBe(true);
+                }
+                if (sph.radius > 0) {
+                    const tight = Hypersphere.fromCenterRadius(
+                        sph.center, sph.radius * (1 - 1e-12));
+                    expect(points.some(p => !inContainerSphere3(p, tight)))
+                        .toBe(true);
+                }
+            });
+    });
+
+    it('inContainer agrees with the squared-distance test', () => {
+        check(fc.tuple(wellScaledVector(3), fc.double({ min: 0.1, max: 5, noNaN: true }),
+            wellScaledVector(3, -12, 12)),
+            ([c, r, p]: [Vector, number, Vector]) => {
+                const sph = Hypersphere.fromCenterRadius(c, r);
+                const d = sub(p, c);
+                const sqrLen = d.get(0) ** 2 + d.get(1) ** 2 + d.get(2) ** 2;
+                if (Math.abs(Math.sqrt(sqrLen) - r) > 1e-9) {
+                    expect(inContainerSphere3(p, sph)).toBe(sqrLen < r * r);
+                }
+            });
+    });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(fc.array(wellScaledVector(3), { minLength: 1, maxLength: 10 }),
+            rotationFrame(3), wellScaledVector(3)),
+            ([points, frame, t]: [Vector[], Vector[], Vector]) => {
+                const xform = (p: Vector): Vector =>
+                    add(add(add(mul(p.get(0), frame[0]), mul(p.get(1), frame[1])),
+                        mul(p.get(2), frame[2])), t);
+                const s0 = getContainerSphere3(points);
+                const s1 = getContainerSphere3(points.map(xform));
+                const expected = xform(s0.center);
+                for (let d = 0; d < 3; ++d) {
+                    expectClose(s1.center.get(d), expected.get(d), 1e-11, 1e-11);
+                }
+                expectClose(s1.radius, s0.radius, 1e-11, 1e-11);
+            });
+    });
+
+    // The merged sphere contains both inputs: |Ci - Cm| + ri <= rm.
+    it('merge contains both input spheres', () => {
+        const sphereArb = fc.tuple(wellScaledVector(3),
+            fc.double({ min: 0, max: 5, noNaN: true }))
+            .map(([c, r]) => Hypersphere.fromCenterRadius(c, r));
+        check(fc.tuple(sphereArb, sphereArb),
+            ([s0, s1]: [Sphere3, Sphere3]) => {
+                const merge = mergeContainersSphere3(s0, s1);
+                for (const input of [s0, s1]) {
+                    const d = length(sub(input.center, merge.center));
+                    expect(d + input.radius).toBeLessThanOrEqual(
+                        merge.radius + 1e-12 + 1e-12 * merge.radius);
+                }
+                const touch = [s0, s1].some(input =>
+                    Math.abs(length(sub(input.center, merge.center))
+                        + input.radius - merge.radius) <= 1e-9);
+                expect(touch).toBe(true);
+            });
+    });
+
+    // Independent confirmation by sampling the boundary spheres.
+    it('merge contains sampled boundary points of both inputs', () => {
+        const rand = seededRandom(0x5eed3);
+        for (let trial = 0; trial < 150; ++trial) {
+            const mk = (): Sphere3 => Hypersphere.fromCenterRadius(
+                Vector.fromArray([10 * rand() - 5, 10 * rand() - 5, 10 * rand() - 5]),
+                4 * rand());
+            const s0 = mk(), s1 = mk();
+            const merge = mergeContainersSphere3(s0, s1);
+            for (const input of [s0, s1]) {
+                for (let k = 0; k < 24; ++k) {
+                    const z = 2 * rand() - 1;
+                    const a = 2 * Math.PI * rand();
+                    const s = Math.sqrt(Math.max(0, 1 - z * z));
+                    const p = add(input.center, mul(input.radius,
+                        Vector.fromArray([s * Math.cos(a), s * Math.sin(a), z])));
+                    expect(length(sub(p, merge.center)))
+                        .toBeLessThanOrEqual(merge.radius + 1e-9);
+                }
+            }
+        }
+    });
+
+    it('handles coincident centers and self-merge', () => {
+        check(fc.tuple(wellScaledVector(3), fc.double({ min: 0, max: 5, noNaN: true }),
+            fc.double({ min: 0, max: 5, noNaN: true })),
+            ([c, r0, r1]: [Vector, number, number]) => {
+                const a = Hypersphere.fromCenterRadius(c, r0);
+                const b = Hypersphere.fromCenterRadius(c, r1);
+                const merge = mergeContainersSphere3(a, b);
+                expect(merge.radius).toBe(Math.max(r0, r1));
+                const self = mergeContainersSphere3(a, a);
+                expect(self.radius).toBe(r0);
+                expect(self.center).not.toBe(a.center);
+            });
     });
 });

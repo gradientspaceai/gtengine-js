@@ -7,6 +7,9 @@ import {
 import { OrientedBox, type OrientedBox3 } from '../src/OrientedBox.js';
 import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector.js';
 import { cross } from '../src/Vector3.js';
+import {
+    check, expectClose, fc, rotationFrame, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -188,6 +191,156 @@ describe('ContOrientedBox3', () => {
         it('rejects mismatched dimensions', () => {
             expect(() => mergeContainersOrientedBox3(new OrientedBox(3),
                 new OrientedBox(2))).toThrow();
+        });
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (VERIFYING.md): property-based cross-checks of the port
+// against the upstream ContOrientedBox3.h semantics.
+// ---------------------------------------------------------------------------
+
+describe('ContOrientedBox3 verification', () => {
+    const box3Arb = fc.tuple(wellScaledVector(3, -6, 6), rotationFrame(3),
+        fc.double({ min: 0.1, max: 3, noNaN: true }),
+        fc.double({ min: 0.1, max: 3, noNaN: true }),
+        fc.double({ min: 0.1, max: 3, noNaN: true }))
+        .map(([c, frame, e0, e1, e2]) => OrientedBox.fromCenterAxisExtent(
+            c, frame, Vector.fromArray([e0, e1, e2])));
+
+    // Anisotropic lattice cloud so the fitted frame is unambiguous.
+    const baseGrid: Vector[] = [];
+    for (let i = -3; i <= 3; ++i) {
+        for (let j = -2; j <= 2; ++j) {
+            for (let k = -1; k <= 1; ++k) {
+                baseGrid.push(v3(i, j, k));
+            }
+        }
+    }
+
+    const containedWithinTol = (p: Vector, box: OrientedBox3,
+        tol: number): boolean => {
+        const diff = sub(p, box.center);
+        for (let i = 0; i < 3; ++i) {
+            if (Math.abs(dot(diff, box.axis[i])) > box.extent.get(i) + tol) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    // GetContainer adjusts the fitted box so that it is tight along its own
+    // axes: every point projects inside [-e_j, e_j] and both bounds are
+    // attained.
+    it('is tight along its own axes and contains every point', () => {
+        check(fc.array(wellScaledVector(3, -6, 6), { minLength: 1, maxLength: 14 }),
+            (points: Vector[]) => {
+                const box = getContainerOrientedBox3(points);
+                if (box === null) {
+                    return;
+                }
+                for (const p of points) {
+                    expect(containedWithinTol(p, box, 1e-9)).toBe(true);
+                }
+                for (let j = 0; j < 3; ++j) {
+                    let lo = Infinity, hi = -Infinity;
+                    for (const p of points) {
+                        const s = dot(sub(p, box.center), box.axis[j]);
+                        lo = Math.min(lo, s);
+                        hi = Math.max(hi, s);
+                    }
+                    expectClose(hi, box.extent.get(j), 1e-9, 1e-9);
+                    expectClose(lo, -box.extent.get(j), 1e-9, 1e-9);
+                }
+                // The axes stay orthonormal.
+                for (let a = 0; a < 3; ++a) {
+                    for (let b = a; b < 3; ++b) {
+                        expectClose(dot(box.axis[a], box.axis[b]),
+                            a === b ? 1 : 0, 1e-9, 1e-9);
+                    }
+                }
+            });
+    });
+
+    it('is equivariant under rigid motions', () => {
+        const reference = getContainerOrientedBox3(baseGrid)!;
+        check(fc.tuple(rotationFrame(3), wellScaledVector(3)),
+            ([frame, t]: [Vector[], Vector]) => {
+                const xform = (p: Vector): Vector =>
+                    add(add(add(mul(p.get(0), frame[0]), mul(p.get(1), frame[1])),
+                        mul(p.get(2), frame[2])), t);
+                const moved = getContainerOrientedBox3(baseGrid.map(xform))!;
+                const want = [0, 1, 2].map(k => reference.extent.get(k))
+                    .sort((a, b) => a - b);
+                const got = [0, 1, 2].map(k => moved.extent.get(k))
+                    .sort((a, b) => a - b);
+                for (let k = 0; k < 3; ++k) {
+                    expectClose(got[k], want[k], 1e-8, 1e-8);
+                }
+                expect(length(sub(moved.center, xform(reference.center))))
+                    .toBeLessThanOrEqual(1e-8);
+            });
+    });
+
+    // inContainer against an independent projection test.
+    it('inContainer agrees with a brute-force projection test', () => {
+        check(fc.tuple(box3Arb, wellScaledVector(3, -12, 12)),
+            ([box, p]: [OrientedBox3, Vector]) => {
+                const diff = sub(p, box.center);
+                let slack = Infinity;
+                for (let i = 0; i < 3; ++i) {
+                    slack = Math.min(slack,
+                        box.extent.get(i) - Math.abs(dot(diff, box.axis[i])));
+                }
+                if (Math.abs(slack) < 1e-9) {
+                    return;
+                }
+                expect(inContainerOrientedBox3(p, box)).toBe(slack > 0);
+            });
+    });
+
+    // MergeContainers claims a box containing both inputs (not necessarily of
+    // least volume). Confirm containment and tightness along the merged axes.
+    // This also exercises the zero-seeded pmin/pmax that upstream uses
+    // (issue #292 item 5): it is sound only because the provisional center
+    // lies between the two boxes.
+    it('merge contains both inputs and is tight along its own axes', () => {
+        check(fc.tuple(box3Arb, box3Arb),
+            ([b0, b1]: [OrientedBox3, OrientedBox3]) => {
+                const merge = mergeContainersOrientedBox3(b0, b1);
+                const vertices = [...b0.getVertices(), ...b1.getVertices()];
+                for (const vertex of vertices) {
+                    expect(containedWithinTol(vertex, merge, 1e-9)).toBe(true);
+                }
+                for (let a = 0; a < 3; ++a) {
+                    for (let b = a; b < 3; ++b) {
+                        expectClose(dot(merge.axis[a], merge.axis[b]),
+                            a === b ? 1 : 0, 1e-9, 1e-9);
+                    }
+                }
+                for (let j = 0; j < 3; ++j) {
+                    let lo = Infinity, hi = -Infinity;
+                    for (const vertex of vertices) {
+                        const s = dot(sub(vertex, merge.center), merge.axis[j]);
+                        lo = Math.min(lo, s);
+                        hi = Math.max(hi, s);
+                    }
+                    expectClose(hi, merge.extent.get(j), 1e-8, 1e-8);
+                    expectClose(lo, -merge.extent.get(j), 1e-8, 1e-8);
+                }
+            });
+    });
+
+    it('merging a box with itself reproduces it', () => {
+        check(box3Arb, (b: OrientedBox3) => {
+            const merge = mergeContainersOrientedBox3(b, b);
+            expect(length(sub(merge.center, b.center))).toBeLessThanOrEqual(1e-8);
+            const want = [0, 1, 2].map(k => b.extent.get(k)).sort((x, y) => x - y);
+            const got = [0, 1, 2].map(k => merge.extent.get(k))
+                .sort((x, y) => x - y);
+            for (let k = 0; k < 3; ++k) {
+                expectClose(got[k], want[k], 1e-8, 1e-8);
+            }
         });
     });
 });

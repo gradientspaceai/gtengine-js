@@ -8,6 +8,9 @@ import { Hyperellipsoid, type Ellipse2 } from '../src/Hyperellipsoid.js';
 import { Line } from '../src/Line.js';
 import { projectEllipse2 } from '../src/Projection.js';
 import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import {
+    check, expectClose, fc, rotationFrame, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -184,5 +187,138 @@ describe('ContEllipse2', () => {
             const e3 = new Hyperellipsoid(3);
             expect(() => mergeContainersEllipse2(e2, e3)).toThrow();
         });
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (VERIFYING.md): property-based cross-checks of the port
+// against the upstream ContEllipse2.h semantics.
+// ---------------------------------------------------------------------------
+
+describe('ContEllipse2 verification', () => {
+    // Anisotropic lattice cloud so the fitted frame is unambiguous.
+    const baseGrid: Vector[] = [];
+    for (let i = -3; i <= 3; ++i) {
+        for (let j = -1; j <= 1; ++j) {
+            baseGrid.push(v(i, j));
+        }
+    }
+
+    // Q(X) = sum_j D[j]*Dot(U[j],X-C)^2, the quadratic form the construction
+    // is based on. inContainer is |standardized| <= 1, that is Q(X) <= V^2.
+    const quadratic = (ellipse: Ellipse2, p: Vector): number => {
+        const diff = sub(p, ellipse.center);
+        let sum = 0;
+        for (let j = 0; j < 2; ++j) {
+            const s = dot(diff, ellipse.axis[j]) / ellipse.extent.values[j];
+            sum += s * s;
+        }
+        return sum;
+    };
+
+    // The design claim: the fitted ellipse contains every input point, and it
+    // is tight, i.e. at least one point is on the boundary (the point that
+    // attained maxValue).
+    it('contains every input point and is tight on one of them', () => {
+        check(fc.array(wellScaledVector(2, -6, 6), { minLength: 2, maxLength: 12 }),
+            (points: Vector[]) => {
+                const ellipse = getContainerEllipse2(points);
+                if (ellipse === null
+                    || !ellipse.extent.values.every(e => Number.isFinite(e) && e > 0)) {
+                    // Collinear or coincident input: upstream's zero
+                    // eigenvalue gives an infinite extent (issue #292).
+                    return;
+                }
+                // The construction makes max_i Q(X_i) exactly 1 in exact
+                // arithmetic, so the extremal point sits on the boundary and
+                // the strict '<= 1' of InContainer can reject it by one ulp.
+                // That is upstream behavior; the property is that Q is at
+                // most 1 and that every point strictly inside is accepted.
+                let maxQ = 0;
+                for (const p of points) {
+                    const q = quadratic(ellipse, p);
+                    maxQ = Math.max(maxQ, q);
+                    expect(q).toBeLessThanOrEqual(1 + 1e-9);
+                    if (q < 1 - 1e-9) {
+                        expect(inContainerEllipse2(p, ellipse)).toBe(true);
+                    }
+                }
+                expectClose(maxQ, 1, 1e-9, 1e-9);
+            });
+    });
+
+    // Rigid motions: the extents are invariant and the center follows.
+    it('is equivariant under rigid motions', () => {
+        const reference = getContainerEllipse2(baseGrid)!;
+        check(fc.tuple(rotationFrame(2), wellScaledVector(2)),
+            ([frame, t]: [Vector[], Vector]) => {
+                const xform = (p: Vector): Vector =>
+                    add(add(mul(p.get(0), frame[0]), mul(p.get(1), frame[1])), t);
+                const moved = getContainerEllipse2(baseGrid.map(xform))!;
+                const want = [reference.extent.get(0), reference.extent.get(1)]
+                    .sort((a, b) => a - b);
+                const got = [moved.extent.get(0), moved.extent.get(1)]
+                    .sort((a, b) => a - b);
+                expectClose(got[0], want[0], 1e-9, 1e-9);
+                expectClose(got[1], want[1], 1e-9, 1e-9);
+                expect(length(sub(moved.center, xform(reference.center))))
+                    .toBeLessThanOrEqual(1e-8);
+            });
+    });
+
+    // Upstream issue #292 item 1: the comment says nonpositive eigenvalues are
+    // adjusted, but only strictly negative ones are. A zero eigenvalue
+    // (collinear input) divides by zero, the extent becomes infinite and
+    // InContainer then accepts every point. Preserved; pinned here.
+    it('collinear input yields an infinite extent that accepts everything (#292)',
+        () => {
+            const points = [v(-2, 0), v(-1, 0), v(0, 0), v(1, 0), v(2, 0)];
+            const ellipse = getContainerEllipse2(points)!;
+            const extents = [ellipse.extent.get(0), ellipse.extent.get(1)];
+            expect(extents.some(e => !Number.isFinite(e))).toBe(true);
+            expect(inContainerEllipse2(v(0, 1e6), ellipse)).toBe(true);
+        });
+
+    // Upstream issue #292 item 2: the merged ellipse is inscribed in the box
+    // of the projected intervals, so it does not contain its inputs. The
+    // counterexample from the issue, pinned so the deviation stays visible.
+    it('merge does not contain its inputs (#292)', () => {
+        const unit = (cx: number): Ellipse2 => Hyperellipsoid.fromCenterAxisExtent(
+            v(cx, 0), [v(1, 0), v(0, 1)], v(1, 1));
+        const merge = mergeContainersEllipse2(unit(-1), unit(1));
+        expectClose(merge.extent.get(0), 2, 1e-12, 1e-12);
+        expectClose(merge.extent.get(1), 1, 1e-12, 1e-12);
+        // (-1,1) is on the first input circle but outside the merge.
+        expect(inContainerEllipse2(v(-1, 0), unit(-1))).toBe(true);
+        expect(inContainerEllipse2(v(-1, 1), unit(-1))).toBe(true);
+        expect(inContainerEllipse2(v(-1, 1), merge)).toBe(false);
+    });
+
+    // What the merge does guarantee: its extents span the projected intervals
+    // of both inputs along the merged axes.
+    it('merge spans the projection intervals of both inputs', () => {
+        const ellipseArb = fc.tuple(wellScaledVector(2, -5, 5), rotationFrame(2),
+            fc.double({ min: 0.2, max: 3, noNaN: true }),
+            fc.double({ min: 0.2, max: 3, noNaN: true }))
+            .map(([c, frame, e0, e1]) => Hyperellipsoid.fromCenterAxisExtent(
+                c, frame, Vector.fromArray([e0, e1])));
+        check(fc.tuple(ellipseArb, ellipseArb),
+            ([e0, e1]: [Ellipse2, Ellipse2]) => {
+                const merge = mergeContainersEllipse2(e0, e1);
+                expectClose(dot(merge.axis[0], merge.axis[1]), 0, 1e-12, 1e-12);
+                for (let j = 0; j < 2; ++j) {
+                    const line = Line.fromOriginDirection(merge.center,
+                        merge.axis[j]);
+                    const p0 = projectEllipse2(e0, line);
+                    const p1 = projectEllipse2(e1, line);
+                    const lo = Math.min(p0.smin, p1.smin);
+                    const hi = Math.max(p0.smax, p1.smax);
+                    // The merged center is the midpoint of that interval and
+                    // the extent is its half-width.
+                    expectClose(lo + hi, 0, 1e-8, 1e-8);
+                    expectClose(merge.extent.get(j), 0.5 * (hi - lo),
+                        1e-8, 1e-8);
+                }
+            });
     });
 });

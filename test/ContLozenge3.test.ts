@@ -6,7 +6,10 @@ import {
 import { Lozenge3 } from '../src/Lozenge3.js';
 import { Rectangle } from '../src/Rectangle.js';
 import { DistPointRectangle } from '../src/DistPointRectangle.js';
-import { Vector, dot } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import {
+    check, expectClose, fc, rotationFrame, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -194,5 +197,128 @@ describe('inContainerLozenge3', () => {
         expect(inContainerLozenge3(v(0, 0, 1.0001), lozenge)).toBe(false);
         expect(inContainerLozenge3(v(3.0001, 0, 0), lozenge)).toBe(false);
         expect(inContainerLozenge3(v(3, 2, 0), lozenge)).toBe(false);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (VERIFYING.md): property-based cross-checks of the port
+// against the upstream ContLozenge3.h semantics, including a pin for the
+// corner-centering fix (upstream issue #174).
+// ---------------------------------------------------------------------------
+
+describe('ContLozenge3 verification', () => {
+    // Anisotropic slab clouds: 7 x 5 lattice in the plane, thin in z, then
+    // rigidly moved. The three principal variances (about 4, 2 and 0.02) are
+    // well separated, so the fitted frame is not ambiguous and equivariance
+    // properties hold to a tight tolerance.
+    const baseGrid: Vector[] = [];
+    for (let i = -3; i <= 3; ++i) {
+        for (let j = -2; j <= 2; ++j) {
+            baseGrid.push(v(i, j, 0.05 * ((i * 7 + j * 3) % 5 - 2)));
+        }
+    }
+
+    const rigid = (frame: Vector[], t: Vector) => (p: Vector): Vector =>
+        add(add(add(mul(p.get(0), frame[0]), mul(p.get(1), frame[1])),
+            mul(p.get(2), frame[2])), t);
+
+    // The design claim of GetContainer, and the point of the #174 fix: every
+    // input point is within 'radius' of the rectangle.
+    it('the fitted lozenge contains every input point', () => {
+        check(fc.array(wellScaledVector(3, -6, 6), { minLength: 1, maxLength: 14 }),
+            (points: Vector[]) => {
+                const lozenge = getContainerLozenge3(points);
+                for (const p of points) {
+                    expect(distanceToRectangle(p, lozenge.rectangle))
+                        .toBeLessThanOrEqual(lozenge.radius + 1e-9);
+                }
+            });
+    });
+
+    // Same claim on the anisotropic slab clouds, under a random rigid motion.
+    it('contains every input point of a rigidly moved slab cloud', () => {
+        check(fc.tuple(rotationFrame(3), wellScaledVector(3)),
+            ([frame, t]: [Vector[], Vector]) => {
+                const points = baseGrid.map(rigid(frame, t));
+                const lozenge = getContainerLozenge3(points);
+                for (const p of points) {
+                    expect(distanceToRectangle(p, lozenge.rectangle))
+                        .toBeLessThanOrEqual(lozenge.radius + 1e-9);
+                }
+            });
+    });
+
+    // Regression pin for upstream issue #174: the rectangle is a *centered*
+    // primitive, so the center must be the midpoint of the fitted parameter
+    // interval, not its lower corner. Upstream returns center (-3,-2,0) here
+    // (a corner of the data), which leaves the point (3,2,0) three units
+    // outside the lozenge.
+    it('centers the rectangle on the data, not on a corner (#174)', () => {
+        const points: Vector[] = [];
+        for (let i = -3; i <= 3; ++i) {
+            for (let j = -2; j <= 2; ++j) {
+                points.push(v(i, j, 0));
+            }
+        }
+        const lozenge = getContainerLozenge3(points);
+        expect(lozenge.radius).toBeLessThanOrEqual(1e-9);
+        for (let d = 0; d < 3; ++d) {
+            expectClose(lozenge.rectangle.center.get(d), 0, 1e-9, 1e-9);
+        }
+        // The corner-centered upstream result would put (3,2,0) at distance 3.
+        for (const p of points) {
+            expect(distanceToRectangle(p, lozenge.rectangle))
+                .toBeLessThanOrEqual(lozenge.radius + 1e-9);
+        }
+    });
+
+    // Rigid motions: the radius and the two extents are invariant and the
+    // rectangle center follows the motion.
+    it('is equivariant under rigid motions', () => {
+        const reference = getContainerLozenge3(baseGrid);
+        check(fc.tuple(rotationFrame(3), wellScaledVector(3)),
+            ([frame, t]: [Vector[], Vector]) => {
+                const xform = rigid(frame, t);
+                const moved = getContainerLozenge3(baseGrid.map(xform));
+                expectClose(moved.radius, reference.radius, 1e-9, 1e-9);
+                const want = [reference.rectangle.extent.get(0),
+                    reference.rectangle.extent.get(1)].sort((a, b) => a - b);
+                const got = [moved.rectangle.extent.get(0),
+                    moved.rectangle.extent.get(1)].sort((a, b) => a - b);
+                expectClose(got[0], want[0], 1e-9, 1e-9);
+                expectClose(got[1], want[1], 1e-9, 1e-9);
+                const wantCenter = xform(reference.rectangle.center);
+                expect(length(sub(moved.rectangle.center, wantCenter)))
+                    .toBeLessThanOrEqual(1e-8);
+            });
+    });
+
+    // The rectangle axes come from the fitted box axes, so they stay
+    // orthonormal for every cloud.
+    it('keeps the rectangle axes orthonormal for random clouds', () => {
+        check(fc.array(wellScaledVector(3, -6, 6), { minLength: 3, maxLength: 14 }),
+            (points: Vector[]) => {
+                const r = getContainerLozenge3(points).rectangle;
+                expectClose(dot(r.axis[0], r.axis[0]), 1, 1e-9, 1e-9);
+                expectClose(dot(r.axis[1], r.axis[1]), 1, 1e-9, 1e-9);
+                expectClose(dot(r.axis[0], r.axis[1]), 0, 1e-9, 1e-9);
+                expect(r.extent.get(0)).toBeGreaterThanOrEqual(0);
+                expect(r.extent.get(1)).toBeGreaterThanOrEqual(0);
+            });
+    });
+
+    // inContainerLozenge3 is distance-to-rectangle <= radius; cross-check
+    // against the DCP query, skipping near-boundary points.
+    it('inContainer agrees with the point-rectangle distance', () => {
+        check(fc.tuple(fc.array(wellScaledVector(3, -6, 6),
+            { minLength: 3, maxLength: 10 }), wellScaledVector(3, -10, 10)),
+            ([points, q]: [Vector[], Vector]) => {
+                const lozenge = getContainerLozenge3(points);
+                const d = distanceToRectangle(q, lozenge.rectangle);
+                if (Math.abs(d - lozenge.radius) < 1e-9) {
+                    return;
+                }
+                expect(inContainerLozenge3(q, lozenge)).toBe(d < lozenge.radius);
+            });
     });
 });

@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { getContainerEllipse2MinCR } from '../src/ContEllipse2MinCR.js';
 import { Matrix } from '../src/Matrix.js';
-import { Vector, sub } from '../src/Vector.js';
+import { Vector, add, mul, sub } from '../src/Vector.js';
+import {
+    check, expectClose, fc, latticeVector, rotationFrame, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -260,5 +263,181 @@ describe('getContainerEllipse2MinCR', () => {
             v(0, 0), rot(0))).toThrow('2D');
         expect(() => getContainerEllipse2MinCR([v(1, 1)], v(0, 0),
             new Matrix(3, 3))).toThrow('2x2');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (VERIFYING.md): property-based cross-checks of the port
+// against the upstream ContEllipse2MinCR.h semantics.
+// ---------------------------------------------------------------------------
+
+describe('ContEllipse2MinCR verification', () => {
+    // Lattice clouds keep the constraint coefficients A[i] = (u^2, v^2)
+    // exact for the identity frame, which keeps the comparison against the
+    // enumeration solver meaningful. The problem must be bounded in both
+    // variables, so at least one point must be off each ellipse axis.
+    // Lattice data in the identity frame: the constraint coefficients
+    // A[i] = ((x-cx)^2, (y-cy)^2) are then small exact integers, so no
+    // constraint line is nearly parallel to another (their determinants are
+    // nonzero integers) and no coefficient is a tiny nonzero number. That
+    // conditioning matters: the upstream hull walk evaluates
+    // y0 = (1 - a0*x0)/b0 on the final line, which cancels catastrophically
+    // when b0 is a tiny nonzero number, and the products compared below then
+    // lose most of their significant digits. (That is a property of the
+    // upstream algorithm, not of the port; the containment property below
+    // uses arbitrary frames and still holds.)
+    const problem = fc.tuple(
+        fc.array(latticeVector(2, -6, 6), { minLength: 1, maxLength: 8 }),
+        latticeVector(2, -3, 3))
+        .map(([points, C]) => ({
+            points, C,
+            R: Matrix.fromArray(2, 2, [1, 0, 0, 1])
+        }))
+        .filter(({ points, C }) =>
+            // Bounded in both variables: some point off each ellipse axis.
+            points.some(p => p.get(0) !== C.get(0))
+            && points.some(p => p.get(1) !== C.get(1)));
+
+    // Arbitrary center and frame; used only for properties that do not
+    // compare two floating-point computations of the same optimum.
+    const rotatedProblem = fc.tuple(
+        fc.array(latticeVector(2, -6, 6), { minLength: 1, maxLength: 8 }),
+        rotationFrame(2), wellScaledVector(2, -3, 3))
+        .map(([points, frame, C]) => ({
+            points, C,
+            R: Matrix.fromArray(2, 2, [
+                frame[0].get(0), frame[1].get(0),
+                frame[0].get(1), frame[1].get(1)])
+        }))
+        .filter(({ points, C, R }) => {
+            // Bounded in both variables, and no coefficient that is tiny but
+            // nonzero. A point that lies (nearly) on an ellipse axis gives a
+            // constraint line that is (nearly) vertical or horizontal, and
+            // the upstream walk then evaluates y0 = (1 - a0*x0)/b0 with
+            // a0*x0 within rounding of 1 and b0 within rounding of 0: the
+            // answer loses every significant digit. That is a property of
+            // the algorithm, not of the port (the exactly-degenerate case is
+            // the one upstream divides by zero on, covered by the #234 test
+            // below).
+            const A = constraints(points, C, R);
+            const maxAll = Math.max(...A.map(a => Math.max(a[0], a[1])));
+            return maxAll > 0
+                && A.every(a => a.every(x => x === 0 || x >= 1e-4 * maxAll))
+                && A.some(a => a[0] > 0) && A.some(a => a[1] > 0);
+        });
+
+    // The design claim: every input point satisfies the quadratic form. The
+    // hull walk ends on an active constraint, so the tightest point evaluates
+    // to 1 up to rounding of the constraint coefficients.
+    it('every input point is inside the resulting ellipse', () => {
+        check(rotatedProblem, ({ points, C, R }:
+            { points: Vector[], C: Vector, R: Matrix }) => {
+            const D = getContainerEllipse2MinCR(points, C, R);
+            expect(D[0]).toBeGreaterThanOrEqual(0);
+            expect(D[1]).toBeGreaterThanOrEqual(0);
+            for (const P of points) {
+                expect(form(P, C, R, D)).toBeLessThanOrEqual(1 + 1e-9);
+            }
+            // Tight: at least one point is on the ellipse.
+            expect(points.some(P => Math.abs(form(P, C, R, D) - 1) <= 1e-9))
+                .toBe(true);
+        });
+    });
+
+    // The product D[0]*D[1] is the maximum of the linear program, which the
+    // independent enumeration solver finds by a completely different route.
+    it('attains the maximum product found by enumeration', () => {
+        check(problem, ({ points, C, R }:
+            { points: Vector[], C: Vector, R: Matrix }) => {
+            const D = getContainerEllipse2MinCR(points, C, R);
+            const A = constraints(points, C, R);
+            const best = maxProductByEnumeration(A);
+            const got = D[0] * D[1];
+            const want = best[0] * best[1];
+            // The enumeration solver accepts candidates that violate a
+            // constraint by up to 1e-9, so its optimum can differ from the
+            // exact one by a comparable relative amount; both routines also
+            // form the same intersection points by different expressions.
+            expect(got).toBeGreaterThanOrEqual(want * (1 - 1e-9) - 1e-12);
+            expect(got).toBeLessThanOrEqual(want * (1 + 1e-9) + 1e-12);
+        });
+    });
+
+    // Transformations that leave the constraint coefficients
+    // A[i] = ((u,v) of P[i]-C, squared) bit-identical must leave D
+    // bit-identical: translating the points and the center together by an
+    // integer vector, reflecting a coordinate of both, and negating a column
+    // of R (an ellipse axis). A general rotation is *not* such a
+    // transformation: it perturbs the coefficients in the last bits, and a
+    // point that lands near an ellipse axis then produces a nearly vertical
+    // constraint line, where the final y0 = (1 - a0*x0)/b0 of the walk
+    // cancels catastrophically. Rotational equivariance is therefore not a
+    // property of this algorithm.
+    it('is invariant under exact translations, reflections and axis flips',
+        () => {
+            check(fc.tuple(problem, latticeVector(2, -20, 20),
+                fc.integer({ min: 0, max: 1 })),
+                ([{ points, C, R }, t, axis]:
+                    [{ points: Vector[], C: Vector, R: Matrix }, Vector,
+                        number]) => {
+                    const D0 = getContainerEllipse2MinCR(points, C, R);
+
+                    const shifted = getContainerEllipse2MinCR(
+                        points.map(P => add(P, t)), add(C, t), R);
+                    expect(shifted[0]).toBe(D0[0]);
+                    expect(shifted[1]).toBe(D0[1]);
+
+                    const flip = (p: Vector): Vector => {
+                        const q = p.clone();
+                        q.set(axis, -q.get(axis));
+                        return q;
+                    };
+                    const mirrored = getContainerEllipse2MinCR(
+                        points.map(flip), flip(C), R);
+                    expect(mirrored[0]).toBe(D0[0]);
+                    expect(mirrored[1]).toBe(D0[1]);
+
+                    // Negating one column of R negates that component of
+                    // R^T*(P-C), which the squaring undoes.
+                    const R2 = R.clone();
+                    for (let r = 0; r < 2; ++r) {
+                        R2.set(r, axis, -R.get(r, axis));
+                    }
+                    const flippedAxis = getContainerEllipse2MinCR(points, C, R2);
+                    expect(flippedAxis[0]).toBe(D0[0]);
+                    expect(flippedAxis[1]).toBe(D0[1]);
+                });
+        });
+
+    // Scaling the data about the center by a power of two scales the
+    // constraint coefficients by s^2 exactly, so D scales by 1/s^2 exactly.
+    it('scales as 1/s^2 when the data is scaled by s about the center', () => {
+        check(fc.tuple(problem, fc.integer({ min: -4, max: 4 })),
+            ([{ points, C, R }, e]:
+                [{ points: Vector[], C: Vector, R: Matrix }, number]) => {
+                const s = Math.pow(2, e);
+                const scaled = points.map(P => add(C, mul(s, sub(P, C))));
+                const D0 = getContainerEllipse2MinCR(points, C, R);
+                const D1 = getContainerEllipse2MinCR(scaled, C, R);
+                expectClose(D1[0] * s * s, D0[0], 1e-12, 1e-9);
+                expectClose(D1[1] * s * s, D0[1], 1e-12, 1e-9);
+            });
+    });
+
+    // Regression pin for upstream issue #234: a point on the second ellipse
+    // axis produces a vertical constraint (b = 0) that the hull walk can step
+    // onto, where upstream evaluates 0/0. The concrete case from the issue.
+    it('does not produce NaN on a vertical constraint (#234)', () => {
+        const C = v(0, 0);
+        const R = Matrix.fromArray(2, 2, [1, 0, 0, 1]);
+        const points = [v(3, 0), v(0, 2), v(2, 1.4), v(-2.5, -1)];
+        const D = getContainerEllipse2MinCR(points, C, R);
+        expect(Number.isFinite(D[0])).toBe(true);
+        expect(Number.isFinite(D[1])).toBe(true);
+        expectClose(D[0], 1 / 9, 1e-12, 1e-12);
+        expectClose(D[1], 1 / 4, 1e-12, 1e-12);
+        for (const P of points) {
+            expect(form(P, C, R, D)).toBeLessThanOrEqual(1 + 1e-12);
+        }
     });
 });
