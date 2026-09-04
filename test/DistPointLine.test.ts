@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { DistPointLine } from '../src/DistPointLine.js';
 import { Line } from '../src/Line.js';
-import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import { check, expectClose, expectVectorClose, fc, nonzero, rotationFrame, seededRandom, vector, wellScaledVector } from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -98,4 +99,106 @@ describe('DistPointLine', () => {
                 }
             }
         });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V19): property-based cross-checks of DistPointLine.ts
+// against the upstream header DistPointLine.h.
+// ---------------------------------------------------------------------------
+
+/** Apply the orthonormal frame R (as columns) to p. */
+function rot(R: readonly Vector[], p: Vector): Vector {
+    let q = mul(p.values[0], R[0]);
+    for (let i = 1; i < R.length; ++i) {
+        q = add(q, mul(p.values[i], R[i]));
+    }
+    return q;
+}
+
+/**
+ * A 3D line whose direction is well scaled but not unit length (upstream
+ * explicitly allows non-unit directions). The length filter keeps
+ * Dot(D,D) away from underflow so the division in the port is meaningful.
+ */
+const nonUnitLine3 = fc.tuple(wellScaledVector(3, -8, 8),
+    wellScaledVector(3, -3, 3))
+    .filter(([, d]) => length(d) > 0.25)
+    .map(([o, d]) => Line.fromOriginDirection(o, d));
+
+describe('DistPointLine verification', () => {
+    const query = new DistPointLine();
+
+    it('result is self consistent (distance, sqrDistance, closest)', () => {
+        check(fc.tuple(wellScaledVector(3, -8, 8), nonUnitLine3), ([p, l]) => {
+            const r = query.compute(p, l);
+            expectClose(r.distance, Math.sqrt(r.sqrDistance), 1e-12, 1e-12);
+            const diff = sub(r.closest[0], r.closest[1]);
+            expectClose(r.distance, Math.sqrt(dot(diff, diff)), 1e-12, 1e-12);
+            // closest[0] is the input point and is a copy, not an alias.
+            expectVectorClose(r.closest[0], p, 0, 0);
+            expect(r.closest[0]).not.toBe(p);
+            // closest[1] is on the line at the reported parameter.
+            expectVectorClose(r.closest[1],
+                add(l.origin, mul(r.parameter, l.direction)), 1e-12, 1e-12);
+        });
+    });
+
+    it('the closest line point is the orthogonal projection', () => {
+        check(fc.tuple(wellScaledVector(3, -8, 8), nonUnitLine3), ([p, l]) => {
+            const resid = sub(p, query.compute(p, l).closest[1]);
+            // The residual is formed by cancellation, so the tolerance is
+            // relative to the magnitudes entering the dot product.
+            const scale = 1 + length(l.direction) * length(resid);
+            expect(Math.abs(dot(l.direction, resid)))
+                .toBeLessThanOrEqual(1e-9 * scale);
+        });
+    });
+
+    it('is minimal over sampled line points', () => {
+        const rand = seededRandom(0x51d0);
+        check(fc.tuple(wellScaledVector(3, -8, 8), nonUnitLine3), ([p, l]) => {
+            const r = query.compute(p, l);
+            for (let k = 0; k < 20; ++k) {
+                const t = 20 * (rand() - 0.5);
+                const diff = sub(p, add(l.origin, mul(t, l.direction)));
+                const sqr = dot(diff, diff);
+                expect(r.sqrDistance).toBeLessThanOrEqual(sqr + 1e-9 * (1 + sqr));
+            }
+        }, 60);
+    });
+
+    it('is invariant under rigid motions', () => {
+        check(fc.tuple(wellScaledVector(3, -8, 8), nonUnitLine3,
+            rotationFrame(3), wellScaledVector(3, -5, 5)), ([p, l, R, tr]) => {
+            const r0 = query.compute(p, l);
+            const r1 = query.compute(add(rot(R, p), tr),
+                Line.fromOriginDirection(add(rot(R, l.origin), tr),
+                    rot(R, l.direction)));
+            expectClose(r0.distance, r1.distance, 1e-9, 1e-9);
+            expectClose(r0.parameter, r1.parameter, 1e-9, 1e-8);
+        });
+    });
+
+    it('scales the parameter by 1/k when the direction is scaled by k', () => {
+        check(fc.tuple(wellScaledVector(3, -8, 8), nonUnitLine3,
+            nonzero(-4, 4, 0.25)), ([p, l, k]) => {
+            const r0 = query.compute(p, l);
+            const r1 = query.compute(p,
+                Line.fromOriginDirection(l.origin, mul(k, l.direction)));
+            expectClose(r0.distance, r1.distance, 1e-9, 1e-9);
+            expectClose(r0.parameter, k * r1.parameter, 1e-9, 1e-8);
+        });
+    });
+
+    it('works for every dimension the runtime Vector supports', () => {
+        check(fc.tuple(fc.integer({ min: 1, max: 5 })).chain(([n]) =>
+            fc.tuple(vector(n, -5, 5), vector(n, -5, 5), vector(n, -5, 5))
+                .filter(([, , d]) => length(d) > 0.25)),
+        ([p, o, d]) => {
+            const r = query.compute(p, Line.fromOriginDirection(o, d));
+            expect(r.closest[0].size).toBe(p.size);
+            expect(r.closest[1].size).toBe(p.size);
+            expectClose(r.distance, Math.sqrt(r.sqrDistance), 1e-12, 1e-12);
+        });
+    });
 });

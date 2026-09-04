@@ -10,11 +10,19 @@
 // X where A <= X <= B; the comparisons are componentwise.
 //
 // The algorithm computes two aligned boxes of closest points, closest[0] for
-// input box0 and closest[1] for input box1. Any choice of P0 in closest[0]
-// and any choice of P1 in closest[1] form a pair (P0,P1) of closest points.
-// One reasonable choice is
+// input box0 and closest[1] for input box1. One reasonable choice of closest
+// pair is
 //   P0 = (closest[0].min + closest[0].max)/2;
 //   P1 = (closest[1].min + closest[1].max)/2;
+//
+// The upstream comment states more generally that "any choice of P0 in
+// closest[0] and any choice of P1 in closest[1]" is a closest pair. That is
+// an overstatement: on an axis where the two input boxes overlap, both
+// closest boxes carry the same nondegenerate interval, and only pairs whose
+// coordinates on that axis agree realize the distance. The precise statement
+// is that P0 and P1 must use the same interpolation parameter per axis; the
+// midpoint choice above is that statement with parameter 1/2 and is the one
+// upstream recommends.
 //
 // Port notes: see DistPointLine.ts for the Dist* family conventions. The
 // upstream specialization

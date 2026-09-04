@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CanonicalBox } from '../src/CanonicalBox.js';
 import { DistPointCanonicalBox } from '../src/DistPointCanonicalBox.js';
 import { Vector, dot, sub } from '../src/Vector.js';
+import { check, expectClose, expectVectorClose, fc, positive, seededRandom, wellScaledVector } from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -79,5 +80,103 @@ describe('DistPointCanonicalBox', () => {
                     clamped.values[i], 12);
             }
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V19): property-based cross-checks of
+// DistPointCanonicalBox.ts against the upstream header
+// DistPointCanonicalBox.h.
+// ---------------------------------------------------------------------------
+
+const boxOfDim = (n: number): fc.Arbitrary<CanonicalBox> =>
+    fc.array(positive(5), { minLength: n, maxLength: n })
+        .map(e => CanonicalBox.fromExtent(Vector.fromArray(e)));
+
+describe('DistPointCanonicalBox verification', () => {
+    const query = new DistPointCanonicalBox();
+
+    it('matches the closed form sum_i max(0, |p_i| - e_i)^2', () => {
+        check(fc.integer({ min: 1, max: 5 }).chain(n =>
+            fc.tuple(wellScaledVector(n, -8, 8), boxOfDim(n))),
+        ([p, box]) => {
+            const r = query.compute(p, box);
+            let expected = 0;
+            for (let i = 0; i < p.size; ++i) {
+                const over = Math.abs(p.values[i]) - box.extent.values[i];
+                if (over > 0) { expected += over * over; }
+            }
+            expectClose(r.sqrDistance, expected, 1e-12, 1e-12);
+            expectClose(r.distance, Math.sqrt(r.sqrDistance), 1e-12, 1e-12);
+            const diff = sub(r.closest[0], r.closest[1]);
+            expectClose(r.sqrDistance, dot(diff, diff), 1e-12, 1e-12);
+        });
+    });
+
+    it('returns a closest point inside the box and a copy of the input', () => {
+        check(fc.integer({ min: 1, max: 4 }).chain(n =>
+            fc.tuple(wellScaledVector(n, -8, 8), boxOfDim(n))),
+        ([p, box]) => {
+            const r = query.compute(p, box);
+            expectVectorClose(r.closest[0], p, 0, 0);
+            expect(r.closest[0]).not.toBe(p);
+            expect(r.closest[1]).not.toBe(p);
+            for (let i = 0; i < p.size; ++i) {
+                expect(Math.abs(r.closest[1].values[i]))
+                    .toBeLessThanOrEqual(box.extent.values[i] + 1e-12);
+            }
+        });
+    });
+
+    it('reports zero distance exactly for points inside the box', () => {
+        check(fc.integer({ min: 1, max: 4 }).chain(n =>
+            fc.tuple(fc.array(fc.double({ min: -1, max: 1, noNaN: true }),
+                { minLength: n, maxLength: n }), boxOfDim(n))),
+        ([frac, box]) => {
+            const p = new Vector(box.extent.size);
+            for (let i = 0; i < p.size; ++i) {
+                p.values[i] = frac[i] * box.extent.values[i];
+            }
+            const r = query.compute(p, box);
+            expect(r.sqrDistance).toBe(0);
+            expect(r.distance).toBe(0);
+            expectVectorClose(r.closest[1], p, 0, 0);
+        });
+    });
+
+    it('is minimal over sampled box points', () => {
+        const rand = seededRandom(0x51d3);
+        check(fc.tuple(wellScaledVector(3, -8, 8), boxOfDim(3)), ([p, box]) => {
+            const r = query.compute(p, box);
+            const q = new Vector(3);
+            for (let k = 0; k < 24; ++k) {
+                for (let i = 0; i < 3; ++i) {
+                    q.values[i] = box.extent.values[i] * (2 * rand() - 1);
+                }
+                const diff = sub(p, q);
+                const sqr = dot(diff, diff);
+                expect(r.sqrDistance).toBeLessThanOrEqual(sqr + 1e-9 * (1 + sqr));
+            }
+        }, 60);
+    });
+
+    it('is equivariant under coordinate reflections', () => {
+        check(fc.tuple(wellScaledVector(3, -8, 8), boxOfDim(3),
+            fc.array(fc.boolean(), { minLength: 3, maxLength: 3 })),
+        ([p, box, flip]) => {
+            const q = p.clone();
+            for (let i = 0; i < 3; ++i) {
+                if (flip[i]) { q.values[i] = -q.values[i]; }
+            }
+            const r0 = query.compute(p, box);
+            const r1 = query.compute(q, box);
+            expectClose(r0.sqrDistance, r1.sqrDistance, 1e-12, 1e-12);
+            for (let i = 0; i < 3; ++i) {
+                const expected = flip[i]
+                    ? -r0.closest[1].values[i] : r0.closest[1].values[i];
+                expectClose(r1.closest[1].values[i] + 0, expected + 0, 1e-12,
+                    1e-12);
+            }
+        });
     });
 });

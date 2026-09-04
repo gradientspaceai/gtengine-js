@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { DistPoint2Circle2 } from '../src/DistPoint2Circle2.js';
 import { Hypersphere } from '../src/Hypersphere.js';
-import { Vector, dot, sub } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import { check, expectClose, expectVectorClose, fc, positive, rotationFrame, wellScaledVector } from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -85,4 +86,88 @@ describe('DistPoint2Circle2', () => {
                 }
             }
         });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V19): property-based cross-checks of
+// DistPoint2Circle2.ts against the upstream header DistPoint2Circle2.h.
+// ---------------------------------------------------------------------------
+
+function rot(R: readonly Vector[], p: Vector): Vector {
+    return add(mul(p.values[0], R[0]), mul(p.values[1], R[1]));
+}
+
+const circle2 = fc.tuple(wellScaledVector(2, -8, 8), positive(6))
+    .map(([c, r]) => Hypersphere.fromCenterRadius(c, r));
+
+/**
+ * A (point, circle) pair with the point well off the center, so the
+ * single-closest-point branch is taken. wellScaledVector snaps tiny
+ * components to exactly zero, so an unfiltered pair can hit the equidistant
+ * branch; and fast-check shrinks toward equal draws, which makes P - C tiny.
+ * The closest circle point is C + r * (P-C)/|P-C|, whose absolute error grows
+ * like r/|P-C|, so the separation is bounded away from zero here.
+ */
+const offCenter = fc.tuple(wellScaledVector(2, -8, 8), circle2)
+    .filter(([p, circle]) => length(sub(p, circle.center)) > 0.1);
+
+describe('DistPoint2Circle2 verification', () => {
+    const query = new DistPoint2Circle2();
+
+    it('matches | |P-C| - r | and puts closest[1] on the circle', () => {
+        check(offCenter, ([p, circle]) => {
+            const r = query.compute(p, circle);
+            const diff = sub(p, circle.center);
+            const expected = Math.abs(length(diff) - circle.radius);
+            expectClose(r.distance, expected, 1e-12, 1e-12);
+            expectClose(r.sqrDistance, r.distance * r.distance, 1e-12, 1e-12);
+            expectVectorClose(r.closest[0], p, 0, 0);
+            expect(r.closest[0]).not.toBe(p);
+            // The closest circle point is at distance r from the center.
+            expectClose(length(sub(r.closest[1], circle.center)), circle.radius,
+                1e-9, 1e-9);
+            // ... and the reported distance is |closest[0] - closest[1]|.
+            expectClose(r.distance, length(sub(r.closest[0], r.closest[1])),
+                1e-9, 1e-9);
+            expect(r.equidistant).toBe(false);
+        });
+    });
+
+    it('is minimal over sampled circle points', () => {
+        check(offCenter, ([p, circle]) => {
+            const r = query.compute(p, circle);
+            for (let k = 0; k < 32; ++k) {
+                const a = (2 * Math.PI * k) / 32;
+                const q = add(circle.center, Vector.fromArray(
+                    [circle.radius * Math.cos(a), circle.radius * Math.sin(a)]));
+                const diff = sub(p, q);
+                expect(r.distance).toBeLessThanOrEqual(
+                    length(diff) + 1e-9 * (1 + length(diff)));
+            }
+        }, 60);
+    });
+
+    it('flags the circle center as equidistant and reports C + r*(1,0)', () => {
+        check(circle2, circle => {
+            const r = query.compute(circle.center.clone(), circle);
+            expect(r.equidistant).toBe(true);
+            expect(r.distance).toBe(circle.radius);
+            expect(r.sqrDistance).toBe(circle.radius * circle.radius);
+            expectVectorClose(r.closest[1],
+                add(circle.center, Vector.fromArray([circle.radius, 0])), 0, 0);
+        });
+    });
+
+    it('is equivariant under rotations about the circle center', () => {
+        check(fc.tuple(offCenter, rotationFrame(2)),
+            ([[p, circle], R]) => {
+                const r0 = query.compute(p, circle);
+                const moved = Hypersphere.fromCenterRadius(
+                    rot(R, circle.center), circle.radius);
+                const r1 = query.compute(rot(R, p), moved);
+                expectClose(r0.distance, r1.distance, 1e-9, 1e-9);
+                expectVectorClose(rot(R, r0.closest[1]), r1.closest[1], 1e-8,
+                    1e-8);
+            });
+    });
 });

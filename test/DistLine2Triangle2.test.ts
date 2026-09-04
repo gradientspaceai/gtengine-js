@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { DistLine2Triangle2 } from '../src/DistLine2Triangle2.js';
 import { Line } from '../src/Line.js';
 import { Triangle } from '../src/Triangle.js';
-import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import { perp } from '../src/Vector2.js';
+import { DistPointTriangle } from '../src/DistPointTriangle.js';
+import { check, expectClose, expectVectorClose, fc, rotationFrame, seededRandom, wellScaledVector } from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -181,5 +184,199 @@ describe('DistLine2Triangle2', () => {
             const diff = sub(result.closest[0], result.closest[1]);
             expect(dot(diff, diff)).toBeCloseTo(result.sqrDistance, 8);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V19): property-based cross-checks of
+// DistLine2Triangle2.ts against the upstream header DistLine2Triangle2.h.
+// ---------------------------------------------------------------------------
+
+function rot2(R: readonly Vector[], p: Vector): Vector {
+    return add(mul(p.values[0], R[0]), mul(p.values[1], R[1]));
+}
+
+/**
+ * The exact line-triangle distance, computed independently of the query under
+ * test. The function t -> distance(P + t*D, triangle) is convex (a norm
+ * distance to a convex set composed with an affine map), so a ternary search
+ * on a bracket containing the minimizer converges to the global minimum. The
+ * bracket is |t - t_c| <= (h + R)/|D| around the foot t_c of the
+ * perpendicular from the centroid, with h the perpendicular distance and R
+ * the radius of a ball about the centroid containing the triangle.
+ */
+function referenceLineTriangleDistance(l: Line, tri: Triangle): number {
+    const pointTri = new DistPointTriangle();
+    const centroid = mul(1 / 3, add(tri.v[0], add(tri.v[1], tri.v[2])));
+    let radius = 0;
+    for (let i = 0; i < 3; ++i) {
+        radius = Math.max(radius, length(sub(tri.v[i], centroid)));
+    }
+    const dd = dot(l.direction, l.direction);
+    const tc = dot(l.direction, sub(centroid, l.origin)) / dd;
+    const foot = add(l.origin, mul(tc, l.direction));
+    const h = length(sub(centroid, foot));
+    const half = (h + radius) / Math.sqrt(dd);
+    let lo = tc - half - 1;
+    let hi = tc + half + 1;
+    const f = (t: number): number => pointTri.compute(
+        add(l.origin, mul(t, l.direction)), tri).sqrDistance;
+    for (let k = 0; k < 160; ++k) {
+        const m0 = lo + (hi - lo) / 3;
+        const m1 = hi - (hi - lo) / 3;
+        if (f(m0) <= f(m1)) { hi = m1; }
+        else { lo = m0; }
+    }
+    return Math.sqrt(Math.min(f(lo), f(hi), f(0.5 * (lo + hi))));
+}
+
+const nonUnitLine2 = fc.tuple(wellScaledVector(2, -8, 8),
+    wellScaledVector(2, -3, 3))
+    .filter(([, d]) => length(d) > 0.25)
+    .map(([o, d]) => Line.fromOriginDirection(o, d));
+
+const triangle2 = fc.tuple(wellScaledVector(2, -8, 8),
+    wellScaledVector(2, -8, 8), wellScaledVector(2, -8, 8))
+    .filter(([a, b, c]) => {
+        const e0 = sub(b, a);
+        const e1 = sub(c, a);
+        const d00 = dot(e0, e0), d11 = dot(e1, e1), d01 = dot(e0, e1);
+        return d00 > 0.25 && d11 > 0.25
+            && d00 * d11 - d01 * d01 > 0.05 * d00 * d11;
+    })
+    .map(([a, b, c]) => Triangle.fromVertices(a, b, c));
+
+describe('DistLine2Triangle2 verification', () => {
+    const query = new DistLine2Triangle2();
+
+    it('result is self consistent with valid barycentrics', () => {
+        check(fc.tuple(nonUnitLine2, triangle2), ([l, tri]) => {
+            const r = query.compute(l, tri);
+            expectClose(r.distance, Math.sqrt(r.sqrDistance), 1e-12, 1e-12);
+            const diff = sub(r.closest[0], r.closest[1]);
+            expectClose(r.sqrDistance, dot(diff, diff), 1e-12, 1e-12);
+            expectClose(r.barycentric[0] + r.barycentric[1]
+                + r.barycentric[2], 1, 1e-9, 1e-9);
+            for (let i = 0; i < 3; ++i) {
+                expect(r.barycentric[i]).toBeGreaterThanOrEqual(-1e-9);
+                expect(r.barycentric[i]).toBeLessThanOrEqual(1 + 1e-9);
+            }
+            let q = mul(r.barycentric[0], tri.v[0]);
+            q = add(q, mul(r.barycentric[1], tri.v[1]));
+            q = add(q, mul(r.barycentric[2], tri.v[2]));
+            expectVectorClose(r.closest[1], q, 1e-8, 1e-8);
+            // closest[0] is on the line at the reported parameter.
+            expectVectorClose(r.closest[0],
+                add(l.origin, mul(r.parameter, l.direction)), 1e-8, 1e-8);
+        });
+    });
+
+    it('matches an independent convex minimization along the line', () => {
+        check(fc.tuple(nonUnitLine2, triangle2), ([l, tri]) => {
+            expectClose(query.compute(l, tri).distance,
+                referenceLineTriangleDistance(l, tri), 1e-7, 1e-7);
+        }, 100);
+    });
+
+    it('reports zero distance exactly when the line meets the triangle',
+        () => {
+            check(fc.tuple(nonUnitLine2, triangle2), ([l, tri]) => {
+                const r = query.compute(l, tri);
+                // The sign test that drives the dispatch: the line separates
+                // the triangle only when all three normal components share a
+                // strict sign.
+                const N = perp(l.direction);
+                const s = [0, 1, 2].map(i =>
+                    Math.sign(dot(N, sub(tri.v[i], l.origin))));
+                const separated = (s[0] > 0 && s[1] > 0 && s[2] > 0)
+                    || (s[0] < 0 && s[1] < 0 && s[2] < 0);
+                if (separated) {
+                    expect(r.distance).toBeGreaterThan(0);
+                    // The closest triangle point is a vertex.
+                    const isVertex = r.barycentric.some(b => b === 1);
+                    expect(isVertex).toBe(true);
+                }
+                else {
+                    expect(r.distance).toBe(0);
+                }
+            });
+        });
+
+    it('picks the vertex nearest the line when the triangle is on one side',
+        () => {
+            check(fc.tuple(nonUnitLine2, triangle2), ([l, tri]) => {
+                const r = query.compute(l, tri);
+                if (r.distance === 0) { return; }
+                const N = perp(l.direction);
+                const nl = length(N);
+                let best = Infinity;
+                for (let i = 0; i < 3; ++i) {
+                    best = Math.min(best,
+                        Math.abs(dot(N, sub(tri.v[i], l.origin))) / nl);
+                }
+                expectClose(r.distance, best, 1e-9, 1e-9);
+            });
+        });
+
+    it('is minimal over sampled line/triangle point pairs', () => {
+        const rand = seededRandom(0x51e3);
+        check(fc.tuple(nonUnitLine2, triangle2), ([l, tri]) => {
+            const r = query.compute(l, tri);
+            for (let k = 0; k < 24; ++k) {
+                const t = 40 * (rand() - 0.5);
+                let b0 = rand();
+                let b1 = rand();
+                if (b0 + b1 > 1) { b0 = 1 - b0; b1 = 1 - b1; }
+                let q = mul(b0, tri.v[0]);
+                q = add(q, mul(b1, tri.v[1]));
+                q = add(q, mul(1 - b0 - b1, tri.v[2]));
+                const gap = length(
+                    sub(add(l.origin, mul(t, l.direction)), q));
+                expect(r.distance).toBeLessThanOrEqual(gap + 1e-9 * (1 + gap));
+            }
+        }, 60);
+    });
+
+    it('is equivariant under rigid motions of the plane', () => {
+        check(fc.tuple(nonUnitLine2, triangle2, rotationFrame(2),
+            wellScaledVector(2, -5, 5)), ([l, tri, R, tr]) => {
+            const movedLine = Line.fromOriginDirection(
+                add(rot2(R, l.origin), tr), rot2(R, l.direction));
+            const movedTri = Triangle.fromVertices(
+                add(rot2(R, tri.v[0]), tr), add(rot2(R, tri.v[1]), tr),
+                add(rot2(R, tri.v[2]), tr));
+            expectClose(query.compute(l, tri).distance,
+                query.compute(movedLine, movedTri).distance, 1e-8, 1e-8);
+        });
+    });
+
+    it('is permutation equivariant in the triangle vertices', () => {
+        check(fc.tuple(nonUnitLine2, triangle2), ([l, tri]) => {
+            const base = query.compute(l, tri);
+            for (const perm of [[1, 2, 0], [2, 0, 1], [1, 0, 2]]) {
+                const permuted = Triangle.fromVertices(tri.v[perm[0]],
+                    tri.v[perm[1]], tri.v[perm[2]]);
+                expectClose(query.compute(l, permuted).distance,
+                    base.distance, 1e-9, 1e-9);
+            }
+        });
+    });
+
+    it('handles a line through a single vertex', () => {
+        // Integer coordinates keep Dot(Perp(D), V - P) exactly zero at the
+        // chosen vertex, so the "line contains a vertex" branches are the
+        // ones exercised.
+        check(fc.tuple(fc.integer({ min: -6, max: 6 }),
+            fc.integer({ min: -6, max: 6 }), fc.integer({ min: 1, max: 6 }),
+            fc.integer({ min: 1, max: 6 }), fc.integer({ min: 0, max: 2 })),
+        ([ax, ay, w, h, which]) => {
+            const tri = Triangle.fromVertices(v(ax, ay), v(ax + w, ay),
+                v(ax, ay + h));
+            const vertex = tri.v[which];
+            const l = Line.fromOriginDirection(vertex, v(2, 1));
+            const r = query.compute(l, tri);
+            expect(r.distance).toBe(0);
+            expectVectorClose(r.closest[0], r.closest[1], 0, 0);
+        });
     });
 });

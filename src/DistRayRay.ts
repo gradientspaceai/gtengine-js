@@ -13,6 +13,17 @@
 // storing s[i]. When there are infinitely many choices for the pair of
 // closest points, only one of them is returned.
 //
+//
+// Upstream caveat (all of DistLineLine/LineRay/LineSegment/RayRay/RaySegment
+// and DistSegmentSegment.compute): parallelism is detected by
+// det = max(a00*a11 - a01*a01, 0) > 0. That difference of two products
+// cancels exactly only in exact arithmetic, so for direction vectors that are
+// mathematically parallel it can round to one ulp above zero. The
+// nonparallel branch is then entered with numerators that are pure rounding
+// noise, and the reported points, while on their primitives, need not be near
+// the minimum. Preserved as upstream has it; DistSegmentSegment.computeRobust
+// is upstream's answer for that case.
+//
 // Port notes: see DistPointLine.ts for the Dist* family conventions. The
 // upstream specialization 'DCPQuery<T, Ray<N,T>, Ray<N,T>>' becomes the
 // class DistRayRay with the result type DistRayRayResult.

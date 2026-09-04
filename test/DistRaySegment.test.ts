@@ -4,7 +4,13 @@ import {
 } from '../src/DistRaySegment.js';
 import { Ray } from '../src/Ray.js';
 import { Segment } from '../src/Segment.js';
-import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
+import { DistLineLine } from '../src/DistLineLine.js';
+import { DistPointRay } from '../src/DistPointRay.js';
+import { DistPointSegment } from '../src/DistPointSegment.js';
+import { Line } from '../src/Line.js';
+import { check, expectClose, expectVectorClose, fc, rotationFrame, seededRandom, wellScaledVector } from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -255,5 +261,157 @@ describe('DistRaySegment', () => {
             expect(result.sqrDistance).toBeLessThanOrEqual(best + 1e-9);
             expect(result.sqrDistance).toBeGreaterThan(best - 1e-6);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V19): property-based cross-checks of DistRaySegment.ts
+// against the upstream header DistRaySegment.h, including regression coverage
+// for the ray-parameter clamp the port adds (upstream issue #126).
+// ---------------------------------------------------------------------------
+
+function rot(R: readonly Vector[], p: Vector): Vector {
+    let q = mul(p.values[0], R[0]);
+    for (let i = 1; i < R.length; ++i) {
+        q = add(q, mul(p.values[i], R[i]));
+    }
+    return q;
+}
+
+const nonUnitRay3 = fc.tuple(wellScaledVector(3, -8, 8),
+    wellScaledVector(3, -3, 3))
+    .filter(([, d]) => length(d) > 0.25)
+    .map(([o, d]) => Ray.fromOriginDirection(o, d));
+
+const segment3 = fc.tuple(wellScaledVector(3, -8, 8),
+    wellScaledVector(3, -8, 8))
+    .filter(([p0, p1]) => length(sub(p1, p0)) > 0.25)
+    .map(([p0, p1]) => Segment.fromEndpoints(p0, p1));
+
+// Near-parallel pairs make the upstream determinant and its numerators cancel
+// to rounding noise, so the reported parameters lose all significance there.
+const wellConditioned = fc.tuple(nonUnitRay3, segment3)
+    .filter(([ray, seg]) => {
+        const sd = sub(seg.p[1], seg.p[0]);
+        return length(cross(ray.direction, sd))
+            > 0.2 * length(ray.direction) * length(sd);
+    });
+
+describe('DistRaySegment verification', () => {
+    const query = new DistRaySegment();
+    const lineLine = new DistLineLine();
+    const pointRay = new DistPointRay();
+    const pointSegment = new DistPointSegment();
+
+    it('result is self consistent and both parameters are in their domains',
+        () => {
+            check(fc.tuple(nonUnitRay3, segment3), ([ray, seg]) => {
+                const r = query.compute(ray, seg);
+                expect(r.parameter[0]).toBeGreaterThanOrEqual(0);
+                expect(r.parameter[1]).toBeGreaterThanOrEqual(0);
+                expect(r.parameter[1]).toBeLessThanOrEqual(1);
+                expectClose(r.distance, Math.sqrt(r.sqrDistance), 1e-12, 1e-12);
+                const diff = sub(r.closest[0], r.closest[1]);
+                expectClose(r.sqrDistance, dot(diff, diff), 1e-12, 1e-12);
+                expectVectorClose(r.closest[0],
+                    add(ray.origin, mul(r.parameter[0], ray.direction)), 1e-12,
+                    1e-12);
+                expectVectorClose(r.closest[1],
+                    add(seg.p[0], mul(r.parameter[1], sub(seg.p[1], seg.p[0]))),
+                    1e-12, 1e-12);
+            });
+        });
+
+    it('matches the exact minimum over the domain [0,inf) x [0,1]', () => {
+        check(wellConditioned, ([ray, seg]) => {
+            // Convex quadratic: the minimum is the unconstrained line/line
+            // critical point when it lies in the domain, and otherwise on one
+            // of the three boundary faces s0 = 0, s1 = 0 and s1 = 1.
+            const unconstrained = lineLine.compute(
+                Line.fromOriginDirection(ray.origin, ray.direction),
+                Line.fromOriginDirection(seg.p[0], sub(seg.p[1], seg.p[0])));
+            let ref = pointSegment.compute(ray.origin, seg).distance;
+            ref = Math.min(ref, pointRay.compute(seg.p[0], ray).distance);
+            ref = Math.min(ref, pointRay.compute(seg.p[1], ray).distance);
+            const [s0, s1] = unconstrained.parameter;
+            if (s0 >= 0 && s1 >= 0 && s1 <= 1) {
+                ref = Math.min(ref, unconstrained.distance);
+            }
+            expectClose(query.compute(ray, seg).distance, ref, 1e-8, 1e-8);
+        });
+    });
+
+    // Restricted to wellConditioned: when the two directions are parallel,
+    // det = max(a00*a11 - a01*a01, 0) is a difference of two products that
+    // cancel only in exact arithmetic, so it can come out one ulp positive.
+    // Upstream then takes the nonparallel branch with numerators that are
+    // pure rounding noise and reports a point pair that is on the ray and the
+    // segment but far from the minimum. This affects DistLineRay,
+    // DistLineSegment, DistRayRay and DistRaySegment alike and is inherent in
+    // the upstream parallel test, not a port defect.
+    it('is minimal over sampled point pairs', () => {
+        const rand = seededRandom(0x51d9);
+        check(wellConditioned, ([ray, seg]) => {
+            const r = query.compute(ray, seg);
+            const sd = sub(seg.p[1], seg.p[0]);
+            for (let k = 0; k < 20; ++k) {
+                const p = add(ray.origin, mul(12 * rand(), ray.direction));
+                const q = add(seg.p[0], mul(rand(), sd));
+                const diff = sub(p, q);
+                const sqr = dot(diff, diff);
+                expect(r.sqrDistance).toBeLessThanOrEqual(sqr + 1e-9 * (1 + sqr));
+            }
+        }, 60);
+    });
+
+    it('is invariant under rigid motions', () => {
+        check(fc.tuple(wellConditioned, rotationFrame(3),
+            wellScaledVector(3, -5, 5)), ([[ray, seg], R, tr]) => {
+            const movedRay = Ray.fromOriginDirection(
+                add(rot(R, ray.origin), tr), rot(R, ray.direction));
+            const movedSeg = Segment.fromEndpoints(
+                add(rot(R, seg.p[0]), tr), add(rot(R, seg.p[1]), tr));
+            expectClose(query.compute(ray, seg).distance,
+                query.compute(movedRay, movedSeg).distance, 1e-8, 1e-8);
+        });
+    });
+
+    it('clamps the ray parameter in region 1 (upstream issue #126)', () => {
+        // The witness recorded in the issue: a well-conditioned nonparallel
+        // configuration (det about 2.79) that reaches region 1, where
+        // upstream computes s0 = -(a01+b0)/a00 = -0.377 without clamping and
+        // reports a closest "ray" point behind the ray origin together with
+        // an under-reported distance (sqrDistance 2.675 instead of 4.136).
+        const r = ray([-1.9852731227874756, -2.484701693058014,
+            -1.566794514656067],
+        [-2.7053112387657166, -0.4477686882019043, -1.6644186973571777]);
+        const s = seg([1.403347671031952, -2.980962038040161,
+            2.2564467592164874],
+        [-1.6737277507781982, -2.9632678627967834, 0.3852156177163124]);
+        const result = query.compute(r, s);
+        expect(result.parameter[0]).toBe(0);
+        expect(result.parameter[1]).toBeGreaterThanOrEqual(0);
+        expect(result.parameter[1]).toBeLessThanOrEqual(1);
+        // The true minimum is on the face s0 = 0, that is the distance from
+        // the ray origin to the segment.
+        expectClose(result.sqrDistance,
+            pointSegment.compute(r.origin, s).sqrDistance, 1e-12, 1e-12);
+        expect(result.sqrDistance).toBeGreaterThan(4);
+        expectVectorClose(result.closest[0], r.origin, 0, 0);
+    });
+
+    it('never reports a distance below the true minimum', () => {
+        // The clamp must not be reachable from a configuration whose true
+        // minimum has a positive ray parameter: whenever the port clamps, the
+        // face s0 = 0 really does carry the minimum. (Restricted to
+        // wellConditioned for the reason given above.)
+        check(wellConditioned, ([ray, seg]) => {
+            const r = query.compute(ray, seg);
+            if (r.parameter[0] === 0) {
+                expectClose(r.sqrDistance,
+                    pointSegment.compute(ray.origin, seg).sqrDistance, 1e-9,
+                    1e-9);
+            }
+        });
     });
 });

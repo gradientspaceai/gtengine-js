@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { DistRayRay, type DistRayRayResult } from '../src/DistRayRay.js';
 import { Ray } from '../src/Ray.js';
-import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
+import { DistLineLine } from '../src/DistLineLine.js';
+import { DistPointRay } from '../src/DistPointRay.js';
+import { Line } from '../src/Line.js';
+import { check, expectClose, expectVectorClose, fc, rotationFrame, seededRandom, wellScaledVector } from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -209,5 +214,120 @@ describe('DistRayRay', () => {
                 }
             }
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V19): property-based cross-checks of DistRayRay.ts
+// against the upstream header DistRayRay.h.
+// ---------------------------------------------------------------------------
+
+function rot(R: readonly Vector[], p: Vector): Vector {
+    let q = mul(p.values[0], R[0]);
+    for (let i = 1; i < R.length; ++i) {
+        q = add(q, mul(p.values[i], R[i]));
+    }
+    return q;
+}
+
+const nonUnitRay3 = fc.tuple(wellScaledVector(3, -8, 8),
+    wellScaledVector(3, -3, 3))
+    .filter(([, d]) => length(d) > 0.25)
+    .map(([o, d]) => Ray.fromOriginDirection(o, d));
+
+// Near-parallel pairs make the upstream determinant and its numerators cancel
+// to rounding noise, so the reported parameters lose all significance there.
+const wellConditioned = fc.tuple(nonUnitRay3, nonUnitRay3)
+    .filter(([r0, r1]) => length(cross(r0.direction, r1.direction))
+        > 0.2 * length(r0.direction) * length(r1.direction));
+
+describe('DistRayRay verification', () => {
+    const query = new DistRayRay();
+    const lineLine = new DistLineLine();
+    const pointRay = new DistPointRay();
+
+    it('result is self consistent and both parameters are nonnegative', () => {
+        check(fc.tuple(nonUnitRay3, nonUnitRay3), ([r0, r1]) => {
+            const r = query.compute(r0, r1);
+            expect(r.parameter[0]).toBeGreaterThanOrEqual(0);
+            expect(r.parameter[1]).toBeGreaterThanOrEqual(0);
+            expectClose(r.distance, Math.sqrt(r.sqrDistance), 1e-12, 1e-12);
+            const diff = sub(r.closest[0], r.closest[1]);
+            expectClose(r.sqrDistance, dot(diff, diff), 1e-12, 1e-12);
+            expectVectorClose(r.closest[0],
+                add(r0.origin, mul(r.parameter[0], r0.direction)), 1e-12,
+                1e-12);
+            expectVectorClose(r.closest[1],
+                add(r1.origin, mul(r.parameter[1], r1.direction)), 1e-12,
+                1e-12);
+        });
+    });
+
+    it('matches the exact minimum over the domain [0,inf)^2', () => {
+        check(wellConditioned, ([r0, r1]) => {
+            // Convex quadratic on a quadrant: the minimum is the
+            // unconstrained line/line critical point when both parameters are
+            // nonnegative, and otherwise lies on one of the two boundary
+            // faces s0 = 0 or s1 = 0, each a point-ray distance.
+            const unconstrained = lineLine.compute(
+                Line.fromOriginDirection(r0.origin, r0.direction),
+                Line.fromOriginDirection(r1.origin, r1.direction));
+            let ref = Math.min(pointRay.compute(r0.origin, r1).distance,
+                pointRay.compute(r1.origin, r0).distance);
+            if (unconstrained.parameter[0] >= 0
+                && unconstrained.parameter[1] >= 0) {
+                ref = Math.min(ref, unconstrained.distance);
+            }
+            expectClose(query.compute(r0, r1).distance, ref, 1e-8, 1e-8);
+        });
+    });
+
+    it('is symmetric under argument swap', () => {
+        check(wellConditioned, ([r0, r1]) => {
+            expectClose(query.compute(r0, r1).distance,
+                query.compute(r1, r0).distance, 1e-8, 1e-8);
+        });
+    });
+
+    it('is minimal over sampled point pairs', () => {
+        const rand = seededRandom(0x51d8);
+        check(wellConditioned, ([r0, r1]) => {
+            const r = query.compute(r0, r1);
+            for (let k = 0; k < 20; ++k) {
+                const p = add(r0.origin, mul(12 * rand(), r0.direction));
+                const q = add(r1.origin, mul(12 * rand(), r1.direction));
+                const diff = sub(p, q);
+                const sqr = dot(diff, diff);
+                expect(r.sqrDistance).toBeLessThanOrEqual(sqr + 1e-9 * (1 + sqr));
+            }
+        }, 60);
+    });
+
+    it('is invariant under rigid motions', () => {
+        check(fc.tuple(wellConditioned, rotationFrame(3),
+            wellScaledVector(3, -5, 5)), ([[r0, r1], R, tr]) => {
+            const move = (ray: Ray): Ray => Ray.fromOriginDirection(
+                add(rot(R, ray.origin), tr), rot(R, ray.direction));
+            expectClose(query.compute(r0, r1).distance,
+                query.compute(move(r0), move(r1)).distance, 1e-8, 1e-8);
+        });
+    });
+
+    it('handles exactly parallel rays', () => {
+        // A power-of-two scale keeps the determinant exactly zero, so the
+        // parallel branch is exercised deterministically.
+        check(fc.tuple(nonUnitRay3, wellScaledVector(3, -8, 8),
+            fc.constantFrom(1, -1, 2, -2, 0.5, -0.5, 4, -4)),
+        ([r0, o1, k]) => {
+            const r1 = Ray.fromOriginDirection(o1, mul(k, r0.direction));
+            const r = query.compute(r0, r1);
+            expect(r.parameter[0]).toBeGreaterThanOrEqual(0);
+            expect(r.parameter[1]).toBeGreaterThanOrEqual(0);
+            // The parallel branch always places one closest point at a ray
+            // origin, so the answer is one of the two point-ray distances.
+            const ref = Math.min(pointRay.compute(r0.origin, r1).distance,
+                pointRay.compute(r1.origin, r0).distance);
+            expectClose(r.distance, ref, 1e-8, 1e-8);
+        });
     });
 });

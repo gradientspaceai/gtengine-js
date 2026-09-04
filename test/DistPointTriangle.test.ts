@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { DistPointTriangle } from '../src/DistPointTriangle.js';
 import { Triangle } from '../src/Triangle.js';
 import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { computeBarycentrics2 } from '../src/Vector2.js';
+import { check, expectClose, expectVectorClose, fc, rotationFrame, seededRandom, wellScaledVector } from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -210,5 +212,164 @@ describe('DistPointTriangle', () => {
             const cg = query.useConjugateGradient(point, t);
             expect(cg.distance).toBeCloseTo(result.distance, 8);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V19): property-based cross-checks of DistPointTriangle.ts
+// against the upstream header DistPointTriangle.h.
+// ---------------------------------------------------------------------------
+
+function rot(R: readonly Vector[], p: Vector): Vector {
+    let q = mul(p.values[0], R[0]);
+    for (let i = 1; i < R.length; ++i) {
+        q = add(q, mul(p.values[i], R[i]));
+    }
+    return q;
+}
+
+// A nondegenerate triangle in nD: the squared area is bounded away from zero
+// relative to the edge lengths, so the coefficient matrix of the quadratic is
+// well conditioned.
+const triangleOfDim = (n: number): fc.Arbitrary<Triangle> =>
+    fc.tuple(wellScaledVector(n, -8, 8), wellScaledVector(n, -8, 8),
+        wellScaledVector(n, -8, 8))
+        .filter(([a, b, c]) => {
+            const e0 = sub(b, a);
+            const e1 = sub(c, a);
+            const d00 = dot(e0, e0), d11 = dot(e1, e1), d01 = dot(e0, e1);
+            return d00 * d11 - d01 * d01 > 0.05 * d00 * d11 && d00 > 0.25
+                && d11 > 0.25;
+        })
+        .map(([a, b, c]) => Triangle.fromVertices(a, b, c));
+
+describe('DistPointTriangle verification', () => {
+    const query = new DistPointTriangle();
+
+    it('both queries are self consistent with valid barycentrics', () => {
+        check(fc.tuple(wellScaledVector(3, -8, 8), triangleOfDim(3)),
+            ([p, tri]) => {
+                for (const r of [query.compute(p, tri),
+                    query.useConjugateGradient(p, tri)]) {
+                    expectClose(r.distance, Math.sqrt(r.sqrDistance), 1e-12,
+                        1e-12);
+                    const diff = sub(r.closest[0], r.closest[1]);
+                    expectClose(r.sqrDistance, dot(diff, diff), 1e-12, 1e-12);
+                    expectVectorClose(r.closest[0], p, 0, 0);
+                    expect(r.closest[0]).not.toBe(p);
+                    expectClose(r.barycentric[0] + r.barycentric[1]
+                        + r.barycentric[2], 1, 1e-12, 1e-12);
+                    for (let i = 0; i < 3; ++i) {
+                        expect(r.barycentric[i]).toBeGreaterThanOrEqual(-1e-12);
+                        expect(r.barycentric[i]).toBeLessThanOrEqual(1 + 1e-12);
+                    }
+                    // closest[1] is the barycentric combination of the
+                    // vertices.
+                    let q = mul(r.barycentric[0], tri.v[0]);
+                    q = add(q, mul(r.barycentric[1], tri.v[1]));
+                    q = add(q, mul(r.barycentric[2], tri.v[2]));
+                    expectVectorClose(r.closest[1], q, 1e-9, 1e-9);
+                }
+            });
+    });
+
+    it('compute and useConjugateGradient agree', () => {
+        check(fc.tuple(wellScaledVector(3, -8, 8), triangleOfDim(3)),
+            ([p, tri]) => {
+                const a = query.compute(p, tri);
+                const b = query.useConjugateGradient(p, tri);
+                expectClose(a.distance, b.distance, 1e-8, 1e-8);
+                expectVectorClose(a.closest[1], b.closest[1], 1e-7, 1e-7);
+            });
+    });
+
+    it('is minimal over sampled triangle points', () => {
+        const rand = seededRandom(0x51e0);
+        check(fc.tuple(wellScaledVector(3, -8, 8), triangleOfDim(3)),
+            ([p, tri]) => {
+                const r = query.compute(p, tri);
+                for (let k = 0; k < 24; ++k) {
+                    let b0 = rand();
+                    let b1 = rand();
+                    if (b0 + b1 > 1) { b0 = 1 - b0; b1 = 1 - b1; }
+                    const b2 = 1 - b0 - b1;
+                    let q = mul(b0, tri.v[0]);
+                    q = add(q, mul(b1, tri.v[1]));
+                    q = add(q, mul(b2, tri.v[2]));
+                    const diff = sub(p, q);
+                    const sqr = dot(diff, diff);
+                    expect(r.sqrDistance)
+                        .toBeLessThanOrEqual(sqr + 1e-9 * (1 + sqr));
+                }
+            }, 60);
+    });
+
+    it('reports zero distance for points of the triangle', () => {
+        check(fc.tuple(triangleOfDim(3), fc.double({ min: 0, max: 1,
+            noNaN: true }), fc.double({ min: 0, max: 1, noNaN: true })),
+        ([tri, u, w]) => {
+            let b0 = u;
+            let b1 = w;
+            if (b0 + b1 > 1) { b0 = 1 - b0; b1 = 1 - b1; }
+            const b2 = 1 - b0 - b1;
+            let p = mul(b0, tri.v[0]);
+            p = add(p, mul(b1, tri.v[1]));
+            p = add(p, mul(b2, tri.v[2]));
+            const r = query.compute(p, tri);
+            expect(r.distance).toBeLessThanOrEqual(1e-9);
+            expectClose(r.barycentric[0], b0, 1e-7, 1e-7);
+            expectClose(r.barycentric[1], b1, 1e-7, 1e-7);
+            expectClose(r.barycentric[2], b2, 1e-7, 1e-7);
+        });
+    });
+
+    it('is invariant under rigid motions', () => {
+        check(fc.tuple(wellScaledVector(3, -8, 8), triangleOfDim(3),
+            rotationFrame(3), wellScaledVector(3, -5, 5)),
+        ([p, tri, R, tr]) => {
+            const moved = Triangle.fromVertices(add(rot(R, tri.v[0]), tr),
+                add(rot(R, tri.v[1]), tr), add(rot(R, tri.v[2]), tr));
+            const r0 = query.compute(p, tri);
+            const r1 = query.compute(add(rot(R, p), tr), moved);
+            expectClose(r0.distance, r1.distance, 1e-8, 1e-8);
+            for (let i = 0; i < 3; ++i) {
+                expectClose(r0.barycentric[i], r1.barycentric[i], 1e-6, 1e-6);
+            }
+        });
+    });
+
+    it('is permutation equivariant in the triangle vertices', () => {
+        check(fc.tuple(wellScaledVector(3, -8, 8), triangleOfDim(3)),
+            ([p, tri]) => {
+                const base = query.compute(p, tri);
+                const perms = [[1, 2, 0], [2, 0, 1], [1, 0, 2]];
+                for (const perm of perms) {
+                    const permuted = Triangle.fromVertices(tri.v[perm[0]],
+                        tri.v[perm[1]], tri.v[perm[2]]);
+                    const r = query.compute(p, permuted);
+                    expectClose(r.distance, base.distance, 1e-8, 1e-8);
+                    for (let i = 0; i < 3; ++i) {
+                        expectClose(r.barycentric[i],
+                            base.barycentric[perm[i]], 1e-6, 1e-6);
+                    }
+                }
+            });
+    });
+
+    it('works in 2D, where an interior point has distance zero', () => {
+        check(fc.tuple(wellScaledVector(2, -8, 8), triangleOfDim(2)),
+            ([p, tri]) => {
+                const r = query.compute(p, tri);
+                const bary = computeBarycentrics2(p, tri.v[0], tri.v[1],
+                    tri.v[2]);
+                if (bary.valid && bary.bary[0] > 1e-6 && bary.bary[1] > 1e-6
+                    && bary.bary[2] > 1e-6) {
+                    expect(r.distance).toBeLessThanOrEqual(1e-9);
+                }
+                else {
+                    expectClose(r.distance, Math.sqrt(r.sqrDistance), 1e-12,
+                        1e-12);
+                }
+            });
     });
 });

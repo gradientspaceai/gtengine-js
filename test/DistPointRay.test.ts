@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { DistPointRay } from '../src/DistPointRay.js';
 import { Ray } from '../src/Ray.js';
-import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import { DistPointLine } from '../src/DistPointLine.js';
+import { Line } from '../src/Line.js';
+import { check, expectClose, expectVectorClose, fc, rotationFrame, seededRandom, wellScaledVector } from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -78,5 +81,104 @@ describe('DistPointRay', () => {
             }
             expect(result.sqrDistance).toBeLessThanOrEqual(best + 1e-9);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V19): property-based cross-checks of DistPointRay.ts
+// against the upstream header DistPointRay.h.
+// ---------------------------------------------------------------------------
+
+function rot(R: readonly Vector[], p: Vector): Vector {
+    let q = mul(p.values[0], R[0]);
+    for (let i = 1; i < R.length; ++i) {
+        q = add(q, mul(p.values[i], R[i]));
+    }
+    return q;
+}
+
+// A 3D ray whose direction is well scaled but not unit length; upstream
+// explicitly allows non-unit directions.
+const nonUnitRay3 = fc.tuple(wellScaledVector(3, -8, 8),
+    wellScaledVector(3, -3, 3))
+    .filter(([, d]) => length(d) > 0.25)
+    .map(([o, d]) => Ray.fromOriginDirection(o, d));
+
+describe('DistPointRay verification', () => {
+    const query = new DistPointRay();
+    const lineQuery = new DistPointLine();
+
+    it('result is self consistent and the parameter is nonnegative', () => {
+        check(fc.tuple(wellScaledVector(3, -8, 8), nonUnitRay3), ([p, ray]) => {
+            const r = query.compute(p, ray);
+            expect(r.parameter).toBeGreaterThanOrEqual(0);
+            expectClose(r.distance, Math.sqrt(r.sqrDistance), 1e-12, 1e-12);
+            const diff = sub(r.closest[0], r.closest[1]);
+            expectClose(r.distance, Math.sqrt(dot(diff, diff)), 1e-12, 1e-12);
+            expectVectorClose(r.closest[0], p, 0, 0);
+            expect(r.closest[0]).not.toBe(p);
+            expectVectorClose(r.closest[1],
+                add(ray.origin, mul(r.parameter, ray.direction)), 1e-12, 1e-12);
+        });
+    });
+
+    it('agrees with the point-line query exactly when the line parameter is '
+        + 'positive, and clamps to the origin otherwise', () => {
+        check(fc.tuple(wellScaledVector(3, -8, 8), nonUnitRay3), ([p, ray]) => {
+            const line = Line.fromOriginDirection(ray.origin, ray.direction);
+            const rl = lineQuery.compute(p, line);
+            const rr = query.compute(p, ray);
+            if (rl.parameter > 0) {
+                expectClose(rr.parameter, rl.parameter, 0, 0);
+                expectClose(rr.distance, rl.distance, 0, 0);
+            }
+            else {
+                expect(rr.parameter).toBe(0);
+                expectVectorClose(rr.closest[1], ray.origin, 0, 0);
+                // Clamping can only increase the distance.
+                expect(rr.distance).toBeGreaterThanOrEqual(
+                    rl.distance - 1e-9 * (1 + rl.distance));
+            }
+        });
+    });
+
+    it('is minimal over sampled ray points', () => {
+        const rand = seededRandom(0x51d1);
+        check(fc.tuple(wellScaledVector(3, -8, 8), nonUnitRay3), ([p, ray]) => {
+            const r = query.compute(p, ray);
+            for (let k = 0; k < 20; ++k) {
+                const t = 12 * rand();
+                const diff = sub(p, add(ray.origin, mul(t, ray.direction)));
+                const sqr = dot(diff, diff);
+                expect(r.sqrDistance).toBeLessThanOrEqual(sqr + 1e-9 * (1 + sqr));
+            }
+        }, 60);
+    });
+
+    it('is invariant under rigid motions', () => {
+        check(fc.tuple(wellScaledVector(3, -8, 8), nonUnitRay3,
+            rotationFrame(3), wellScaledVector(3, -5, 5)),
+        ([p, ray, R, tr]) => {
+            const r0 = query.compute(p, ray);
+            const r1 = query.compute(add(rot(R, p), tr),
+                Ray.fromOriginDirection(add(rot(R, ray.origin), tr),
+                    rot(R, ray.direction)));
+            expectClose(r0.distance, r1.distance, 1e-9, 1e-9);
+            expectClose(r0.parameter, r1.parameter, 1e-9, 1e-8);
+        });
+    });
+
+    it('reports the origin for a degenerate (zero-direction) ray', () => {
+        check(wellScaledVector(3, -8, 8), p => {
+            const ray = Ray.fromOriginDirection(Vector.fromArray([1, 2, 3]),
+                new Vector(3));
+            const r = query.compute(p, ray);
+            // Dot(D,D) is zero, so the parameter is NaN upstream too; the
+            // comparison 'parameter > 0' is false and the origin is used.
+            expect(r.parameter).toBe(0);
+            expectVectorClose(r.closest[1], ray.origin, 0, 0);
+            const diff = sub(p, ray.origin);
+            expectClose(r.sqrDistance, dot(diff, diff), 1e-12, 1e-12);
+        });
     });
 });

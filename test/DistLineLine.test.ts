@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { DistLineLine } from '../src/DistLineLine.js';
 import { Line } from '../src/Line.js';
-import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
+import { DistPointLine } from '../src/DistPointLine.js';
+import { check, expectClose, expectVectorClose, fc, rotationFrame, seededRandom, wellScaledVector } from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -93,5 +96,129 @@ describe('DistLineLine', () => {
                     result.sqrDistance - 1e-9);
             }
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V19): property-based cross-checks of DistLineLine.ts
+// against the upstream header DistLineLine.h.
+// ---------------------------------------------------------------------------
+
+function rot(R: readonly Vector[], p: Vector): Vector {
+    let q = mul(p.values[0], R[0]);
+    for (let i = 1; i < R.length; ++i) {
+        q = add(q, mul(p.values[i], R[i]));
+    }
+    return q;
+}
+
+// A 3D line with a well-scaled, deliberately non-unit direction.
+const nonUnitLine3 = fc.tuple(wellScaledVector(3, -8, 8),
+    wellScaledVector(3, -3, 3))
+    .filter(([, d]) => length(d) > 0.25)
+    .map(([o, d]) => Line.fromOriginDirection(o, d));
+
+// Two lines that are well away from parallel, so that the determinant
+// a00*a11 - a01^2 carries significant digits and the closest-point
+// parameters are well conditioned.
+const skewPair = fc.tuple(nonUnitLine3, nonUnitLine3)
+    .filter(([l0, l1]) =>
+        length(cross(l0.direction, l1.direction))
+        > 0.2 * length(l0.direction) * length(l1.direction));
+
+describe('DistLineLine verification', () => {
+    const query = new DistLineLine();
+    const pointLine = new DistPointLine();
+
+    it('result is self consistent', () => {
+        check(fc.tuple(nonUnitLine3, nonUnitLine3), ([l0, l1]) => {
+            const r = query.compute(l0, l1);
+            expectClose(r.distance, Math.sqrt(r.sqrDistance), 1e-12, 1e-12);
+            const diff = sub(r.closest[0], r.closest[1]);
+            expectClose(r.sqrDistance, dot(diff, diff), 1e-12, 1e-12);
+            expectVectorClose(r.closest[0],
+                add(l0.origin, mul(r.parameter[0], l0.direction)), 1e-12, 1e-12);
+            expectVectorClose(r.closest[1],
+                add(l1.origin, mul(r.parameter[1], l1.direction)), 1e-12, 1e-12);
+        });
+    });
+
+    it('matches the closed-form skew-line distance |Dot(P0-P1,N)|/|N|', () => {
+        check(skewPair, ([l0, l1]) => {
+            const N = cross(l0.direction, l1.direction);
+            const expected =
+                Math.abs(dot(sub(l0.origin, l1.origin), N)) / length(N);
+            expectClose(query.compute(l0, l1).distance, expected, 1e-9, 1e-9);
+        });
+    });
+
+    it('produces a segment perpendicular to both directions', () => {
+        check(skewPair, ([l0, l1]) => {
+            const r = query.compute(l0, l1);
+            const w = sub(r.closest[0], r.closest[1]);
+            const scale = 1 + length(w);
+            expect(Math.abs(dot(l0.direction, w)))
+                .toBeLessThanOrEqual(1e-8 * scale * length(l0.direction));
+            expect(Math.abs(dot(l1.direction, w)))
+                .toBeLessThanOrEqual(1e-8 * scale * length(l1.direction));
+        });
+    });
+
+    it('is symmetric under argument swap', () => {
+        check(fc.tuple(nonUnitLine3, nonUnitLine3), ([l0, l1]) => {
+            const r0 = query.compute(l0, l1);
+            const r1 = query.compute(l1, l0);
+            expectClose(r0.distance, r1.distance, 1e-8, 1e-8);
+        });
+    });
+
+    // The pair is restricted to skewPair: for nearly parallel lines the
+    // determinant and both numerators cancel to rounding noise, so upstream's
+    // s0 = (a01*b1 - a11*b0)/det is garbage of order one. The closest points
+    // still lie on their lines, but they need not be near the minimum. That
+    // conditioning limit is inherent in the upstream formula, not a port
+    // defect, and is why DistSegmentSegment offers computeRobust.
+    it('is minimal over sampled point pairs', () => {
+        const rand = seededRandom(0x51d5);
+        check(skewPair, ([l0, l1]) => {
+            const r = query.compute(l0, l1);
+            for (let k = 0; k < 20; ++k) {
+                const p = add(l0.origin, mul(20 * (rand() - 0.5), l0.direction));
+                const q = add(l1.origin, mul(20 * (rand() - 0.5), l1.direction));
+                const diff = sub(p, q);
+                const sqr = dot(diff, diff);
+                expect(r.sqrDistance).toBeLessThanOrEqual(sqr + 1e-9 * (1 + sqr));
+            }
+        }, 60);
+    });
+
+    it('is invariant under rigid motions', () => {
+        check(fc.tuple(skewPair, rotationFrame(3), wellScaledVector(3, -5, 5)),
+            ([[l0, l1], R, tr]) => {
+                const move = (l: Line): Line => Line.fromOriginDirection(
+                    add(rot(R, l.origin), tr), rot(R, l.direction));
+                expectClose(query.compute(l0, l1).distance,
+                    query.compute(move(l0), move(l1)).distance, 1e-8, 1e-8);
+            });
+    });
+
+    it('falls back to a point-line distance for parallel lines', () => {
+        // The scale factor is a power of two so that a01 = -k*a00 and
+        // a11 = k^2*a00 hold exactly in binary64 and the determinant is
+        // exactly zero. With a generic k, rounding leaves a tiny positive
+        // determinant and upstream takes the (ill-conditioned) nonparallel
+        // branch instead.
+        check(fc.tuple(nonUnitLine3, wellScaledVector(3, -8, 8),
+            fc.constantFrom(1, -1, 2, -2, 0.5, -0.5, 4, -4, 0.25, -0.25)),
+        ([l0, o1, k]) => {
+            const l1 = Line.fromOriginDirection(o1, mul(k, l0.direction));
+            const r = query.compute(l0, l1);
+            // Upstream selects s1 = 0, so the closest pair is the projection
+            // of the second origin onto the first line.
+            expect(r.parameter[1]).toBe(0);
+            expectVectorClose(r.closest[1], o1, 0, 0);
+            expectClose(r.distance, pointLine.compute(o1, l0).distance, 1e-9,
+                1e-9);
+        });
     });
 });
