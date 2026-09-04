@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ApprPolynomial2 } from '../src/ApprPolynomial2.js';
 import { ApprQuery } from '../src/ApprQuery.js';
+import { check, expectClose, fc, finite } from './helpers/arbitraries.js';
 
 // Evaluate sum_i c[i]*x^i.
 function poly(c: readonly number[], x: number): number {
@@ -214,5 +215,172 @@ describe('ApprPolynomial2', () => {
                 expect(p[i]).toBeCloseTo(expected[i], 8);
             }
         }
+    });
+});
+
+describe('ApprPolynomial2 verification', () => {
+    // Strictly increasing abscissas with gaps bounded away from zero, so the
+    // Vandermonde normal equations stay well conditioned. Upstream's own
+    // header warns that the monomial basis is nonrobust for large degrees
+    // and large data, so the degrees stay small and |x| <= 3.
+    const abscissas = (count: number) =>
+        fc.array(finite(0.4, 1.4), { minLength: count, maxLength: count })
+            .map(gaps => {
+                let acc = -3;
+                return gaps.map(g => (acc += g));
+            });
+
+    const configArb = fc.integer({ min: 0, max: 3 })
+        .chain(degree => fc.tuple(fc.constant(degree),
+            // At least one coefficient must be nonzero: upstream returns
+            // 'hasNonzero', so an exact fit of the zero polynomial is
+            // reported as a failure (pinned separately below).
+            fc.array(finite(-4, 4),
+                { minLength: degree + 1, maxLength: degree + 1 })
+                .filter(c => c.some(v => Math.abs(v) > 0.1)),
+            fc.integer({ min: degree + 1, max: degree + 4 })
+                .chain(n => abscissas(n))));
+
+    const evaluatePoly = (c: readonly number[], x: number): number => {
+        let w = 0;
+        for (let i = c.length - 1; i >= 0; --i) { w = c[i] + w * x; }
+        return w;
+    };
+
+    it('recovers a polynomial its samples lie on', () => {
+        check(configArb, ([degree, coefficients, xs]) => {
+            const observations = xs.map(
+                x => [x, evaluatePoly(coefficients, x)]);
+            const fitter = new ApprPolynomial2(degree);
+            expect(fitter.fit(observations)).toBe(true);
+
+            const fitted = fitter.getParameters();
+            expect(fitted.length).toBe(degree + 1);
+            const scale = coefficients.reduce(
+                (u, c) => u + Math.abs(c), 0) + 1;
+            for (let i = 0; i <= degree; ++i) {
+                expectClose(fitted[i], coefficients[i], 1e-8 * scale, 1e-8);
+            }
+
+            // evaluate() reproduces the polynomial, and the model error
+            // vanishes on the samples.
+            for (const [x, w] of observations) {
+                expectClose(fitter.evaluate(x), w, 1e-8 * scale, 1e-8);
+                expectClose(fitter.error([x, w]), 0, 1e-7 * scale, 0);
+            }
+        });
+    });
+
+    it('satisfies the least-squares normal equations', () => {
+        check(fc.tuple(configArb, fc.array(finite(-5, 5),
+            { minLength: 8, maxLength: 8 })), ([[degree, , xs], ws]) => {
+                const observations = xs.map(
+                    (x, i) => [x, ws[i % ws.length]]);
+                const fitter = new ApprPolynomial2(degree);
+                // An all-zero solution is reported as a failure by upstream.
+                if (!fitter.fit(observations)) { return; }
+
+                // sum_s x_s^i * (p(x_s) - w_s) = 0 for i = 0..degree.
+                for (let i = 0; i <= degree; ++i) {
+                    let residual = 0, scale = 0;
+                    for (const [x, w] of observations) {
+                        const xp = Math.pow(x, i);
+                        residual += xp * (fitter.evaluate(x) - w);
+                        scale += Math.abs(xp) * (Math.abs(w) + 1);
+                    }
+                    expect(Math.abs(residual))
+                        .toBeLessThanOrEqual(1e-7 + 1e-7 * scale);
+                }
+            });
+    });
+
+    it('evaluate is Horner over the reported parameters', () => {
+        check(fc.tuple(configArb, finite(-6, 6)),
+            ([[degree, coefficients, xs], x]) => {
+                const fitter = new ApprPolynomial2(degree);
+                fitter.fit(xs.map(u => [u, evaluatePoly(coefficients, u)]));
+                const c = fitter.getParameters();
+                let expected = c[degree];
+                for (let i = degree - 1; i >= 0; --i) {
+                    expected = c[i] + expected * x;
+                }
+                expect(fitter.evaluate(x)).toBe(expected);
+            });
+    });
+
+    it('reports the minimum required and accumulates the x-domain', () => {
+        check(fc.tuple(configArb, configArb),
+            ([[degree, c0, xs0], [, c1, xs1]]) => {
+                const fitter = new ApprPolynomial2(degree);
+                expect(fitter.getMinimumRequired()).toBe(degree + 1);
+
+                // The initial domain is the empty-interval sentinel.
+                expect(fitter.getXDomain()[0]).toBe(Number.MAX_VALUE);
+                expect(fitter.getXDomain()[1]).toBe(-Number.MAX_VALUE);
+
+                fitter.fit(xs0.map(x => [x, evaluatePoly(c0, x)]));
+                expect(fitter.getXDomain()[0]).toBe(Math.min(...xs0));
+                expect(fitter.getXDomain()[1]).toBe(Math.max(...xs0));
+
+                // Upstream never resets the domain between fits, so it grows
+                // to the union of every fitted sample set.
+                fitter.fit(xs1.map(x => [x + 20, evaluatePoly(c1, x)]));
+                expect(fitter.getXDomain()[0]).toBe(Math.min(...xs0));
+                expect(fitter.getXDomain()[1])
+                    .toBe(Math.max(...xs1.map(x => x + 20)));
+            });
+    });
+
+    it('zeroes the parameters when the indices are rejected', () => {
+        ApprQuery.validateIndices = true;
+        try {
+            check(configArb, ([degree, coefficients, xs]) => {
+                const fitter = new ApprPolynomial2(degree);
+                expect(fitter.fit(xs.map(
+                    x => [x, evaluatePoly(coefficients, x)]))).toBe(true);
+                expect(fitter.fit([[0, 0]], [0, 99])).toBe(false);
+                expect([...fitter.getParameters()])
+                    .toEqual(new Array<number>(degree + 1).fill(0));
+            }, 60);
+        }
+        finally {
+            ApprQuery.validateIndices = false;
+        }
+    });
+
+    it('copyParameters deep-copies the model', () => {
+        check(configArb, ([degree, coefficients, xs]) => {
+            const source = new ApprPolynomial2(degree);
+            expect(source.fit(xs.map(
+                x => [x, evaluatePoly(coefficients, x)]))).toBe(true);
+            const target = new ApprPolynomial2(degree);
+            target.copyParameters(source);
+
+            expect([...target.getParameters()])
+                .toEqual([...source.getParameters()]);
+            expect(target.getXDomain()).toEqual(source.getXDomain());
+            expect(target.getXDomain()).not.toBe(source.getXDomain());
+            expect(target.getParameters()).not.toBe(source.getParameters());
+
+            // Refitting the source must not disturb the copy.
+            const copied = [...target.getParameters()];
+            source.fit([[0, 1], [1, 2], [2, 4], [3, 8], [4, 16]]);
+            expect([...target.getParameters()]).toEqual(copied);
+        });
+    });
+
+    it('reports failure for an exact fit of the zero polynomial', () => {
+        // Upstream returns 'hasNonzero': every coefficient being zero is
+        // reported as a failure even though the fit is exact and the stored
+        // parameters are the correct ones.
+        check(fc.integer({ min: 0, max: 3 }).chain(degree =>
+            fc.tuple(fc.constant(degree), abscissas(degree + 2))),
+            ([degree, xs]) => {
+                const fitter = new ApprPolynomial2(degree);
+                expect(fitter.fit(xs.map(x => [x, 0]))).toBe(false);
+                expect([...fitter.getParameters()])
+                    .toEqual(new Array<number>(degree + 1).fill(0));
+                expect(fitter.evaluate(1.25)).toBe(0);
+            });
     });
 });
