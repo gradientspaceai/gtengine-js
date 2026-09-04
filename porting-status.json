@@ -707,7 +707,8 @@
   "verified": 8
  },
  "ExtremalQuery3BSP.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 10
  },
  "ExtremalQuery3PRJ.h": {
   "status": "ported",
@@ -852,7 +853,8 @@
   "status": "ported"
  },
  "IncrementalDelaunay2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 10
  },
  "IndexAttribute.h": {
   "status": "ported"
@@ -1360,7 +1362,8 @@
   "status": "ported"
  },
  "MinimumAreaCircle2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 10
  },
  "MinimumSpanningTree.h": {
   "status": "ported"
@@ -1376,7 +1379,8 @@
   "status": "ported"
  },
  "MinimumVolumeSphere3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 10
  },
  "MinimumWidthPoints2.h": {
   "status": "ported"
@@ -1607,7 +1611,8 @@
   "status": "ported"
  },
  "RotatingCalipers.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 10
  },
  "Rotation.h": {
   "status": "ported",
