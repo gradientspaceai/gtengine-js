@@ -237,6 +237,55 @@ export class Delaunay2 {
             this.mIRVertices[i] = [BSNumber.fromNumber(v[0]), BSNumber.fromNumber(v[1])];
         }
 
+        // Select the seed triangle from the extreme vertices found by the
+        // intrinsics computation.
+        //
+        // Upstream bug (fixed in the port): IntrinsicsVector2 determines the
+        // intrinsic dimension in floating-point arithmetic and Delaunay2<T>
+        // hardcodes its epsilon to 0. The direction of the line through the
+        // first two extremes is normalized, so it carries roundoff, and the
+        // perpendicular distances of an exactly collinear input set are then
+        // nonzero at the 1-ulp level. Such a set is reported as dimension 2
+        // with an exactly degenerate extreme triangle. For example, the two
+        // vertices (-3,-9) and (0,0) yield info.dimension = 2 with
+        // info.extreme = [0,1,1]: upstream inserts the degenerate triangle
+        // <0,1,1> (its LogAssert only tests that the mesh insertion returned
+        // a triangle, not that the triangle has area) and returns true with
+        // getIndices() = [0,1,1]. Four collinear vertices such as (0,0),
+        // (1,3), (2,6), (3,9) instead throw from deep inside the incremental
+        // update. The class's own exact ToLine predicate settles the
+        // question: keep upstream's extreme[2] when the seed triangle really
+        // is nondegenerate; otherwise look for a vertex that is exactly off
+        // the line through the first two extremes; and if there is no such
+        // vertex the input is exactly collinear, which is dimension 1. The
+        // exact sign also replaces info.extremeCCW, which is the same
+        // roundoff-prone quantity, so the seed triangle is counterclockwise
+        // as the circumcircle-visibility algorithm requires.
+        const e0 = info.extreme[0], e1 = info.extreme[1];
+        let e2 = info.extreme[2];
+        let toLineSign = (e2 !== e0 && e2 !== e1 ? this.toLine(e2, e0, e1) : 0);
+        if (toLineSign === 0) {
+            for (let i = 0; i < this.mNumVertices; ++i) {
+                if (i === e0 || i === e1) {
+                    continue;
+                }
+                const sign = this.toLine(i, e0, e1);
+                if (sign !== 0) {
+                    e2 = i;
+                    toLineSign = sign;
+                    break;
+                }
+            }
+        }
+        if (toLineSign === 0) {
+            // The vertices are exactly collinear.
+            this.mDimension = 1;
+            this.mIRVertices = [];
+            this.mLine.origin = info.origin.clone();
+            this.mLine.direction = info.direction[0].clone();
+            return false;
+        }
+
         // Assume initially the vertices are unique. If duplicates are found
         // during the Delaunay update, mDuplicates[] will be modified
         // accordingly.
@@ -247,14 +296,12 @@ export class Delaunay2 {
 
         // Insert the nondegenerate triangle constructed by the intrinsics
         // computation. This is necessary for the circumcircle-visibility
-        // algorithm to work correctly.
+        // algorithm to work correctly. toLine returns -1 when the point is to
+        // the left of the directed line, which is the counterclockwise
+        // orientation; upstream swaps extreme[1] and extreme[2] in the
+        // clockwise case.
         const extreme: [number, number, number] =
-            [info.extreme[0], info.extreme[1], info.extreme[2]];
-        if (!info.extremeCCW) {
-            const save = extreme[1];
-            extreme[1] = extreme[2];
-            extreme[2] = save;
-        }
+            (toLineSign < 0 ? [e0, e1, e2] : [e0, e2, e1]);
 
         const inserted = this.mGraph.insert(extreme[0], extreme[1], extreme[2]);
         logAssert(inserted !== null, 'The triangle should not be degenerate.');
@@ -692,7 +739,11 @@ export class Delaunay2 {
         const crX2C2 = crX2.mul(crC2);
         const crTerm = crX0C0.add(crX1C1);
         const crDet = crTerm.add(crX2C2);
-        return -crDet.getSign();
+        // The '| 0' reproduces the C++ negation of an int32_t: JavaScript's
+        // unary minus turns the sign 0 into -0, which is a distinct value
+        // under Object.is and would leak out of a predicate documented to
+        // return -1, 0 or +1.
+        return -crDet.getSign() | 0;
     }
 
     // The port of the upstream 'bool GetContainingTriangle(pIndex, tri)' with
