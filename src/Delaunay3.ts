@@ -67,7 +67,7 @@ import { Line } from './Line.js';
 import type { Line3 } from './Line.js';
 import { Hyperplane } from './Hyperplane.js';
 import type { Plane3 } from './Hyperplane.js';
-import { Vector } from './Vector.js';
+import { Vector, sub } from './Vector.js';
 import { IntrinsicsVector3, unitCross } from './Vector3.js';
 import { BSNumber } from './BSNumber.js';
 import { SWInterval } from './SWInterval.js';
@@ -247,32 +247,117 @@ export class Delaunay3 {
             return false;
         }
 
-        if (info.dimension === 1) {
-            // The vertices are collinear.
-            this.mDimension = 1;
-            this.mLine.origin = info.origin.clone();
-            this.mLine.direction = info.direction[0].clone();
-            return false;
-        }
-
-        if (info.dimension === 2) {
-            // The vertices are coplanar.
-            this.mDimension = 2;
-            this.mPlane = Hyperplane.fromNormalOrigin(
-                unitCross(info.direction[0], info.direction[1]), info.origin);
-            return false;
-        }
-
-        // The vertices necessarily will have a tetrahedralization.
-        this.mDimension = 3;
-
-        // Convert the floating-point inputs to rational type.
+        // Convert the floating-point inputs to rational type. Upstream does
+        // this only after it has decided the intrinsic dimension is 3; the
+        // port needs the rational vertices earlier, for the exact
+        // classification below.
         this.mIRVertices = new Array<RationalPoint3>(this.mNumVertices);
         for (let i = 0; i < this.mNumVertices; ++i) {
             const v = vertices[i].values;
             this.mIRVertices[i] = [BSNumber.fromNumber(v[0]),
                 BSNumber.fromNumber(v[1]), BSNumber.fromNumber(v[2])];
         }
+
+        // Classify the intrinsic dimension exactly and select the seed
+        // tetrahedron from the extreme vertices found by the intrinsics
+        // computation.
+        //
+        // Upstream bug (fixed in the port): IntrinsicsVector3 determines the
+        // intrinsic dimension in floating-point arithmetic and Delaunay3<T>
+        // hardcodes its epsilon to 0. The frame {direction[0], direction[1],
+        // direction[2]} is built by normalizing and cross-multiplying
+        // difference vectors, so it carries roundoff, and the distances of an
+        // exactly collinear or exactly coplanar input set to the line or the
+        // plane are then nonzero at the 1-ulp level. Such a set is reported
+        // as dimension 3 with an exactly degenerate extreme tetrahedron.
+        // Examples with double precision: the two vertices (0,0,0) and
+        // (1,3,5) give info.extreme = [0,1,1,1] and upstream throws 'Attempt
+        // to create nonmanifold mesh' from the seed insertion; the five
+        // exactly coplanar vertices (0,0,0), (1,0,1), (0,1,2), (1,1,3),
+        // (2,1,4) (on z = x + 2y) give info.extreme = [0,4,2,1] and upstream
+        // returns true from compute() with zero tetrahedra; other coplanar
+        // sets throw 'Unexpected insertion failure.'. The class's own exact
+        // predicates settle the question: keep the intrinsics' extremes when
+        // the seed tetrahedron really has nonzero volume; otherwise re-select
+        // the third extreme so that the first three are exactly noncollinear
+        // and the fourth so that it is exactly off their plane. If there is
+        // no noncollinear vertex the input is exactly collinear (dimension
+        // 1); if there is no off-plane vertex it is exactly coplanar
+        // (dimension 2). The exact sign also replaces info.extremeCCW, which
+        // is the same roundoff-prone quantity, so the seed tetrahedron is
+        // positively oriented as the circumsphere-visibility algorithm
+        // requires.
+        //
+        // The same roundoff also misclassifies in the other direction: for
+        // the two vertices (0,0,0) and (1,1,0), the residual of the point
+        // farthest from the line is a rounding error whose normalization is
+        // parallel to direction[0], so direction[2] is the zero vector, every
+        // distance to the "plane" is zero, and upstream reports dimension 2
+        // with a zero plane normal for a collinear input. The exact
+        // classification below replaces upstream's floating-point dimension-1
+        // and dimension-2 branches as well; when upstream classifies
+        // correctly the reported line and plane are the ones it would have
+        // reported.
+        //
+        // The dimension-0 case above needs no such check: with epsilon = 0
+        // its test is 'maxRange == 0', which holds exactly when the bounding
+        // box of the input is a single point.
+        const e0 = info.extreme[0], e1 = info.extreme[1];
+        let e2 = info.extreme[2], e3 = info.extreme[3];
+        const distinct = (e2 !== e0 && e2 !== e1
+            && e3 !== e0 && e3 !== e1 && e3 !== e2);
+        let toPlaneSign = (distinct ? this.toPlane(e3, e0, e1, e2) : 0);
+        if (toPlaneSign === 0) {
+            if (e2 === e0 || e2 === e1 || this.areCollinear(e0, e1, e2)) {
+                e2 = negOne;
+                for (let i = 0; i < this.mNumVertices; ++i) {
+                    if (i !== e0 && i !== e1 && !this.areCollinear(e0, e1, i)) {
+                        e2 = i;
+                        break;
+                    }
+                }
+                if (e2 === negOne) {
+                    // The vertices are exactly collinear.
+                    this.mDimension = 1;
+                    this.mIRVertices = [];
+                    this.mLine.origin = info.origin.clone();
+                    this.mLine.direction = info.direction[0].clone();
+                    return false;
+                }
+            }
+            for (let i = 0; i < this.mNumVertices; ++i) {
+                if (i === e0 || i === e1 || i === e2) {
+                    continue;
+                }
+                const sign = this.toPlane(i, e0, e1, e2);
+                if (sign !== 0) {
+                    e3 = i;
+                    toPlaneSign = sign;
+                    break;
+                }
+            }
+            if (toPlaneSign === 0) {
+                // The vertices are exactly coplanar. When the intrinsics
+                // computation agrees, the plane is the one upstream's
+                // dimension-2 branch reports; otherwise its direction[1] is
+                // unusable and the normal comes from the three exactly
+                // noncollinear extremes. The two expressions agree up to
+                // roundoff, since direction[1] is the component of
+                // V[extreme[2]] - origin perpendicular to direction[0].
+                this.mDimension = 2;
+                this.mIRVertices = [];
+                this.mPlane = Hyperplane.fromNormalOrigin(
+                    info.dimension === 2
+                        ? unitCross(info.direction[0], info.direction[1])
+                        : unitCross(sub(vertices[e1], vertices[e0]),
+                            sub(vertices[e2], vertices[e0])),
+                    info.origin);
+                return false;
+            }
+        }
+
+        // The vertices necessarily will have a tetrahedralization.
+        this.mDimension = 3;
 
         // Assume initially the vertices are unique. If duplicates are found
         // during the Delaunay update, mDuplicates[] will be modified
@@ -284,14 +369,12 @@ export class Delaunay3 {
 
         // Insert the nondegenerate tetrahedron constructed by the intrinsics
         // computation. This is necessary for the circumsphere-visibility
-        // algorithm to work correctly.
-        const extreme: [number, number, number, number] = [info.extreme[0],
-            info.extreme[1], info.extreme[2], info.extreme[3]];
-        if (!info.extremeCCW) {
-            const save = extreme[2];
-            extreme[2] = extreme[3];
-            extreme[3] = save;
-        }
+        // algorithm to work correctly. toPlane returns +1 when the fourth
+        // vertex is on the side the normal Cross(V1-V0,V2-V0) points to,
+        // which is the positive orientation; upstream swaps extreme[2] and
+        // extreme[3] in the negatively oriented case.
+        const extreme: [number, number, number, number] =
+            (toPlaneSign > 0 ? [e0, e1, e2, e3] : [e0, e1, e3, e2]);
 
         const inserted = this.mGraph.insert(extreme[0], extreme[1], extreme[2],
             extreme[3]);
@@ -622,6 +705,21 @@ export class Delaunay3 {
     // stored query point.
     private irPoint(index: number): RationalPoint3 {
         return (index !== negOne ? this.mIRVertices[index] : this.mIRQueryPoint);
+    }
+
+    // Exact test for three collinear vertices: the cross product of the
+    // difference vectors is zero. This has no upstream counterpart; it
+    // supports the seed-tetrahedron repair in compute(), where a floating-
+    // point test would defeat the purpose.
+    private areCollinear(i0: number, i1: number, i2: number): boolean {
+        const a = this.mIRVertices[i0];
+        const b = this.mIRVertices[i1];
+        const c = this.mIRVertices[i2];
+        const u0 = b[0].sub(a[0]), u1 = b[1].sub(a[1]), u2 = b[2].sub(a[2]);
+        const v0 = c[0].sub(a[0]), v1 = c[1].sub(a[1]), v2 = c[2].sub(a[2]);
+        return u1.mul(v2).sub(u2.mul(v1)).getSign() === 0
+            && u2.mul(v0).sub(u0.mul(v2)).getSign() === 0
+            && u0.mul(v1).sub(u1.mul(v0)).getSign() === 0;
     }
 
     // Given a plane with origin V0 and normal N = Cross(V1-V0,V2-V0) and

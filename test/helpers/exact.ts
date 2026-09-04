@@ -97,9 +97,10 @@ export function orient3(a: readonly bigint[], b: readonly bigint[],
 
 /**
  * Sign of the in-sphere determinant of (a, b, c, d; e). When (a, b, c, d) is
- * a positively oriented tetrahedron (orient3 > 0) the result is +1 when e is
- * strictly inside the circumsphere, 0 when e is on it and -1 when e is
- * strictly outside.
+ * a positively oriented tetrahedron (orient3 > 0) the result is -1 when e is
+ * strictly inside the circumsphere, 0 when e is on it and +1 when e is
+ * strictly outside. (The 4x4 expansion carries the opposite sign from the
+ * 3x3 in-circle determinant of inCircle2, which is +1 for a point inside.)
  */
 export function inSphere3(a: readonly bigint[], b: readonly bigint[],
     c: readonly bigint[], d: readonly bigint[], e: readonly bigint[]): number {

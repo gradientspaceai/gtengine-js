@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { Delaunay3, Delaunay3SearchInfo } from '../src/Delaunay3.js';
-import { Vector } from '../src/Vector.js';
+import { Vector, dot } from '../src/Vector.js';
 import { SWInterval } from '../src/SWInterval.js';
+import { IntrinsicsVector3 } from '../src/Vector3.js';
+import { check, fc, latticeVector, wellScaledVector } from './helpers/arbitraries.js';
+import { exactDyadic, inSphere3, orient3 } from './helpers/exact.js';
 
 const v3 = (x: number, y: number, z: number): Vector => Vector.fromArray([x, y, z]);
 
@@ -574,5 +577,604 @@ describe('Delaunay3', () => {
                 expect(d / scale).toBeLessThan(1e-10);
             }
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (VERIFYING.md): property-based cross-checks against exact
+// bigint arithmetic. Input coordinates are finite doubles, so the coordinates
+// of one point set scale by a common power of two into exact integers
+// (exactDyadic); the orientation and in-sphere determinants are homogeneous,
+// so that scale never changes their signs. The reference answers are
+// therefore the mathematically exact ones, which is what the interval +
+// BSNumber predicates of Delaunay3 are required to reproduce.
+// ---------------------------------------------------------------------------
+
+// Exposes the protected sign predicates for comparison against the exact
+// bigint reference predicates.
+class Delaunay3Probe extends Delaunay3 {
+    plane(pIndex: number, v0: number, v1: number, v2: number): number {
+        return this.toPlane(pIndex, v0, v1, v2);
+    }
+
+    circumsphere(pIndex: number, v0: number, v1: number, v2: number,
+        v3: number): number {
+        return this.toCircumsphere(pIndex, v0, v1, v2, v3);
+    }
+}
+
+function exactOf3(points: readonly Vector[]): bigint[][] {
+    const flat: number[] = [];
+    for (const p of points) {
+        flat.push(p.values[0], p.values[1], p.values[2]);
+    }
+    const s = exactDyadic(flat);
+    return points.map((_, i) => [s[3 * i], s[3 * i + 1], s[3 * i + 2]]);
+}
+
+const keyOf3 = (p: readonly bigint[]): string =>
+    String(p[0]) + ',' + String(p[1]) + ',' + String(p[2]);
+
+// The exact intrinsic dimension of a point set.
+function exactDimension(pts: readonly (readonly bigint[])[]): number {
+    const first = pts[0];
+    let b = -1;
+    for (let i = 1; i < pts.length; ++i) {
+        if (keyOf3(pts[i]) !== keyOf3(first)) {
+            b = i;
+            break;
+        }
+    }
+    if (b < 0) {
+        return 0;
+    }
+    // Collinear if every point is on the line through pts[0] and pts[b].
+    let c = -1;
+    for (let i = 1; i < pts.length; ++i) {
+        const u = [pts[b][0] - first[0], pts[b][1] - first[1], pts[b][2] - first[2]];
+        const v = [pts[i][0] - first[0], pts[i][1] - first[1], pts[i][2] - first[2]];
+        if (u[1] * v[2] - u[2] * v[1] !== 0n || u[2] * v[0] - u[0] * v[2] !== 0n
+            || u[0] * v[1] - u[1] * v[0] !== 0n) {
+            c = i;
+            break;
+        }
+    }
+    if (c < 0) {
+        return 1;
+    }
+    for (let i = 1; i < pts.length; ++i) {
+        if (orient3(first, pts[b], pts[c], pts[i]) !== 0) {
+            return 3;
+        }
+    }
+    return 2;
+}
+
+// The triple of vertex indices of face j of a tetrahedron, counterclockwise
+// when viewed from outside (the ordering documented in the header of
+// src/Delaunay3.ts).
+function faceOf(v: readonly number[], j: number): [number, number, number] {
+    switch (j) {
+        case 0: return [v[1], v[2], v[3]];
+        case 1: return [v[0], v[3], v[2]];
+        case 2: return [v[0], v[1], v[3]];
+        default: return [v[0], v[2], v[1]];
+    }
+}
+
+// A directed triangle, normalized by rotation so that the smallest index is
+// first; the rotation preserves the orientation.
+function faceKey(f: readonly [number, number, number]): string {
+    let k = 0;
+    if (f[1] < f[k]) { k = 1; }
+    if (f[2] < f[k]) { k = 2; }
+    return f[k] + ',' + f[(k + 1) % 3] + ',' + f[(k + 2) % 3];
+}
+
+// Every observable of a successful tetrahedralization, checked exactly.
+function verifyTetrahedralization(del: Delaunay3, points: readonly Vector[]): void {
+    const exact = exactOf3(points);
+    const indices = del.getIndices();
+    const adjacencies = del.getAdjacencies();
+    const numTetrahedra = del.getNumTetrahedra();
+    const duplicates = del.getDuplicates();
+
+    expect(del.getNumVertices()).toBe(points.length);
+    expect(indices.length).toBe(4 * numTetrahedra);
+    expect(adjacencies.length).toBe(4 * numTetrahedra);
+    expect(numTetrahedra).toBeGreaterThan(0);
+
+    // getDuplicates(): the extremes are always the first occurrence of their
+    // coordinates (the intrinsics scans and the port's exact seed repair both
+    // use strict tests in increasing index order), so duplicates[i] is the
+    // smallest index carrying the same coordinates as vertex i.
+    const firstIndex = new Map<string, number>();
+    for (let i = 0; i < points.length; ++i) {
+        const key = keyOf3(exact[i]);
+        if (!firstIndex.has(key)) {
+            firstIndex.set(key, i);
+        }
+        expect(duplicates[i]).toBe(firstIndex.get(key));
+    }
+    expect(del.getNumUniqueVertices()).toBe(firstIndex.size);
+
+    // The mesh vertices are exactly the non-duplicate input indices.
+    const used = new Set<number>(indices);
+    const expectedUsed = new Set<number>();
+    for (let i = 0; i < points.length; ++i) {
+        if (duplicates[i] === i) {
+            expectedUsed.add(i);
+        }
+    }
+    expect(Array.from(used).sort((a, b) => a - b))
+        .toEqual(Array.from(expectedUsed).sort((a, b) => a - b));
+
+    // Every tetrahedron is exactly positively oriented (so nondegenerate).
+    for (let t = 0; t < numTetrahedra; ++t) {
+        expect(orient3(exact[indices[4 * t]], exact[indices[4 * t + 1]],
+            exact[indices[4 * t + 2]], exact[indices[4 * t + 3]])).toBe(1);
+    }
+
+    // Each directed face occurs at most once, and adjacency is the symmetric
+    // relation induced by shared faces.
+    const directed = new Map<string, number>();
+    for (let t = 0; t < numTetrahedra; ++t) {
+        const v = indices.slice(4 * t, 4 * t + 4);
+        for (let j = 0; j < 4; ++j) {
+            const key = faceKey(faceOf(v, j));
+            expect(directed.has(key)).toBe(false);
+            directed.set(key, t);
+        }
+    }
+    for (let t = 0; t < numTetrahedra; ++t) {
+        const v = indices.slice(4 * t, 4 * t + 4);
+        for (let j = 0; j < 4; ++j) {
+            const f = faceOf(v, j);
+            const opposite = directed.get(faceKey([f[0], f[2], f[1]]));
+            expect(adjacencies[4 * t + j])
+                .toBe(opposite === undefined ? -1 : opposite);
+        }
+    }
+
+    // The exact empty-circumsphere property: no unique vertex is strictly
+    // inside the circumsphere of any tetrahedron. inSphere3 is +1 outside and
+    // -1 inside for a positively oriented tetrahedron.
+    for (let t = 0; t < numTetrahedra; ++t) {
+        const iv = [indices[4 * t], indices[4 * t + 1], indices[4 * t + 2],
+            indices[4 * t + 3]];
+        for (let i = 0; i < points.length; ++i) {
+            if (duplicates[i] !== i || iv.indexOf(i) >= 0) {
+                continue;
+            }
+            expect(inSphere3(exact[iv[0]], exact[iv[1]], exact[iv[2]],
+                exact[iv[3]], exact[i])).toBeGreaterThanOrEqual(0);
+        }
+    }
+
+    // getHull(): the faces with no adjacent tetrahedron, counterclockwise
+    // when viewed from outside.
+    const hull = del.getHull();
+    const hullFaces: [number, number, number][] = [];
+    for (let t = 0; t < numTetrahedra; ++t) {
+        const v = indices.slice(4 * t, 4 * t + 4);
+        for (let j = 0; j < 4; ++j) {
+            if (adjacencies[4 * t + j] === -1) {
+                hullFaces.push(faceOf(v, j));
+            }
+        }
+    }
+    expect(hull.length).toBe(3 * hullFaces.length);
+    const reported = new Set<string>();
+    for (let i = 0; i < hull.length; i += 3) {
+        reported.add(faceKey([hull[i], hull[i + 1], hull[i + 2]]));
+    }
+    expect(reported).toEqual(new Set(hullFaces.map(faceKey)));
+
+    // The hull is convex and contains every input vertex: no vertex is
+    // strictly on the outer side of a boundary face.
+    for (const f of hullFaces) {
+        const a = exact[f[0]], b = exact[f[1]], c = exact[f[2]];
+        for (let i = 0; i < points.length; ++i) {
+            expect(orient3(a, b, c, exact[i])).toBeLessThanOrEqual(0);
+        }
+    }
+
+    // The boundary surface is closed and encloses exactly the volume of the
+    // tetrahedra: the divergence-theorem sum over the faces (six times the
+    // enclosed volume, relative to the coordinate origin) equals the sum of
+    // the tetrahedron determinants.
+    let sixVolume = 0n;
+    for (let t = 0; t < numTetrahedra; ++t) {
+        const a = exact[indices[4 * t]], b = exact[indices[4 * t + 1]];
+        const c = exact[indices[4 * t + 2]], d = exact[indices[4 * t + 3]];
+        const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        const v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        const w = [d[0] - a[0], d[1] - a[1], d[2] - a[2]];
+        sixVolume += u[0] * (v[1] * w[2] - v[2] * w[1])
+            - u[1] * (v[0] * w[2] - v[2] * w[0])
+            + u[2] * (v[0] * w[1] - v[1] * w[0]);
+    }
+    expect(sixVolume).toBeGreaterThan(0n);
+    let surfaceVolume = 0n;
+    for (const f of hullFaces) {
+        const a = exact[f[0]], b = exact[f[1]], c = exact[f[2]];
+        surfaceVolume += a[0] * (b[1] * c[2] - b[2] * c[1])
+            - a[1] * (b[0] * c[2] - b[2] * c[0])
+            + a[2] * (b[0] * c[1] - b[1] * c[0]);
+    }
+    expect(surfaceVolume).toBe(sixVolume);
+}
+
+function verifyDelaunay3(points: Vector[]): void {
+    const exact = exactOf3(points);
+    const expectedDimension = exactDimension(exact);
+
+    const del = new Delaunay3();
+    const is3D = del.compute(points);
+    expect(is3D).toBe(expectedDimension === 3);
+    expect(del.getDimension()).toBe(expectedDimension);
+    expect(del.getNumVertices()).toBe(points.length);
+    if (!is3D) {
+        expect(del.getNumTetrahedra()).toBe(0);
+        return;
+    }
+    verifyTetrahedralization(del, points);
+}
+
+describe('Delaunay3 verification', () => {
+    it('reproduces the exact tetrahedralization of lattice point sets', () => {
+        check(fc.array(latticeVector(3, -4, 4), { minLength: 1, maxLength: 12 }),
+            (points) => {
+                verifyDelaunay3(points);
+            }, 60);
+    }, 30000);
+
+    it('reproduces the exact tetrahedralization of clustered lattice points', () => {
+        // A coarse lattice makes duplicates, collinear/coplanar subsets and
+        // cospherical quintuples common, which is where the exact predicates
+        // (and the exact intrinsic-dimension classification) matter.
+        check(fc.array(latticeVector(3, -1, 1), { minLength: 1, maxLength: 12 }),
+            (points) => {
+                verifyDelaunay3(points);
+            }, 60);
+    }, 30000);
+
+    it('reproduces the exact tetrahedralization of well-scaled real points', () => {
+        check(fc.array(wellScaledVector(3, -5, 5), { minLength: 1, maxLength: 10 }),
+            (points) => {
+                verifyDelaunay3(points);
+            }, 60);
+    }, 30000);
+
+    it('classifies exactly collinear input as dimension 0 or 1', () => {
+        const arb = fc.tuple(
+            latticeVector(3, -8, 8),
+            latticeVector(3, -4, 4).filter(d =>
+                d.values[0] !== 0 || d.values[1] !== 0 || d.values[2] !== 0),
+            fc.array(fc.integer({ min: -10, max: 10 }), { minLength: 1, maxLength: 8 }));
+        check(arb, ([base, dir, ts]) => {
+            const points = ts.map(t => Vector.fromArray([
+                base.values[0] + t * dir.values[0],
+                base.values[1] + t * dir.values[1],
+                base.values[2] + t * dir.values[2]]));
+            const del = new Delaunay3();
+            expect(del.compute(points)).toBe(false);
+            expect(del.getDimension()).toBe(new Set(ts).size === 1 ? 0 : 1);
+            expect(del.getNumTetrahedra()).toBe(0);
+            expect(del.getNumVertices()).toBe(points.length);
+        }, 150);
+    });
+
+    it('classifies exactly coplanar input as dimension 0, 1 or 2', () => {
+        const arb = fc.tuple(
+            latticeVector(3, -6, 6),
+            latticeVector(3, -3, 3),
+            latticeVector(3, -3, 3),
+            fc.array(fc.tuple(fc.integer({ min: -6, max: 6 }),
+                fc.integer({ min: -6, max: 6 })),
+            { minLength: 1, maxLength: 8 }));
+        check(arb, ([base, u, v, st]) => {
+            const points = st.map(([s, t]) => Vector.fromArray([
+                base.values[0] + s * u.values[0] + t * v.values[0],
+                base.values[1] + s * u.values[1] + t * v.values[1],
+                base.values[2] + s * u.values[2] + t * v.values[2]]));
+            const del = new Delaunay3();
+            expect(del.compute(points)).toBe(false);
+            expect(del.getDimension()).toBeLessThanOrEqual(2);
+            expect(del.getDimension()).toBe(exactDimension(exactOf3(points)));
+            expect(del.getNumTetrahedra()).toBe(0);
+            // The reported plane contains every input vertex (to within the
+            // roundoff of the unit normal; the coordinates are small
+            // integers, so a tight absolute tolerance is meaningful).
+            if (del.getDimension() === 2) {
+                const plane = del.getPlane();
+                for (const p of points) {
+                    const d = dot(plane.normal, p) - plane.constant;
+                    expect(Math.abs(d)).toBeLessThan(1e-12);
+                }
+            }
+        }, 150);
+    });
+
+    it('toPlane and toCircumsphere agree with the exact bigint predicates', () => {
+        // The lattice is coarse so that coplanar quadruples and cospherical
+        // quintuples -- where the SWInterval bound straddles zero and the
+        // BSNumber fallback decides the sign -- occur constantly.
+        const arb = fc.array(latticeVector(3, -2, 2), { minLength: 4, maxLength: 6 });
+        check(arb, (points) => {
+            const del = new Delaunay3Probe();
+            if (!del.compute(points)) {
+                return;
+            }
+            const e = exactOf3(points);
+            const n = points.length;
+            for (let v0 = 0; v0 < n; ++v0) {
+                for (let v1 = 0; v1 < n; ++v1) {
+                    for (let v2 = 0; v2 < n; ++v2) {
+                        for (let p = 0; p < n; ++p) {
+                            // ToPlane is the orientation of <v0,v1,v2,P>.
+                            expect(del.plane(p, v0, v1, v2))
+                                .toBe(orient3(e[v0], e[v1], e[v2], e[p]));
+                        }
+                    }
+                }
+            }
+            for (let v0 = 0; v0 < n; ++v0) {
+                for (let v1 = 0; v1 < n; ++v1) {
+                    for (let v2 = 0; v2 < n; ++v2) {
+                        for (let v3 = 0; v3 < n; ++v3) {
+                            if (orient3(e[v0], e[v1], e[v2], e[v3]) !== 1) {
+                                continue;   // ordered tetrahedra only
+                            }
+                            for (let p = 0; p < n; ++p) {
+                                // ToCircumsphere is +1 outside, -1 inside and
+                                // 0 on, the same convention as inSphere3.
+                                expect(del.circumsphere(p, v0, v1, v2, v3))
+                                    .toBe(inSphere3(e[v0], e[v1], e[v2], e[v3], e[p]));
+                            }
+                        }
+                    }
+                }
+            }
+        }, 12);
+    }, 30000);
+
+    it('the exact fallback decides signs the interval arithmetic cannot', () => {
+        // The eight corners of a cube are cospherical, so the in-sphere
+        // determinant is exactly zero and the SWInterval bound necessarily
+        // contains zero: only the BSNumber path can return 0. Likewise four
+        // corners of a cube face are exactly coplanar.
+        const points = [
+            v3(0, 0, 0), v3(2, 0, 0), v3(0, 2, 0), v3(2, 2, 0),
+            v3(0, 0, 2), v3(2, 0, 2), v3(0, 2, 2), v3(2, 2, 2),
+            v3(1, 1, 1)
+        ];
+        const del = new Delaunay3Probe();
+        expect(del.compute(points)).toBe(true);
+
+        // Replicate the interval expression tree of ToPlane for the coplanar
+        // quadruple <(0,0,0),(2,0,0),(0,2,0)> and P = (2,2,0) to confirm the
+        // interval bound is indeterminate.
+        const P = [2, 2, 0], V0 = [0, 0, 0], V1 = [2, 0, 0], V2 = [0, 2, 0];
+        const x0 = SWInterval.sub(P[0], V0[0]), y0 = SWInterval.sub(P[1], V0[1]),
+            z0 = SWInterval.sub(P[2], V0[2]);
+        const x1 = SWInterval.sub(V1[0], V0[0]), y1 = SWInterval.sub(V1[1], V0[1]),
+            z1 = SWInterval.sub(V1[2], V0[2]);
+        const x2 = SWInterval.sub(V2[0], V0[0]), y2 = SWInterval.sub(V2[1], V0[1]),
+            z2 = SWInterval.sub(V2[2], V0[2]);
+        const c0 = y1.mul(z2).sub(y2.mul(z1));
+        const c1 = y2.mul(z0).sub(y0.mul(z2));
+        const c2 = y0.mul(z1).sub(y1.mul(z0));
+        const det = x0.mul(c0).add(x1.mul(c1)).add(x2.mul(c2));
+        expect(det.get(0)).toBeLessThanOrEqual(0);
+        expect(det.get(1)).toBeGreaterThanOrEqual(0);
+
+        // (2,2,0) is exactly on the plane of (0,0,0), (2,0,0), (0,2,0).
+        expect(del.plane(3, 0, 1, 2)).toBe(0);
+        // The eight cube corners are cospherical: for the ordered tetrahedron
+        // <(0,0,0),(2,0,0),(0,2,0),(0,0,2)> the corner (2,2,2) is exactly on
+        // the circumsphere.
+        const e = exactOf3(points);
+        expect(orient3(e[0], e[1], e[2], e[4])).toBe(1);
+        expect(del.circumsphere(7, 0, 1, 2, 4)).toBe(0);
+
+        verifyTetrahedralization(del, points);
+    });
+
+    it('getContainingTetrahedron agrees with an exact brute-force search', () => {
+        const arb = fc.tuple(
+            fc.array(latticeVector(3, -3, 3), { minLength: 5, maxLength: 10 }),
+            fc.array(fc.tuple(fc.integer({ min: -8, max: 8 }),
+                fc.integer({ min: -8, max: 8 }), fc.integer({ min: -8, max: 8 })),
+            { minLength: 1, maxLength: 4 }));
+        check(arb, ([points, rawQueries]) => {
+            const del = new Delaunay3();
+            if (!del.compute(points)) {
+                return;
+            }
+            // Halved integers so queries land on vertices, on faces and in
+            // tetrahedron interiors.
+            const queries = rawQueries.map(([a, b, c]) => v3(a / 2, b / 2, c / 2));
+            const indices = del.getIndices();
+            const numTetrahedra = del.getNumTetrahedra();
+            const all = exactOf3(points.concat(queries));
+            const e = all.slice(0, points.length);
+            const q = all.slice(points.length);
+
+            for (let k = 0; k < queries.length; ++k) {
+                const info = new Delaunay3SearchInfo();
+                const t = del.getContainingTetrahedron(queries[k], info);
+                const contains = (tet: number): boolean => {
+                    const v = indices.slice(4 * tet, 4 * tet + 4);
+                    for (let j = 0; j < 4; ++j) {
+                        const f = faceOf(v, j);
+                        // Inside means not strictly outside any face plane.
+                        if (orient3(e[f[0]], e[f[1]], e[f[2]], q[k]) > 0) {
+                            return false;
+                        }
+                    }
+                    return true;
+                };
+                if (t === -1) {
+                    for (let tet = 0; tet < numTetrahedra; ++tet) {
+                        expect(contains(tet)).toBe(false);
+                    }
+                } else {
+                    expect(t).toBeGreaterThanOrEqual(0);
+                    expect(t).toBeLessThan(numTetrahedra);
+                    expect(contains(t)).toBe(true);
+                    expect(info.numPath).toBeGreaterThan(0);
+                    expect(info.path[0]).toBe(info.initialTetrahedron);
+                    expect(info.path[info.numPath - 1]).toBe(t);
+                    expect(info.finalTetrahedron).toBe(t);
+                }
+            }
+        }, 30);
+    }, 30000);
+
+    it('is invariant under permutation of the input (same total volume)', () => {
+        const arb = fc.array(latticeVector(3, -3, 3), { minLength: 4, maxLength: 10 })
+            .chain(points => fc.tuple(fc.constant(points),
+                fc.shuffledSubarray(points.map((_, i) => i),
+                    { minLength: points.length, maxLength: points.length })));
+        check(arb, ([points, perm]) => {
+            const a = new Delaunay3();
+            if (!a.compute(points)) {
+                return;
+            }
+            const permuted = perm.map(i => points[i]);
+            const b = new Delaunay3();
+            expect(b.compute(permuted)).toBe(true);
+            expect(b.getNumUniqueVertices()).toBe(a.getNumUniqueVertices());
+            // Delaunay tetrahedralizations are unique only when no five
+            // points are cospherical, so compare the enclosed volume (which
+            // is the convex hull volume either way) and check that both are
+            // valid tetrahedralizations.
+            const sixVolume = (del: Delaunay3, e: bigint[][]): bigint => {
+                const ind = del.getIndices();
+                let s = 0n;
+                for (let t = 0; t < del.getNumTetrahedra(); ++t) {
+                    const p0 = e[ind[4 * t]], p1 = e[ind[4 * t + 1]];
+                    const p2 = e[ind[4 * t + 2]], p3 = e[ind[4 * t + 3]];
+                    const u = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+                    const v = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+                    const w = [p3[0] - p0[0], p3[1] - p0[1], p3[2] - p0[2]];
+                    s += u[0] * (v[1] * w[2] - v[2] * w[1])
+                        - u[1] * (v[0] * w[2] - v[2] * w[0])
+                        + u[2] * (v[0] * w[1] - v[1] * w[0]);
+                }
+                return s;
+            };
+            expect(sixVolume(b, exactOf3(permuted)))
+                .toBe(sixVolume(a, exactOf3(points)));
+            verifyTetrahedralization(b, permuted);
+        }, 30);
+    }, 30000);
+
+    it('reuse does not leak state between data sets', () => {
+        const arb = fc.tuple(
+            fc.array(latticeVector(3, -3, 3), { minLength: 1, maxLength: 9 }),
+            fc.array(latticeVector(3, -3, 3), { minLength: 1, maxLength: 9 }));
+        check(arb, ([first, second]) => {
+            const shared = new Delaunay3();
+            shared.compute(first);
+            const sharedResult = shared.compute(second);
+            const fresh = new Delaunay3();
+            expect(sharedResult).toBe(fresh.compute(second));
+            expect(shared.getDimension()).toBe(fresh.getDimension());
+            expect(shared.getNumVertices()).toBe(fresh.getNumVertices());
+            expect(shared.getNumUniqueVertices()).toBe(fresh.getNumUniqueVertices());
+            expect(shared.getNumTetrahedra()).toBe(fresh.getNumTetrahedra());
+            expect(shared.getIndices()).toEqual(fresh.getIndices());
+            expect(shared.getAdjacencies()).toEqual(fresh.getAdjacencies());
+            expect(shared.getDuplicates()).toEqual(fresh.getDuplicates());
+        }, 30);
+    }, 30000);
+});
+
+describe('Delaunay3 verification regressions', () => {
+    // Upstream bug, fixed in the port. IntrinsicsVector3 measures the
+    // distances to the line and the plane against a normalized frame, so its
+    // floating-point roundoff reports dimension 3 for these exactly collinear
+    // and exactly coplanar sets even though Delaunay3<T> passes epsilon = 0.
+    // Before the fix, the seed tetrahedron was exactly degenerate and
+    // upstream either threw ('Attempt to create nonmanifold mesh.' or
+    // 'Unexpected insertion failure.') or, for the fifth case below, returned
+    // true from compute() with zero tetrahedra.
+    const collinearCases: number[][][] = [
+        [[0, 0, 0], [1, 3, 5]],
+        [[0, 0, 0], [1, 3, 5], [2, 6, 10]],
+        [[0, 0, 0], [1, 3, 5], [2, 6, 10], [3, 9, 15]]
+    ];
+    const coplanarCases: number[][][] = [
+        [[0, 0, 0], [1, 0, 1], [0, 1, 2], [1, 1, 3]],
+        [[0, 0, 0], [1, 0, 1], [0, 1, 2], [1, 1, 3], [2, 1, 4]],
+        [[0, 0, 0], [1, 0, 3], [0, 1, 5], [1, 1, 8], [2, 3, 21]],
+        [[0, 0, 0], [1, 2, -3], [2, -1, -1], [3, 1, -4], [-1, 3, -2]]
+    ];
+
+    it('the intrinsics computation really does misclassify these sets', () => {
+        for (const c of collinearCases.concat(coplanarCases)) {
+            const points = c.map(p => v3(p[0], p[1], p[2]));
+            expect(new IntrinsicsVector3(points, 0).dimension,
+                JSON.stringify(c)).toBe(3);
+        }
+    });
+
+    it('classifies exactly collinear input as dimension 1 despite that', () => {
+        for (const c of collinearCases) {
+            const points = c.map(p => v3(p[0], p[1], p[2]));
+            const del = new Delaunay3();
+            expect(del.compute(points), JSON.stringify(c)).toBe(false);
+            expect(del.getDimension()).toBe(1);
+            expect(del.getNumTetrahedra()).toBe(0);
+            expect(del.getIndices().length).toBe(0);
+            expect(del.getNumVertices()).toBe(points.length);
+        }
+    });
+
+    it('classifies exactly coplanar input as dimension 2 despite that', () => {
+        for (const c of coplanarCases) {
+            const points = c.map(p => v3(p[0], p[1], p[2]));
+            const del = new Delaunay3();
+            expect(del.compute(points), JSON.stringify(c)).toBe(false);
+            expect(del.getDimension()).toBe(2);
+            expect(del.getNumTetrahedra()).toBe(0);
+            expect(del.getIndices().length).toBe(0);
+            // The reported plane contains every input vertex.
+            const plane = del.getPlane();
+            for (const p of points) {
+                expect(Math.abs(dot(plane.normal, p) - plane.constant))
+                    .toBeLessThan(1e-12);
+            }
+        }
+    });
+
+    it('repairs a degenerate seed tetrahedron when an off-plane vertex exists', () => {
+        // Five vertices on the plane z = x + 2y with large coordinates, plus
+        // one vertex 2^-40 above that plane. The distances of the coplanar
+        // vertices to the intrinsics computation's floating-point plane are
+        // roundoff of order 2^20 * 2^-52, which is larger than the real
+        // deviation of the sixth vertex, so the intrinsics pick four exactly
+        // coplanar extremes and report dimension 3. The seed tetrahedron then
+        // has zero volume; the port re-selects the fourth extreme with the
+        // exact ToPlane predicate and tetrahedralizes correctly.
+        const m = 1048576;   // 2^20
+        const points = [
+            v3(0, 0, 0), v3(m, 0, m), v3(0, m, 2 * m), v3(m, m, 3 * m),
+            v3(2 * m, m, 4 * m), v3(1, 1, 3 + Math.pow(2, -40))
+        ];
+        const info = new IntrinsicsVector3(points, 0);
+        expect(info.dimension).toBe(3);
+        const e = exactOf3(points);
+        const x = info.extreme;
+        // The four extremes chosen by the intrinsics are exactly coplanar.
+        expect(orient3(e[x[0]], e[x[1]], e[x[2]], e[x[3]])).toBe(0);
+
+        const del = new Delaunay3();
+        expect(del.compute(points)).toBe(true);
+        expect(del.getDimension()).toBe(3);
+        expect(del.getNumTetrahedra()).toBe(3);
+        verifyTetrahedralization(del, points);
     });
 });
