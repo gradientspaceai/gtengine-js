@@ -362,4 +362,18 @@ describe('DistPoint3ConvexPolyhedron3 verification', () => {
             expect(p.values).toEqual(p0.values);
         }, 40);
     }, 30000);
+    it('reports failure when the preconstructed solver has the wrong size',
+        () => {
+            // Upstream sizes the LCP solver from the constructor argument and
+            // never checks it against the polyhedron passed to the query; a
+            // mismatch reads past the end of q and M there. The port's
+            // LCPSolver reports INVALID_INPUT instead, so the query reports
+            // an unsuccessful result rather than garbage.
+            const poly = cube();
+            const wrong = new DistPoint3ConvexPolyhedron3(2);
+            const r = wrong.compute(v(2, 0.5, 0.5), poly);
+            expect(r.queryIsSuccessful).toBe(false);
+            expect(r.distance).toBe(0);
+            expect(r.sqrDistance).toBe(0);
+        });
 });

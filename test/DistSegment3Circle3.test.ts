@@ -53,7 +53,8 @@ function verifyPair(c: Circle3, linear: Vector, circular: Vector,
 // tauHat = sqrt(|(a1*a3)^(2/3) - a3| / a2). The port fixes this (issue filed
 // upstream), so every trial checks the line solver against a brute-force
 // minimum over the whole line instead of skipping unreliable configurations.
-function lineSolverIsReliable(line: Line3, c: Circle3): boolean {
+function lineSolverIsReliable(line: Line3, c: Circle3,
+    range = 10): boolean {
     const lineDistance = new DistLine3Circle3().compute(line, c).distance;
     const at = (t: number): number =>
         pointCircleDistance(add(line.origin, mul(t, line.direction)), c);
@@ -61,14 +62,14 @@ function lineSolverIsReliable(line: Line3, c: Circle3): boolean {
     let best = Number.MAX_VALUE;
     let bt = 0;
     for (let i = 0; i <= n; ++i) {
-        const t = -10 + 20 * i / n;
+        const t = -range + 2 * range * i / n;
         const d = at(t);
         if (d < best) {
             best = d;
             bt = t;
         }
     }
-    let h = 20 / n;
+    let h = 2 * range / n;
     for (let pass = 0; pass < 80; ++pass) {
         for (const sign of [1, -1]) {
             const d = at(bt + sign * h);
@@ -347,8 +348,15 @@ describe('DistSegment3Circle3 verification', () => {
             if (!v21LineSolverApplies(s.p[0], sub(s.p[1], s.p[0]), c)) {
                 return;
             }
-            const line = Line.fromOriginDirection(s.p[0], sub(s.p[1], s.p[0]));
-            expect(lineSolverIsReliable(line, c)).toBe(true);
+            // Check the shared line solver on the same line, but with a
+            // unit direction and a bracket wide enough to contain the closest
+            // line point: the segment direction can be very short, so the
+            // line parameter of that point can be in the thousands.
+            const unit = sub(s.p[1], s.p[0]);
+            normalize(unit);
+            const unitLine = Line.fromOriginDirection(s.p[0], unit);
+            const range = 2 * (length(sub(s.p[0], c.center)) + c.radius + 1);
+            expect(lineSolverIsReliable(unitLine, c, range)).toBe(true);
             expectClose(query.compute(s, c).distance, bruteForce(s, c), 1e-5,
                 1e-5);
         }, 20);

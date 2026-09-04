@@ -53,7 +53,8 @@ function verifyPair(c: Circle3, linear: Vector, circular: Vector,
 // tauHat = sqrt(|(a1*a3)^(2/3) - a3| / a2). The port fixes this (issue filed
 // upstream), so every trial checks the line solver against a brute-force
 // minimum over the whole line instead of skipping unreliable configurations.
-function lineSolverIsReliable(line: Line3, c: Circle3): boolean {
+function lineSolverIsReliable(line: Line3, c: Circle3,
+    range = 10): boolean {
     const lineDistance = new DistLine3Circle3().compute(line, c).distance;
     const at = (t: number): number =>
         pointCircleDistance(add(line.origin, mul(t, line.direction)), c);
@@ -61,14 +62,14 @@ function lineSolverIsReliable(line: Line3, c: Circle3): boolean {
     let best = Number.MAX_VALUE;
     let bt = 0;
     for (let i = 0; i <= n; ++i) {
-        const t = -10 + 20 * i / n;
+        const t = -range + 2 * range * i / n;
         const d = at(t);
         if (d < best) {
             best = d;
             bt = t;
         }
     }
-    let h = 20 / n;
+    let h = 2 * range / n;
     for (let pass = 0; pass < 80; ++pass) {
         for (const sign of [1, -1]) {
             const d = at(bt + sign * h);
@@ -349,8 +350,11 @@ describe('DistRay3Circle3 verification', () => {
             const line = Line.fromOriginDirection(r.origin, r.direction);
             // The line solver is the ingredient the ray query trusts; if the
             // shared solver has already missed the line minimum there is
-            // nothing for this file to prove.
-            expect(lineSolverIsReliable(line, c)).toBe(true);
+            // nothing for this file to prove. The brute-force bracket has to
+            // cover the closest line point, which is at most
+            // |P - C| + r away from the origin along a unit direction.
+            const range = 2 * (length(sub(r.origin, c.center)) + c.radius + 1);
+            expect(lineSolverIsReliable(line, c, range)).toBe(true);
             expectClose(query.compute(r, c).distance, bruteForce(r, c, 60),
                 1e-5, 1e-5);
         }, 20);
