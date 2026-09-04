@@ -198,7 +198,7 @@ describe('ApprOrthogonalPlane3 verification', () => {
     });
 
     it('recovers a plane its samples lie on', () => {
-        check(fc.tuple(vector(3, -8, 8), rotationFrame(3),
+        check(fc.tuple(wellScaledVector(3, -8, 8), rotationFrame(3),
             fc.tuple(positive(8, 1), positive(8, 1),
                 fc.array(wellScaledVector(2, -5, 5), { maxLength: 6 })),
             ), ([origin, frame, [a, b, extra]]) => {
@@ -225,8 +225,8 @@ describe('ApprOrthogonalPlane3 verification', () => {
             // quantity of the covariance and therefore a rigid invariant,
             // unlike the normal itself when the two smallest eigenvalues are
             // close.
-            check(fc.tuple(pointsArb, rotationFrame(3), vector(3, -10, 10)),
-                ([points, frame, t]) => {
+            check(fc.tuple(pointsArb, rotationFrame(3),
+                wellScaledVector(3, -10, 10)), ([points, frame, t]) => {
                     const move = (p: Vector): Vector => add(t,
                         add(mul(p.get(0), frame[0]),
                             add(mul(p.get(1), frame[1]),

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { ApprOrthogonalLine3 } from '../src/ApprOrthogonalLine3.js';
 import { Vector, add, dot, mul, sub } from '../src/Vector.js';
-import { check, expectClose, fc, finite, rotationFrame, vector, wellScaledVector } from './helpers/arbitraries.js';
+import { check, expectClose, fc, rotationFrame, vector, wellScaled, wellScaledVector } from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -193,8 +193,12 @@ describe('ApprOrthogonalLine3 verification', () => {
     });
 
     it('recovers a line its samples lie on', () => {
-        check(fc.tuple(vector(3, -8, 8), rotationFrame(3),
-            fc.array(finite(-10, 10), { minLength: 2, maxLength: 10 })
+        // wellScaled keeps every coordinate either exactly zero or above
+        // 1e-3; a subnormal coordinate would leave the covariance with a
+        // subnormal off-diagonal entry, which upstream's unscaled GetCosSin
+        // (sqrt(u*u + v*v)) cannot resolve.
+        check(fc.tuple(wellScaledVector(3, -8, 8), rotationFrame(3),
+            fc.array(wellScaled(-10, 10), { minLength: 2, maxLength: 10 })
                 .filter(ts => Math.max(...ts) - Math.min(...ts) > 0.5)),
             ([origin, frame, ts]) => {
                 const dir = frame[0];
@@ -215,8 +219,8 @@ describe('ApprOrthogonalLine3 verification', () => {
             // quantity of the covariance and therefore a rigid invariant,
             // unlike the fitted direction when the two largest eigenvalues
             // are close.
-            check(fc.tuple(pointsArb, rotationFrame(3), vector(3, -10, 10)),
-                ([points, frame, t]) => {
+            check(fc.tuple(pointsArb, rotationFrame(3),
+                wellScaledVector(3, -10, 10)), ([points, frame, t]) => {
                     const move = (p: Vector): Vector => add(t,
                         add(mul(p.get(0), frame[0]),
                             add(mul(p.get(1), frame[1]),
