@@ -206,7 +206,8 @@
   "verified": 15
  },
  "BoxManager.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 8
  },
  "BSNumber.h": {
   "status": "ported",
@@ -288,10 +289,12 @@
   "status": "ported"
  },
  "CircleThroughPointSpecifiedTangentAndRadius.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 8
  },
  "CircleThroughTwoPointsSpecifiedRadius.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 8
  },
  "CLODPolyline.h": {
   "status": "ported"
@@ -378,13 +381,15 @@
   "status": "ported"
  },
  "ConvexHullSimplePolygon.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 8
  },
  "ConvexMesh3.h": {
   "status": "ported"
  },
  "ConvexPolyhedron3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 8
  },
  "CosEstimate.h": {
   "status": "ported"
@@ -434,10 +439,12 @@
   "status": "ported"
  },
  "DisjointIntervals.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 8
  },
  "DisjointRectangles.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 8
  },
  "DistAlignedBox3OrientedBox3.h": {
   "status": "ported"
@@ -696,13 +703,15 @@
   "status": "ported"
  },
  "ExtremalQuery3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 8
  },
  "ExtremalQuery3BSP.h": {
   "status": "ported"
  },
  "ExtremalQuery3PRJ.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 8
  },
  "FastGaussianBlur1.h": {
   "status": "ported"
@@ -849,7 +858,8 @@
   "status": "ported"
  },
  "InscribedFixedAspectRectInQuad.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 8
  },
  "Integration.h": {
   "status": "ported"
@@ -1356,7 +1366,8 @@
   "status": "ported"
  },
  "MinimumVolumeBox3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 8
  },
  "MinimumVolumeBox3FloatingPoint.h": {
   "status": "ported"
@@ -1380,7 +1391,8 @@
   "status": "ported"
  },
  "NearestNeighborQuery.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 8
  },
  "NURBSCircle.h": {
   "status": "ported"
@@ -1503,10 +1515,12 @@
   "status": "ported"
  },
  "PrimalQuery2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 8
  },
  "PrimalQuery3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 8
  },
  "Projection.h": {
   "status": "ported",
@@ -1638,7 +1652,8 @@
   "status": "ported"
  },
  "SortPointsOnCircle.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 8
  },
  "SplitMeshByPlane.h": {
   "status": "ported"
@@ -1733,7 +1748,8 @@
   "status": "ported"
  },
  "TriangulateEC.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 8
  },
  "TSManifoldMesh.h": {
   "status": "ported"
