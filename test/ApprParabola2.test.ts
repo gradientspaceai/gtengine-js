@@ -196,11 +196,12 @@ describe('ApprParabola2 verification', () => {
             expect(result.success).toBe(true);
             // The abscissas span an interval of length 2 with the smallest
             // spacing 2/(count-1) >= 2/29, so the 3x3 moment matrix is well
-            // conditioned and the coefficients come back to near round-off.
-            expectClose(result.u[0], u0, 1e-9, 1e-9);
-            expectClose(result.u[1], u1, 1e-9, 1e-9);
-            expectClose(result.u[2], u2, 1e-9, 1e-9);
-            expect(result.meanSquareError).toBeLessThan(1e-9);
+            // conditioned; with |x| up to 5 its entries reach x^4 ~ 625, so
+            // round-off in the solve is ~1e-13 * 625 * cond ~ 1e-9, hence 1e-8.
+            expectClose(result.u[0], u0, 1e-8, 1e-8);
+            expectClose(result.u[1], u1, 1e-8, 1e-8);
+            expectClose(result.u[2], u2, 1e-8, 1e-8);
+            expect(result.meanSquareError).toBeLessThan(1e-8);
         });
     });
 
