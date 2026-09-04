@@ -3,7 +3,12 @@ import {
     DistSegmentSegment, type DistSegmentSegmentResult
 } from '../src/DistSegmentSegment.js';
 import { Segment } from '../src/Segment.js';
-import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
+import { DistLineLine } from '../src/DistLineLine.js';
+import { DistPointSegment } from '../src/DistPointSegment.js';
+import { Line } from '../src/Line.js';
+import { check, expectClose, expectVectorClose, fc, rotationFrame, seededRandom, wellScaledVector } from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -285,5 +290,215 @@ describe('DistSegmentSegment', () => {
             expect(Math.sqrt(best) - result.distance).toBeLessThan(1e-5);
             expect(Math.sqrt(best) - robust.distance).toBeLessThan(1e-5);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V19): property-based cross-checks of
+// DistSegmentSegment.ts against the upstream header DistSegmentSegment.h.
+// ---------------------------------------------------------------------------
+
+function rot(R: readonly Vector[], p: Vector): Vector {
+    let q = mul(p.values[0], R[0]);
+    for (let i = 1; i < R.length; ++i) {
+        q = add(q, mul(p.values[i], R[i]));
+    }
+    return q;
+}
+
+const segment3 = fc.tuple(wellScaledVector(3, -8, 8),
+    wellScaledVector(3, -8, 8))
+    .filter(([p0, p1]) => length(sub(p1, p0)) > 0.25)
+    .map(([p0, p1]) => Segment.fromEndpoints(p0, p1));
+
+// Near-parallel pairs make the upstream determinant and its numerators cancel
+// to rounding noise; compute() is documented to be less robust there, which
+// is what computeRobust exists for.
+const wellConditioned = fc.tuple(segment3, segment3)
+    .filter(([s0, s1]) => {
+        const d0 = sub(s0.p[1], s0.p[0]);
+        const d1 = sub(s1.p[1], s1.p[0]);
+        return length(cross(d0, d1)) > 0.2 * length(d0) * length(d1);
+    });
+
+describe('DistSegmentSegment verification', () => {
+    const query = new DistSegmentSegment();
+    const lineLine = new DistLineLine();
+    const pointSegment = new DistPointSegment();
+
+    it('both queries are self consistent with parameters in [0,1]^2', () => {
+        check(fc.tuple(segment3, segment3), ([s0, s1]) => {
+            for (const r of [query.compute(s0, s1),
+                query.computeRobust(s0, s1)]) {
+                expect(r.parameter[0]).toBeGreaterThanOrEqual(0);
+                expect(r.parameter[0]).toBeLessThanOrEqual(1);
+                expect(r.parameter[1]).toBeGreaterThanOrEqual(0);
+                expect(r.parameter[1]).toBeLessThanOrEqual(1);
+                expectClose(r.distance, Math.sqrt(r.sqrDistance), 1e-12, 1e-12);
+                const diff = sub(r.closest[0], r.closest[1]);
+                expectClose(r.sqrDistance, dot(diff, diff), 1e-12, 1e-12);
+            }
+            // compute reconstructs P0 + s*(P1-P0); computeRobust uses the
+            // equivalent (1-s)*P0 + s*P1 form, as upstream does.
+            const rc = query.compute(s0, s1);
+            expectVectorClose(rc.closest[0],
+                add(s0.p[0], mul(rc.parameter[0], sub(s0.p[1], s0.p[0]))),
+                1e-12, 1e-12);
+            expectVectorClose(rc.closest[1],
+                add(s1.p[0], mul(rc.parameter[1], sub(s1.p[1], s1.p[0]))),
+                1e-12, 1e-12);
+            const rr = query.computeRobust(s0, s1);
+            expectVectorClose(rr.closest[0],
+                add(mul(1 - rr.parameter[0], s0.p[0]),
+                    mul(rr.parameter[0], s0.p[1])), 1e-12, 1e-12);
+            expectVectorClose(rr.closest[1],
+                add(mul(1 - rr.parameter[1], s1.p[0]),
+                    mul(rr.parameter[1], s1.p[1])), 1e-12, 1e-12);
+        });
+    });
+
+    it('matches the exact minimum over the domain [0,1]^2', () => {
+        check(wellConditioned, ([s0, s1]) => {
+            // Convex quadratic: the minimum is the unconstrained line/line
+            // critical point when it lies in [0,1]^2, and otherwise on one of
+            // the four boundary faces, each a point-segment distance.
+            const unconstrained = lineLine.compute(
+                Line.fromOriginDirection(s0.p[0], sub(s0.p[1], s0.p[0])),
+                Line.fromOriginDirection(s1.p[0], sub(s1.p[1], s1.p[0])));
+            let ref = Math.min(
+                pointSegment.compute(s0.p[0], s1).distance,
+                pointSegment.compute(s0.p[1], s1).distance,
+                pointSegment.compute(s1.p[0], s0).distance,
+                pointSegment.compute(s1.p[1], s0).distance);
+            const a = unconstrained.parameter[0];
+            const b = unconstrained.parameter[1];
+            if (a >= 0 && a <= 1 && b >= 0 && b <= 1) {
+                ref = Math.min(ref, unconstrained.distance);
+            }
+            expectClose(query.compute(s0, s1).distance, ref, 1e-8, 1e-8);
+            expectClose(query.computeRobust(s0, s1).distance, ref, 1e-8, 1e-8);
+        });
+    });
+
+    it('computeRobust matches the exact minimum for near-parallel pairs',
+        () => {
+            // Build the second direction from the first by a small angular
+            // perturbation, so the pair is nearly parallel by construction.
+            // For such a pair the minimum is always attained at an endpoint
+            // of one of the two segments.
+            check(fc.tuple(segment3, wellScaledVector(3, -8, 8),
+                wellScaledVector(3, -1, 1),
+                fc.double({ min: 1e-6, max: 1e-3, noNaN: true }),
+                fc.double({ min: 0.25, max: 4, noNaN: true })),
+            ([s0, q0, jitter, eps, scale]) => {
+                const d0 = sub(s0.p[1], s0.p[0]);
+                const d1 = add(mul(scale, d0), mul(eps, jitter));
+                const s1 = Segment.fromEndpoints(q0, add(q0, d1));
+                const r = query.computeRobust(s0, s1);
+                const ref = Math.min(
+                    pointSegment.compute(s0.p[0], s1).distance,
+                    pointSegment.compute(s0.p[1], s1).distance,
+                    pointSegment.compute(s1.p[0], s0).distance,
+                    pointSegment.compute(s1.p[1], s0).distance);
+                expectClose(r.distance, ref, 1e-6, 1e-6);
+            });
+        });
+
+    it('is symmetric under argument swap', () => {
+        check(fc.tuple(segment3, segment3), ([s0, s1]) => {
+            expectClose(query.computeRobust(s0, s1).distance,
+                query.computeRobust(s1, s0).distance, 1e-8, 1e-8);
+        });
+    });
+
+    it('is invariant under endpoint reversal', () => {
+        check(wellConditioned, ([s0, s1]) => {
+            const rev0 = Segment.fromEndpoints(s0.p[1], s0.p[0]);
+            const rev1 = Segment.fromEndpoints(s1.p[1], s1.p[0]);
+            const base = query.compute(s0, s1).distance;
+            expectClose(query.compute(rev0, s1).distance, base, 1e-8, 1e-8);
+            expectClose(query.compute(s0, rev1).distance, base, 1e-8, 1e-8);
+            expectClose(query.compute(rev0, rev1).distance, base, 1e-8, 1e-8);
+        });
+    });
+
+    it('is minimal over sampled point pairs', () => {
+        const rand = seededRandom(0x51da);
+        check(fc.tuple(segment3, segment3), ([s0, s1]) => {
+            const r = query.computeRobust(s0, s1);
+            const d0 = sub(s0.p[1], s0.p[0]);
+            const d1 = sub(s1.p[1], s1.p[0]);
+            for (let k = 0; k < 20; ++k) {
+                const p = add(s0.p[0], mul(rand(), d0));
+                const q = add(s1.p[0], mul(rand(), d1));
+                const diff = sub(p, q);
+                const sqr = dot(diff, diff);
+                expect(r.sqrDistance)
+                    .toBeLessThanOrEqual(sqr + 1e-9 * (1 + sqr));
+            }
+        }, 60);
+    });
+
+    it('is invariant under rigid motions', () => {
+        check(fc.tuple(wellConditioned, rotationFrame(3),
+            wellScaledVector(3, -5, 5)), ([pair, R, tr]) => {
+            const move = (s: Segment): Segment => Segment.fromEndpoints(
+                add(rot(R, s.p[0]), tr), add(rot(R, s.p[1]), tr));
+            expectClose(query.compute(pair[0], pair[1]).distance,
+                query.compute(move(pair[0]), move(pair[1])).distance,
+                1e-8, 1e-8);
+            expectClose(query.computeRobust(pair[0], pair[1]).distance,
+                query.computeRobust(move(pair[0]), move(pair[1])).distance,
+                1e-8, 1e-8);
+        });
+    });
+
+    it('reduces to a point-segment distance for a degenerate segment', () => {
+        check(fc.tuple(segment3, wellScaledVector(3, -8, 8)), ([s0, q]) => {
+            const degenerate = Segment.fromEndpoints(q, q);
+            const ref = pointSegment.compute(q, s0).distance;
+            expectClose(query.compute(s0, degenerate).distance, ref, 1e-8,
+                1e-8);
+            expectClose(query.computeRobust(s0, degenerate).distance, ref,
+                1e-8, 1e-8);
+            expectClose(query.computeRobust(degenerate, s0).distance, ref,
+                1e-8, 1e-8);
+        });
+    });
+});
+
+describe('DistSegmentSegment computeRobust edge-parameter clamp', () => {
+    const query = new DistSegmentSegment();
+
+    it('does not send the search to the wrong edge when the dR/ds line '
+        + 'passes through a domain corner', () => {
+        // Upstream's ComputeIntersection replaces an out-of-range f/b ratio
+        // by 1/2. Here f10 / b = 1 + 1 ulp with both values of ordinary
+        // magnitude (about 48.8), so the substitution moves the endpoint of
+        // the intersection segment from the corner (1,1) to (1,0.5); the
+        // directional derivative at that endpoint then has the wrong sign and
+        // ComputeMinimumParameters settles on the edge s = 1. The port clamps
+        // to the nearest endpoint of [0,1] instead.
+        //
+        // The two directions are far from parallel (the sine of the angle
+        // between them is 0.79), so this is not a conditioning limit: the
+        // minimum is the interior critical point of the quadratic.
+        const s0 = Segment.fromEndpoints(
+            Vector.fromArray([-0.8119320124387741, -3, 0]),
+            Vector.fromArray([7, 0, 0]));
+        const s1 = Segment.fromEndpoints(
+            Vector.fromArray([0, 1.9484716467559338, 0]),
+            Vector.fromArray([7, 0, 6]));
+
+        const robust = query.computeRobust(s0, s1);
+        expectClose(robust.parameter[0], 0.5412982793451393, 1e-9, 1e-9);
+        expectClose(robust.parameter[1], 0.34229280169272175, 1e-9, 1e-9);
+        expectClose(robust.distance, 3.510347683768374, 1e-9, 1e-9);
+
+        // The unclamped query already finds the interior minimum here, so the
+        // two agree; upstream's ComputeRobust returns 4.62653617828502.
+        const plain = query.compute(s0, s1);
+        expectClose(robust.distance, plain.distance, 1e-9, 1e-9);
+        expect(robust.distance).toBeLessThan(4.6);
     });
 });

@@ -22,6 +22,17 @@
 //   https://www.geometrictools.com/Documentation/DistanceLine3Line3.pdf
 // for details.
 //
+//
+// Upstream caveat (all of DistLineLine/LineRay/LineSegment/RayRay/RaySegment
+// and DistSegmentSegment.compute): parallelism is detected by
+// det = max(a00*a11 - a01*a01, 0) > 0. That difference of two products
+// cancels exactly only in exact arithmetic, so for direction vectors that are
+// mathematically parallel it can round to one ulp above zero. The
+// nonparallel branch is then entered with numerators that are pure rounding
+// noise, and the reported points, while on their primitives, need not be near
+// the minimum. Preserved as upstream has it; DistSegmentSegment.computeRobust
+// is upstream's answer for that case.
+//
 // Port notes: see DistPointLine.ts for the Dist* family conventions. The
 // upstream specialization 'DCPQuery<T, Segment<N,T>, Segment<N,T>>' becomes
 // the class DistSegmentSegment with the result type
@@ -85,15 +96,36 @@ function getClampedRoot(slope: number, h0: number, h1: number): number {
 
 // The t-coordinate of the intersection of the line dR/ds = 0 with the domain
 // edge s = 0 (using f00) or s = 1 (using f10). The divisions are
-// theoretically numbers in [0,1]; numerical rounding errors might place the
-// result outside the interval, in which case both numerator and denominator
-// are nearly zero and the choice of 0.5 should not cause significant
-// accuracy problems. The denominator is nearly zero when the segments are
-// nearly perpendicular; the numerator is nearly zero when the P-segment is
-// nearly degenerate.
+// theoretically numbers in [0,1]; numerical rounding errors can place the
+// result outside the interval, and the out-of-range value is repaired here.
+//
+// UPSTREAM BUG FIX (DistSegmentSegment.h, ComputeIntersection). Upstream
+// replaces an out-of-range ratio by 1/2, arguing that it happens only when
+// "both numerator and denominator are nearly zero" so that "the choice of 0.5
+// should not cause significant accuracy problems". That premise does not
+// hold. The ratio is f/b with b = Dot(P1-P0,Q1-Q0), and it exceeds one by a
+// single ulp whenever the line dR/ds = 0 passes through a corner of the
+// domain, with f and b both of ordinary magnitude. Moving the endpoint of the
+// intersection segment from the corner to the middle of the domain edge then
+// sends ComputeMinimumParameters to the wrong edge and ComputeRobust reports
+// a distance that is not the minimum. Witness (used as a regression test):
+// segment0 = <(-0.8119320124387741,-3,0), (7,0,0)>, segment1 =
+// <(0,1.9484716467559338,0), (7,0,6)>, whose direction vectors are nowhere
+// near parallel (the sine of the angle between them is 0.79). There
+// f10 / b = 1 + 1 ulp, upstream substitutes 1/2 and returns 4.6265 instead of
+// the true minimum 3.5103 attained at the interior point
+// (s,t) = (0.5413,0.3423). Over 300000 randomized configurations the
+// substitution produced a wrong minimum in 12 cases, with a worst excess of
+// 1.12; clamping to the nearest endpoint of [0,1], as done here, leaves a
+// worst excess of 2.7e-14 and is also the repair upstream applies everywhere
+// else it projects a parameter back into its domain. GetClampedRoot's own
+// 0.5 substitution is left alone: there h0 and h1 really are both nearly
+// zero, so the quadratic is nearly constant and upstream's argument holds.
 function getEdgeT(f: number, b: number): number {
     const t = f / b;
-    return (t < 0 || t > 1) ? 0.5 : t;
+    if (t < 0) { return 0; }
+    if (t > 1) { return 1; }
+    return t;
 }
 
 // Compute the intersection of the line dR/ds = 0 with the domain [0,1]^2.

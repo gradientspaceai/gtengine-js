@@ -101,13 +101,15 @@ const circle2 = fc.tuple(wellScaledVector(2, -8, 8), positive(6))
     .map(([c, r]) => Hypersphere.fromCenterRadius(c, r));
 
 /**
- * A (point, circle) pair with the point strictly off the center, so the
+ * A (point, circle) pair with the point well off the center, so the
  * single-closest-point branch is taken. wellScaledVector snaps tiny
  * components to exactly zero, so an unfiltered pair can hit the equidistant
- * branch.
+ * branch; and fast-check shrinks toward equal draws, which makes P - C tiny.
+ * The closest circle point is C + r * (P-C)/|P-C|, whose absolute error grows
+ * like r/|P-C|, so the separation is bounded away from zero here.
  */
 const offCenter = fc.tuple(wellScaledVector(2, -8, 8), circle2)
-    .filter(([p, circle]) => p.notEquals(circle.center));
+    .filter(([p, circle]) => length(sub(p, circle.center)) > 0.1);
 
 describe('DistPoint2Circle2 verification', () => {
     const query = new DistPoint2Circle2();
