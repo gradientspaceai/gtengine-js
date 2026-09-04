@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { ExtremalQuery3PRJ } from '../src/ExtremalQuery3PRJ.js';
 import { Polyhedron3 } from '../src/Polyhedron3.js';
 import { Vector, dot } from '../src/Vector.js';
+import { check, expectClose, fc, rotationFrame, scaled, unitVector } from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -415,5 +416,148 @@ describe('ExtremalQuery3PRJ against brute force', () => {
             expect(dot(normals[t], vertices[r.positiveDirection]))
                 .toBeCloseTo(supported, 12);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Independent verification pass (VERIFYING.md). ExtremalQuery3PRJ is the
+// brute-force query, so the reference is the argmax/argmin of the *raw* dot
+// product (the port projects relative to the vertex average, a shift that must
+// not change the answer). Near-ties are excluded from the index comparison:
+// when two vertices project to within round-off of each other the two
+// computations may legitimately choose different vertices, so those draws only
+// assert equality of the extreme values.
+// ---------------------------------------------------------------------------
+
+const prjSolid = fc.record({
+    which: fc.integer({ min: 0, max: 3 }),
+    frame: rotationFrame(3),
+    scale: fc.tuple(scaled(0.5, 3, 16), scaled(0.5, 3, 16), scaled(0.5, 3, 16)),
+    translate: fc.tuple(scaled(-8, 8, 32), scaled(-8, 8, 32), scaled(-8, 8, 32))
+}).map(({ which, frame, scale, translate }) => {
+    const geodesic = makeGeodesic(1);
+    const base = [
+        { vertices: cubeVertices, indices: cubeIndices },
+        { vertices: octaVertices, indices: octaIndices },
+        { vertices: tetraVertices, indices: tetraIndices },
+        { vertices: geodesic.vertices, indices: geodesic.indices }
+    ][which];
+    const map = (p: Vector): Vector => {
+        const s = [scale[0] * p.get(0), scale[1] * p.get(1), scale[2] * p.get(2)];
+        return v3(
+            frame[0].get(0) * s[0] + frame[1].get(0) * s[1] + frame[2].get(0) * s[2] + translate[0],
+            frame[0].get(1) * s[0] + frame[1].get(1) * s[1] + frame[2].get(1) * s[2] + translate[1],
+            frame[0].get(2) * s[0] + frame[1].get(2) * s[1] + frame[2].get(2) * s[2] + translate[2]);
+    };
+    const indices = base.indices.slice();
+    return makePolyhedron(base.vertices.map(map), indices);
+});
+
+// The gap between the best and the second-best projection, relative to the
+// spread of the projections; small values mean the argmax is ill-conditioned.
+function projectionGap(polytope: Polyhedron3, direction: Vector): number {
+    const vertices = polytope.getVertices();
+    const values = polytope.getUniqueIndices()
+        .map(i => dot(direction, vertices[i])).sort((a, b) => a - b);
+    const spread = Math.max(1, values[values.length - 1] - values[0]);
+    const top = values[values.length - 1] - values[values.length - 2];
+    const bottom = values[1] - values[0];
+    return Math.min(top, bottom) / spread;
+}
+
+describe('ExtremalQuery3PRJ verification', () => {
+    it('matches the raw-dot-product argmax/argmin', () => {
+        check(fc.tuple(prjSolid, unitVector(3)), ([polytope, direction]) => {
+            const query = new ExtremalQuery3PRJ(polytope);
+            const result = query.getExtremeVertices(direction);
+            const vertices = polytope.getVertices();
+            const reference = bruteForce(polytope, direction);
+            const hi = dot(direction, vertices[result.positiveDirection]);
+            const lo = dot(direction, vertices[result.negativeDirection]);
+            const refHi = dot(direction, vertices[reference.positiveDirection]);
+            const refLo = dot(direction, vertices[reference.negativeDirection]);
+            expectClose(hi, refHi, 1e-9, 1e-12);
+            expectClose(lo, refLo, 1e-9, 1e-12);
+            if (projectionGap(polytope, direction) > 1e-8) {
+                expect(result).toEqual(reference);
+            }
+        });
+    });
+
+    it('reports supporting vertices for every direction', () => {
+        check(fc.tuple(prjSolid, unitVector(3)), ([polytope, direction]) => {
+            const query = new ExtremalQuery3PRJ(polytope);
+            const { positiveDirection, negativeDirection } =
+                query.getExtremeVertices(direction);
+            const unique = polytope.getUniqueIndices();
+            expect(unique).toContain(positiveDirection);
+            expect(unique).toContain(negativeDirection);
+            const vertices = polytope.getVertices();
+            const hi = dot(direction, vertices[positiveDirection]);
+            const lo = dot(direction, vertices[negativeDirection]);
+            // The scale of the projections bounds the round-off of the
+            // centroid-relative evaluation.
+            const scale = Math.max(1, ...unique.map(i =>
+                Math.abs(dot(direction, vertices[i]))));
+            for (const i of unique) {
+                const d = dot(direction, vertices[i]);
+                expect(d).toBeLessThanOrEqual(hi + 1e-12 * scale);
+                expect(d).toBeGreaterThanOrEqual(lo - 1e-12 * scale);
+            }
+        });
+    });
+
+    it('negating the direction swaps the two extremes', () => {
+        check(fc.tuple(prjSolid, unitVector(3)), ([polytope, direction]) => {
+            const query = new ExtremalQuery3PRJ(polytope);
+            const forward = query.getExtremeVertices(direction);
+            const backward = query.getExtremeVertices(
+                v3(-direction.get(0), -direction.get(1), -direction.get(2)));
+            if (projectionGap(polytope, direction) > 1e-8) {
+                expect(backward.positiveDirection).toBe(forward.negativeDirection);
+                expect(backward.negativeDirection).toBe(forward.positiveDirection);
+            }
+        });
+    });
+
+    it('is invariant under translation of the polytope', () => {
+        check(fc.tuple(prjSolid, unitVector(3),
+            fc.tuple(scaled(-3, 3, 16), scaled(-3, 3, 16), scaled(-3, 3, 16))),
+        ([polytope, direction, t]) => {
+            if (projectionGap(polytope, direction) <= 1e-7) { return; }
+            const moved = makePolyhedron(
+                polytope.getVertices().map(p => v3(p.get(0) + t[0],
+                    p.get(1) + t[1], p.get(2) + t[2])),
+                polytope.getIndices().slice());
+            expect(new ExtremalQuery3PRJ(moved).getExtremeVertices(direction))
+                .toEqual(new ExtremalQuery3PRJ(polytope).getExtremeVertices(direction));
+        });
+    });
+
+    it('is invariant under positive scaling of the direction', () => {
+        check(fc.tuple(prjSolid, unitVector(3), scaled(0.25, 8, 16)),
+            ([polytope, direction, s]) => {
+                const query = new ExtremalQuery3PRJ(polytope);
+                if (projectionGap(polytope, direction) <= 1e-7) { return; }
+                expect(query.getExtremeVertices(
+                    v3(s * direction.get(0), s * direction.get(1), s * direction.get(2))))
+                    .toEqual(query.getExtremeVertices(direction));
+            });
+    });
+
+    it('resolves exact ties to the smallest unique index', () => {
+        // A square prism: the four top vertices tie for the +z direction and
+        // the four bottom vertices tie for -z. Strict comparisons over the
+        // ascending unique indices keep the first vertex visited.
+        const query = new ExtremalQuery3PRJ(makeCube());
+        const result = query.getExtremeVertices(v3(0, 0, 1));
+        expect(result.positiveDirection).toBe(4);   // (0,0,1), first z = 1
+        expect(result.negativeDirection).toBe(0);   // (0,0,0), first z = 0
+        // The zero direction makes every projection 0, so both extremes are
+        // the first unique index (only the strict < and > can fire, and the
+        // initial sentinels are +-MAX_VALUE).
+        const zero = query.getExtremeVertices(v3(0, 0, 0));
+        expect(zero.positiveDirection).toBe(0);
+        expect(zero.negativeDirection).toBe(0);
     });
 });

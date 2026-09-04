@@ -5,6 +5,9 @@ import {
     MVB3GPU,
     type MVB3ComputeType
 } from '../src/MinimumVolumeBox3.js';
+import { MinimumVolumeBox3FloatingPoint } from '../src/MinimumVolumeBox3FloatingPoint.js';
+import { MinimumVolumeBox3Rational } from '../src/MinimumVolumeBox3Rational.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 // MinimumVolumeBox3.h is a facade header: it defines only the compute-type
 // tags (upstream std::integral_constant<std::size_t, N>) used to select a
@@ -37,5 +40,38 @@ describe('MinimumVolumeBox3 (facade)', () => {
         expect(describeTag(MVB3FloatingPoint)).toBe('floating-point');
         expect(describeTag(MVB3Rational)).toBe('rational');
         expect(describeTag(MVB3GPU)).toBe('gpu');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Independent verification pass (VERIFYING.md). MinimumVolumeBox3.h contains
+// no executable code: an empty primary template plus three
+// std::integral_constant tags used for partial specialization. There is no
+// numerical behaviour to cross-check, so the properties pin the tag values and
+// the facade's documented mapping onto the ported implementations
+// (MinimumVolumeBox3FloatingPoint / MinimumVolumeBox3Rational; the GPU
+// specialization has no port).
+// ---------------------------------------------------------------------------
+
+describe('MinimumVolumeBox3 verification', () => {
+    it('the tags are the upstream integral_constant values 0, 1, 2', () => {
+        const tags: MVB3ComputeType[] = [MVB3FloatingPoint, MVB3Rational, MVB3GPU];
+        check(fc.constantFrom(...tags), (tag) => {
+            expect(Number.isInteger(tag)).toBe(true);
+            expect(tags.indexOf(tag)).toBe(tag);
+        });
+    });
+
+    it('a tag-keyed dispatch table selects the ported implementations', () => {
+        // The facade exists only to name the specializations; this pins the
+        // mapping recorded in the port notes.
+        const implementations: Record<MVB3ComputeType, unknown> = {
+            [MVB3FloatingPoint]: MinimumVolumeBox3FloatingPoint,
+            [MVB3Rational]: MinimumVolumeBox3Rational,
+            [MVB3GPU]: undefined
+        };
+        expect(typeof implementations[MVB3FloatingPoint]).toBe('function');
+        expect(typeof implementations[MVB3Rational]).toBe('function');
+        expect(implementations[MVB3GPU]).toBeUndefined();
     });
 });
