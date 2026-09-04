@@ -63,6 +63,17 @@ export const wellScaledVector = (n: number, min = -10, max = 10):
     fc.array(wellScaled(min, max), { minLength: n, maxLength: n })
         .map(a => Vector.fromArray(a));
 
+/**
+ * Vector of dimension n with integer components in [min, max]. Small integers
+ * are exact in binary64, so sums, differences and products of a few of them
+ * are exact too; use this where a property cross-checks a geometric predicate
+ * against an exact (integer or bigint) reference computation.
+ */
+export const latticeVector = (n: number, min = -8, max = 8):
+    fc.Arbitrary<Vector> =>
+    fc.array(fc.integer({ min, max }), { minLength: n, maxLength: n })
+        .map(a => Vector.fromArray(a));
+
 // ---- matrices --------------------------------------------------------------
 
 /** numRows-by-numCols matrix with row-major elements in [min, max]. */

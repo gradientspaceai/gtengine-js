@@ -1,6 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { ConvexHull2 } from '../src/ConvexHull2.js';
-import { Vector } from '../src/Vector.js';
+import { Vector, sub } from '../src/Vector.js';
+import { BSNumber } from '../src/BSNumber.js';
+import { SWInterval } from '../src/SWInterval.js';
+import { check, expectClose, fc, latticeVector, wellScaledVector } from './helpers/arbitraries.js';
+import { exactDyadic, orient2 } from './helpers/exact.js';
 
 const v2 = (x: number, y: number): Vector => Vector.fromArray([x, y]);
 
@@ -336,5 +340,287 @@ describe('ConvexHull2', () => {
         expect(hull.compute([v2(0, 0), v2(2, 0), v2(2, 2), v2(0, 2)])).toBe(true);
         expect(hull.getHull().length).toBe(4);
         expect(hull.getPoints().length).toBe(4);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (VERIFYING.md): property-based cross-checks against an
+// exact bigint convex hull. Every input coordinate is a finite double, so the
+// coordinates of one point set can be scaled by a common power of two into
+// exact integers (exactDyadic); the orientation determinant is homogeneous,
+// so that scale never changes a predicate's sign. The reference hull is
+// therefore the mathematically exact hull of the input, which is what
+// ConvexHull2's interval + BSNumber predicate is required to reproduce.
+// ---------------------------------------------------------------------------
+
+type ExactPoint = { x: bigint; y: bigint };
+
+function exactPoints(points: readonly Vector[]): ExactPoint[] {
+    const flat: number[] = [];
+    for (const p of points) {
+        flat.push(p.values[0], p.values[1]);
+    }
+    const s = exactDyadic(flat);
+    return points.map((_, i) => ({ x: s[2 * i], y: s[2 * i + 1] }));
+}
+
+// Andrew monotone chain on exact integer coordinates. The result has 1 point
+// when all inputs coincide, 2 points (the extremes) when they are collinear,
+// and otherwise the strictly convex counterclockwise hull polygon.
+function exactHull(pts: readonly ExactPoint[]): ExactPoint[] {
+    const cmp = (a: ExactPoint, b: ExactPoint): number =>
+        a.x < b.x ? -1 : a.x > b.x ? 1 : a.y < b.y ? -1 : a.y > b.y ? 1 : 0;
+    const sorted = pts.slice().sort(cmp);
+    const uniq: ExactPoint[] = [];
+    for (const p of sorted) {
+        const last = uniq[uniq.length - 1];
+        if (!last || cmp(last, p) !== 0) {
+            uniq.push(p);
+        }
+    }
+    if (uniq.length < 3) {
+        return uniq;
+    }
+    const turn = (o: ExactPoint, a: ExactPoint, b: ExactPoint): number =>
+        orient2(o.x, o.y, a.x, a.y, b.x, b.y);
+    const build = (src: readonly ExactPoint[]): ExactPoint[] => {
+        const out: ExactPoint[] = [];
+        for (const p of src) {
+            while (out.length >= 2
+                && turn(out[out.length - 2], out[out.length - 1], p) <= 0) {
+                out.pop();
+            }
+            out.push(p);
+        }
+        out.pop();
+        return out;
+    };
+    return build(uniq).concat(build(uniq.slice().reverse()));
+}
+
+function canonicalExact(poly: readonly ExactPoint[]): string {
+    if (poly.length === 0) {
+        return '';
+    }
+    let best = 0;
+    for (let i = 1; i < poly.length; ++i) {
+        if (poly[i].x < poly[best].x
+            || (poly[i].x === poly[best].x && poly[i].y < poly[best].y)) {
+            best = i;
+        }
+    }
+    const out: string[] = [];
+    for (let i = 0; i < poly.length; ++i) {
+        const p = poly[(best + i) % poly.length];
+        out.push(String(p.x) + ',' + String(p.y));
+    }
+    return out.join(' ');
+}
+
+function keyOf(p: ExactPoint): string {
+    return String(p.x) + ',' + String(p.y);
+}
+
+// Run ConvexHull2 on 'points' and compare every observable against the exact
+// reference hull.
+function compareWithExact(points: Vector[]): void {
+    const exact = exactPoints(points);
+    const reference = exactHull(exact);
+    const expectedDimension = reference.length === 1 ? 0
+        : reference.length === 2 ? 1 : 2;
+
+    const ch = new ConvexHull2();
+    const is2D = ch.compute(points);
+    expect(is2D).toBe(expectedDimension === 2);
+    expect(ch.getDimension()).toBe(expectedDimension);
+    expect(ch.getNumPoints()).toBe(points.length);
+    expect(ch.getPoints()).toBe(points);
+
+    // getNumUniquePoints() counts the distinct input points.
+    const distinct = new Set(exact.map(keyOf));
+    expect(ch.getNumUniquePoints()).toBe(distinct.size);
+
+    const indices = ch.getHull();
+    expect(indices.length).toBe(reference.length);
+    for (const i of indices) {
+        expect(Number.isInteger(i)).toBe(true);
+        expect(i).toBeGreaterThanOrEqual(0);
+        expect(i).toBeLessThan(points.length);
+    }
+    const actual = indices.map(i => exact[i]);
+    // The hull vertices are distinct points (not merely distinct indices).
+    expect(new Set(actual.map(keyOf)).size).toBe(actual.length);
+
+    if (expectedDimension === 2) {
+        // Same cyclic sequence, so also the same counterclockwise order.
+        expect(canonicalExact(actual)).toBe(canonicalExact(reference));
+    } else {
+        // Dimension 0 and 1: the returned indices are the extreme points as a
+        // set, and for dimension 1 they are lexicographically ordered.
+        expect(actual.map(keyOf).sort()).toEqual(reference.map(keyOf).sort());
+        if (expectedDimension === 1) {
+            expect(actual[0].x < actual[1].x
+                || (actual[0].x === actual[1].x && actual[0].y < actual[1].y))
+                .toBe(true);
+            // The approximating line passes through the first extreme with
+            // the normalized direction toward the second.
+            const line = ch.getLine();
+            expect(line.origin.equals(points[indices[0]])).toBe(true);
+            const d = sub(points[indices[1]], points[indices[0]]);
+            const len = Math.hypot(d.values[0], d.values[1]);
+            expectClose(line.direction.values[0], d.values[0] / len, 1e-12, 1e-12);
+            expectClose(line.direction.values[1], d.values[1] / len, 1e-12, 1e-12);
+        }
+    }
+}
+
+describe('ConvexHull2 verification', () => {
+    it('reproduces the exact hull of integer-lattice point sets', () => {
+        check(fc.array(latticeVector(2, -6, 6), { minLength: 1, maxLength: 24 }),
+            (points) => {
+                compareWithExact(points);
+            }, 200);
+    });
+
+    it('reproduces the exact hull of well-scaled real point sets', () => {
+        check(fc.array(wellScaledVector(2, -5, 5), { minLength: 1, maxLength: 18 }),
+            (points) => {
+                compareWithExact(points);
+            }, 200);
+    });
+
+    it('reproduces the exact hull of clustered points (duplicates and collinearities)', () => {
+        // A coarse lattice with few distinct values produces duplicate points
+        // and collinear triples in almost every draw, which is where the
+        // exact predicate matters.
+        check(fc.array(latticeVector(2, -2, 2), { minLength: 1, maxLength: 20 }),
+            (points) => {
+                compareWithExact(points);
+            }, 200);
+    });
+
+    it('classifies exactly collinear input as dimension 0 or 1', () => {
+        const arb = fc.tuple(
+            latticeVector(2, -10, 10),
+            latticeVector(2, -5, 5).filter(d => d.values[0] !== 0 || d.values[1] !== 0),
+            fc.array(fc.integer({ min: -20, max: 20 }), { minLength: 1, maxLength: 12 }));
+        check(arb, ([base, dir, ts]) => {
+            const points = ts.map(t => Vector.fromArray([
+                base.values[0] + t * dir.values[0],
+                base.values[1] + t * dir.values[1]]));
+            const ch = new ConvexHull2();
+            expect(ch.compute(points)).toBe(false);
+            const unique = new Set(ts).size;
+            expect(ch.getDimension()).toBe(unique === 1 ? 0 : 1);
+            expect(ch.getNumUniquePoints()).toBe(unique);
+            compareWithExact(points);
+        }, 200);
+    });
+
+    it('is invariant under permutation of the input points', () => {
+        const arb = fc.array(latticeVector(2, -5, 5), { minLength: 3, maxLength: 16 })
+            .chain(points => fc.tuple(fc.constant(points),
+                fc.shuffledSubarray(points.map((_, i) => i),
+                    { minLength: points.length, maxLength: points.length })));
+        check(arb, ([points, perm]) => {
+            const permuted = perm.map(i => points[i]);
+            const a = new ConvexHull2();
+            const b = new ConvexHull2();
+            a.compute(points);
+            b.compute(permuted);
+            expect(b.getDimension()).toBe(a.getDimension());
+            expect(b.getNumUniquePoints()).toBe(a.getNumUniquePoints());
+            const ea = exactPoints(points), eb = exactPoints(permuted);
+            expect(canonicalExact(b.getHull().map(i => eb[i])))
+                .toBe(canonicalExact(a.getHull().map(i => ea[i])));
+        }, 100);
+    });
+
+    it('is unchanged when the input is duplicated', () => {
+        check(fc.array(latticeVector(2, -5, 5), { minLength: 1, maxLength: 14 }),
+            (points) => {
+                const doubled = points.concat(points);
+                const a = new ConvexHull2();
+                const b = new ConvexHull2();
+                a.compute(points);
+                b.compute(doubled);
+                expect(b.getNumPoints()).toBe(2 * points.length);
+                expect(b.getNumUniquePoints()).toBe(a.getNumUniquePoints());
+                expect(b.getDimension()).toBe(a.getDimension());
+                const ea = exactPoints(points), eb = exactPoints(doubled);
+                expect(canonicalExact(b.getHull().map(i => eb[i])))
+                    .toBe(canonicalExact(a.getHull().map(i => ea[i])));
+            }, 150);
+    });
+
+    it('reuse does not leak state between data sets', () => {
+        const arb = fc.tuple(
+            fc.array(latticeVector(2, -5, 5), { minLength: 1, maxLength: 12 }),
+            fc.array(latticeVector(2, -5, 5), { minLength: 1, maxLength: 12 }));
+        check(arb, ([first, second]) => {
+            const shared = new ConvexHull2();
+            shared.compute(first);
+            shared.compute(second);
+            const fresh = new ConvexHull2();
+            fresh.compute(second);
+            expect(shared.getDimension()).toBe(fresh.getDimension());
+            expect(shared.getNumPoints()).toBe(fresh.getNumPoints());
+            expect(shared.getNumUniquePoints()).toBe(fresh.getNumUniquePoints());
+            expect(shared.getHull()).toEqual(fresh.getHull());
+        }, 100);
+    });
+
+    it('takes the exact BSNumber path when the interval predicate is indeterminate', () => {
+        // Nearly collinear points one ulp apart: the SWInterval determinant
+        // straddles zero, so toLineExtended must fall back to BSNumber. The
+        // spy on BSNumber.fromNumber observes getRationalPoint, which is
+        // reached only from the three exact-arithmetic branches.
+        const eps = Number.EPSILON;
+        const points = [
+            v2(0, 0), v2(1, 1), v2(0.5, 0.5 - eps),
+            v2(0.25, 0.25 + eps), v2(0.75, 0.75 + eps)
+        ];
+
+        // The interval determinant for <P,Q0,Q1> = <(0.5,0.5-eps),(0,0),(1,1)>
+        // really is indeterminate, so the fallback is not merely incidental.
+        const iv = (a: number, b: number): SWInterval =>
+            new SWInterval(a).sub(new SWInterval(b));
+        const ix0 = iv(1, 0), iy0 = iv(1, 0);
+        const ix1 = iv(0.5, 0), iy1 = iv(0.5 - eps, 0);
+        const iDet = ix0.mul(iy1).sub(ix1.mul(iy0));
+        expect(iDet.get(0)).toBeLessThanOrEqual(0);
+        expect(iDet.get(1)).toBeGreaterThanOrEqual(0);
+
+        const spy = vi.spyOn(BSNumber, 'fromNumber');
+        try {
+            const ch = new ConvexHull2();
+            expect(ch.compute(points)).toBe(true);
+            expect(spy.mock.calls.length).toBeGreaterThan(0);
+        } finally {
+            spy.mockRestore();
+        }
+        compareWithExact(points);
+    });
+
+    it('the exact fallback agrees with bigint ground truth on collinear points float arithmetic misclassifies', () => {
+        // (0,0), (a,3a), (1,3) with a = 1e-16 are exactly collinear as
+        // rationals, but the interval determinant contains zero. Only the
+        // BSNumber path can conclude that the middle point lies strictly
+        // between the endpoints.
+        const a = 1e-16;
+        const points = [v2(0, 0), v2(a, 3 * a), v2(1, 3)];
+        const e = exactPoints(points);
+        expect(orient2(e[0].x, e[0].y, e[1].x, e[1].y, e[2].x, e[2].y)).toBe(0);
+
+        const spy = vi.spyOn(BSNumber, 'fromNumber');
+        try {
+            const ch = new ConvexHull2();
+            expect(ch.compute(points)).toBe(false);
+            expect(ch.getDimension()).toBe(1);
+            expect(spy.mock.calls.length).toBeGreaterThan(0);
+        } finally {
+            spy.mockRestore();
+        }
+        compareWithExact(points);
     });
 });
