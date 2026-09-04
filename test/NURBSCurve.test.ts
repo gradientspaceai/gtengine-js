@@ -216,3 +216,228 @@ describe('NURBSCurve', () => {
         }
     });
 });
+
+
+// ---------------------------------------------------------------------------
+// Independent verification pass (VERIFYING.md). NURBSCurve.h was read line by
+// line against src/NURBSCurve.ts. The file contributes the rational quotient
+// and its derivative recursion, so the properties below check the position
+// against a directly evaluated rational sum built on a recursive Cox-de Boor
+// basis (no shared code) and the derivative recursion against numerical
+// differentiation of the analytic lower-order derivative.
+import {
+    check, fc, expectClose, expectVectorClose, wellScaledVector
+} from './helpers/arbitraries.js';
+
+// The textbook Cox-de Boor recursion, written independently of
+// BasisFunction.
+function nurbsBasis(knots: readonly number[], i: number, d: number,
+    t: number): number {
+    if (d === 0) {
+        return (knots[i] <= t && t < knots[i + 1]) ? 1 : 0;
+    }
+    const a = knots[i + d] - knots[i];
+    const b = knots[i + d + 1] - knots[i + 1];
+    let value = 0;
+    if (a > 0) {
+        value += ((t - knots[i]) / a) * nurbsBasis(knots, i, d - 1, t);
+    }
+    if (b > 0) {
+        value += ((knots[i + d + 1] - t) / b) *
+            nurbsBasis(knots, i + 1, d - 1, t);
+    }
+    return value;
+}
+
+// The rational curve evaluated straight from its definition.
+function rationalPoint(curve: NURBSCurve, t: number): Vector {
+    const basis = curve.getBasisFunction();
+    const knots = basis.getKnots();
+    const degree = basis.getDegree();
+    const numControls = curve.getNumControls();
+    const dim = curve.getDimension();
+    const x = new Vector(dim);
+    let w = 0;
+    for (let i = 0; i < basis.getNumControls(); ++i) {
+        const j = (i >= numControls ? i - numControls : i);
+        const b = nurbsBasis(knots, i, degree, t) * curve.getWeight(j);
+        for (let k = 0; k < dim; ++k) {
+            x.values[k] += b * curve.getControl(j).values[k];
+        }
+        w += b;
+    }
+    for (let k = 0; k < dim; ++k) { x.values[k] /= w; }
+    return x;
+}
+
+// Open uniform NURBS curves of degree 1..4 with positive weights.
+const nurbsData = (dim: number): fc.Arbitrary<{
+    curve: NURBSCurve, controls: Vector[], weights: number[] }> =>
+    fc.integer({ min: 1, max: 4 }).chain(degree =>
+        fc.integer({ min: 1, max: 5 }).chain(extra => {
+            const numControls = degree + extra;
+            return fc.tuple(
+                fc.constant(degree),
+                fc.array(wellScaledVector(dim, -6, 6),
+                    { minLength: numControls, maxLength: numControls }),
+                fc.array(fc.double({ min: 0.2, max: 4, noNaN: true,
+                    noDefaultInfinity: true }),
+                { minLength: numControls, maxLength: numControls }));
+        }))
+        .map(([degree, controls, weights]) => ({
+            curve: new NURBSCurve(dim,
+                new BasisFunctionInput(controls.length, degree),
+                controls, weights),
+            controls,
+            weights
+        }));
+
+const inside = fc.double({ min: 0.001, max: 0.999, noNaN: true,
+    noDefaultInfinity: true });
+
+describe('NURBSCurve verification', () => {
+    it('matches the rational sum of the Cox-de Boor basis', () => {
+        check(fc.tuple(nurbsData(3), inside), ([{ curve }, t]) => {
+            const jet = curve.createJet();
+            curve.evaluate(t, 0, jet);
+            expectVectorClose(jet[0], rationalPoint(curve, t), 1e-10, 1e-10);
+        });
+    });
+
+    it('is unchanged when every weight is scaled by the same factor', () => {
+        // The quotient is homogeneous of degree zero in the weights.
+        check(fc.tuple(nurbsData(3), inside,
+            fc.double({ min: 0.1, max: 8, noNaN: true,
+                noDefaultInfinity: true })),
+        ([{ curve, controls, weights }, t, s]) => {
+            const scaled = new NURBSCurve(3,
+                new BasisFunctionInput(controls.length,
+                    curve.getBasisFunction().getDegree()),
+                controls, weights.map(w => s * w));
+            const a = curve.createJet();
+            const b = scaled.createJet();
+            curve.evaluate(t, 2, a);
+            scaled.evaluate(t, 2, b);
+            for (let order = 0; order <= 2; ++order) {
+                expectVectorClose(b[order], a[order], 1e-8, 1e-8);
+            }
+        });
+    });
+
+    it('reduces to a B-spline curve when the weights are equal', () => {
+        check(fc.tuple(nurbsData(3), inside,
+            fc.double({ min: 0.5, max: 3, noNaN: true,
+                noDefaultInfinity: true })),
+        ([{ controls }, t, w]) => {
+            const degree = Math.min(3, controls.length - 1);
+            const input = new BasisFunctionInput(controls.length, degree);
+            const nurbs = new NURBSCurve(3, input, controls,
+                new Array<number>(controls.length).fill(w));
+            const bspline = new BSplineCurve(3,
+                new BasisFunctionInput(controls.length, degree), controls);
+            const a = nurbs.createJet();
+            const b = bspline.createJet();
+            nurbs.evaluate(t, 3, a);
+            bspline.evaluate(t, 3, b);
+            for (let order = 0; order <= 3; ++order) {
+                expectVectorClose(a[order], b[order], 1e-8, 1e-8);
+            }
+        });
+    });
+
+    it('derivatives agree with numerical differentiation', () => {
+        // Each order is differentiated from the analytic previous order, so
+        // the quotient-rule recursion in Evaluate is checked one step at a
+        // time rather than through three chained finite differences.
+        check(fc.tuple(nurbsData(2), fc.double({ min: 0.05, max: 0.95,
+            noNaN: true, noDefaultInfinity: true })), ([{ curve }, t]) => {
+            const h = 2e-3;
+            // A degree-d curve is only C^{d-1}, so the derivative of order d
+            // jumps at every knot; keep the whole five-point stencil inside
+            // one knot span.
+            for (const k of curve.getBasisFunction().getKnots()) {
+                if (Math.abs(t - k) < 4 * h) { return; }
+            }
+            const at = (u: number, order: number): Vector => {
+                const jet = curve.createJet();
+                curve.evaluate(u, 3, jet);
+                return jet[order];
+            };
+            // Five-point centered stencil (error O(step^4)) at two step
+            // sizes. A rational curve can have a pole of its analytic
+            // continuation just outside the knot span, which makes the high
+            // derivatives enormous and the truncation error unpredictable, so
+            // the tolerance is calibrated from the observed convergence
+            // between the two steps instead of from a fixed constant. A wrong
+            // coefficient in the quotient-rule recursion changes the value by
+            // an O(1) relative amount, which no calibration can hide.
+            const stencil = (step: number, order: number, k: number):
+            number => {
+                const p1 = at(t + step, order - 1).values[k];
+                const m1 = at(t - step, order - 1).values[k];
+                const p2 = at(t + 2 * step, order - 1).values[k];
+                const m2 = at(t - 2 * step, order - 1).values[k];
+                return (8 * (p1 - m1) - (p2 - m2)) / (12 * step);
+            };
+            for (let order = 1; order <= 3; ++order) {
+                const analytic = at(t, order);
+                for (let k = 0; k < 2; ++k) {
+                    const coarse = stencil(h, order, k);
+                    const fine = stencil(0.5 * h, order, k);
+                    const drift = Math.abs(coarse - fine);
+                    expectClose(fine, analytic.values[k], 1e-8 + drift, 1e-9);
+                }
+            }
+        }, 60);
+    });
+
+    it('interpolates the end control points of an open knot vector', () => {
+        check(nurbsData(3), ({ curve, controls }) => {
+            const jet = curve.createJet();
+            curve.evaluate(curve.getTMin(), 0, jet);
+            expectVectorClose(jet[0], controls[0], 1e-10, 1e-10);
+            curve.evaluate(curve.getTMax(), 0, jet);
+            expectVectorClose(jet[0], controls[controls.length - 1],
+                1e-10, 1e-10);
+        });
+    });
+
+    it('stays inside the bounding box of the control points', () => {
+        // With positive weights the curve is a convex combination of the
+        // control points.
+        check(fc.tuple(nurbsData(2), inside), ([{ curve, controls }, t]) => {
+            const jet = curve.createJet();
+            curve.evaluate(t, 0, jet);
+            for (let k = 0; k < 2; ++k) {
+                const lo = Math.min(...controls.map(c => c.values[k]));
+                const hi = Math.max(...controls.map(c => c.values[k]));
+                const span = Math.max(1, hi - lo);
+                expect(jet[0].values[k]).toBeGreaterThanOrEqual(lo - 1e-9 * span);
+                expect(jet[0].values[k]).toBeLessThanOrEqual(hi + 1e-9 * span);
+            }
+        });
+    });
+
+    it('copies its inputs and clamps the accessor indices', () => {
+        check(nurbsData(3), ({ curve, controls, weights }) => {
+            const n = controls.length;
+            expect(curve.getNumControls()).toBe(n);
+            for (let i = 0; i < n; ++i) {
+                expect(curve.getControl(i)).not.toBe(controls[i]);
+                expectVectorClose(curve.getControl(i), controls[i], 0, 0);
+                expect(curve.getWeight(i)).toBe(weights[i]);
+            }
+            // Out-of-range accesses return element 0 and out-of-range writes
+            // are ignored, exactly as upstream.
+            expectVectorClose(curve.getControl(-1), curve.getControl(0), 0, 0);
+            expectVectorClose(curve.getControl(n), curve.getControl(0), 0, 0);
+            expect(curve.getWeight(-1)).toBe(curve.getWeight(0));
+            expect(curve.getWeight(n)).toBe(curve.getWeight(0));
+            const before = curve.getControl(0).clone();
+            curve.setControl(-1, Vector.fromArray([9, 9, 9]));
+            curve.setWeight(n, 42);
+            expectVectorClose(curve.getControl(0), before, 0, 0);
+            expect(curve.getWeight(0)).toBe(weights[0]);
+        });
+    });
+});
