@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { check, finite, expectClose } from './helpers/arbitraries.js';
+import { check, finite, expectClose, wellScaled } from './helpers/arbitraries.js';
 import {
     GTE_C_PI, GTE_C_HALF_PI, GTE_C_QUARTER_PI, GTE_C_TWO_PI,
     GTE_C_INV_PI, GTE_C_INV_TWO_PI, GTE_C_INV_HALF_PI,
@@ -114,21 +114,22 @@ describe('Constants verification', () => {
     });
 
     it('degree-radian conversion agrees with pi/180 for random angles', () => {
-        check(finite(-1e4, 1e4), deg => {
+        // wellScaled: a subnormal deg makes an ulp-relative bound meaningless.
+        check(wellScaled(-1e4, 1e4), deg => {
             expectClose(deg * GTE_C_DEG_TO_RAD, deg * Math.PI / 180, 0, 4 * Number.EPSILON);
         });
     });
 
     it('degree-radian conversion round trips', () => {
         // Two roundings of a product; a few ulps of relative error is expected.
-        check(finite(-1e4, 1e4), deg => {
+        check(wellScaled(-1e4, 1e4), deg => {
             expectClose(deg * GTE_C_DEG_TO_RAD * GTE_C_RAD_TO_DEG, deg, 1e-12,
                 8 * Number.EPSILON);
         });
     });
 
     it('reciprocal constants agree with division for random values', () => {
-        check(finite(-1e3, 1e3), x => {
+        check(wellScaled(-1e3, 1e3), x => {
             expectClose(x * GTE_C_INV_PI, x / Math.PI, 0, 4 * Number.EPSILON);
             expectClose(x * GTE_C_INV_TWO_PI, x / (2 * Math.PI), 0, 4 * Number.EPSILON);
             expectClose(x * GTE_C_INV_HALF_PI, x / (Math.PI / 2), 0, 4 * Number.EPSILON);

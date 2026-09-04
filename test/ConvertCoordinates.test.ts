@@ -320,19 +320,23 @@ describe('ConvertCoordinates verification', () => {
 
                     // The defining property: X and Y = C^{-1}X denote the
                     // same Cartesian point.
+                    // invertibleMatrix allows relative determinants down to
+                    // 1e-3, so C = V^{-1} U can have condition number ~1e3-1e4
+                    // and the round trips lose up to ~1e-6 (observed 1.03e-6);
+                    // 1e-5 keeps the check well below any structural error.
                     const Y = convert.uToV(X);
-                    expectVectorsClose(cartesian(V, Y), cartesian(U, X), 1e-6,
-                        1e-6);
+                    expectVectorsClose(cartesian(V, Y), cartesian(U, X), 1e-5,
+                        1e-5);
 
                     // Round trip.
-                    expectVectorsClose(convert.vToU(Y), X, 1e-6, 1e-6);
-                    expectVectorsClose(convert.uToV(convert.vToU(X)), X, 1e-6,
-                        1e-6);
+                    expectVectorsClose(convert.vToU(Y), X, 1e-5, 1e-5);
+                    expectVectorsClose(convert.uToV(convert.vToU(X)), X, 1e-5,
+                        1e-5);
 
                     // C and its inverse really are inverses of each other.
                     expectMatrixClose(
                         multiplyAB(convert.getC(), convert.getInverseC()),
-                        Matrix.identity(n, n), 1e-6);
+                        Matrix.identity(n, n), 1e-5);
                 }, 40);
         });
 
