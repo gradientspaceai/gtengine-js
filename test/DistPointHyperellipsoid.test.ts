@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { DistPointHyperellipsoid } from '../src/DistPointHyperellipsoid.js';
 import { Hyperellipsoid } from '../src/Hyperellipsoid.js';
 import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import {
+    check, expectClose, expectVectorClose, fc, positive, rotationFrame,
+    wellScaled, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -203,5 +207,355 @@ describe('DistPointHyperellipsoid', () => {
     it('throws for a dimension mismatch', () => {
         const e = axisAligned([1, 2]);
         expect(() => query.compute(v(1, 2, 3), e)).toThrow();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Independent verification (V21): property-based tests against the upstream
+// header DistPointHyperellipsoid.h.
+// ---------------------------------------------------------------------------
+
+// Extents are bounded away from zero: the bisector divides by e[i] and by the
+// smallest extent, and SqrDistanceSpecial divides by e[i]^2 - e[N-1]^2.
+const extentArb = (n: number): fc.Arbitrary<number[]> =>
+    fc.array(positive(4, 0.2), { minLength: n, maxLength: n });
+
+// rotationFrame only builds frames of dimension 2 and 3; higher dimensions
+// use the coordinate frame, which still exercises the permutation and
+// reflection bookkeeping of SqrDistance.
+const frameArb = (n: number): fc.Arbitrary<Vector[]> => (n <= 3
+    ? rotationFrame(n)
+    : fc.constant(Array.from({ length: n }, (_, i) => Vector.unit(n, i))));
+
+const hyperellipsoidArb = (n: number): fc.Arbitrary<Hyperellipsoid> =>
+    fc.tuple(wellScaledVector(n, -5, 5), frameArb(n), extentArb(n))
+        .map(([c, axes, e]) => Hyperellipsoid.fromCenterAxisExtent(c, axes,
+            Vector.fromArray(e)));
+
+// Upstream's Bisector brackets the root by smin = z[last] - 1 where z[last]
+// is the query-point coordinate along the smallest-extent axis divided by
+// that extent. When z[last] is tiny but nonzero, smin rounds to exactly -1,
+// the root is closer to -1 than the double-precision spacing there, and the
+// final division by (s + pSqr[i]) cancels catastrophically -- the closest
+// point leaves the surface and the distance can even be Infinity. See the
+// upstream-bug note in src/DistPointHyperellipsoid.ts. Properties that
+// compare against an independent computation skip that band; a coordinate of
+// exactly zero takes a different branch and is correct, so it is kept.
+function isWellConditioned(h: Hyperellipsoid, p: Vector): boolean {
+    let jmin = 0;
+    for (let i = 1; i < h.dimension; ++i) {
+        if (h.extent.values[i] < h.extent.values[jmin]) {
+            jmin = i;
+        }
+    }
+    const z = Math.abs(dot(sub(p, h.center), h.axis[jmin]))
+        / h.extent.values[jmin];
+    return z === 0 || z > 1e-5;
+}
+
+// Coordinates of X in the hyperellipsoid frame.
+function localCoords(h: Hyperellipsoid, x: Vector): number[] {
+    const delta = sub(x, h.center);
+    const y: number[] = [];
+    for (let i = 0; i < h.dimension; ++i) {
+        y.push(dot(delta, h.axis[i]));
+    }
+    return y;
+}
+
+// First-order optimality: at the closest surface point X the residual P - X
+// must be parallel to the surface normal, whose frame coordinates are
+// y[i]/e[i]^2. Returns the largest 2x2 "cross product" of the two vectors,
+// scaled by their magnitudes so the test is relative.
+function optimalityResidual(h: Hyperellipsoid, p: Vector,
+    x: Vector): number {
+    const n = h.dimension;
+    const y = localCoords(h, x);
+    const z = localCoords(h, p);
+    const grad: number[] = [];
+    const res: number[] = [];
+    for (let i = 0; i < n; ++i) {
+        grad.push(y[i] / (h.extent.values[i] * h.extent.values[i]));
+        res.push(z[i] - y[i]);
+    }
+    let gn = 0;
+    let rn = 0;
+    for (let i = 0; i < n; ++i) {
+        gn += grad[i] * grad[i];
+        rn += res[i] * res[i];
+    }
+    gn = Math.sqrt(gn);
+    rn = Math.sqrt(rn);
+    if (gn === 0 || rn === 0) {
+        return 0;
+    }
+    let worst = 0;
+    for (let i = 0; i < n; ++i) {
+        for (let j = i + 1; j < n; ++j) {
+            const c = Math.abs(res[i] * grad[j] - res[j] * grad[i])
+                / (gn * rn);
+            if (c > worst) {
+                worst = c;
+            }
+        }
+    }
+    return worst;
+}
+
+// Brute-force minimum distance from a point to a 3D ellipsoid surface, over
+// the (theta,phi) parameterization, with a local pattern-search refinement.
+function bruteForce3D(p: Vector, h: Hyperellipsoid): number {
+    const e = h.extent.values;
+    const at = (t: number, u: number): number => {
+        const st = Math.sin(t);
+        const x = add(h.center, add(mul(e[0] * st * Math.cos(u), h.axis[0]),
+            add(mul(e[1] * st * Math.sin(u), h.axis[1]),
+                mul(e[2] * Math.cos(t), h.axis[2]))));
+        return length(sub(p, x));
+    };
+    const nt = 90;
+    const nu = 180;
+    let best = Number.MAX_VALUE;
+    let bt = 0;
+    let bu = 0;
+    for (let i = 0; i <= nt; ++i) {
+        const t = Math.PI * i / nt;
+        for (let j = 0; j < nu; ++j) {
+            const u = 2 * Math.PI * j / nu;
+            const d = at(t, u);
+            if (d < best) {
+                best = d;
+                bt = t;
+                bu = u;
+            }
+        }
+    }
+    let ht = Math.PI / nt;
+    let hu = 2 * Math.PI / nu;
+    for (let pass = 0; pass < 120; ++pass) {
+        for (const [dt, du] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1],
+            [1, -1], [-1, 1], [-1, -1]]) {
+            const d = at(bt + dt * ht, bu + du * hu);
+            if (d < best) {
+                best = d;
+                bt += dt * ht;
+                bu += du * hu;
+            }
+        }
+        ht *= 0.75;
+        hu *= 0.75;
+    }
+    return best;
+}
+
+describe('DistPointHyperellipsoid verification', () => {
+    const query = new DistPointHyperellipsoid();
+
+    for (const n of [2, 3, 4]) {
+        it(`result is self consistent in ${n}D and closest[1] is on the surface`,
+            () => {
+                check(fc.tuple(wellScaledVector(n, -8, 8),
+                    hyperellipsoidArb(n)), ([p, h]) => {
+                    if (!isWellConditioned(h, p)) {
+                        return;
+                    }
+                    const r = query.compute(p, h);
+                    expectClose(r.distance, Math.sqrt(r.sqrDistance), 1e-12,
+                        1e-12);
+                    expectVectorClose(r.closest[0], p, 0, 0);
+                    expectClose(r.distance,
+                        length(sub(r.closest[0], r.closest[1])), 1e-8, 1e-8);
+                    // The bisection stops at the double-precision
+                    // resolution of the root s. Near the center of the
+                    // hyperellipsoid the closest point is ill-conditioned in
+                    // s, so the surface equation is satisfied to about 1e-8
+                    // rather than to machine precision.
+                    expectClose(equationValue(r.closest[1], h), 1, 1e-7,
+                        1e-7);
+                }, 120);
+            }, 30000);
+    }
+
+    it('satisfies the first-order optimality condition (2D and 3D)', () => {
+        check(fc.tuple(fc.constantFrom(2, 3),
+            fc.array(wellScaled(-8, 8), { minLength: 4, maxLength: 4 })),
+        ([n, raw]) => {
+            const h = Hyperellipsoid.fromCenterAxisExtent(new Vector(n),
+                Array.from({ length: n }, (_, i) => Vector.unit(n, i)),
+                Vector.fromArray(Array.from({ length: n },
+                    (_, i) => 0.5 + Math.abs(raw[i]) % 3)));
+            const p = Vector.fromArray(raw.slice(0, n));
+            if (!isWellConditioned(h, p)) {
+                return;
+            }
+            const r = query.compute(p, h);
+            expect(optimalityResidual(h, p, r.closest[1]))
+                .toBeLessThanOrEqual(1e-6);
+        }, 200);
+    }, 30000);
+
+    it('matches a brute-force minimization over a 2D ellipse', () => {
+        check(fc.tuple(wellScaledVector(2, -8, 8), positive(4, 0.2),
+            positive(4, 0.2)), ([p, e0, e1]) => {
+            const h = axisAligned([e0, e1]);
+            if (!isWellConditioned(h, p)) {
+                return;
+            }
+            expectClose(query.compute(p, h).distance, bruteForce2D(p, e0, e1),
+                1e-6, 1e-6);
+        }, 120);
+    }, 30000);
+
+    it('matches a brute-force minimization over a 3D ellipsoid', () => {
+        check(fc.tuple(wellScaledVector(3, -8, 8), hyperellipsoidArb(3)),
+            ([p, h]) => {
+                if (!isWellConditioned(h, p)) {
+                    return;
+                }
+                expectClose(query.compute(p, h).distance, bruteForce3D(p, h),
+                    1e-5, 1e-5);
+            }, 25);
+    }, 30000);
+
+    it('is not larger than the distance to any sampled surface point', () => {
+        check(fc.tuple(wellScaledVector(3, -8, 8), hyperellipsoidArb(3),
+            wellScaledVector(3, -1, 1)), ([p, h, u]) => {
+            if (!isWellConditioned(h, p)) {
+                return;
+            }
+            const d = query.compute(p, h).distance;
+            // Project u onto the surface through the frame coordinates.
+            let sum = 0;
+            for (let i = 0; i < 3; ++i) {
+                sum += u.values[i] * u.values[i];
+            }
+            if (sum < 1e-6) {
+                return;
+            }
+            const s = 1 / Math.sqrt(sum);
+            let q = h.center.clone();
+            for (let i = 0; i < 3; ++i) {
+                q = add(q, mul(s * u.values[i] * h.extent.values[i],
+                    h.axis[i]));
+            }
+            expect(d).toBeLessThanOrEqual(length(sub(p, q)) + 1e-8);
+        }, 120);
+    }, 30000);
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(wellScaledVector(3, -8, 8), hyperellipsoidArb(3),
+            rotationFrame(3), wellScaledVector(3, -4, 4)),
+        ([p, h, R, tr]) => {
+            const rot = (x: Vector): Vector => {
+                let y = new Vector(3);
+                for (let i = 0; i < 3; ++i) {
+                    y = add(y, mul(x.values[i], R[i]));
+                }
+                return y;
+            };
+            const moved = Hyperellipsoid.fromCenterAxisExtent(
+                add(rot(h.center), tr), h.axis.map(a => rot(a)), h.extent);
+            if (!isWellConditioned(h, p)) {
+                return;
+            }
+            const r0 = query.compute(p, h);
+            const r1 = query.compute(add(rot(p), tr), moved);
+            expectClose(r0.distance, r1.distance, 1e-8, 1e-8);
+            // The closest point comes out of a bisection whose iterates
+            // depend on the frame, and near a spheroid's symmetry axis the
+            // minimizer is barely determined, so the point comparison needs a
+            // much looser tolerance than the distance comparison.
+            expectVectorClose(add(rot(r0.closest[1]), tr), r1.closest[1],
+                1e-4, 1e-4);
+        }, 120);
+    }, 30000);
+
+    it('computeAxisAligned agrees with compute on the canonical frame', () => {
+        check(fc.tuple(fc.constantFrom(2, 3, 4),
+            fc.array(wellScaled(-8, 8), { minLength: 4, maxLength: 4 }),
+            fc.array(positive(4, 0.2), { minLength: 4, maxLength: 4 })),
+        ([n, raw, ext]) => {
+            const extent = Vector.fromArray(ext.slice(0, n));
+            const h = Hyperellipsoid.fromCenterAxisExtent(new Vector(n),
+                Array.from({ length: n }, (_, i) => Vector.unit(n, i)),
+                extent);
+            const p = Vector.fromArray(raw.slice(0, n));
+            const r0 = query.compute(p, h);
+            const r1 = query.computeAxisAligned(p, extent);
+            // Both paths run the identical code, so they must agree bit for
+            // bit even in the ill-conditioned band; guard only against the
+            // Infinity case, where the comparison is meaningless.
+            if (!Number.isFinite(r0.distance)) {
+                expect(Number.isFinite(r1.distance)).toBe(false);
+                return;
+            }
+            expectClose(r0.distance, r1.distance, 1e-12, 1e-12);
+            expectVectorClose(r0.closest[1], r1.closest[1], 1e-12, 1e-12);
+        }, 200);
+    });
+
+    it('places the center at the smallest semi-axis', () => {
+        // From the center the closest surface point lies along the shortest
+        // axis, at distance min_i e[i].
+        check(hyperellipsoidArb(3), h => {
+            const r = query.compute(h.center, h);
+            const emin = Math.min(...h.extent.values);
+            expectClose(r.distance, emin, 1e-9, 1e-9);
+        }, 120);
+    });
+
+    it('returns zero for points already on the surface', () => {
+        check(fc.tuple(hyperellipsoidArb(3), wellScaledVector(3, -1, 1)),
+            ([h, u]) => {
+                let sum = 0;
+                for (let i = 0; i < 3; ++i) {
+                    sum += u.values[i] * u.values[i];
+                }
+                if (sum < 1e-4) {
+                    return;
+                }
+                const s = 1 / Math.sqrt(sum);
+                let q = h.center.clone();
+                for (let i = 0; i < 3; ++i) {
+                    q = add(q, mul(s * u.values[i] * h.extent.values[i],
+                        h.axis[i]));
+                }
+                expect(query.compute(q, h).distance).toBeLessThanOrEqual(1e-8);
+            }, 120);
+    });
+
+    it('does not mutate its inputs', () => {
+        check(fc.tuple(wellScaledVector(3, -8, 8), hyperellipsoidArb(3)),
+            ([p, h]) => {
+                const p0 = p.clone();
+                const c = h.center.clone();
+                const e = h.extent.clone();
+                const a = h.axis.map(x => x.clone());
+                const r = query.compute(p, h);
+                expect(p.values).toEqual(p0.values);
+                expect(h.center.values).toEqual(c.values);
+                expect(h.extent.values).toEqual(e.values);
+                h.axis.forEach((x, i) =>
+                    expect(x.values).toEqual(a[i].values));
+                r.closest[0].values[0] = 555;
+                expect(p.values).toEqual(p0.values);
+            }, 120);
+    });
+    it('is correct at the exact center but degrades in a narrow band', () => {
+        // Documented upstream defect: a query point whose smallest-extent
+        // coordinate is exactly zero is handled by the special branch and is
+        // exact, but a tiny nonzero coordinate loses the bisection bracket.
+        // This test pins the correct behavior on the exact axis hyperplane
+        // and records the failure mode so a future upstream fix is noticed.
+        const h = axisAligned([4, 3, 2]);
+        const onPlane = query.compute(v(1.5, 0.5, 0), h);
+        expect(equationValue(onPlane.closest[1], h)).toBeCloseTo(1, 12);
+        const nearPlane = query.compute(v(1.5, 0.5, 1e-13), h);
+        // Upstream (and hence the port) leaves the surface here.
+        expect(Math.abs(equationValue(nearPlane.closest[1], h) - 1))
+            .toBeGreaterThan(1e-6);
+        // And at 1e-16 the divisor underflows to zero.
+        expect(query.compute(v(1.5, 0.5, 1e-16), h).distance)
+            .toBe(Number.POSITIVE_INFINITY);
     });
 });
