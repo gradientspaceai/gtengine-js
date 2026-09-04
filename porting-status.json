@@ -314,61 +314,80 @@
   "verified": 11
  },
  "ContAlignedBox.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 14
  },
  "ContAlignedBox2Arc2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 14
  },
  "ContCapsule3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 14
  },
  "ContCircle2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 14
  },
  "ContCone.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 14
  },
  "ContCylinder3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 14
  },
  "ContEllipse2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 14
  },
  "ContEllipse2MinCR.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 14
  },
  "ContEllipsoid3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 14
  },
  "ContEllipsoid3MinCR.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 14
  },
  "ContLozenge3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 14
  },
  "ContOrientedBox2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 14
  },
  "ContOrientedBox3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 14
  },
  "ContPointInPolygon2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 14
  },
  "ContPointInPolyhedron3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 14
  },
  "ContScribeCircle2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 14
  },
  "ContScribeCircle3Sphere3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 14
  },
  "ContSphere3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 14
  },
  "ContTetrahedron3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 14
  },
  "ConvertCoordinates.h": {
   "status": "ported",
