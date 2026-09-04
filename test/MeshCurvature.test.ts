@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { MeshCurvature } from '../src/MeshCurvature.js';
 import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector.js';
-import { cross } from '../src/Vector3.js';
+import { computeOrthogonalComplement3, cross } from '../src/Vector3.js';
+import {
+    check, expectClose, expectVectorClose, fc, positive, rotationFrame,
+    seededRandom, wellScaled, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function V3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -313,5 +317,300 @@ describe('MeshCurvature', () => {
             expect(single.getMinCurvatures()[i]).toBe(0);
             expect(single.getMaxCurvatures()[i]).toBe(0);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification block (V16).
+// ---------------------------------------------------------------------------
+
+// A closed icosphere with a random radius, optionally jittered so the mesh is
+// a generic (non-symmetric) surface. wellScaled keeps the jitter away from
+// subnormals, which matters because the algorithm squares vertex differences.
+const roundMesh = fc.tuple(positive(4, 0.25),
+    fc.array(wellScaled(-0.05, 0.05), { minLength: 3 * 42, maxLength: 3 * 42 }))
+    .map(([r, jitter]) => {
+        const mesh = icosphere(r, 1);
+        for (let i = 0; i < mesh.vertices.length; ++i) {
+            for (let k = 0; k < 3; ++k) {
+                mesh.vertices[i].values[k] += r * jitter[3 * i + k];
+            }
+        }
+        return mesh;
+    });
+
+// Rotate by the frame whose columns are the frame vectors.
+function rotateBy(R: Vector[], x: Vector): Vector {
+    const r = new Vector(3);
+    for (let i = 0; i < 3; ++i) {
+        r.values[i] = R[0].values[i] * x.values[0]
+            + R[1].values[i] * x.values[1]
+            + R[2].values[i] * x.values[2];
+    }
+    return r;
+}
+
+function computeOn(mesh: TriMesh, threshold: number): MeshCurvature {
+    const query = new MeshCurvature();
+    query.compute(mesh.vertices, mesh.indices, threshold);
+    return query;
+}
+
+describe('MeshCurvature verification', () => {
+    it('produces unit normals, ordered curvatures and tangential directions', () => {
+        // The directions are unit length except at an exactly umbilic vertex,
+        // where upstream builds both candidate eigenvectors from S(0,1) and
+        // curvature - S(0,0), both of which are zero; see the dedicated test
+        // below. Whatever their length, they lie in the tangent plane.
+        check(roundMesh, mesh => {
+            const query = computeOn(mesh, 0);
+            const normals = query.getNormals();
+            const kmin = query.getMinCurvatures();
+            const kmax = query.getMaxCurvatures();
+            const dmin = query.getMinDirections();
+            const dmax = query.getMaxDirections();
+            expect(normals.length).toBe(mesh.vertices.length);
+            for (let i = 0; i < mesh.vertices.length; ++i) {
+                expectClose(length(normals[i]), 1, 1e-12, 1e-12);
+                expect(kmin[i]).toBeLessThanOrEqual(kmax[i]);
+                for (const d of [dmin[i], dmax[i]]) {
+                    const len = length(d);
+                    expect(len === 0 || Math.abs(len - 1) <= 1e-9).toBe(true);
+                    expectClose(dot(d, normals[i]), 0, 1e-9, 1e-9);
+                }
+            }
+        });
+    });
+
+    it('returns zero principal directions at an exactly umbilic vertex (upstream quirk)', () => {
+        // On the unit icosahedron one vertex has a shape matrix that is
+        // exactly a multiple of the identity. Upstream then forms
+        //   W0 = (S(0,1), k - S(0,0)) and W1 = (k - S(1,1), S(1,0)),
+        // both of which are the zero vector, takes the first branch because
+        // Dot(W0,W0) >= Dot(W1,W1) holds for 0 >= 0, and Normalize leaves the
+        // zero vector alone. The direction returned is therefore (0,0,0)
+        // rather than an arbitrary unit tangent. The port preserves this.
+        const mesh = icosphere(1, 0);
+        const query = computeOn(mesh, 0);
+        const degenerate: number[] = [];
+        for (let i = 0; i < mesh.vertices.length; ++i) {
+            if (length(query.getMinDirections()[i]) === 0) { degenerate.push(i); }
+        }
+        expect(degenerate.length).toBeGreaterThan(0);
+        for (const i of degenerate) {
+            expect(query.getMinDirections()[i].values).toEqual([0, 0, 0]);
+            expect(query.getMaxDirections()[i].values).toEqual([0, 0, 0]);
+            // The curvatures themselves are still the correct 1/r = 1.
+            expectClose(query.getMinCurvatures()[i], 1, 0, 0.1);
+            expectClose(query.getMaxCurvatures()[i], 1, 0, 0.1);
+            expectClose(query.getMinCurvatures()[i],
+                query.getMaxCurvatures()[i], 0, 0);
+        }
+    });
+
+    it('computes the normals as the normalized area-weighted triangle sum', () => {
+        check(roundMesh, mesh => {
+            const expected = mesh.vertices.map(() => new Vector(3));
+            for (let t = 0; 3 * t < mesh.indices.length; ++t) {
+                const a = mesh.indices[3 * t];
+                const b = mesh.indices[3 * t + 1];
+                const c = mesh.indices[3 * t + 2];
+                const n = cross(sub(mesh.vertices[b], mesh.vertices[a]),
+                    sub(mesh.vertices[c], mesh.vertices[a]));
+                for (const v of [a, b, c]) {
+                    for (let k = 0; k < 3; ++k) {
+                        expected[v].values[k] += n.values[k];
+                    }
+                }
+            }
+            const query = computeOn(mesh, 0);
+            const normals = query.getNormals();
+            for (let i = 0; i < expected.length; ++i) {
+                const len = length(expected[i]);
+                expect(len).toBeGreaterThan(0);
+                for (let k = 0; k < 3; ++k) {
+                    expectClose(normals[i].values[k],
+                        expected[i].values[k] / len, 1e-12, 1e-12);
+                }
+            }
+        });
+    });
+
+    it('leaves the caller vertex array untouched and is repeatable', () => {
+        check(roundMesh, mesh => {
+            const before = mesh.vertices.map(v => v.values.slice());
+            const first = computeOn(mesh, 0);
+            const firstMin = first.getMinCurvatures().slice();
+            for (let i = 0; i < before.length; ++i) {
+                expect(mesh.vertices[i].values).toEqual(before[i]);
+            }
+            const second = computeOn(mesh, 0);
+            expect(second.getMinCurvatures()).toEqual(firstMin);
+        });
+    });
+
+    it('estimates 1/r at every vertex of a sphere of radius r', () => {
+        check(positive(6, 0.25), r => {
+            const mesh = icosphere(r, 2);
+            const query = computeOn(mesh, 0);
+            for (let i = 0; i < mesh.vertices.length; ++i) {
+                // The icosphere is only an approximation of the sphere, so
+                // the discrete estimate carries several percent of error.
+                expectClose(query.getMinCurvatures()[i], 1 / r, 0, 0.08);
+                expectClose(query.getMaxCurvatures()[i], 1 / r, 0, 0.08);
+            }
+        });
+    }, 30000);
+
+    it('estimates (0, 1/r) away from the rim of a cylinder of radius r', () => {
+        check(positive(5, 0.5), r => {
+            const numRadial = 24;
+            const numAxial = 8;
+            const mesh = cylinder(r, 4 * r, numRadial, numAxial);
+            const query = computeOn(mesh, 0);
+            // The first and last rings are on the boundary, where the
+            // one-sided neighborhood biases the estimate.
+            for (let j = 1; j < numAxial; ++j) {
+                for (let i = 0; i < numRadial; ++i) {
+                    const v = j * numRadial + i;
+                    // The zero curvature is only approached: the polygonal
+                    // cross-section makes the axial direction slightly
+                    // non-straight in the discrete estimate, so the tolerance
+                    // is relative to the other principal curvature 1/r.
+                    expectClose(query.getMinCurvatures()[v], 0, 0.01 / r, 0);
+                    expectClose(query.getMaxCurvatures()[v], 1 / r, 0, 0.02);
+                }
+            }
+        });
+    }, 30000);
+
+    it('is invariant under a rigid motion of the mesh', () => {
+        check(fc.tuple(roundMesh, rotationFrame(3), wellScaledVector(3, -3, 3)),
+            ([mesh, R, t]) => {
+                const a = computeOn(mesh, 0);
+                const moved: TriMesh = {
+                    vertices: mesh.vertices.map(v => add(rotateBy(R, v), t)),
+                    indices: mesh.indices.slice()
+                };
+                const b = computeOn(moved, 0);
+                for (let i = 0; i < mesh.vertices.length; ++i) {
+                    // The rotation re-rounds every coordinate, so the
+                    // accumulated W*W^T and D*W^T sums and the 3x3 inverse
+                    // differ by a few ulps of the curvature scale.
+                    expectClose(a.getMinCurvatures()[i], b.getMinCurvatures()[i],
+                        1e-9, 1e-6);
+                    expectClose(a.getMaxCurvatures()[i], b.getMaxCurvatures()[i],
+                        1e-9, 1e-6);
+                    // The normals rotate with the mesh.
+                        expectVectorClose(b.getNormals()[i],
+                        rotateBy(R, a.getNormals()[i]), 1e-12, 1e-9);
+                }
+            });
+    });
+
+    it('scales the curvatures by 1/s when the mesh is scaled by s', () => {
+        check(fc.tuple(roundMesh, positive(6, 0.25)), ([mesh, s]) => {
+            const a = computeOn(mesh, 0);
+            const scaled: TriMesh = {
+                vertices: mesh.vertices.map(v => mul(v, s)),
+                indices: mesh.indices.slice()
+            };
+            const b = computeOn(scaled, 0);
+            for (let i = 0; i < mesh.vertices.length; ++i) {
+                expectClose(b.getMinCurvatures()[i],
+                    a.getMinCurvatures()[i] / s, 1e-8, 1e-7);
+                expectClose(b.getMaxCurvatures()[i],
+                    a.getMaxCurvatures()[i] / s, 1e-8, 1e-7);
+                expectVectorClose(b.getNormals()[i], a.getNormals()[i],
+                    1e-9, 1e-9);
+            }
+        });
+    });
+
+    it('permutes the outputs when the vertices are relabelled', () => {
+        // Relabelling keeps the triangle visit order, so every per-vertex
+        // accumulation happens in the same order and the results must be
+        // bit-identical after the permutation.
+        check(fc.tuple(roundMesh, fc.integer({ min: 1, max: 1000 })),
+            ([mesh, seed]) => {
+                const n = mesh.vertices.length;
+                const perm = Array.from({ length: n }, (_, i) => i);
+                const rand = seededRandom(seed);
+                for (let i = n - 1; i > 0; --i) {
+                    const j = Math.floor(rand() * (i + 1));
+                    [perm[i], perm[j]] = [perm[j], perm[i]];
+                }
+                const relabelled: TriMesh = {
+                    vertices: new Array<Vector>(n),
+                    indices: mesh.indices.map(v => perm[v])
+                };
+                for (let i = 0; i < n; ++i) {
+                    relabelled.vertices[perm[i]] = mesh.vertices[i].clone();
+                }
+
+                const a = computeOn(mesh, 0);
+                const b = computeOn(relabelled, 0);
+                for (let i = 0; i < n; ++i) {
+                    expect(b.getMinCurvatures()[perm[i]] + 0)
+                        .toBe(a.getMinCurvatures()[i] + 0);
+                    expect(b.getMaxCurvatures()[perm[i]] + 0)
+                        .toBe(a.getMaxCurvatures()[i] + 0);
+                    for (let k = 0; k < 3; ++k) {
+                        expect(b.getNormals()[perm[i]].values[k] + 0)
+                            .toBe(a.getNormals()[i].values[k] + 0);
+                        expect(b.getMinDirections()[perm[i]].values[k] + 0)
+                            .toBe(a.getMinDirections()[i].values[k] + 0);
+                        expect(b.getMaxDirections()[perm[i]].values[k] + 0)
+                            .toBe(a.getMaxDirections()[i].values[k] + 0);
+                    }
+                }
+            });
+    });
+
+    it('returns the tangent frame itself at points flagged as locally planar', () => {
+        // A threshold above every |D*W^T| entry flags every vertex, and the
+        // upstream planar branch returns (0, 0) with directions U and V, the
+        // orthogonal complement of the vertex normal.
+        check(roundMesh, mesh => {
+            const query = computeOn(mesh, Number.MAX_VALUE);
+            for (let i = 0; i < mesh.vertices.length; ++i) {
+                expect(query.getMinCurvatures()[i]).toBe(0);
+                expect(query.getMaxCurvatures()[i]).toBe(0);
+                const basis = [query.getNormals()[i].clone(),
+                    new Vector(3), new Vector(3)];
+                computeOrthogonalComplement3(1, basis);
+                expectVectorClose(query.getMinDirections()[i], basis[1], 0, 0);
+                expectVectorClose(query.getMaxDirections()[i], basis[2], 0, 0);
+            }
+        });
+    });
+
+    it('flips the sign of the curvatures when the triangles are reversed', () => {
+        // Reversing every triangle reverses the normals, which reverses the
+        // shape operator; the curvatures negate and swap roles.
+        check(roundMesh, mesh => {
+            const a = computeOn(mesh, 0);
+            const flipped: TriMesh = {
+                vertices: mesh.vertices.map(v => v.clone()),
+                indices: []
+            };
+            for (let t = 0; 3 * t < mesh.indices.length; ++t) {
+                flipped.indices.push(mesh.indices[3 * t],
+                    mesh.indices[3 * t + 2], mesh.indices[3 * t + 1]);
+            }
+            const b = computeOn(flipped, 0);
+            for (let i = 0; i < mesh.vertices.length; ++i) {
+                expectVectorClose(b.getNormals()[i],
+                    mul(a.getNormals()[i], -1), 1e-12, 1e-12);
+                // The per-vertex W*W^T and D*W^T sums are accumulated in a
+                // different order once the triangles are reversed, so the
+                // curvatures agree only to within the conditioning of the
+                // 3x3 inverse.
+                expectClose(b.getMinCurvatures()[i],
+                    -a.getMaxCurvatures()[i], 1e-9, 1e-6);
+                expectClose(b.getMaxCurvatures()[i],
+                    -a.getMinCurvatures()[i], 1e-9, 1e-6);
+            }
+        });
     });
 });

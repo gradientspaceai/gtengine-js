@@ -5,6 +5,9 @@ import { ParametricCurve } from '../src/ParametricCurve.js';
 import { IndexAttribute } from '../src/IndexAttribute.js';
 import { VertexAttribute } from '../src/VertexAttribute.js';
 import { Vector } from '../src/Vector.js';
+import { ETManifoldMesh } from '../src/ETManifoldMesh.js';
+import { GTE_C_TWO_PI } from '../src/Constants.js';
+import { check, expectClose, fc, positive } from './helpers/arbitraries.js';
 
 // A ParametricCurve whose derivatives are supplied in closed form. The
 // upstream RevolutionMesh accepts any ParametricCurve<2,Real>.
@@ -490,5 +493,287 @@ describe('RevolutionMesh', () => {
         for (let i = 0; i < before.length; ++i) {
             expect(storage.positions[i]).toBeCloseTo(before[i], 14);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification block (V16).
+// ---------------------------------------------------------------------------
+
+// The number of curve samples the constructor allocates for each topology.
+function numSamplesFor(topology: MeshTopology, rMax: number): number {
+    switch (topology) {
+        case MeshTopology.CYLINDER:
+        case MeshTopology.TORUS: return rMax + 1;
+        case MeshTopology.DISK: return rMax + 2;
+        case MeshTopology.SPHERE: return rMax + 3;
+        default: return 0;
+    }
+}
+
+// The t-value of sample i, recomputed from the curve rather than from the
+// mesh (the port's tSampler).
+function sampleT(curve: ParametricCurve, numSamples: number, i: number): number {
+    const factor = (curve.getTMax() - curve.getTMin()) / (numSamples - 1);
+    return curve.getTMin() + i * factor;
+}
+
+// Weld the duplicated seam column (and, for a torus, the duplicated last row)
+// so the index buffer describes a closed surface without repeated vertices.
+function weldMap(topology: MeshTopology, d: MeshDescription): number[] {
+    const stride = d.cMax + 1;
+    const map = new Array<number>(d.numVertices);
+    for (let i = 0; i < d.numVertices; ++i) { map[i] = i; }
+    const numRows = topology === MeshTopology.TORUS ? d.rMax + 1 : d.rMax + 1;
+    for (let r = 0; r < numRows; ++r) {
+        map[r * stride + d.cMax] = r * stride;
+    }
+    if (topology === MeshTopology.TORUS) {
+        for (let c = 0; c <= d.cMax; ++c) {
+            map[d.rMax * stride + c] = map[c];
+        }
+    }
+    return map;
+}
+
+// The Euler characteristic V - E + F of the welded index buffer, plus the
+// manifold/closed flags of the resulting edge-triangle mesh.
+function weldedTopology(storage: Storage, topology: MeshTopology) {
+    const d = storage.description;
+    const map = weldMap(topology, d);
+    const mesh = new ETManifoldMesh();
+    const used = new Set<number>();
+    let numTriangles = 0;
+    for (let t = 0; t < d.numTriangles; ++t) {
+        const { v0, v1, v2 } = d.indexAttribute.getTriangle(t);
+        const a = map[v0], b = map[v1], c = map[v2];
+        if (a === b || b === c || c === a) { continue; }
+        used.add(a); used.add(b); used.add(c);
+        expect(mesh.insert(a, b, c)).not.toBeNull();
+        ++numTriangles;
+    }
+    // ETManifoldMesh.insert returns null for a nonmanifold insertion, so the
+    // assertion above already proves the welded mesh is manifold.
+    return {
+        euler: used.size - mesh.getNumEdges() + numTriangles,
+        closed: mesh.isClosed(),
+        numTriangles
+    };
+}
+
+const smallGrid = fc.tuple(fc.integer({ min: 2, max: 6 }),
+    fc.integer({ min: 3, max: 9 }));
+
+describe('RevolutionMesh verification', () => {
+    it('places every cylinder and torus vertex on the revolved curve', () => {
+        check(fc.tuple(smallGrid, positive(4, 0.25), positive(2, 0.25)),
+            ([[numRows, numCols], R, a]) => {
+                for (const topology of [MeshTopology.CYLINDER, MeshTopology.TORUS]) {
+                    const storage = makeStorage(topology, numRows, numCols);
+                    const d = storage.description;
+                    const curve = topology === MeshTopology.CYLINDER
+                        ? cylinderCurve(R) : torusCurve(R + a + 1, a);
+                    new RevolutionMesh(d, curve);
+
+                    const numSamples = numSamplesFor(topology, d.rMax);
+                    const stride = d.cMax + 1;
+                    for (let r = 0; r <= d.rMax; ++r) {
+                        const t = sampleT(curve, numSamples, r);
+                        const p = curve.getPosition(t);
+                        for (let c = 0; c <= d.cMax; ++c) {
+                            // The port precomputes cos/sin with the wrap-around
+                            // entry copied from index 0.
+                            const cc = c === d.cMax ? 0 : c;
+                            const angle = cc * (1 / d.numCols) * GTE_C_TWO_PI;
+                            const got = P(storage, r * stride + c);
+                            expect(got[0]).toBe(p.values[0] * Math.cos(angle));
+                            expect(got[1]).toBe(p.values[0] * Math.sin(angle));
+                            expect(got[2]).toBe(p.values[1]);
+                        }
+                        // The seam column duplicates the first column exactly.
+                        expect(P(storage, r * stride + d.cMax))
+                            .toEqual(P(storage, r * stride));
+                    }
+                }
+            });
+    });
+
+    it('offsets the disk and sphere rows by one sample and adds the poles', () => {
+        check(fc.tuple(smallGrid, positive(4, 0.25)),
+            ([[numRows, numCols], r0]) => {
+                for (const topology of [MeshTopology.DISK, MeshTopology.SPHERE]) {
+                    const storage = makeStorage(topology, numRows, numCols);
+                    const d = storage.description;
+                    const curve = topology === MeshTopology.DISK
+                        ? diskCurve() : sphereCurve(r0);
+                    new RevolutionMesh(d, curve);
+
+                    const numSamples = numSamplesFor(topology, d.rMax);
+                    const stride = d.cMax + 1;
+                    for (let r = 0; r <= d.rMax; ++r) {
+                        // Upstream indexes mSamples[r + 1] for these two.
+                        const t = sampleT(curve, numSamples, r + 1);
+                        const p = curve.getPosition(t);
+                        for (let c = 0; c <= d.cMax; ++c) {
+                            const cc = c === d.cMax ? 0 : c;
+                            const angle = cc * (1 / d.numCols) * GTE_C_TWO_PI;
+                            const got = P(storage, r * stride + c);
+                            expect(got[0]).toBe(p.values[0] * Math.cos(angle));
+                            expect(got[1]).toBe(p.values[0] * Math.sin(angle));
+                            expect(got[2]).toBe(p.values[1]);
+                        }
+                    }
+
+                    const first = curve.getPosition(sampleT(curve, numSamples, 0));
+                    const last = curve.getPosition(
+                        sampleT(curve, numSamples, numSamples - 1));
+                    if (topology === MeshTopology.DISK) {
+                        expect(P(storage, d.numVertices - 1))
+                            .toEqual([0, 0, first.values[1]]);
+                    } else {
+                        expect(P(storage, d.numVertices - 2))
+                            .toEqual([0, 0, first.values[1]]);
+                        expect(P(storage, d.numVertices - 1))
+                            .toEqual([0, 0, last.values[1]]);
+                    }
+                }
+            });
+    });
+
+    it('emits an index buffer with the Euler characteristic of the topology', () => {
+        // The grid must be large enough that welding the seam does not merge
+        // two triangles of the same quad ring: a torus needs at least three
+        // rings in each direction to be a simplicial complex.
+        const bigGrid = fc.tuple(fc.integer({ min: 4, max: 7 }),
+            fc.integer({ min: 5, max: 9 }));
+        check(bigGrid, ([numRows, numCols]) => {
+            const cases: Array<[MeshTopology, ParametricCurve, number, boolean]> = [
+                [MeshTopology.CYLINDER, cylinderCurve(2), 0, false],
+                [MeshTopology.TORUS, torusCurve(3, 1), 0, true],
+                [MeshTopology.DISK, diskCurve(), 1, false],
+                [MeshTopology.SPHERE, sphereCurve(2), 2, true]
+            ];
+            for (const [topology, curve, euler, closed] of cases) {
+                const storage = makeStorage(topology, numRows, numCols);
+                new RevolutionMesh(storage.description, curve);
+                const info = weldedTopology(storage, topology);
+                expect(info.euler).toBe(euler);
+                expect(info.closed).toBe(closed);
+            }
+        });
+    });
+
+    it('produces texture coordinates in the unit square', () => {
+        // The DISK case is excluded: upstream places the ring coordinates at
+        // radius*(cos,sin) without adding the (0.5,0.5) origin it declares, so
+        // they run over [-0.5,0.5]^2. See the dedicated test below.
+        check(smallGrid, ([numRows, numCols]) => {
+            for (const [topology, curve] of [
+                [MeshTopology.CYLINDER, cylinderCurve(2)],
+                [MeshTopology.TORUS, torusCurve(3, 1)],
+                [MeshTopology.SPHERE, sphereCurve(2)]
+            ] as Array<[MeshTopology, ParametricCurve]>) {
+                const storage = makeStorage(topology, numRows, numCols, true);
+                const d = storage.description;
+                new RevolutionMesh(d, curve);
+                const tc = storage.tcoords as Float64Array;
+                for (let i = 0; i < d.numVertices; ++i) {
+                    expect(tc[2 * i]).toBeGreaterThanOrEqual(0);
+                    expect(tc[2 * i]).toBeLessThanOrEqual(1);
+                    expect(tc[2 * i + 1]).toBeGreaterThanOrEqual(0);
+                    expect(tc[2 * i + 1]).toBeLessThanOrEqual(1);
+                }
+                if (topology === MeshTopology.CYLINDER
+                    || topology === MeshTopology.TORUS) {
+                    const stride = d.cMax + 1;
+                    const rows = topology === MeshTopology.TORUS
+                        ? d.numRows : d.numRows - 1;
+                    for (let r = 0; r <= d.rMax; ++r) {
+                        for (let c = 0; c <= d.cMax; ++c) {
+                            expect(tc[2 * (r * stride + c)]).toBe(c / d.numCols);
+                            expect(tc[2 * (r * stride + c) + 1]).toBe(r / rows);
+                        }
+                    }
+                }
+            }
+        });
+    });
+
+    it('reproduces the positions when update() is called again', () => {
+        check(fc.tuple(smallGrid, positive(4, 0.25)),
+            ([[numRows, numCols], R]) => {
+                const storage = makeStorage(MeshTopology.CYLINDER, numRows, numCols);
+                const mesh = new RevolutionMesh(storage.description,
+                    cylinderCurve(R));
+                const before = Array.from(storage.positions);
+                storage.positions.fill(0);
+                mesh.update();
+                expect(Array.from(storage.positions)).toEqual(before);
+            });
+    });
+
+    it('samples uniformly in t and, on request, uniformly in arc length', () => {
+        // For the cylinder curve (R, t) the arc length is t, so the two
+        // samplers agree; for the torus curve they differ but both must be
+        // uniform in their own parameter.
+        check(fc.tuple(smallGrid, positive(4, 0.25)),
+            ([[numRows, numCols], R]) => {
+                const storage = makeStorage(MeshTopology.CYLINDER, numRows, numCols);
+                const d = storage.description;
+                new RevolutionMesh(d, cylinderCurve(R), true);
+                const stride = d.cMax + 1;
+                const step = 1 / d.rMax;
+                for (let r = 0; r <= d.rMax; ++r) {
+                    expectClose(P(storage, r * stride)[2], r * step, 1e-9, 1e-9);
+                }
+            });
+    });
+
+    it('centers the disk texture coordinates on (0,0) but the hub on (0.5,0.5) (upstream quirk)', () => {
+        // Upstream declares 'Vector2<Real> origin{0.5, 0.5}' and then writes
+        // the ring coordinates as radius*(cos,sin) without adding it, using
+        // 'origin' only for the final hub vertex. The ring therefore lives in
+        // [-0.5,0.5]^2 while the hub sits at a corner of that square. The port
+        // preserves the behavior.
+        check(smallGrid, ([numRows, numCols]) => {
+            const storage = makeStorage(MeshTopology.DISK, numRows, numCols, true);
+            const d = storage.description;
+            new RevolutionMesh(d, diskCurve());
+            const tc = storage.tcoords as Float64Array;
+            const stride = d.cMax + 1;
+            for (let r = 0; r <= d.rMax; ++r) {
+                const radius = Math.min((r + 1) / (2 * d.numRows), 0.5);
+                for (let c = 0; c <= d.cMax; ++c) {
+                    const angle = GTE_C_TWO_PI * c / d.numCols;
+                    const i = r * stride + c;
+                    expect(tc[2 * i]).toBe(radius * Math.cos(angle));
+                    expect(tc[2 * i + 1]).toBe(radius * Math.sin(angle));
+                }
+            }
+            // The hub is the only coordinate that uses the declared origin.
+            const hub = d.numVertices - 1;
+            expect(tc[2 * hub]).toBe(0.5);
+            expect(tc[2 * hub + 1]).toBe(0.5);
+        });
+    });
+
+    it('emits NaN sphere texture coordinates for a single-row sphere (upstream quirk)', () => {
+        // MeshDescription clamps a SPHERE to numRows >= 1, but
+        // InitializeTCoords divides the row index by numRows - 1, so a
+        // one-row sphere divides 0 by 0. The port reproduces it.
+        check(fc.integer({ min: 3, max: 8 }), numCols => {
+            const storage = makeStorage(MeshTopology.SPHERE, 1, numCols, true);
+            const d = storage.description;
+            expect(d.numRows).toBe(1);
+            new RevolutionMesh(d, sphereCurve(1));
+            const tc = storage.tcoords as Float64Array;
+            for (let c = 0; c <= d.cMax; ++c) {
+                expect(Number.isNaN(tc[2 * c + 1])).toBe(true);
+            }
+            // The two pole coordinates are written after the loop and are
+            // finite.
+            expect(tc[2 * (d.numVertices - 2) + 1]).toBe(0);
+            expect(tc[2 * (d.numVertices - 1) + 1]).toBe(1);
+        });
     });
 });
