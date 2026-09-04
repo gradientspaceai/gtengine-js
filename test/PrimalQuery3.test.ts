@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { PrimalQuery3 } from '../src/PrimalQuery3.js';
 import { Vector } from '../src/Vector.js';
 import { check, fc } from './helpers/arbitraries.js';
+import { inSphere3, orient3 } from './helpers/exact.js';
 
 const v3 = (x: number, y: number, z: number): Vector => Vector.fromArray([x, y, z]);
 
@@ -288,50 +289,24 @@ function solve3x3(rows: number[][]): number[] | null {
 // inside 2^53, so every double evaluation is exact and the reported signs must
 // equal an exact BigInt evaluation of the corresponding predicate.
 //
-// The BigInt references are the textbook orient3d / insphere determinants,
-// derived independently of the port's term ordering.
+// The references are the exact bigint predicates of test/helpers/exact.ts
+// (orient3 and inSphere3), derived independently of the port's term ordering.
 // ---------------------------------------------------------------------------
-
-type IPoint3 = { x: bigint, y: bigint, z: bigint };
-
-const toI3 = (p: Vector): IPoint3 =>
-    ({ x: BigInt(p.values[0]), y: BigInt(p.values[1]), z: BigInt(p.values[2]) });
-
-const bigSign3 = (value: bigint): number => (value > 0n ? +1 : (value < 0n ? -1 : 0));
 
 // Negation that keeps 0 as +0, so toBe() (Object.is) does not see -0.
 const negateSign3 = (s: number): number => (s === 0 ? 0 : -s);
 
-// orient3d(a,b,c,d) = Dot(d - a, Cross(b - a, c - a)), exact.
-function orient3d(a: IPoint3, b: IPoint3, c: IPoint3, d: IPoint3): bigint {
-    const ux = b.x - a.x, uy = b.y - a.y, uz = b.z - a.z;
-    const vx = c.x - a.x, vy = c.y - a.y, vz = c.z - a.z;
-    const wx = d.x - a.x, wy = d.y - a.y, wz = d.z - a.z;
-    return wx * (uy * vz - uz * vy) - wy * (ux * vz - uz * vx)
-        + wz * (ux * vy - uy * vx);
-}
+// Exact integer coordinates of a point with small integer components.
+const toI3 = (p: Vector): bigint[] => p.values.map(v => BigInt(v));
 
-// The 4x4 in-sphere determinant with rows (v - p, |v - p|^2), exact.
-function insphere(v0: IPoint3, v1: IPoint3, v2: IPoint3, v3: IPoint3,
-    p: IPoint3): bigint {
-    const rows = [v0, v1, v2, v3].map(v => {
-        const x = v.x - p.x, y = v.y - p.y, z = v.z - p.z;
-        return [x, y, z, x * x + y * y + z * z];
-    });
-    const minor = (r0: bigint[], r1: bigint[], r2: bigint[], skip: number): bigint => {
-        const cols = [0, 1, 2, 3].filter(c => c !== skip);
-        const [a, b, c] = cols;
-        return r0[a] * (r1[b] * r2[c] - r1[c] * r2[b])
-            - r0[b] * (r1[a] * r2[c] - r1[c] * r2[a])
-            + r0[c] * (r1[a] * r2[b] - r1[b] * r2[a]);
-    };
-    let det = 0n;
-    for (let c = 0; c < 4; ++c) {
-        const sign = (c % 2 === 0) ? 1n : -1n;
-        det += sign * rows[0][c] * minor(rows[1], rows[2], rows[3], c);
-    }
-    return det;
-}
+// The exact predicates of test/helpers/exact.ts: orient(a,b,c,d) is the sign
+// of det[b - a, c - a, d - a] and inSphere(a,b,c,d,e) is -1 when e is inside
+// the circumsphere of the positively oriented tetrahedron <a,b,c,d>.
+const orient = (a: Vector, b: Vector, c: Vector, d: Vector): number =>
+    orient3(toI3(a), toI3(b), toI3(c), toI3(d));
+
+const inSphere = (a: Vector, b: Vector, c: Vector, d: Vector, e: Vector): number =>
+    inSphere3(toI3(a), toI3(b), toI3(c), toI3(d), toI3(e));
 
 const ipoint3 = fc.tuple(fc.integer({ min: -40, max: 40 }),
     fc.integer({ min: -40, max: 40 }), fc.integer({ min: -40, max: 40 }))
@@ -361,7 +336,7 @@ describe('PrimalQuery3 verification', () => {
     it('toPlane returns the exact sign of orient3d(V0,V1,V2,P)', () => {
         check(fc.tuple(ipoint3, ipoint3, ipoint3, ipoint3), ([P, A, B, C]) => {
             const query = new PrimalQuery3(4, [P, A, B, C]);
-            const expected = bigSign3(orient3d(toI3(A), toI3(B), toI3(C), toI3(P)));
+            const expected = orient(A, B, C, P);
             expect(query.toPlane(P, 1, 2, 3)).toBe(expected);
             expect(query.toPlane(0, 1, 2, 3)).toBe(expected);
             // Swapping two plane vertices reverses the normal.
@@ -375,28 +350,25 @@ describe('PrimalQuery3 verification', () => {
     it('toPlane is exact on coplanar and degenerate configurations', () => {
         check(degenerateQuad, ([A, B, C, P]) => {
             const query = new PrimalQuery3(4, [P, A, B, C]);
-            expect(query.toPlane(0, 1, 2, 3))
-                .toBe(bigSign3(orient3d(toI3(A), toI3(B), toI3(C), toI3(P))));
+            expect(query.toPlane(0, 1, 2, 3)).toBe(orient(A, B, C, P));
         });
     });
 
     it('toTetrahedron matches the exact barycentric sign classification', () => {
         check(fc.tuple(ipoint3, ipoint3, ipoint3, ipoint3, ipoint3),
             ([P, A, B, C, D]) => {
-                const [a, b, c, d, p] = [A, B, C, D, P].map(toI3);
-                const volume = orient3d(a, b, c, d);
-                // The query's vertex order (TetrahedronKey) puts the interior
-                // on the positive side of plane <V0,V1,V2>, i.e. orient3d of
-                // the four vertices is positive.
-                if (volume <= 0n) { return; }
+                // The query's vertex order (TetrahedronKey) puts the
+                // interior on the positive side of plane <V0,V1,V2>, i.e. the
+                // orientation of the four vertices is positive.
+                if (orient(A, B, C, D) <= 0) { return; }
                 const lambda = [
-                    orient3d(p, b, c, d),
-                    orient3d(a, p, c, d),
-                    orient3d(a, b, p, d),
-                    orient3d(a, b, c, p)
+                    orient(P, B, C, D),
+                    orient(A, P, C, D),
+                    orient(A, B, P, D),
+                    orient(A, B, C, P)
                 ];
-                const expected = lambda.some(l => l < 0n) ? +1
-                    : lambda.every(l => l > 0n) ? -1 : 0;
+                const expected = lambda.some(l => l < 0) ? +1
+                    : lambda.every(l => l > 0) ? -1 : 0;
                 const query = new PrimalQuery3(5, [P, A, B, C, D]);
                 expect(query.toTetrahedron(0, 1, 2, 3, 4)).toBe(expected);
                 expect(query.toTetrahedron(P, 1, 2, 3, 4)).toBe(expected);
@@ -406,17 +378,14 @@ describe('PrimalQuery3 verification', () => {
     it('toCircumsphere matches the exact in-sphere determinant', () => {
         check(fc.tuple(ipoint3, ipoint3, ipoint3, ipoint3, ipoint3),
             ([P, A, B, C, D]) => {
-                const [a, b, c, d, p] = [A, B, C, D, P].map(toI3);
-                const volume = orient3d(a, b, c, d);
                 // The query documents the TetrahedronKey vertex order, whose
                 // orientation is positive (the fourth vertex is on the
                 // positive side of the plane of the first three).
-                if (volume <= 0n) { return; }
-                const det = insphere(a, b, c, d, p);
-                // With that ordering the determinant is negative inside the
-                // circumsphere, positive outside and zero on it, which is
-                // exactly the value the query returns.
-                const expected = bigSign3(det);
+                if (orient(A, B, C, D) <= 0) { return; }
+                // With that ordering the in-sphere determinant is negative
+                // inside the circumsphere, positive outside and zero on it,
+                // which is exactly the value the query returns.
+                const expected = inSphere(A, B, C, D, P);
                 const query = new PrimalQuery3(5, [P, A, B, C, D]);
                 expect(query.toCircumsphere(0, 1, 2, 3, 4)).toBe(expected);
                 expect(query.toCircumsphere(P, 1, 2, 3, 4)).toBe(expected);
