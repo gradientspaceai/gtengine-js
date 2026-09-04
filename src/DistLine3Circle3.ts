@@ -246,9 +246,45 @@ function pdfSection422(line: Line3, circle: Circle3, D: Vector, NxM: Vector,
     const a3 = dot(NxE, NxE);       // a3 >= 0
     let tau: number;
 
+    // Upstream bug (fixed here): when a3 = |NxE|^2 is exactly zero, the new
+    // line origin E lies on the normal line through the circle center, that
+    // is, the line meets that normal line. Upstream then computes
+    // tauHat = 0 and gTauHat = a1*0/sqrt(0) = 0/0 = NaN, so 'intercept' is
+    // NaN, both of the interval tests below are false and the code falls into
+    // the three-critical-point branch. For a0 != 0 that branch calls Bisect
+    // with tauMin > tauMax and RootsBisection1 raises "Invalid ordering of
+    // t-interval endpoints". A line crossing the circle axis away from the
+    // center and not parallel to the plane of the circle triggers it; for
+    // example, the unit circle in the z = 0 plane centered at the origin and
+    // the line (1,0,6) + t*(1,0,1), which meets the axis at (0,0,5).
+    //
+    // With a3 = 0 the equation Phi(tau) = 0 is piecewise linear,
+    //   Phi(tau) = tau + a0 - sign(tau) * a1 / sqrt(a2),
+    // whose roots are tau = -a0 +/- a1/sqrt(a2). Adding s and using
+    // a1/sqrt(a2) = r*|NxM|/Dot(M,M) and s - Dot(M,E)/Dot(M,M) =
+    // -Dot(M,D)/Dot(M,M) turns them into
+    //   (-Dot(M,D) -/+ r*|NxM|) / Dot(M,M),
+    // which is exactly what PDFSection421 computes for a line origin on the
+    // normal line. (Upstream's own a0 = 0 sub-branch below already agrees
+    // with that formula, so this only extends the same treatment to a0 != 0.)
+    if (a3 === 0) {
+        pdfSection421(line, circle, D, NxM, result, critical);
+        return;
+    }
+
     if (a1 > Math.sqrt(a3)) {
         // G'(0) > 1; Math.abs guards against numerical rounding errors
         // causing the argument of Math.sqrt to be negative.
+        //
+        // Upstream bug (fixed here; gtengine-js issue #247): tauHat solves
+        // G'(tau) = 1, that is a1*a3 / (a2*tau^2 + a3)^{3/2} = 1, so
+        // tau^2 = ((a1*a3)^{2/3} - a3) / a2. Upstream omits the division by
+        // a2, making tauHat a factor sqrt(a2) too large. tauHat is a
+        // bisection bracket endpoint in the three-critical-point branch
+        // below, so for a2 > 1 the bracket no longer contains the intended
+        // root and the query converges to the wrong critical point. a2 =
+        // |NxM|^2 exceeds 1 only when the line direction is long, which is
+        // how the segment-circle query calls this file (M = P1 - P0).
         const twoThirds = 2 / 3;
         const tauHat = Math.sqrt(
             Math.abs(Math.pow(a1 * a3, twoThirds) - a3) / a2);
