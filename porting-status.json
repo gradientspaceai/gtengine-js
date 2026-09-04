@@ -37,26 +37,32 @@
   "verified": 3
  },
  "ApprCone3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 4
  },
  "ApprCone3EllipseAndPoints.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 4
  },
  "ApprCurveByArcs.h": {
   "status": "ported",
   "verified": 3
  },
  "ApprCylinder3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 4
  },
  "ApprEllipse2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 4
  },
  "ApprEllipseByArcs.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 4
  },
  "ApprEllipsoid3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 4
  },
  "ApprGaussian2.h": {
   "status": "ported",
@@ -67,7 +73,8 @@
   "verified": 3
  },
  "ApprGreatCircle3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 4
  },
  "ApprHeightLine2.h": {
   "status": "ported",
@@ -90,10 +97,12 @@
   "verified": 3
  },
  "ApprParabola2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 4
  },
  "ApprParaboloid3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 4
  },
  "ApprParallelLines2.h": {
   "status": "ported",
@@ -140,7 +149,8 @@
   "verified": 3
  },
  "ApprTorus3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 4
  },
  "ArbitraryPrecision.h": {
   "status": "ported"
