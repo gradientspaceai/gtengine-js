@@ -9,6 +9,9 @@ import { Line } from '../src/Line.js';
 import { projectEllipsoid3 } from '../src/Projection.js';
 import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector.js';
 import { cross } from '../src/Vector3.js';
+import {
+    check, expectClose, fc, rotationFrame, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -217,5 +220,139 @@ describe('ContEllipsoid3', () => {
             expect(() => mergeContainersEllipsoid3(new Hyperellipsoid(3),
                 new Hyperellipsoid(2))).toThrow();
         });
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (VERIFYING.md): property-based cross-checks of the port
+// against the upstream ContEllipsoid3.h semantics.
+// ---------------------------------------------------------------------------
+
+describe('ContEllipsoid3 verification', () => {
+    // Anisotropic lattice cloud so the fitted frame is unambiguous (the three
+    // principal variances are about 4, 0.7 and 0.07).
+    const baseGrid: Vector[] = [];
+    for (let i = -3; i <= 3; ++i) {
+        for (let j = -1; j <= 1; ++j) {
+            for (let k = -1; k <= 1; ++k) {
+                baseGrid.push(v3(i, j, 0.3 * k));
+            }
+        }
+    }
+
+    const quadratic = (ellipsoid: Ellipsoid3, p: Vector): number => {
+        const diff = sub(p, ellipsoid.center);
+        let sum = 0;
+        for (let j = 0; j < 3; ++j) {
+            const s = dot(diff, ellipsoid.axis[j]) / ellipsoid.extent.values[j];
+            sum += s * s;
+        }
+        return sum;
+    };
+
+    it('contains every input point and is tight on one of them', () => {
+        check(fc.array(wellScaledVector(3, -6, 6), { minLength: 3, maxLength: 12 }),
+            (points: Vector[]) => {
+                const ellipsoid = getContainerEllipsoid3(points);
+                if (ellipsoid === null || !ellipsoid.extent.values.every(
+                    e => Number.isFinite(e) && e > 0)) {
+                    // Coplanar or collinear input: upstream's zero eigenvalue
+                    // gives an infinite extent (issue #292).
+                    return;
+                }
+                let maxQ = 0;
+                for (const p of points) {
+                    expect(inContainerEllipsoid3(p, ellipsoid)).toBe(true);
+                    maxQ = Math.max(maxQ, quadratic(ellipsoid, p));
+                }
+                expectClose(maxQ, 1, 1e-9, 1e-9);
+            });
+    });
+
+    it('is equivariant under rigid motions', () => {
+        const reference = getContainerEllipsoid3(baseGrid)!;
+        check(fc.tuple(rotationFrame(3), wellScaledVector(3)),
+            ([frame, t]: [Vector[], Vector]) => {
+                const xform = (p: Vector): Vector =>
+                    add(add(add(mul(p.get(0), frame[0]), mul(p.get(1), frame[1])),
+                        mul(p.get(2), frame[2])), t);
+                const moved = getContainerEllipsoid3(baseGrid.map(xform))!;
+                const want = [0, 1, 2].map(k => reference.extent.get(k))
+                    .sort((a, b) => a - b);
+                const got = [0, 1, 2].map(k => moved.extent.get(k))
+                    .sort((a, b) => a - b);
+                for (let k = 0; k < 3; ++k) {
+                    expectClose(got[k], want[k], 1e-8, 1e-8);
+                }
+                expect(length(sub(moved.center, xform(reference.center))))
+                    .toBeLessThanOrEqual(1e-8);
+            });
+    });
+
+    // Upstream issue #292 item 1, the 3D case: coplanar input gives a zero
+    // eigenvalue, an infinite extent, and an InContainer that accepts
+    // everything. Preserved; pinned.
+    it('coplanar input yields an infinite extent that accepts everything (#292)',
+        () => {
+            const points: Vector[] = [];
+            for (let i = -2; i <= 2; ++i) {
+                for (let j = -2; j <= 2; ++j) {
+                    points.push(v3(i, j, 0));
+                }
+            }
+            const ellipsoid = getContainerEllipsoid3(points)!;
+            expect([0, 1, 2].some(k => !Number.isFinite(ellipsoid.extent.get(k))))
+                .toBe(true);
+            expect(inContainerEllipsoid3(v3(0, 0, 1e6), ellipsoid)).toBe(true);
+        });
+
+    // Upstream issue #292 item 2, the 3D case: the merged ellipsoid is
+    // inscribed in the box of the projected intervals, so it does not contain
+    // its inputs. Two unit spheres one unit either side of the origin.
+    it('merge does not contain its inputs (#292)', () => {
+        const unit = (cx: number): Ellipsoid3 =>
+            Hyperellipsoid.fromCenterAxisExtent(v3(cx, 0, 0),
+                [v3(1, 0, 0), v3(0, 1, 0), v3(0, 0, 1)], v3(1, 1, 1));
+        const merge = mergeContainersEllipsoid3(unit(-1), unit(1));
+        expectClose(merge.extent.get(0), 2, 1e-9, 1e-9);
+        expectClose(merge.extent.get(1), 1, 1e-9, 1e-9);
+        expectClose(merge.extent.get(2), 1, 1e-9, 1e-9);
+        expect(inContainerEllipsoid3(v3(-1, 1, 0), unit(-1))).toBe(true);
+        expect(inContainerEllipsoid3(v3(-1, 1, 0), merge)).toBe(false);
+    });
+
+    // What the merge does guarantee: its extents span the projected intervals
+    // of both inputs along the merged axes, and the merged axes are
+    // orthonormal.
+    it('merge spans the projection intervals of both inputs', () => {
+        const ellipsoidArb = fc.tuple(wellScaledVector(3, -5, 5),
+            rotationFrame(3),
+            fc.double({ min: 0.2, max: 3, noNaN: true }),
+            fc.double({ min: 0.2, max: 3, noNaN: true }),
+            fc.double({ min: 0.2, max: 3, noNaN: true }))
+            .map(([c, frame, e0, e1, e2]) =>
+                Hyperellipsoid.fromCenterAxisExtent(c, frame,
+                    Vector.fromArray([e0, e1, e2])));
+        check(fc.tuple(ellipsoidArb, ellipsoidArb),
+            ([e0, e1]: [Ellipsoid3, Ellipsoid3]) => {
+                const merge = mergeContainersEllipsoid3(e0, e1);
+                for (let a = 0; a < 3; ++a) {
+                    for (let b = a; b < 3; ++b) {
+                        expectClose(dot(merge.axis[a], merge.axis[b]),
+                            a === b ? 1 : 0, 1e-9, 1e-9);
+                    }
+                }
+                for (let j = 0; j < 3; ++j) {
+                    const line = Line.fromOriginDirection(merge.center,
+                        merge.axis[j]);
+                    const p0 = projectEllipsoid3(e0, line);
+                    const p1 = projectEllipsoid3(e1, line);
+                    const lo = Math.min(p0.smin, p1.smin);
+                    const hi = Math.max(p0.smax, p1.smax);
+                    expectClose(lo + hi, 0, 1e-7, 1e-7);
+                    expectClose(merge.extent.get(j), 0.5 * (hi - lo),
+                        1e-7, 1e-7);
+                }
+            });
     });
 });

@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { inContainerTetrahedron3 } from '../src/ContTetrahedron3.js';
 import { Tetrahedron3 } from '../src/Tetrahedron3.js';
 import { Vector, add, mul } from '../src/Vector.js';
+import { check, fc, latticeVector } from './helpers/arbitraries.js';
+import { exactDyadic, orient3 } from './helpers/exact.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -147,4 +149,123 @@ describe('ContTetrahedron3', () => {
             expect(checks).toBeGreaterThan(500);
             expect(insideCount).toBeGreaterThan(0);
         });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (VERIFYING.md): property-based cross-checks of the port
+// against the upstream ContTetrahedron3.h semantics.
+// ---------------------------------------------------------------------------
+
+describe('ContTetrahedron3 verification', () => {
+    // Lattice tetrahedra and lattice query points, so the four triple scalar
+    // products can be evaluated exactly with bigint arithmetic.
+    const latticeTetra = fc.tuple(latticeVector(3, -5, 5), latticeVector(3, -5, 5),
+        latticeVector(3, -5, 5), latticeVector(3, -5, 5))
+        .map(vs => Tetrahedron3.fromArray(vs));
+
+    // Exact sign of DotCross(b - a, c - a, p - a) via the bigint orient3
+    // predicate: det[b-a, c-a, p-a] is exactly that triple scalar product.
+    const exactSign = (a: Vector, b: Vector, c: Vector, p: Vector): number => {
+        const scaled = exactDyadic([...a.values, ...b.values, ...c.values,
+            ...p.values]);
+        return orient3(scaled.slice(0, 3), scaled.slice(3, 6),
+            scaled.slice(6, 9), scaled.slice(9, 12));
+    };
+
+    // Upstream evaluates DotCross(edge20, edge10, diffP0) for face <0,2,1>,
+    // which is det[v2-v0, v1-v0, p-v0], and rejects when it is positive; the
+    // other three faces are analogous. Cross-check every branch against the
+    // exact predicate.
+    it('agrees with the exact triple-scalar-product signs', () => {
+        check(fc.tuple(latticeTetra, latticeVector(3, -7, 7)),
+            ([tetra, p]: [Tetrahedron3, Vector]) => {
+                const t = tetra.v;
+                const signs = [
+                    exactSign(t[0], t[2], t[1], p),
+                    exactSign(t[0], t[1], t[3], p),
+                    exactSign(t[0], t[3], t[2], p),
+                    exactSign(t[1], t[2], t[3], p)
+                ];
+                const expected = signs.every(s => s <= 0);
+                expect(inContainerTetrahedron3(p, tetra)).toBe(expected);
+            });
+    });
+
+    // The query is short-circuited face by face; confirm that the result does
+    // not depend on which face rejects first by testing every cyclic
+    // relabelling of the vertices that preserves the orientation. The four
+    // triple products are the same set for each relabelling.
+    it('is invariant under orientation-preserving relabellings', () => {
+        check(fc.tuple(latticeTetra, latticeVector(3, -7, 7)),
+            ([tetra, p]: [Tetrahedron3, Vector]) => {
+                const t = tetra.v;
+                const base = inContainerTetrahedron3(p, tetra);
+                // Even permutations of (0,1,2,3) preserve orientation.
+                const even = [[1, 2, 0, 3], [2, 0, 1, 3], [0, 3, 1, 2],
+                    [3, 1, 0, 2], [1, 0, 3, 2], [2, 1, 3, 0]];
+                for (const perm of even) {
+                    const relabelled = Tetrahedron3.fromArray(
+                        perm.map(i => t[i]));
+                    expect(inContainerTetrahedron3(p, relabelled)).toBe(base);
+                }
+            });
+    });
+
+    // Reversing the orientation of the tetrahedron (an odd permutation) flips
+    // every triple product, so only points on the boundary of a degenerate
+    // tetrahedron can be contained by both orderings.
+    it('an orientation reversal only keeps boundary points', () => {
+        check(fc.tuple(latticeTetra, latticeVector(3, -7, 7)),
+            ([tetra, p]: [Tetrahedron3, Vector]) => {
+                const t = tetra.v;
+                const flipped = Tetrahedron3.fromArray(
+                    [t[1], t[0], t[2], t[3]]);
+                if (inContainerTetrahedron3(p, tetra)
+                    && inContainerTetrahedron3(p, flipped)) {
+                    // Every triple product is zero, so p is on all four face
+                    // planes.
+                    expect(exactSign(t[0], t[2], t[1], p)).toBe(0);
+                    expect(exactSign(t[0], t[1], t[3], p)).toBe(0);
+                    expect(exactSign(t[0], t[3], t[2], p)).toBe(0);
+                    expect(exactSign(t[1], t[2], t[3], p)).toBe(0);
+                }
+            });
+    });
+
+    // Convexity: if two lattice points are contained, so is their midpoint.
+    it('is convex (midpoints of contained points are contained)', () => {
+        check(fc.tuple(latticeTetra, latticeVector(3, -7, 7),
+            latticeVector(3, -7, 7)),
+            ([tetra, p, q]: [Tetrahedron3, Vector, Vector]) => {
+                if (!inContainerTetrahedron3(p, tetra)
+                    || !inContainerTetrahedron3(q, tetra)) {
+                    return;
+                }
+                const mid = mul(0.5, add(p, q));
+                expect(inContainerTetrahedron3(mid, tetra)).toBe(true);
+            });
+    });
+
+    // The vertices and the centroid are contained, provided the tetrahedron
+    // has the vertex ordering the upstream query assumes, which is
+    // det[v1-v0, v2-v0, v3-v0] > 0 (the face <0,2,1> test is the negation of
+    // that determinant).
+    it('contains its own vertices and centroid', () => {
+        check(latticeTetra.filter(tetra => {
+            const t = tetra.v;
+            const scaled = exactDyadic([...t[0].values, ...t[1].values,
+                ...t[2].values, ...t[3].values]);
+            return orient3(scaled.slice(0, 3), scaled.slice(3, 6),
+                scaled.slice(6, 9), scaled.slice(9, 12)) > 0;
+        }), (tetra: Tetrahedron3) => {
+            for (const vertex of tetra.v) {
+                expect(inContainerTetrahedron3(vertex.clone(), tetra))
+                    .toBe(true);
+            }
+            let centroid = new Vector(3);
+            for (const vertex of tetra.v) { centroid = add(centroid, vertex); }
+            expect(inContainerTetrahedron3(mul(0.25, centroid), tetra))
+                .toBe(true);
+        });
+    });
 });

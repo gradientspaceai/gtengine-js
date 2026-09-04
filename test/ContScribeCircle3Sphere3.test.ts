@@ -7,6 +7,10 @@ import {
 } from '../src/ContScribeCircle3Sphere3.js';
 import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
 import { cross } from '../src/Vector3.js';
+import {
+    check, expectClose, fc, latticeVector, rotationFrame, wellScaledVector
+} from './helpers/arbitraries.js';
+import { exactDyadic, orient3 } from './helpers/exact.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -191,5 +195,142 @@ describe('ContScribeCircle3Sphere3', () => {
 
         expect(triangles).toBeGreaterThan(100);
         expect(tetrahedra).toBeGreaterThan(100);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (VERIFYING.md): property-based cross-checks of the port
+// against the upstream ContScribeCircle3Sphere3.h semantics.
+// ---------------------------------------------------------------------------
+
+describe('ContScribeCircle3Sphere3 verification', () => {
+    // Lattice triangles whose exact cross product is comfortably nonzero.
+    const triangle3 = fc.tuple(latticeVector(3, -5, 5), latticeVector(3, -5, 5),
+        latticeVector(3, -5, 5))
+        .filter(([a, b, c]) => length(cross(sub(b, a), sub(c, a))) >= 2);
+
+    // Lattice tetrahedra with an exactly nonzero volume.
+    const tetra3 = fc.tuple(latticeVector(3, -5, 5), latticeVector(3, -5, 5),
+        latticeVector(3, -5, 5), latticeVector(3, -5, 5))
+        .filter(([a, b, c, d]) => {
+            const scaled = exactDyadic([...a.values, ...b.values, ...c.values,
+                ...d.values]);
+            return orient3(scaled.slice(0, 3), scaled.slice(3, 6),
+                scaled.slice(6, 9), scaled.slice(9, 12)) !== 0;
+        });
+
+    const pointLineDistance = (p: Vector, a: Vector, b: Vector): number => {
+        const e = sub(b, a);
+        return length(cross(e, sub(p, a))) / length(e);
+    };
+
+    it('the circumcircle passes through all three vertices and lies in their plane',
+        () => {
+            check(triangle3, ([a, b, c]: Vector[]) => {
+                const circle = circumscribeCircle3(a, b, c)!;
+                expect(circle).not.toBeNull();
+                for (const p of [a, b, c]) {
+                    expectClose(length(sub(p, circle.center)), circle.radius,
+                        1e-9, 1e-9);
+                }
+                // The normal is unit length and orthogonal to the triangle.
+                expectClose(length(circle.normal), 1, 1e-9, 1e-9);
+                expectClose(dot(circle.normal, sub(b, a)), 0, 1e-9, 1e-9);
+                expectClose(dot(circle.normal, sub(c, a)), 0, 1e-9, 1e-9);
+                // The center is in the plane of the triangle.
+                expectClose(dot(circle.normal, sub(circle.center, a)), 0,
+                    1e-9, 1e-9);
+            });
+        });
+
+    it('the circumsphere passes through all four vertices', () => {
+        check(tetra3, ([a, b, c, d]: Vector[]) => {
+            const sphere = circumscribeSphere3(a, b, c, d)!;
+            expect(sphere).not.toBeNull();
+            for (const p of [a, b, c, d]) {
+                expectClose(length(sub(p, sphere.center)), sphere.radius,
+                    1e-9, 1e-8);
+            }
+        });
+    });
+
+    it('the incircle is tangent to all three edges and lies in their plane',
+        () => {
+            check(triangle3, ([a, b, c]: Vector[]) => {
+                const circle = inscribeCircle3(a, b, c)!;
+                expect(circle).not.toBeNull();
+                expectClose(length(circle.normal), 1, 1e-9, 1e-9);
+                for (const [p, q] of [[a, b], [b, c], [c, a]] as const) {
+                    expectClose(pointLineDistance(circle.center, p, q),
+                        circle.radius, 1e-9, 1e-9);
+                }
+                expectClose(dot(circle.normal, sub(circle.center, a)), 0,
+                    1e-9, 1e-9);
+            });
+        });
+
+    it('the insphere is tangent to all four faces', () => {
+        check(tetra3, ([a, b, c, d]: Vector[]) => {
+            const sphere = inscribeSphere3(a, b, c, d);
+            if (sphere === null) {
+                return;
+            }
+            const faces = [[a, b, c], [a, b, d], [a, c, d], [b, c, d]];
+            for (const [p, q, r] of faces) {
+                const n = cross(sub(q, p), sub(r, p));
+                const len = length(n);
+                const distance = Math.abs(dot(n, sub(sphere.center, p))) / len;
+                expectClose(distance, sphere.radius, 1e-9, 1e-8);
+            }
+            // The center is strictly inside, so it is on the same side of
+            // every face as the opposite vertex.
+            const opposite = [d, c, b, a];
+            for (let f = 0; f < 4; ++f) {
+                const [p, q, r] = faces[f];
+                const n = cross(sub(q, p), sub(r, p));
+                const s1 = dot(n, sub(sphere.center, p));
+                const s2 = dot(n, sub(opposite[f], p));
+                expect(s1 * s2).toBeGreaterThan(0);
+            }
+        });
+    });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(triangle3, rotationFrame(3), wellScaledVector(3)),
+            ([[a, b, c], frame, t]: [Vector[], Vector[], Vector]) => {
+                const rotate = (p: Vector): Vector =>
+                    add(add(mul(p.get(0), frame[0]), mul(p.get(1), frame[1])),
+                        mul(p.get(2), frame[2]));
+                const xform = (p: Vector): Vector => add(rotate(p), t);
+                for (const f of [circumscribeCircle3, inscribeCircle3]) {
+                    const c0 = f(a, b, c)!;
+                    const c1 = f(xform(a), xform(b), xform(c))!;
+                    expectClose(c1.radius, c0.radius, 1e-9, 1e-8);
+                    expect(length(sub(c1.center, xform(c0.center))))
+                        .toBeLessThanOrEqual(1e-8 * (1 + c0.radius));
+                    // The normal follows the rotation up to sign.
+                    const want = rotate(c0.normal);
+                    expect(Math.min(length(sub(c1.normal, want)),
+                        length(add(c1.normal, want)))).toBeLessThanOrEqual(1e-8);
+                }
+            });
+    });
+
+    // Degenerate inputs: collinear triples and coplanar quadruples.
+    it('returns null for collinear triples and coplanar quadruples', () => {
+        check(fc.tuple(latticeVector(3, -5, 5), latticeVector(3, -5, 5),
+            fc.integer({ min: -4, max: 4 }), fc.integer({ min: -4, max: 4 })),
+            ([a, d, s, t]: [Vector, Vector, number, number]) => {
+                if (length(d) === 0) {
+                    return;
+                }
+                const b = add(a, mul(s, d));
+                const c = add(a, mul(t, d));
+                expect(circumscribeCircle3(a, b, c)).toBeNull();
+                expect(inscribeCircle3(a, b, c)).toBeNull();
+                // A fourth point in the same line is certainly coplanar.
+                expect(circumscribeSphere3(a, b, c, add(a, mul(2, d))))
+                    .toBeNull();
+            });
     });
 });
