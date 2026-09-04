@@ -310,7 +310,8 @@
   "verified": 15
  },
  "ConstrainedDelaunay2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 11
  },
  "ContAlignedBox.h": {
   "status": "ported"
@@ -378,7 +379,8 @@
   "verified": 9
  },
  "ConvexHull3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 11
  },
  "ConvexHullSimplePolygon.h": {
   "status": "ported",
@@ -429,14 +431,16 @@
   "verified": 9
  },
  "Delaunay2Mesh.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 11
  },
  "Delaunay3.h": {
   "status": "ported",
   "verified": 9
  },
  "Delaunay3Mesh.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 11
  },
  "DisjointIntervals.h": {
   "status": "ported",
@@ -1359,7 +1363,8 @@
   "status": "ported"
  },
  "MinimumAreaBox2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 11
  },
  "MinimumAreaCircle2.h": {
   "status": "ported",
@@ -1383,7 +1388,8 @@
   "verified": 10
  },
  "MinimumWidthPoints2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 11
  },
  "NaturalCubicSpline.h": {
   "status": "ported"
@@ -1635,7 +1641,8 @@
   "status": "ported"
  },
  "SeparatePoints2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 11
  },
  "SeparatePoints3.h": {
   "status": "ported"
