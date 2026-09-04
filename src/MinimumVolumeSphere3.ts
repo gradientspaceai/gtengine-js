@@ -27,6 +27,37 @@
 // there is a chance the algorithm succeeds just because of the different
 // ordering of points.
 //
+// KNOWN UPSTREAM DEFECT (preserved), the 3D form of the one documented in
+// MinimumAreaCircle2.ts. The claim above that a floating-point failure is
+// always trapped is false: compute(...) can return success = true together
+// with a sphere that does not contain every input point.
+//
+// updateSupport{2,3,4} always rewrite mSupport/mNumSupport, while the caller
+// keeps the returned sphere only when its radius exceeds the current one.
+// When round-off makes contains() reject a point that lies exactly on the
+// current sphere (cospherical input) or makes exactSphere{3,4} return a
+// garbage solve instead of the "radius = MAX_VALUE" sentinel (degenerate
+// input, where LinearSystem's determinant != 0 test sees a cancellation
+// residue), an update runs that would not run in exact arithmetic and
+// returns a *smaller* sphere. The sphere is discarded but the support set is
+// not, so a point can be left uncovered - either hidden inside the support
+// set (supportContains skips it for the rest of the loop) or, because the
+// last update index is not revisited either, simply never rechecked against
+// the final sphere.
+//
+// Two reproductions are pinned in test/MinimumVolumeSphere3.test.ts: seven
+// integer points where the missed point is a support point (outside by
+// 0.084) and eleven where it is not (outside by 0.40). Surveys of 20000
+// random integer point sets: no failure for coordinates in [-8,8]^3, about
+// 0.05% for the much more degenerate [-2,2]^3. No failure was observed for
+// random real-valued coordinates (80000 sets in 2D and 3D). A final
+// containment check cannot repair this: the returned radius is the square
+// root of the internal squared radius, so re-squaring it rejects a large
+// fraction of the *correct* results. The real fix is upstream's exact
+// ComputeType (BSRational), which this port does not instantiate. The
+// behavior is preserved verbatim; see the "Upstream bug suspects" note of
+// the V10 verification PR.
+//
 // Port notes: see MinimumAreaCircle2.ts, whose port decisions this file
 // mirrors (compute(points) returning { minimal, success }, the
 // numSupport/support accessors, the deterministic minstd_rand0-style

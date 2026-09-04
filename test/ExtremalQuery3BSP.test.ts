@@ -3,6 +3,7 @@ import { ExtremalQuery3BSP } from '../src/ExtremalQuery3BSP.js';
 import { ExtremalQuery3PRJ } from '../src/ExtremalQuery3PRJ.js';
 import { Polyhedron3 } from '../src/Polyhedron3.js';
 import { Vector, dot, normalize } from '../src/Vector.js';
+import { check, fc, rotationFrame, unitVector } from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -344,5 +345,178 @@ describe('ExtremalQuery3BSP', () => {
         const polytope = new Polyhedron3(tetraVertices, indices.length, indices, true);
         expect(polytope.isValid()).toBe(true);
         expect(() => new ExtremalQuery3BSP(polytope)).toThrow();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (group V10). The BSP construction carries a known upstream
+// defect (see the KNOWN UPSTREAM DEFECT note in src/ExtremalQuery3BSP.ts), so
+// the properties below separate what must hold for every polytope from what
+// holds only for the small polytopes on which the construction is exact.
+//
+// Measured wrong-answer rates for 5000 random directions (seed 777):
+//   regular tetrahedron  0 / 5000    (also 0 / 6000 over 200 random rotations)
+//   regular octahedron   0 / 5000    (also 0 / 6000 over 200 random rotations)
+//   regular icosahedron  49 / 5000 = 0.98%, worst dot-value error 0.73
+//   subdivided sphere    188 / 5000 = 3.76%, worst dot-value error 0.35
+// ---------------------------------------------------------------------------
+
+// R * v where the three vectors of `frame` are the columns of R.
+function rotatePoint(frame: readonly Vector[], v: Vector): Vector {
+    return v3(
+        frame[0].get(0) * v.get(0) + frame[1].get(0) * v.get(1)
+            + frame[2].get(0) * v.get(2),
+        frame[0].get(1) * v.get(0) + frame[1].get(1) * v.get(1)
+            + frame[2].get(1) * v.get(2),
+        frame[0].get(2) * v.get(0) + frame[1].get(2) * v.get(1)
+            + frame[2].get(2) * v.get(2));
+}
+
+describe('ExtremalQuery3BSP verification', () => {
+    const icosahedron = makeIcosahedron();
+    const sphere = subdivideOnSphere(icosahedron.vertices, icosahedron.indices);
+    const meshes: [string, Vector[], number[]][] = [
+        ['tetrahedron', tetraVertices, tetraIndices],
+        ['octahedron', octaVertices, octaIndices],
+        ['icosahedron', icosahedron.vertices, icosahedron.indices],
+        ['sphere', sphere.vertices, sphere.indices]
+    ];
+    const queries = meshes.map(([, vertices, indices]) => {
+        const polytope = makePolyhedron(vertices, indices);
+        return { polytope: polytope, query: new ExtremalQuery3BSP(polytope) };
+    });
+
+    it('answers the reversed direction with the mirrored pair', () => {
+        // The negative-direction descent tests sign <= 0 on Dot(D, normal),
+        // which is bit-for-bit the same test as sign >= 0 on Dot(-D, normal)
+        // (negating every term of a dot product negates the sum exactly), so
+        // this identity holds for every polytope, defect or not.
+        check(unitVector(3), direction => {
+            const reversed = v3(-direction.get(0), -direction.get(1),
+                -direction.get(2));
+            for (const { query } of queries) {
+                const forward = query.getExtremeVertices(direction);
+                const backward = query.getExtremeVertices(reversed);
+                expect(backward.negativeDirection)
+                    .toBe(forward.positiveDirection);
+                expect(backward.positiveDirection)
+                    .toBe(forward.negativeDirection);
+            }
+        });
+    });
+
+    it('always answers with a vertex index used by the polytope', () => {
+        check(unitVector(3), direction => {
+            for (let k = 0; k < queries.length; ++k) {
+                const { polytope, query } = queries[k];
+                const unique = new Set(polytope.getUniqueIndices());
+                const result = query.getExtremeVertices(direction);
+                expect(unique.has(result.positiveDirection)).toBe(true);
+                expect(unique.has(result.negativeDirection)).toBe(true);
+            }
+        });
+    });
+
+    it('agrees with brute force on a rotated tetrahedron', () => {
+        check(fc.tuple(rotationFrame(3), unitVector(3)),
+            ([frame, direction]) => {
+                const vertices = tetraVertices.map(v => rotatePoint(frame, v));
+                const polytope = makePolyhedron(vertices, tetraIndices);
+                const query = new ExtremalQuery3BSP(polytope);
+                checkDirection(query, polytope, direction, 9);
+            });
+    });
+
+    it('agrees with brute force on a rotated octahedron', () => {
+        check(fc.tuple(rotationFrame(3), unitVector(3)),
+            ([frame, direction]) => {
+                const vertices = octaVertices.map(v => rotatePoint(frame, v));
+                const polytope = makePolyhedron(vertices, octaIndices);
+                const query = new ExtremalQuery3BSP(polytope);
+                checkDirection(query, polytope, direction, 9);
+            });
+    });
+
+    it('agrees with the brute-force query on rotated directions', () => {
+        // Rotating the query direction of a fixed tetrahedron exercises the
+        // descent rather than the construction.
+        check(fc.tuple(rotationFrame(3), unitVector(3)),
+            ([frame, direction]) => {
+                const rotated = rotatePoint(frame, direction);
+                const { polytope, query } = queries[0];
+                checkDirection(query, polytope, rotated, 9);
+                const prj = new ExtremalQuery3PRJ(polytope);
+                const reference = prj.getExtremeVertices(rotated);
+                const result = query.getExtremeVertices(rotated);
+                const vertices = polytope.getVertices();
+                expect(dot(rotated, vertices[result.positiveDirection]))
+                    .toBeCloseTo(
+                        dot(rotated, vertices[reference.positiveDirection]), 9);
+            });
+    });
+
+    it('answers every vertex direction of the icosahedron correctly', () => {
+        // The icosahedron is inscribed in the unit sphere, so the vertex that
+        // is extreme in the direction of vertex i is vertex i itself.
+        const { query } = queries[2];
+        for (let i = 0; i < icosahedron.vertices.length; ++i) {
+            const result = query.getExtremeVertices(icosahedron.vertices[i]);
+            expect(result.positiveDirection).toBe(i);
+        }
+    });
+
+    it('gets some vertex directions of the subdivided sphere wrong (upstream)',
+        () => {
+            // The same query on the 42-vertex subdivided icosahedron fails for
+            // some of its own vertex directions, which is the cleanest
+            // statement of the known upstream construction defect: a direction
+            // that lies strictly inside one Gauss cell is answered with
+            // another cell's vertex.
+            const { query } = queries[3];
+            let wrong = 0;
+            for (let i = 0; i < sphere.vertices.length; ++i) {
+                const result = query.getExtremeVertices(sphere.vertices[i]);
+                if (result.positiveDirection !== i) {
+                    ++wrong;
+                    // The reported vertex really is not extreme.
+                    expect(dot(sphere.vertices[i],
+                        sphere.vertices[result.positiveDirection]))
+                        .toBeLessThan(1 - 1e-9);
+                }
+            }
+            expect(wrong).toBeGreaterThan(0);
+            expect(wrong).toBeLessThan(0.2 * sphere.vertices.length);
+        });
+
+    it('reproduces the documented icosahedron failure exactly', () => {
+        // The direction quoted in the KNOWN UPSTREAM DEFECT note of
+        // src/ExtremalQuery3BSP.ts: the descent ends at a bisector node that
+        // answers vertex 4, while vertex 9 is the extreme one by a wide
+        // margin (0.51 against 0.93).
+        const { polytope, query } = queries[2];
+        const direction = v3(0.85564456289238, -0.33788348840949,
+            0.39205500921802);
+        const result = query.getExtremeVertices(direction);
+        expect(result.positiveDirection).toBe(4);
+
+        const vertices = polytope.getVertices();
+        const expected = extremeValues(polytope, direction);
+        expect(dot(direction, vertices[9])).toBeCloseTo(expected.maxValue, 12);
+        expect(dot(direction, vertices[4])).toBeCloseTo(0.5111377726379888, 12);
+        expect(expected.maxValue).toBeCloseTo(0.9339702550944977, 12);
+    });
+
+    it('builds the same tree for the same polytope every time', () => {
+        // The port replaces upstream's hash-ordered adjacency traversal with
+        // sorted accessors, so the tree is a deterministic function of the
+        // polytope; two constructions must agree node for node.
+        check(unitVector(3), direction => {
+            const { polytope, query } = queries[3];
+            const other = new ExtremalQuery3BSP(polytope);
+            expect(other.getNumNodes()).toBe(query.getNumNodes());
+            expect(other.getTreeDepth()).toBe(query.getTreeDepth());
+            expect(other.getExtremeVertices(direction))
+                .toEqual(query.getExtremeVertices(direction));
+        }, 25);
     });
 });

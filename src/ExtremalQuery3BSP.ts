@@ -37,8 +37,15 @@
 // always produce a tree whose leaf regions are single Gauss-map cells with the
 // correct extreme vertex, so getExtremeVertices() can return a vertex that is
 // not extreme. It is exact for small polytopes (verified over thousands of
-// random directions on a tetrahedron and an octahedron) and starts to fail on
-// an icosahedron, where roughly 1% of random directions get a wrong answer.
+// random directions on a tetrahedron and an octahedron, including 200 random
+// rotations of each) and starts to fail on an icosahedron. Wrong-answer rates
+// measured over 5000 random directions during the V10 verification pass:
+// tetrahedron 0, octahedron 0, regular icosahedron 49 (0.98%, worst extreme
+// dot-value error 0.73), one level of subdivision of that icosahedron
+// (42 vertices) 188 (3.76%). The sharpest statement of the defect is that the
+// 42-vertex polytope, which is inscribed in the unit sphere, answers two of
+// its own 42 vertex directions with a different vertex - a direction that
+// lies strictly inside one Gauss cell gets another cell's vertex.
 //
 // The cause is in insertArc(): an arc descends the tree comparing only its two
 // endpoints against the *current node's* great circle, never against the
