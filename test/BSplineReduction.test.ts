@@ -3,6 +3,7 @@ import { BSplineReduction } from '../src/BSplineReduction.js';
 import { BSplineCurve } from '../src/BSplineCurve.js';
 import { BasisFunctionInput } from '../src/BasisFunction.js';
 import { Vector } from '../src/Vector.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 function makeRandom(seed: number): () => number {
     let state = seed >>> 0;
@@ -267,5 +268,178 @@ describe('BSplineReduction: fitting quality', () => {
         for (let i = 0; i < controls.length; ++i) {
             expect(controls[i].values).toEqual(snapshot[i]);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Independent verification pass (VERIFYING.md). The output is the linear map
+// A^{-1}B applied to the input control points, where A and B are Gram
+// matrices of B-spline basis products. That structure gives exact algebraic
+// properties (size clamping, homogeneity in the control points, independence
+// of the object's leftover state) which are checked here; the approximation
+// quality is checked only where the answer lies in the output space, because
+// upstream's Romberg quadrature over the whole support limits the accuracy
+// to about 1e-3 (see the accuracy note in src/BSplineReduction.ts).
+// ---------------------------------------------------------------------------
+
+describe('BSplineReduction verification', () => {
+    interface Spec {
+        controls: Vector[];
+        degree: number;
+        fraction: number;
+    }
+
+    const spec: fc.Arbitrary<Spec> =
+        fc.tuple(fc.integer({ min: 2, max: 10 }), fc.integer({ min: 1, max: 3 }),
+            fc.integer({ min: 1, max: 3 }), fc.integer({ min: 0, max: 130 }),
+            fc.integer({ min: 1, max: 1 << 20 }))
+            .map(([numControls, degreeRaw, dimension, percent, seed]) => {
+                const degree = Math.min(degreeRaw, numControls - 1);
+                const rand = makeRandom(seed);
+                const controls: Vector[] = [];
+                for (let i = 0; i < numControls; ++i) {
+                    const values: number[] = [];
+                    for (let d = 0; d < dimension; ++d) {
+                        values.push(rand() * 4 - 2);
+                    }
+                    controls.push(vec(...values));
+                }
+                return { controls, degree, fraction: percent / 100 };
+            });
+
+    it('clamps the output size exactly as upstream does', () => {
+        const reduction = new BSplineReduction();
+        check(spec, s => {
+            const n = s.controls.length;
+            const out = reduction.compute(s.controls, s.degree, s.fraction);
+            const truncated = Math.trunc(s.fraction * n);
+            if (truncated >= n) {
+                // A copy of the input, not an alias.
+                expect(out.length).toBe(n);
+                for (let i = 0; i < n; ++i) {
+                    expect(out[i]).not.toBe(s.controls[i]);
+                    expect(out[i].values).toEqual(s.controls[i].values);
+                }
+            } else {
+                expect(out.length).toBe(Math.max(truncated, s.degree + 1));
+            }
+            // The dimension is carried by the control points.
+            for (const c of out) {
+                expect(c.size).toBe(s.controls[0].size);
+            }
+        }, 60);
+    });
+
+    it('is homogeneous in the control points and leaves them untouched', () => {
+        const reduction = new BSplineReduction();
+        check(fc.tuple(spec, fc.integer({ min: -6, max: 6 })),
+            ([s, exponent]) => {
+                const scale = Math.pow(2, exponent);
+                const scaled = s.controls.map(c => {
+                    const q = c.clone();
+                    for (let d = 0; d < q.size; ++d) { q.values[d] *= scale; }
+                    return q;
+                });
+                const snapshot = s.controls.map(c => c.values.slice());
+
+                const out = reduction.compute(s.controls, s.degree, s.fraction);
+                const outScaled = reduction.compute(scaled, s.degree, s.fraction);
+
+                // The map is linear and the scale factor is a power of two,
+                // so the scaled result is bit-for-bit the scaled result.
+                expect(outScaled.length).toBe(out.length);
+                for (let i = 0; i < out.length; ++i) {
+                    for (let d = 0; d < out[i].size; ++d) {
+                        expect(outScaled[i].values[d])
+                            .toBe(out[i].values[d] * scale);
+                    }
+                }
+
+                // The input control points are not modified.
+                for (let i = 0; i < s.controls.length; ++i) {
+                    expect(s.controls[i].values).toEqual(snapshot[i]);
+                }
+            }, 40);
+    });
+
+    it('carries no state between calls', () => {
+        const reduction = new BSplineReduction();
+        check(fc.tuple(spec, spec), ([s0, s1]) => {
+            const fresh = new BSplineReduction();
+            const expected = fresh.compute(s0.controls, s0.degree, s0.fraction);
+            reduction.compute(s1.controls, s1.degree, s1.fraction);
+            const actual = reduction.compute(s0.controls, s0.degree, s0.fraction);
+            expect(actual.length).toBe(expected.length);
+            for (let i = 0; i < expected.length; ++i) {
+                expect(actual[i].values).toEqual(expected[i].values);
+            }
+        }, 25);
+    });
+
+    it('rejects the inputs upstream rejects', () => {
+        const reduction = new BSplineReduction();
+        check(fc.tuple(fc.integer({ min: 1, max: 6 }),
+            fc.integer({ min: -2, max: 8 })), ([n, degree]) => {
+                const controls: Vector[] = [];
+                for (let i = 0; i < n; ++i) { controls.push(vec(i, 2 * i)); }
+                const valid = n >= 2 && 1 <= degree && degree < n;
+                if (valid) {
+                    expect(() => reduction.compute(controls, degree, 0.6))
+                        .not.toThrow();
+                } else {
+                    expect(() => reduction.compute(controls, degree, 0.6))
+                        .toThrow(/Invalid input/);
+                }
+            }, 60);
+    });
+
+    it('reproduces a segment that already lies in the output space', () => {
+        // Uniformly spaced collinear control points of a degree-1 spline are
+        // the straight segment, which every output space of the same degree
+        // represents exactly. The residual is the Romberg quadrature error.
+        const reduction = new BSplineReduction();
+        check(fc.tuple(fc.integer({ min: 4, max: 12 }),
+            fc.integer({ min: 20, max: 90 }),
+            fc.double({ min: -3, max: 3, noNaN: true }),
+            fc.double({ min: -3, max: 3, noNaN: true })),
+            ([n, percent, ax, ay]) => {
+                const controls: Vector[] = [];
+                for (let i = 0; i < n; ++i) {
+                    const s = i / (n - 1);
+                    controls.push(vec(s * ax, s * ay));
+                }
+                const out = reduction.compute(controls, 1, percent / 100);
+                const magnitude = Math.hypot(ax, ay) + 1;
+                expect(maxDeviation(controls, out, 1, 64))
+                    .toBeLessThan(0.05 * magnitude);
+                // The reduced control points are the uniformly spaced points
+                // of the same segment, to the same accuracy.
+                for (let i = 0; i < out.length; ++i) {
+                    const s = i / (out.length - 1);
+                    expect(Math.abs(out[i].values[0] - s * ax))
+                        .toBeLessThan(0.05 * magnitude);
+                    expect(Math.abs(out[i].values[1] - s * ay))
+                        .toBeLessThan(0.05 * magnitude);
+                }
+            }, 40);
+    });
+
+    it('keeps the reduced curve near the original for smooth data', () => {
+        // Dropping a single control point from a smooth curve must not move
+        // the curve by more than a fraction of the control-point spacing.
+        const reduction = new BSplineReduction();
+        check(fc.tuple(fc.integer({ min: 8, max: 16 }),
+            fc.integer({ min: 2, max: 3 }),
+            fc.double({ min: 0.5, max: 3, noNaN: true })), ([n, degree, k]) => {
+                const controls: Vector[] = [];
+                for (let i = 0; i < n; ++i) {
+                    const s = i / (n - 1);
+                    controls.push(vec(s, Math.sin(k * s)));
+                }
+                const out = reduction.compute(controls, degree, (n - 1) / n);
+                expect(out.length).toBe(n - 1);
+                expect(maxDeviation(controls, out, degree, 128))
+                    .toBeLessThan(0.05);
+            }, 25);
     });
 });
