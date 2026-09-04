@@ -326,18 +326,6 @@ function v21MinOnInterval(f: (t: number) => number, lo: number,
     return Math.min(f(a), Math.min(f(b), f(0.5 * (a + b))));
 }
 
-// Upstream's line-box queries accumulate the squared distance as
-// "... + delta * parameter" with parameter = -delta / lenSqr, i.e. as a
-// subtraction of two nearly equal quantities. A line that nearly touches the
-// box can therefore produce a tiny negative sqrDistance, whose square root is
-// NaN. Upstream has the identical expression (DistLine3CanonicalBox3.h and
-// its 2D counterpart), so the port inherits it; see the API notes of the V21
-// verification. The properties skip results with a non-finite distance rather
-// than paper over it.
-function v21Usable(res: { distance: number, sqrDistance: number }): boolean {
-    return Number.isFinite(res.distance) && res.sqrDistance >= 0;
-}
-
 describe('DistSegment3Rectangle3 verification', () => {
     const query = new DistSegment3Rectangle3();
 
@@ -345,9 +333,6 @@ describe('DistSegment3Rectangle3 verification', () => {
         () => {
             check(fc.tuple(v21Segment, v21Shape), ([seg, s]) => {
                 const res = query.compute(seg, s);
-                if (!v21Usable(res)) {
-                    return;
-                }
                 expectClose(res.distance, Math.sqrt(res.sqrDistance), 1e-12,
                     1e-12);
                 const diff = sub(res.closest[0], res.closest[1]);
@@ -368,9 +353,6 @@ describe('DistSegment3Rectangle3 verification', () => {
     it('matches a convex minimization along the segment', () => {
         check(fc.tuple(v21Segment, v21Shape), ([seg, s]) => {
             const res = query.compute(seg, s);
-            if (!v21Usable(res)) {
-                return;
-            }
             const dir = sub(seg.p[1], seg.p[0]);
             const f = (t: number): number =>
                 v21PointDistance(add(seg.p[0], mul(t, dir)), s);
@@ -385,9 +367,6 @@ describe('DistSegment3Rectangle3 verification', () => {
                     sub(seg.p[1], seg.p[0]));
                 const lr = new DistLine3Rectangle3().compute(line, s);
                 const sr = query.compute(seg, s);
-                if (!v21Usable(lr) || !v21Usable(sr)) {
-                    return;
-                }
                 if (lr.parameter >= 0 && lr.parameter <= 1) {
                     expect(sr.parameter).toBe(lr.parameter);
                     expect(sr.distance).toBe(lr.distance);
@@ -409,9 +388,6 @@ describe('DistSegment3Rectangle3 verification', () => {
             ([[s, q], other]) => {
                 const seg = Segment.fromEndpoints(q, add(q, other));
                 const zres = query.compute(seg, s);
-                if (!v21Usable(zres)) {
-                    return;
-                }
                 // The segment contains q, so its distance to the shape is at
                 // most q's own distance to the shape. That distance is zero
                 // in exact arithmetic; the sampled shape point carries
@@ -438,9 +414,6 @@ describe('DistSegment3Rectangle3 verification', () => {
                 add(rot(seg.p[1]), tr));
             const r0 = query.compute(seg, s);
             const r1 = query.compute(moved, v21MoveShape(s, rot, tr));
-            if (!v21Usable(r0) || !v21Usable(r1)) {
-                return;
-            }
             expectClose(r0.distance, r1.distance, 1e-8, 1e-8);
         });
     });
@@ -451,9 +424,6 @@ describe('DistSegment3Rectangle3 verification', () => {
                 v21Shape), ([p0, d, s]) => {
                 const seg = Segment.fromEndpoints(p0, add(p0, mul(1e-9, d)));
                 const res = query.compute(seg, s);
-                if (!v21Usable(res)) {
-                    return;
-                }
                 expectClose(res.distance, v21PointDistance(p0, s), 1e-7,
                     1e-7);
             });

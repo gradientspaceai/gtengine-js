@@ -205,36 +205,23 @@ const v21Circle = fc.tuple(wellScaledVector(3, -5, 5), unitVector(3),
     positive(4, 0.2))
     .map(([c, n, r]) => Circle3.fromCenterNormalRadius(c, n, r));
 
-// Upstream defects in the shared line-circle solver (DistLine3Circle3.h),
-// reachable from the ray and segment queries because they delegate to it.
-// Upstream has the same code in every case, so these are upstream defects
-// rather than port defects; the missing "/a2" fix of issue #247 affects none
-// of them.
-//
-//   (a) PDFSection422 with a line that meets the axis of the circle. The
-//       re-chosen line origin E then lies on that axis, so a3 = |N x E|^2 is
-//       exactly zero, tauHat is 0 and gTauHat = a1*0/sqrt(0) is NaN. Every
-//       intercept comparison is false, so the "two critical points" fallback
-//       runs and, when a0 > a1/sqrt(a2), bisects over
-//       [0, -a0 + a1/sqrt(a2)] whose upper bound is negative. RootsBisection1
-//       then throws "Invalid ordering of t-interval endpoints."
-//   (b) PDFSection422 with a line nearly (but not exactly) perpendicular to
-//       the plane of the circle. The exact test !IsZero(N x M) still selects
-//       PDFSection422, a2 = |N x M|^2 is around 1e-19, the shifted origin
-//       parameter s = -Dot(NxM,NxD)/a2 is around 1e6, and the bracket width
-//       a1/sqrt(a2) = r*|N x M|/|M|^2 falls below the ulp of a0, so the two
-//       bracket endpoints round to the same double and the bisector throws.
-//   (c) PDFSection412 (line perpendicular to the plane, IsZero(N x D) false)
-//       when the closest line point is the circle center. Finalize computes
-//       the in-plane component of that point and calls Normalize on it
-//       without checking the length; the zero vector comes back as zero, the
-//       circle point is set to the center itself and the reported distance is
-//       0 instead of the radius. A line along the circle axis whose N x D is
-//       nonzero only through rounding (for example after a rigid motion) hits
-//       this.
-//
-// The properties below skip these configurations; the dedicated test at the
-// end documents (a).
+// The shared line-circle solver (DistLine3Circle3) is reliable only when the
+// line is not nearly perpendicular to the plane of the circle and does not
+// nearly meet the axis of the circle. Upstream threw
+// "Invalid ordering of t-interval endpoints." in both regimes (PDFSection422
+// builds an inverted or collapsed bisection bracket); the port fixed the
+// exception in V20 by routing exact a3 == 0 to PDFSection421 and by returning
+// the bracket midpoint when the bracket collapses, and the regression tests
+// at the end of this block cover the configurations that used to throw. What
+// the fix cannot recover is accuracy in the *neighbourhood* of those regimes:
+// once |N x M| is within a few ulps of zero, a0 = Dot(M,E)/Dot(M,M) is around
+// 1e6 while the bracket width r*|N x M|/|M|^2 is around 1e-13, so the root
+// carries no significant digits. For example the circle C = (0,0,0),
+// N = (-1,0,0), r = 0.2 with the segment
+// (-3.443461197292675, 7.999999999999849, 0) -> (0, 7.999999999999964, 0),
+// whose direction is perpendicular to the plane of the circle to within
+// 3e-14, is reported at distance 7.800046 where the true distance is 7.8.
+// The properties below skip that neighbourhood.
 function v21LineSolverApplies(origin: Vector, direction: Vector,
     c: Circle3): boolean {
     const D = sub(origin, c.center);
@@ -242,30 +229,15 @@ function v21LineSolverApplies(origin: Vector, direction: Vector,
     const NxD = cross(c.normal, D);
     const isZero = (x: Vector): boolean =>
         x.values[0] === 0 && x.values[1] === 0 && x.values[2] === 0;
-    if (isZero(NxM)) {
-        if (isZero(NxD)) {
-            return true;   // PDFSection411, exact
-        }
-        // PDFSection412; see (c).
-        const t = -dot(direction, D) / dot(direction, direction);
-        const linearPoint = add(mul(t, direction), D);
-        const project = sub(linearPoint,
-            mul(dot(c.normal, linearPoint), c.normal));
-        return length(project) > 1e-8 * (length(D) + c.radius);
-    }
-    if (isZero(NxD)) {
-        return true;   // PDFSection421, closed form
+    if (isZero(NxM) || isZero(NxD)) {
+        return true;   // the closed-form PDFSection411/412/421 branches
     }
     if (length(NxM) <= 1e-5 * length(direction)) {
-        return false;  // (b)
+        return false;  // nearly perpendicular to the plane of the circle
     }
     const s = -dot(NxM, NxD) / dot(NxM, NxM);
     const E = add(mul(s, direction), D);
-    // (a) and its neighbourhood: a3 = |N x E|^2 that is tiny relative to
-    // |E|^2 is the rounding-level version of "the line meets the axis", and
-    // tauHat, gTauHat and the resulting bracket lose all their significant
-    // digits well before a3 reaches exactly zero.
-    return length(cross(c.normal, E)) > 1e-6 * length(E);
+    return length(cross(c.normal, E)) > 1e-6 * length(E);   // nearly on axis
 }
 
 const v21Ray = fc.tuple(wellScaledVector(3, -8, 8), unitVector(3))
@@ -445,27 +417,34 @@ describe('DistRay3Circle3 verification', () => {
                 .toEqual(snapshot);
         });
     });
-    it('documents the shared solver failing when the ray meets the circle axis',
-        () => {
-            // See the v21MeetsCircleAxis comment above. The ray below crosses
-            // the circle's axis at (0,0,1); upstream's PDFSection422 then
-            // calls its bisector with an inverted bracket. The test is
-            // written so that it also passes once the shared solver is fixed,
-            // in which case the answer must be the brute-force minimum.
-            const c = circle([0, 0, 0], [0, 0, 1], 0.2);
-            const r = ray([0.2, 0, 3], [0.1, 0, 1]);
-            expect(v21LineSolverApplies(r.origin, r.direction, c))
-                .toBe(false);
-            let threw = false;
-            let distance = 0;
-            try {
-                distance = query.compute(r, c).distance;
-            }
-            catch {
-                threw = true;
-            }
-            if (!threw) {
-                expect(distance).toBeCloseTo(bruteForce(r, c, 60), 5);
-            }
-        });
+    it('handles a ray that meets the axis of the circle', () => {
+        // PDFSection422 with a3 = |N x E|^2 == 0 is exactly the "line meets
+        // the circle axis" configuration; upstream computes tauHat = 0 and
+        // gTauHat = 0/0 = NaN there and ends up with an inverted bisection
+        // bracket, so the query throws. This ray crosses the axis at (0,0,1).
+        const c = circle([0, 0, 0], [0, 0, 1], 0.2);
+        const r = ray([0.2, 0, 3], [0.1, 0, 1]);
+        const res = query.compute(r, c);
+        expect(res.distance).toBeCloseTo(bruteForce(r, c, 60), 5);
+        for (let j = 0; j < res.numClosestPairs; ++j) {
+            verifyPair(c, res.linearClosest[j], res.circularClosest[j],
+                res.distance);
+        }
+    });
+
+    it('handles a ray along the axis whose NxD is nonzero by rounding', () => {
+        // PDFSection412 normalizes the in-plane component of the closest line
+        // point without checking its length, so upstream reports distance 0
+        // instead of the radius for a line along the circle axis whose N x D
+        // is nonzero only through rounding. The configuration below is the
+        // rotated image of a ray on the axis.
+        const n = v(0, 0.9913756202460874, -0.13105105715592485);
+        const c = Circle3.fromCenterNormalRadius(v(0, 0, 0), n, 0.2);
+        const r = Ray.fromOriginDirection(mul(0.4621098150455284, n),
+            mul(-1, n));
+        const res = query.compute(r, c);
+        expect(res.distance).toBeCloseTo(0.2, 9);
+        verifyPair(c, res.linearClosest[0], res.circularClosest[0],
+            res.distance);
+    });
 });

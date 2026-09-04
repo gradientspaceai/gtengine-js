@@ -439,8 +439,15 @@ describe('DistPointHyperellipsoid verification', () => {
                 if (!isWellConditioned(h, p)) {
                     return;
                 }
-                expectClose(query.compute(p, h).distance, bruteForce3D(p, h),
-                    1e-5, 1e-5);
+                const d = query.compute(p, h).distance;
+                const brute = bruteForce3D(p, h);
+                // The query's closest point is on the surface (checked
+                // above), so its distance cannot be below the true minimum;
+                // this direction is therefore sharp.
+                expect(d).toBeLessThanOrEqual(brute + 1e-9);
+                // The other direction is only as good as the (theta,phi)
+                // search, which stalls in the flat valley of a near-spheroid.
+                expect(brute - d).toBeLessThanOrEqual(1e-3);
             }, 25);
     }, 30000);
 
