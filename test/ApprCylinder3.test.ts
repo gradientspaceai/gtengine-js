@@ -3,6 +3,9 @@ import { ApprCylinder3 } from '../src/ApprCylinder3.js';
 import { Cylinder3 } from '../src/Cylinder3.js';
 import { Vector, dot, length, normalize, sub } from '../src/Vector.js';
 import { cross } from '../src/Vector3.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, unitVector, vector
+} from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -336,5 +339,190 @@ describe('ApprCylinder3 fitting to a mesh', () => {
         expect(() => ApprCylinder3.fromHemisphereSearch(0, 8, 4, false)
             .computeMesh(points, [0, 1, 2], cylinder))
             .toThrow(/at least 6 points and 2 triangles/);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Property-based verification (VERIFYING.md).
+
+describe('ApprCylinder3 verification', () => {
+    // Samples of a cylinder wall, as an arbitrary.
+    const config = fc.tuple(vector(3, -5, 5), unitVector(3), finite(0.5, 4),
+        finite(0.5, 4), fc.integer({ min: 5, max: 9 }),
+        fc.integer({ min: 2, max: 4 }));
+
+    function build(t: [Vector, Vector, number, number, number, number]):
+        Vector[] {
+        const [C, W, R, halfHeight, numTheta, numH] = t;
+        return cylinderPoints(C, W, R, halfHeight, numTheta, numH);
+    }
+
+    // The least-squares error function of the cylinder fit, evaluated
+    // directly from the returned axis line and radius:
+    //   E = (1/n) * sum_i (dist(X[i], axis)^2 - r^2)^2
+    // The port computes it through the precomputed moment matrices mF0, mF1,
+    // mF2 and mMu in G(...), so this is an independent evaluation.
+    function directError(points: readonly Vector[],
+        cylinder: Cylinder3): number {
+        let sum = 0;
+        for (const p of points) {
+            const d = distanceToAxis(p, cylinder);
+            const term = d * d - cylinder.radius * cylinder.radius;
+            sum += term * term;
+        }
+        return sum / points.length;
+    }
+
+    it('reports the error function value of the cylinder it returns', () => {
+        check(config, (t) => {
+            const points = build(t);
+            const cylinder = new Cylinder3();
+            const error = ApprCylinder3.fromCylinderAxis(t[1])
+                .compute(points, cylinder);
+            // The samples lie exactly on a cylinder, so the moments are
+            // moderately sized and the two evaluations agree to round-off
+            // relative to the moment magnitudes.
+            expectClose(error, directError(points, cylinder), 1e-12, 1e-7);
+        }, 100);
+    });
+
+    it('returns the mean squared axis distance as the squared radius', () => {
+        // G(...) sets rsqr = Dot(pVec, mMu) + Dot(PC, PC), which algebraically
+        // equals the mean of the squared distances of the samples to the
+        // fitted axis line.
+        check(config, (t) => {
+            const points = build(t);
+            const cylinder = new Cylinder3();
+            ApprCylinder3.fromCylinderAxis(t[1]).compute(points, cylinder);
+            let sum = 0;
+            for (const p of points) {
+                const d = distanceToAxis(p, cylinder);
+                sum += d * d;
+            }
+            expectClose(cylinder.radius * cylinder.radius, sum / points.length,
+                1e-12, 1e-8);
+        }, 100);
+    });
+
+    it('recovers a cylinder from its exact axis direction', () => {
+        check(config, (t) => {
+            const [C, W, R, halfHeight] = t;
+            const points = build(t);
+            const cylinder = new Cylinder3();
+            const error = ApprCylinder3.fromCylinderAxis(W)
+                .compute(points, cylinder);
+            expect(Math.abs(error)).toBeLessThan(1e-8);
+            expect(Math.abs(dot(cylinder.axis.direction, W))).toBeGreaterThan(
+                1 - 1e-12);
+            expectClose(cylinder.radius, R, 1e-8, 1e-8);
+            expectClose(cylinder.height, 2 * halfHeight, 1e-7, 1e-8);
+            // The axis origin is the midpoint of the projected h-interval,
+            // which for a symmetric sample set is the cylinder center.
+            expectClose(length(sub(cylinder.axis.origin, C)), 0, 1e-7, 1e-8);
+        }, 100);
+    });
+
+    it('is equivariant under translation of the samples', () => {
+        // Preprocess subtracts the sample average, so a translation only
+        // moves the axis origin.
+        check(fc.tuple(config, vector(3, -8, 8)), ([t, shift]) => {
+            const points = build(t);
+            const moved = points.map(p => v3(p.values[0] + shift.values[0],
+                p.values[1] + shift.values[1], p.values[2] + shift.values[2]));
+            const c0 = new Cylinder3();
+            const e0 = ApprCylinder3.fromCylinderAxis(t[1])
+                .compute(points, c0);
+            const c1 = new Cylinder3();
+            const e1 = ApprCylinder3.fromCylinderAxis(t[1])
+                .compute(moved, c1);
+            expectClose(e0, e1, 1e-9, 1e-7);
+            expectClose(c0.radius, c1.radius, 1e-9, 1e-9);
+            expectClose(c0.height, c1.height, 1e-9, 1e-9);
+            for (let k = 0; k < 3; ++k) {
+                expectClose(c0.axis.origin.values[k] + shift.values[k],
+                    c1.axis.origin.values[k], 1e-7, 1e-8);
+                expectClose(c0.axis.direction.values[k],
+                    c1.axis.direction.values[k], 1e-12, 1e-12);
+            }
+        }, 60);
+    });
+
+    it('gives the same hemisphere-search result for every thread count', () => {
+        // The port keeps the upstream per-thread partition of the phi samples
+        // (numPhiSamples / numThreads, with the last thread taking the
+        // remainder plus the north pole) and the order of the final
+        // min-reduction. Every partition covers exactly the same direction
+        // grid, so the winning sample - and therefore the whole cylinder -
+        // must be identical to the single-threaded search.
+        check(fc.tuple(config, fc.integer({ min: 4, max: 9 }),
+            fc.integer({ min: 2, max: 6 })),
+            ([t, numTheta, numPhi]) => {
+                const points = build(t);
+                const single = new Cylinder3();
+                const errorSingle = ApprCylinder3
+                    .fromHemisphereSearch(0, numTheta, numPhi)
+                    .compute(points, single);
+                for (const numThreads of [1, 2, 3, 5, 8]) {
+                    const multi = new Cylinder3();
+                    const errorMulti = ApprCylinder3
+                        .fromHemisphereSearch(numThreads, numTheta, numPhi)
+                        .compute(points, multi);
+                    expectClose(errorSingle, errorMulti, 0, 1e-14);
+                    expectClose(single.radius, multi.radius, 0, 1e-14);
+                    expectClose(single.height, multi.height, 0, 1e-14);
+                    expectVectorClose(single.axis.origin, multi.axis.origin,
+                        1e-12, 1e-12);
+                    expectVectorClose(single.axis.direction,
+                        multi.axis.direction, 0, 1e-14);
+                }
+            }, 25);
+    });
+
+    it('gives the same mesh fit for every thread count', () => {
+        check(fc.tuple(config, fc.integer({ min: 4, max: 8 }),
+            fc.integer({ min: 2, max: 5 })), ([t, numTheta, numPhi]) => {
+            const points = build(t);
+            // A triangle strip over consecutive point triples is enough for
+            // the projected-area measure.
+            const indices: number[] = [];
+            for (let i = 0; i + 2 < points.length; ++i) {
+                indices.push(i, i + 1, i + 2);
+            }
+            const single = new Cylinder3();
+            ApprCylinder3.fromHemisphereSearch(0, numTheta, numPhi, false)
+                .computeMesh(points, indices, single);
+            for (const numThreads of [1, 2, 4]) {
+                const multi = new Cylinder3();
+                ApprCylinder3
+                    .fromHemisphereSearch(numThreads, numTheta, numPhi, false)
+                    .computeMesh(points, indices, multi);
+                expectClose(single.radius, multi.radius, 0, 1e-14);
+                expectClose(single.height, multi.height, 0, 1e-14);
+                expectVectorClose(single.axis.direction, multi.axis.direction,
+                    0, 1e-14);
+                expectVectorClose(single.axis.origin, multi.axis.origin,
+                    1e-12, 1e-12);
+            }
+        }, 20);
+    });
+
+    it('rejects the documented degenerate inputs', () => {
+        const points = cylinderPoints(v3(0, 0, 0), v3(0, 0, 1), 1, 1, 6, 3);
+        const cylinder = new Cylinder3();
+
+        expect(() => ApprCylinder3.fromEigenIndex(0)
+            .compute(points.slice(0, 5), cylinder))
+            .toThrow(/at least 6 points/);
+        expect(() => ApprCylinder3.fromEigenIndex(3).compute(points, cylinder))
+            .toThrow(/out of range/);
+        expect(() => ApprCylinder3.fromCylinderAxis(v3(0, 0, 0))
+            .compute(points, cylinder)).toThrow(/must be nonzero/);
+        expect(() => ApprCylinder3.fromHemisphereSearch(0, 0, 4)
+            .compute(points, cylinder)).toThrow(/must be positive/);
+        expect(() => ApprCylinder3.fromHemisphereSearch(0, 4, 4, false)
+            .compute(points, cylinder)).toThrow(/fitting to a mesh/);
+        expect(() => ApprCylinder3.fromHemisphereSearch(0, 4, 4)
+            .computeMesh(points, [0, 1, 2, 1, 2, 3], cylinder))
+            .toThrow(/fitting to points/);
     });
 });

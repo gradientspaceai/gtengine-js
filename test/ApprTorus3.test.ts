@@ -3,6 +3,10 @@ import { ApprTorus3 } from '../src/ApprTorus3.js';
 import type { ApprTorus3Parameters } from '../src/ApprTorus3.js';
 import { Vector, dot, normalize } from '../src/Vector.js';
 import { computeOrthogonalComplement3 } from '../src/Vector3.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, orthonormalFrame,
+    seededRandom, unitVector, vector
+} from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -220,5 +224,142 @@ describe('ApprTorus3.computeLevenbergMarquardt', () => {
         for (let k = 0; k < 3; ++k) {
             expect(torus.C.values[k]).toBeCloseTo(truthC.values[k], 2);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Property-based verification (VERIFYING.md).
+
+describe('ApprTorus3 verification', () => {
+    // Tori with r1 well below r0 (a ring torus) sampled over the whole
+    // surface, which is the regime the header documents for compute().
+    const config = fc.tuple(vector(3, -4, 4), unitVector(3), finite(2, 5),
+        finite(0.4, 1.2), fc.integer({ min: 12, max: 20 }),
+        fc.integer({ min: 8, max: 14 }));
+
+    function build(t: [Vector, Vector, number, number, number, number],
+        noise?: () => number): Vector[] {
+        const [C, N, r0, r1, numTheta, numPhi] = t;
+        return torusPoints(C, N, r0, r1, numTheta, numPhi, noise);
+    }
+
+    it('recovers the torus from exact samples', () => {
+        check(config, (t) => {
+            const [C, N, r0, r1] = t;
+            const torus = newParameters();
+            const result = new ApprTorus3().compute(build(t), torus);
+            expect(result.success).toBe(true);
+            for (let k = 0; k < 3; ++k) {
+                expectClose(torus.C.values[k], C.values[k], 1e-8, 1e-8);
+            }
+            expect(Math.abs(dot(torus.N, N))).toBeGreaterThan(1 - 1e-10);
+            expectClose(torus.r0, r0, 1e-7, 1e-8);
+            expectClose(torus.r1, r1, 1e-7, 1e-8);
+            // Exact data means H(u,v) is zero at the recovered pair.
+            expect(result.error).toBeLessThan(1e-8 * Math.pow(r0, 8) + 1e-8);
+        }, 60);
+    });
+
+    it('reports H(u,v) for the (u,v) pair it selects', () => {
+        // The returned error is the value of
+        //   H(u,v) = sum_i ((v + L[i])^2 - S[i]*u)^2
+        // at the chosen root. Recomputing it from the returned radii is an
+        // independent check of the a/b/c/d/e/f coefficient chain that reduces
+        // the two normal equations to a cubic in v.
+        const rnd = seededRandom(161803);
+        check(config, (t) => {
+            const points = build(t, () => 0.02 * (2 * rnd() - 1));
+            const torus = newParameters();
+            const result = new ApprTorus3().compute(points, torus);
+            expect(result.success).toBe(true);
+            let h = 0;
+            for (const p of points) {
+                h += torusResidual(torus, p) ** 2;
+            }
+            // The residual is a difference of degree-4 quantities, so the
+            // comparison is relative to the accumulated magnitude.
+            expectClose(result.error, h, 1e-9, 1e-6);
+        }, 40);
+    });
+
+    it('is equivariant under rigid motions of the samples', () => {
+        // The plane fit, the L/S moments and the cubic solve all commute with
+        // a rigid motion, so the recovered radii are invariant and the center
+        // moves with the samples.
+        check(fc.tuple(config, orthonormalFrame(3), vector(3, -6, 6)),
+            ([t, R, shift]) => {
+                const points = build(t);
+                const moved = points.map(p => v3(
+                    dot(R[0], p) + shift.values[0],
+                    dot(R[1], p) + shift.values[1],
+                    dot(R[2], p) + shift.values[2]));
+
+                const a = newParameters();
+                const ra = new ApprTorus3().compute(points, a);
+                const b = newParameters();
+                const rb = new ApprTorus3().compute(moved, b);
+                expect(ra.success && rb.success).toBe(true);
+
+                expectClose(a.r0, b.r0, 1e-7, 1e-7);
+                expectClose(a.r1, b.r1, 1e-7, 1e-7);
+                const movedCenter = v3(
+                    dot(R[0], a.C) + shift.values[0],
+                    dot(R[1], a.C) + shift.values[1],
+                    dot(R[2], a.C) + shift.values[2]);
+                expectVectorClose(movedCenter, b.C, 1e-6, 1e-7);
+            }, 40);
+    });
+
+    it('keeps an exact torus stationary under the minimizers', () => {
+        // The residuals F[i] vanish at the true parameters, so the
+        // Gauss-Newton and Levenberg-Marquardt steps solve a homogeneous
+        // system and cannot move away from the solution.
+        check(config, (t) => {
+            const [C, N, r0, r1] = t;
+            for (const useLM of [false, true]) {
+                const torus = newParameters();
+                torus.C = C.clone();
+                torus.N = N.clone();
+                torus.r0 = r0;
+                torus.r1 = r1;
+                const points = build(t);
+                const fitter = new ApprTorus3();
+                if (useLM) {
+                    fitter.computeLevenbergMarquardt(points, 4, 1e-12, 1e-12,
+                        2, 0.5, 4, true, torus);
+                } else {
+                    fitter.computeGaussNewton(points, 4, 1e-12, 1e-12, true,
+                        torus);
+                }
+                expectClose(torus.r0, r0, 1e-6, 1e-7);
+                expectClose(torus.r1, r1, 1e-6, 1e-7);
+                expect(Math.abs(dot(torus.N, N))).toBeGreaterThan(1 - 1e-8);
+                expectVectorClose(torus.C, C, 1e-5, 1e-6);
+            }
+        }, 30);
+    });
+
+    it('reports failure on the documented degenerate inputs', () => {
+        // Coincident samples: ApprOrthogonalPlane3 cannot fit a plane.
+        const repeated = new Array<Vector>(12).fill(v3(1, 2, 3));
+        const a = newParameters();
+        const ra = new ApprTorus3().compute(repeated, a);
+        expect(ra.success).toBe(false);
+        expect(ra.error).toBe(Number.MAX_VALUE);
+
+        // Coplanar samples on a circle: the plane fit succeeds but no cubic
+        // root yields a valid u > v > 0 pair, so 'success' is false rather
+        // than a garbage torus (upstream's unguarded 1/b0 and SolveCubic
+        // leading coefficient produce NaNs that fail the same validity
+        // tests).
+        const ring: Vector[] = [];
+        for (let j = 0; j < 24; ++j) {
+            const t = 2 * Math.PI * j / 24;
+            ring.push(v3(2 * Math.cos(t), 2 * Math.sin(t), 0));
+        }
+        const b = newParameters();
+        const rb = new ApprTorus3().compute(ring, b);
+        expect(rb.success).toBe(false);
+        expect(rb.error).toBe(Number.MAX_VALUE);
     });
 });

@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { ApprGreatArc3, ApprGreatCircle3 } from '../src/ApprGreatCircle3.js';
 import { Vector, dot, length, normalize } from '../src/Vector.js';
+import { computeOrthogonalComplement3 } from '../src/Vector3.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, orthonormalFrame,
+    seededRandom, unitVector
+} from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -177,5 +182,151 @@ describe('ApprGreatArc3', () => {
 
     it('rejects an empty point set', () => {
         expect(() => new ApprGreatArc3().compute([])).toThrow(/no points/);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Property-based verification (VERIFYING.md). These properties cross-check the
+// port against independent computations rather than restating the code.
+
+describe('ApprGreatCircle3 verification', () => {
+    it('recovers the normal for random great circles', () => {
+        check(fc.tuple(unitVector(3), fc.integer({ min: 3, max: 40 }),
+            finite(0, 6)), ([N, count, start]) => {
+            const points = circlePoints(N, uniformAngles(count, 2 * Math.PI,
+                start));
+            const fit = new ApprGreatCircle3().compute(points);
+            expectClose(length(fit), 1, 1e-12, 1e-12);
+            // For n >= 3 uniformly spaced points of a great circle the
+            // covariance is (U U^T + V V^T)/2, whose eigenvalues are
+            // {0, 1/2, 1/2}. The smallest eigenvalue is separated from the
+            // others by 1/2, so its eigenvector is well conditioned and the
+            // fitted normal matches N to round-off.
+            expect(parallelUpToSign(fit, N)).toBeGreaterThan(1 - 1e-9);
+            for (const p of points) {
+                expect(Math.abs(dot(fit, p))).toBeLessThan(1e-9);
+            }
+        }, 100);
+    });
+
+    it('is equivariant under rotation of the samples', () => {
+        check(fc.tuple(unitVector(3), orthonormalFrame(3),
+            fc.integer({ min: 3, max: 20 })), ([N, R, count]) => {
+            const points = circlePoints(N, uniformAngles(count));
+            const apply = (p: Vector): Vector =>
+                v3(dot(R[0], p), dot(R[1], p), dot(R[2], p));
+            const fit = new ApprGreatCircle3().compute(points);
+            const fitR = new ApprGreatCircle3().compute(points.map(apply));
+            // The eigenvector for the isolated smallest eigenvalue is unique
+            // up to sign, so the two fits agree up to sign.
+            expect(parallelUpToSign(fitR, apply(fit))).toBeGreaterThan(1 - 1e-9);
+        }, 100);
+    });
+
+    it('returns a stationary point of the least-squares objective', () => {
+        // The fitted normal minimizes sum Dot(N,X[i])^2 subject to |N| = 1, so
+        // no tangential perturbation decreases the objective. Comparing
+        // against the two orthogonal-complement directions is an independent
+        // check that the smallest-eigenvalue eigenvector was selected.
+        const rnd = seededRandom(4242);
+        check(fc.tuple(unitVector(3), fc.integer({ min: 4, max: 25 })),
+            ([N, count]) => {
+                const points = circlePoints(N, uniformAngles(count)).map(p => {
+                    const q = v3(p.values[0] + 0.05 * (2 * rnd() - 1),
+                        p.values[1] + 0.05 * (2 * rnd() - 1),
+                        p.values[2] + 0.05 * (2 * rnd() - 1));
+                    normalize(q);
+                    return q;
+                });
+                const fit = new ApprGreatCircle3().compute(points);
+                const objective = (W: Vector): number => {
+                    let s = 0;
+                    for (const p of points) { s += dot(W, p) ** 2; }
+                    return s;
+                };
+                const base = objective(fit);
+                const basis = [fit.clone(), new Vector(3), new Vector(3)];
+                computeOrthogonalComplement3(1, basis);
+                for (const t of [-1e-3, 1e-3]) {
+                    for (const k of [1, 2]) {
+                        const W = v3(fit.values[0] + t * basis[k].values[0],
+                            fit.values[1] + t * basis[k].values[1],
+                            fit.values[2] + t * basis[k].values[2]);
+                        normalize(W);
+                        expect(objective(W)).toBeGreaterThanOrEqual(base - 1e-12);
+                    }
+                }
+            }, 60);
+    });
+});
+
+describe('ApprGreatArc3 verification', () => {
+    // Counterclockwise angle in [0,2*pi) from 'from' to 'to' about 'normal'.
+    function ccwAngle(normal: Vector, from: Vector, to: Vector): number {
+        const c = v3(
+            from.values[1] * to.values[2] - from.values[2] * to.values[1],
+            from.values[2] * to.values[0] - from.values[0] * to.values[2],
+            from.values[0] * to.values[1] - from.values[1] * to.values[0]);
+        let angle = Math.atan2(dot(normal, c), dot(from, to));
+        if (angle < 0) { angle += 2 * Math.PI; }
+        // A direction that coincides with 'from' can produce a tiny negative
+        // atan2 result, which the wrap above turns into ~2*pi; fold it back.
+        if (angle > 2 * Math.PI - 1e-9) { angle -= 2 * Math.PI; }
+        return angle;
+    }
+
+    it('returns the smallest sector containing every sample', () => {
+        check(fc.tuple(unitVector(3), fc.integer({ min: 2, max: 24 }),
+            finite(0.2, 6.0), finite(0, 6)), ([N, count, span, start]) => {
+            const points = circlePoints(N, uniformAngles(count, span, start));
+            const { normal, arcEnd0, arcEnd1 } =
+                new ApprGreatArc3().compute(points);
+            expectClose(length(arcEnd0), 1, 1e-12, 1e-12);
+            expectClose(length(arcEnd1), 1, 1e-12, 1e-12);
+            expect(Math.abs(dot(normal, arcEnd0))).toBeLessThan(1e-9);
+            expect(Math.abs(dot(normal, arcEnd1))).toBeLessThan(1e-9);
+
+            // Every sample lies in the sector swept counterclockwise about the
+            // fitted normal from arcEnd0 to arcEnd1.
+            const sector = ccwAngle(normal, arcEnd0, arcEnd1);
+            for (const p of points) {
+                expect(ccwAngle(normal, arcEnd0, p)).toBeLessThanOrEqual(
+                    sector + 1e-9);
+            }
+        }, 100);
+    });
+
+    it('agrees with a brute-force maximum-gap search', () => {
+        check(fc.tuple(unitVector(3), fc.integer({ min: 3, max: 16 }),
+            finite(0.3, 5.5), finite(0, 6)), ([N, count, span, start]) => {
+            const points = circlePoints(N, uniformAngles(count, span, start));
+            const { normal, arcEnd0, arcEnd1 } =
+                new ApprGreatArc3().compute(points);
+
+            // Independent computation: measure every sample's angle about the
+            // fitted normal relative to the first sample, sort, and locate the
+            // widest consecutive gap. The sector is the complement of that gap.
+            const ref = points[0];
+            const angles = points.map(p => ccwAngle(normal, ref, p))
+                .sort((a, b) => a - b);
+            const n = angles.length;
+            let maxGap = 2 * Math.PI + angles[0] - angles[n - 1];
+            for (let i = 0; i + 1 < n; ++i) {
+                maxGap = Math.max(maxGap, angles[i + 1] - angles[i]);
+            }
+            expectClose(ccwAngle(normal, arcEnd0, arcEnd1),
+                2 * Math.PI - maxGap, 1e-8, 1e-8);
+        }, 100);
+    });
+
+    it('collapses to a single direction for one sample', () => {
+        check(unitVector(3), (p) => {
+            const { normal, arcEnd0, arcEnd1 } =
+                new ApprGreatArc3().compute([p]);
+            // With one sample the maximum gap is the whole circle, so both
+            // endpoints are the projection of that sample.
+            expectVectorClose(arcEnd0, arcEnd1, 1e-12, 1e-12);
+            expect(Math.abs(dot(normal, arcEnd0))).toBeLessThan(1e-9);
+        }, 100);
     });
 });

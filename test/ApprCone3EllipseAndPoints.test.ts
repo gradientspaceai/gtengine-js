@@ -8,6 +8,10 @@ import { Ellipse3 } from '../src/Ellipse3.js';
 import { GTE_C_HALF_PI } from '../src/Constants.js';
 import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
 import { cross } from '../src/Vector3.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, orthonormalFrame,
+    unitVector, vector
+} from './helpers/arbitraries.js';
 
 const v3 = (x: number, y: number, z: number): Vector =>
     Vector.fromArray([x, y, z]);
@@ -506,5 +510,174 @@ describe('ApprCone3ExtractEllipses', () => {
         const extractor = new ApprCone3ExtractEllipses();
         const points = circularSections(0.4, [30, 90, 150], 8);
         expect(() => extractor.extract(points, -1, -1)).not.toThrow();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Property-based verification (VERIFYING.md).
+
+describe('ApprCone3EllipseAndPoints verification', () => {
+    // A cone plus a cutting plane whose tilt keeps the section an ellipse
+    // (eccentricity sinPhi/cos(theta) < 1) and whose samples sit well away
+    // from the vertex.
+    const config = fc.tuple(vector(3, -3, 3), unitVector(3),
+        finite(0.35, 0.65), unitVector(3), finite(0.05, 0.2),
+        finite(3, 6));
+
+    function setup(t: [Vector, Vector, number, Vector, number, number]) {
+        const [V, D, theta, helper, tilt, h] = t;
+        // A unit vector orthogonal to D, used to tilt the cutting plane.
+        let perp = sub(helper, mul(dot(helper, D), D));
+        if (normalize(perp) < 1e-3) {
+            const { E0 } = basisFor(D);
+            perp = E0;
+        }
+        const N = add(D, mul(tilt, perp));
+        normalize(N);
+        const k = dot(N, add(V, mul(h, D)));
+        const ellipse = exactSection(V, D, theta, N, k);
+        const points = conePoints(V, D, theta, [h - 1, h, h + 1], 20);
+        return { V, D, theta, ellipse, points };
+    }
+
+    it('recovers random cones from their elliptical section', () => {
+        check(config, (t) => {
+            const { V, D, theta, ellipse, points } = setup(t);
+            const cone = ApprCone3EllipseAndPoints.fit(ellipse, points);
+            const err = fitErrors(cone, V, D, theta);
+            // Tolerance: the cone angle is found by Minimize1 with the
+            // default control (maxSubdivisions 8, tolerance 1e-4) on
+            // [padding, pi/2 - padding], so the angle is only located to
+            // about the minimizer's tolerance and the vertex error scales
+            // with the sampled height.
+            expect(err.angle).toBeLessThan(5e-3);
+            expect(err.axis).toBeLessThan(5e-3);
+            expect(err.vertex).toBeLessThan(5e-2);
+            expect(cone.isInfinite()).toBe(true);
+        }, 12);
+    });
+
+    it('returns a cone that contains the input ellipse', () => {
+        // Independent check: every point of the input ellipse must satisfy
+        // Dot(D,X-K)^2 = cosAngleSqr * |X-K|^2 for the returned cone, and
+        // must lie on the positive side of the vertex.
+        check(config, (t) => {
+            const { ellipse, points } = setup(t);
+            const cone = ApprCone3EllipseAndPoints.fit(ellipse, points);
+            let maxResidual = 0;
+            for (let i = 0; i < 24; ++i) {
+                const s = (2 * Math.PI * i) / 24;
+                const X = add(add(ellipse.center,
+                    mul(ellipse.extent.get(0) * Math.cos(s), ellipse.axis[0])),
+                    mul(ellipse.extent.get(1) * Math.sin(s), ellipse.axis[1]));
+                const diff = sub(X, cone.ray.origin);
+                const h = dot(cone.ray.direction, diff);
+                expect(h).toBeGreaterThan(0);
+                maxResidual = Math.max(maxResidual,
+                    Math.abs(h * h - cone.cosAngleSqr * dot(diff, diff))
+                        / dot(diff, diff));
+            }
+            expect(maxResidual).toBeLessThan(1e-2);
+        }, 12);
+    });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(config, orthonormalFrame(3), vector(3, -4, 4)),
+            ([t, R, shift]) => {
+                const { ellipse, points } = setup(t);
+                const rotate = (p: Vector): Vector =>
+                    v3(dot(R[0], p), dot(R[1], p), dot(R[2], p));
+                const move = (p: Vector): Vector =>
+                    add(rotate(p), shift);
+
+                const movedEllipse = Ellipse3.fromCenterNormalAxisExtent(
+                    move(ellipse.center), rotate(ellipse.normal),
+                    [rotate(ellipse.axis[0]), rotate(ellipse.axis[1])],
+                    ellipse.extent);
+                const movedPoints = points.map(move);
+
+                const a = ApprCone3EllipseAndPoints.fit(ellipse, points);
+                const b = ApprCone3EllipseAndPoints.fit(movedEllipse,
+                    movedPoints);
+
+                // Tolerance: the four minimizer runs follow the same bracket
+                // schedule, but the error function is evaluated on rotated
+                // coordinates, so the bisections can stop a step apart.
+                expectClose(a.angle, b.angle, 1e-6, 1e-6);
+                expectVectorClose(rotate(a.ray.direction), b.ray.direction,
+                    1e-5, 1e-5);
+                expectVectorClose(move(a.ray.origin), b.ray.origin,
+                    1e-4, 1e-5);
+            }, 10);
+    });
+});
+
+describe('ApprCone3ExtractEllipses verification', () => {
+    it('keeps the plane, index and ellipse arrays parallel and nonempty', () => {
+        // Upstream emits planes that end up with no points (any three-point
+        // node has a flat box) and then fits a Gaussian and an ellipse to an
+        // empty index set. The port discards those planes, so the three
+        // arrays must stay the same length, every index set must be nonempty
+        // and every input point must be assigned exactly once.
+        check(fc.tuple(finite(0.25, 0.6), fc.integer({ min: 2, max: 4 }),
+            fc.integer({ min: 12, max: 28 }), finite(20, 40)),
+            ([theta, numSections, numAngles, spacing]) => {
+                const heights: number[] = [];
+                for (let i = 0; i < numSections; ++i) {
+                    heights.push(spacing * (i + 1));
+                }
+                const points = conePoints(v3(0, 0, 0), v3(0, 0, 1), theta,
+                    heights, numAngles);
+
+                const extractor = new ApprCone3ExtractEllipses();
+                const ellipses = extractor.extract(points, 1e-6, 1e-3);
+
+                expect(extractor.getPlanes().length).toBe(ellipses.length);
+                expect(extractor.getIndices().length).toBe(ellipses.length);
+                let total = 0;
+                const seen = new Set<number>();
+                for (const set of extractor.getIndices()) {
+                    expect(set.length).toBeGreaterThan(0);
+                    total += set.length;
+                    for (const i of set) { seen.add(i); }
+                }
+                expect(total).toBe(points.length);
+                expect(seen.size).toBe(points.length);
+                // The number of planes is NOT numSections in general. Any
+                // tree node holding exactly three points has a flat bounding
+                // box, so a node straddling two sections yields a tilted
+                // plane that can still attract points (the port's filter
+                // drops only the point-less planes); conversely a section can
+                // be missed when the tree splits it before any node is both
+                // flat and large enough. Only the structural invariants above
+                // are guaranteed.
+                expect(ellipses.length).toBeGreaterThan(0);
+
+                // Re-running on the same input clears the previous state and
+                // reproduces the result exactly.
+                // Bitwise comparison: a degenerate sub-plane can make
+                // ApprEllipse2 report an infinite extent, which a tolerance
+                // based comparison cannot handle.
+                const again = extractor.extract(points, 1e-6, 1e-3);
+                expect(again.length).toBe(ellipses.length);
+                for (let i = 0; i < again.length; ++i) {
+                    expect(again[i].center.values)
+                        .toEqual(ellipses[i].center.values);
+                    expect(again[i].extent.values)
+                        .toEqual(ellipses[i].extent.values);
+                }
+            }, 12);
+    });
+
+    it('extracts nothing for fewer than three points', () => {
+        // No tree node satisfies maxIndex >= minIndex + 2, so no plane is
+        // located. Upstream then indexes mIndices with size_t(-1); the port
+        // returns early.
+        check(fc.tuple(vector(3), vector(3)), ([p, q]) => {
+            const extractor = new ApprCone3ExtractEllipses();
+            expect(extractor.extract([p], 1e-6, 1e-3)).toEqual([]);
+            expect(extractor.extract([p, q], 1e-6, 1e-3)).toEqual([]);
+            expect(extractor.getIndices()).toEqual([]);
+        }, 20);
     });
 });

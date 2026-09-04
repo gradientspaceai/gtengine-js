@@ -3,6 +3,9 @@ import { ApprEllipsoid3 } from '../src/ApprEllipsoid3.js';
 import { Hyperellipsoid } from '../src/Hyperellipsoid.js';
 import { Vector, dot } from '../src/Vector.js';
 import { cross } from '../src/Vector3.js';
+import {
+    check, expectClose, fc, finite, seededRandom, vector
+} from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -268,5 +271,136 @@ describe('ApprEllipsoid3', () => {
         const ellipsoid = new Hyperellipsoid(3);
         expect(() => new ApprEllipsoid3().compute(
             [Vector.fromArray([1, 2])], 4, false, ellipsoid)).toThrow(/3D/);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Property-based verification (VERIFYING.md).
+
+describe('ApprEllipsoid3 verification', () => {
+    // The error function F(C,M)/n that the minimizer reports, computed from
+    // the returned ellipsoid rather than from the line-minimization
+    // polynomials that UpdateCenter and UpdateMatrix use to evaluate it.
+    function meanSquaredAlgebraicError(points: readonly Vector[],
+        ellipsoid: Hyperellipsoid): number {
+        let error = 0;
+        for (const P of points) {
+            const a = implicit(ellipsoid, P) - 1;
+            error += a * a;
+        }
+        return error / points.length;
+    }
+
+    const sampleSet = fc.tuple(vector(3, -4, 4), finite(0, 3.1), finite(0, 3.1),
+        finite(1, 4), finite(1, 4), finite(1, 4),
+        fc.integer({ min: 12, max: 40 }), finite(0, 6));
+
+    function build(t: [Vector, number, number, number, number, number, number,
+        number], noise: number, rnd: () => number): Vector[] {
+        const [center, yaw, pitch, e0, e1, e2, count, phase] = t;
+        const axis = frame(yaw, pitch);
+        return ellipsoidPoints(center, axis, [e0, e1, e2], count, phase)
+            .map(p => v3(p.values[0] + noise * (2 * rnd() - 1),
+                p.values[1] + noise * (2 * rnd() - 1),
+                p.values[2] + noise * (2 * rnd() - 1)));
+    }
+
+    it('reports the error function value of the ellipsoid it returns', () => {
+        // compute() returns the value of the degree-4 (center) or degree-2
+        // (matrix) polynomial that models F on the descent line. That must
+        // agree with a direct evaluation of F at the returned (C,M), which
+        // checks every polynomial coefficient independently.
+        const rnd = seededRandom(20260904);
+        check(fc.tuple(sampleSet, fc.integer({ min: 0, max: 6 })),
+            ([t, numIterations]) => {
+                const points = build(t, 0.02, rnd);
+                const ellipsoid = new Hyperellipsoid(3);
+                const error = new ApprEllipsoid3().compute(points,
+                    numIterations, false, ellipsoid);
+                // Relative tolerance: the polynomial is evaluated by Horner
+                // from mean moments while the reference sums residuals
+                // directly, so the two differ by accumulated round-off.
+                expectClose(error, meanSquaredAlgebraicError(points, ellipsoid),
+                    1e-14, 1e-7);
+            }, 40);
+    });
+
+    it('never increases the error as iterations are added', () => {
+        // Each half-step minimizes F along a descent line and falls back to
+        // the current F value when no positive root improves it, so the
+        // reported error is non-increasing in numIterations.
+        const rnd = seededRandom(555);
+        check(sampleSet, (t) => {
+            const points = build(t, 0.05, rnd);
+            let previous = Number.MAX_VALUE;
+            for (const numIterations of [0, 1, 2, 4, 8]) {
+                const ellipsoid = new Hyperellipsoid(3);
+                const error = new ApprEllipsoid3().compute(points,
+                    numIterations, false, ellipsoid);
+                expect(error).toBeLessThanOrEqual(previous * (1 + 1e-9) + 1e-12);
+                previous = error;
+            }
+        }, 25);
+    });
+
+    it('keeps an exact ellipsoid fixed when it is the initial guess', () => {
+        check(sampleSet, (t) => {
+            const [center, yaw, pitch, e0, e1, e2, count, phase] = t;
+            const axis = frame(yaw, pitch);
+            const points = ellipsoidPoints(center, axis, [e0, e1, e2], count,
+                phase);
+            const guess = Hyperellipsoid.fromCenterAxisExtent(center, axis,
+                Vector.fromArray([e0, e1, e2]));
+            const error = new ApprEllipsoid3().compute(points, 4, true, guess);
+            // The samples satisfy F = 0 exactly, so the gradients vanish and
+            // the minimizer cannot move away from the exact solution.
+            expect(error).toBeLessThan(1e-18);
+            for (let k = 0; k < 3; ++k) {
+                expectClose(guess.center.values[k], center.values[k],
+                    1e-7, 1e-7);
+            }
+            const extents = sortedDecreasing([guess.extent.values[0],
+                guess.extent.values[1], guess.extent.values[2]]);
+            const expected = sortedDecreasing([e0, e1, e2]);
+            for (let k = 0; k < 3; ++k) {
+                expectClose(extents[k], expected[k], 1e-7, 1e-7);
+            }
+        }, 40);
+    });
+
+    it('is equivariant under translation of the samples', () => {
+        // Every step - the initial oriented box, the gradients and the
+        // eigendecomposition - commutes with a translation, so the fit of the
+        // translated samples is the translated fit.
+        const rnd = seededRandom(24680);
+        check(fc.tuple(sampleSet, vector(3, -6, 6)), ([t, shift]) => {
+            const points = build(t, 0.02, rnd);
+            const moved = points.map(p => v3(p.values[0] + shift.values[0],
+                p.values[1] + shift.values[1], p.values[2] + shift.values[2]));
+
+            const a = new Hyperellipsoid(3);
+            new ApprEllipsoid3().compute(points, 4, false, a);
+            const b = new Hyperellipsoid(3);
+            new ApprEllipsoid3().compute(moved, 4, false, b);
+
+            // Tolerance: translation equivariance is exact in real arithmetic
+            // but the descent step lengths are roots of polynomials built
+            // from the sample moments, so round-off differences accumulate
+            // over the iterations.
+            for (let k = 0; k < 3; ++k) {
+                expectClose(a.center.values[k] + shift.values[k],
+                    b.center.values[k], 1e-5, 1e-4);
+                expectClose(a.extent.values[k], b.extent.values[k],
+                    1e-5, 1e-4);
+            }
+        }, 25);
+    });
+
+    it('rejects degenerate inputs', () => {
+        const ellipsoid = new Hyperellipsoid(3);
+        expect(() => new ApprEllipsoid3().compute([], 1, false, ellipsoid))
+            .toThrow(/no points/);
+        expect(() => new ApprEllipsoid3().compute(
+            [Vector.fromArray([1, 2])], 1, false, ellipsoid)).toThrow(/3D/);
     });
 });
