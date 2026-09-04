@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { Delaunay2 } from '../src/Delaunay2.js';
 import { Delaunay2Mesh } from '../src/Delaunay2Mesh.js';
 import { Vector } from '../src/Vector.js';
+import { fc, check, latticeVector, expectClose } from './helpers/arbitraries.js';
+import { orient2 } from './helpers/exact.js';
 
 const v2 = (x: number, y: number): Vector => Vector.fromArray([x, y]);
 
@@ -145,4 +147,166 @@ describe('Delaunay2Mesh', () => {
         expect(mesh.getContainingTriangle(v2(100, 100)))
             .toBe(mesh.getInvalidIndex());
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V11): property-based cross-checks. All point sets are integer
+// lattices, so the containment oracle is exact bigint orientation arithmetic.
+// ---------------------------------------------------------------------------
+
+const bigXY = (p: Vector): [bigint, bigint] =>
+    [BigInt(p.values[0]), BigInt(p.values[1])];
+
+/**
+ * The indices of every triangle of the triangulation that contains P,
+ * determined exactly. Triangles of Delaunay2 are counterclockwise, so P is in
+ * the closed triangle when all three edge orientations are >= 0.
+ */
+function containingTrianglesExact(mesh: Delaunay2Mesh, p: Vector): number[] {
+    const vertices = mesh.getVertices();
+    const [px, py] = bigXY(p);
+    const result: number[] = [];
+    for (let t = 0; t < mesh.getNumTriangles(); ++t) {
+        const idx = mesh.getTriangleIndices(t) as [number, number, number];
+        let inside = true;
+        for (let i = 0; i < 3; ++i) {
+            const [ax, ay] = bigXY(vertices[idx[i]]);
+            const [bx, by] = bigXY(vertices[idx[(i + 1) % 3]]);
+            if (orient2(ax, ay, bx, by, px, py) < 0) {
+                inside = false;
+                break;
+            }
+        }
+        if (inside) { result.push(t); }
+    }
+    return result;
+}
+
+const latticeCloud2 = (count: number, range: number): fc.Arbitrary<Vector[]> =>
+    fc.array(latticeVector(2, -range, range),
+        { minLength: count, maxLength: count });
+
+function buildMesh(points: readonly Vector[]): Delaunay2Mesh | null {
+    const delaunay = new Delaunay2();
+    if (!delaunay.compute(points) || delaunay.getDimension() !== 2) {
+        return null;
+    }
+    return new Delaunay2Mesh(delaunay);
+}
+
+describe('Delaunay2Mesh verification', () => {
+    it('locates the containing triangle exactly', () => {
+        check(fc.tuple(latticeCloud2(10, 5), latticeVector(2, -6, 6)),
+            ([points, query]) => {
+                const mesh = buildMesh(points);
+                if (mesh === null) { return true; }
+                const expected = containingTrianglesExact(mesh, query);
+                const t = mesh.getContainingTriangle(query);
+                if (expected.length === 0) {
+                    // Outside the convex hull.
+                    expect(t).toBe(mesh.getInvalidIndex());
+                }
+                else {
+                    // On a shared edge or vertex several triangles contain
+                    // the point; the search may return any of them.
+                    expect(expected).toContain(t);
+                }
+                return true;
+            }, 150);
+    }, 30000);
+
+    it('computes barycentrics that reproduce the query point', () => {
+        check(fc.tuple(latticeCloud2(10, 5), latticeVector(2, -6, 6)),
+            ([points, query]) => {
+                const mesh = buildMesh(points);
+                if (mesh === null) { return true; }
+                const t = mesh.getContainingTriangle(query);
+                if (t === mesh.getInvalidIndex()) { return true; }
+
+                const bary = mesh.getBarycentrics(t, query);
+                expect(bary).not.toBeNull();
+                const b = bary as [number, number, number];
+                const vertices = mesh.getTriangleVertices(t) as
+                    [Vector, Vector, Vector];
+
+                // The point is inside the closed triangle, so the
+                // barycentrics are in [0, 1] and sum to 1.
+                expectClose(b[0] + b[1] + b[2], 1, 1e-12, 1e-12);
+                for (const bi of b) {
+                    expect(bi).toBeGreaterThanOrEqual(-1e-12);
+                    expect(bi).toBeLessThanOrEqual(1 + 1e-12);
+                }
+
+                // The barycentric combination reproduces the query point.
+                // The coordinates are exact rationals rounded once to
+                // double, so the reconstruction is accurate to a few ulps of
+                // the coordinate range.
+                for (let j = 0; j < 2; ++j) {
+                    const value = b[0] * vertices[0].values[j]
+                        + b[1] * vertices[1].values[j]
+                        + b[2] * vertices[2].values[j];
+                    expectClose(value, query.values[j], 1e-11, 1e-11);
+                }
+                return true;
+            }, 150);
+    }, 30000);
+
+    it('interpolates a linear function exactly', () => {
+        check(fc.tuple(latticeCloud2(10, 5), latticeVector(2, -6, 6),
+            latticeVector(3, -4, 4)), ([points, query, coeff]) => {
+            const mesh = buildMesh(points);
+            if (mesh === null) { return true; }
+            const t = mesh.getContainingTriangle(query);
+            if (t === mesh.getInvalidIndex()) { return true; }
+            const bary = mesh.getBarycentrics(t, query);
+            if (bary === null) { return true; }
+
+            const f = (v: Vector): number =>
+                coeff.values[0] * v.values[0] + coeff.values[1] * v.values[1]
+                + coeff.values[2];
+            const vertices = mesh.getTriangleVertices(t) as
+                [Vector, Vector, Vector];
+            const interpolated = bary[0] * f(vertices[0])
+                + bary[1] * f(vertices[1]) + bary[2] * f(vertices[2]);
+            expectClose(interpolated, f(query), 1e-10, 1e-10);
+            return true;
+        }, 150);
+    }, 30000);
+
+    it('keeps the accessors consistent with the triangulation', () => {
+        check(latticeCloud2(11, 6), points => {
+            const mesh = buildMesh(points);
+            if (mesh === null) { return true; }
+            const vertices = mesh.getVertices();
+            const indices = mesh.getIndices();
+            const adjacencies = mesh.getAdjacencies();
+            expect(indices.length).toBe(3 * mesh.getNumTriangles());
+            expect(adjacencies.length).toBe(indices.length);
+
+            for (let t = 0; t < mesh.getNumTriangles(); ++t) {
+                const idx = mesh.getTriangleIndices(t) as [number, number, number];
+                const adj = mesh.getTriangleAdjacencies(t) as
+                    [number, number, number];
+                const tv = mesh.getTriangleVertices(t) as [Vector, Vector, Vector];
+                for (let j = 0; j < 3; ++j) {
+                    expect(idx[j]).toBe(indices[3 * t + j]);
+                    expect(adj[j]).toBe(adjacencies[3 * t + j]);
+                    expect(tv[j].values).toEqual(vertices[idx[j]].values);
+                    // The returned vertices are copies, not aliases of the
+                    // triangulation storage (upstream returns by value).
+                    expect(tv[j]).not.toBe(vertices[idx[j]]);
+                    if (adj[j] !== mesh.getInvalidIndex()) {
+                        const back = mesh.getTriangleAdjacencies(adj[j]) as
+                            [number, number, number];
+                        expect(back).toContain(t);
+                    }
+                }
+            }
+            expect(mesh.getTriangleIndices(-1)).toBeNull();
+            expect(mesh.getTriangleIndices(mesh.getNumTriangles())).toBeNull();
+            expect(mesh.getBarycentrics(mesh.getNumTriangles(),
+                points[0])).toBeNull();
+            return true;
+        }, 100);
+    }, 30000);
 });

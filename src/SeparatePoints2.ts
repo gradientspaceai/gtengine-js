@@ -17,10 +17,11 @@
 //   The port drops the vestigial parameter.
 // * operator() returns a bool and writes the separating line through an
 //   output reference. The port's compute(...) returns
-//   { separated, separatingLine }. Upstream leaves 'separatingLine' holding
-//   the last candidate line tested when the return value is false; the port
-//   returns a line in the same state, but the field is meaningful only when
-//   'separated' is true.
+//   { separated, separatingLine }. Upstream writes 'separatingLine' for every
+//   candidate edge it tests, so on a false return the caller's line is left
+//   holding the last candidate; the port instead returns a default-
+//   constructed Line2 there. Either way the field is meaningful only when
+//   'separated' is true, which is what the upstream documentation promises.
 // * The code assumes each point set has at least 3 noncollinear points. When
 //   either hull is 0- or 1-dimensional, the query reports "not separated",
 //   as upstream does.

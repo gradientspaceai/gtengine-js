@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MinimumWidthPoints2 } from '../src/MinimumWidthPoints2.js';
 import type { OrientedBox2 } from '../src/OrientedBox.js';
 import { Vector, dot, sub } from '../src/Vector.js';
+import { fc, check, latticeVector, expectClose } from './helpers/arbitraries.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -304,4 +305,202 @@ describe('MinimumWidthPoints2', () => {
             expect(width).toBeLessThanOrEqual(aabbThin + 1e-9);
         }
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V11): property-based cross-checks against exact bigint
+// oracles. The generators are integer lattices, so the candidate widths below
+// are exact rationals (under one square root) rather than tolerances.
+// ---------------------------------------------------------------------------
+
+type ExactRatio = { num: bigint; den: bigint };
+
+function ratioLess(a: ExactRatio, b: ExactRatio): boolean {
+    return a.num * b.den < b.num * a.den;
+}
+
+/**
+ * The exact minimum width of an integer point set: the minimum over every
+ * direction spanned by a pair of distinct points of the spread of the points
+ * perpendicular to that direction. The minimum-width strip is flush with a
+ * convex-hull edge and every hull edge is one of those pairs, so the brute
+ * force is the true minimum; every other pair yields a valid bounding strip,
+ * which can only be wider. The returned ratio is the squared width.
+ */
+function bruteForceSqrWidthExact(points: readonly Vector[]): ExactRatio | null {
+    const pts = points.map(p =>
+        [BigInt(p.values[0]), BigInt(p.values[1])] as [bigint, bigint]);
+    let best: ExactRatio | null = null;
+    for (let i = 0; i < pts.length; ++i) {
+        for (let j = i + 1; j < pts.length; ++j) {
+            const dx = pts[j][0] - pts[i][0];
+            const dy = pts[j][1] - pts[i][1];
+            if (dx === 0n && dy === 0n) { continue; }
+            let lo = -dy * pts[0][0] + dx * pts[0][1];
+            let hi = lo;
+            for (const p of pts) {
+                const w = -dy * p[0] + dx * p[1];
+                if (w < lo) { lo = w; }
+                if (w > hi) { hi = w; }
+            }
+            const spread = hi - lo;
+            const candidate: ExactRatio =
+                { num: spread * spread, den: dx * dx + dy * dy };
+            if (best === null || ratioLess(candidate, best)) { best = candidate; }
+        }
+    }
+    return best;
+}
+
+function expectBoxEncloses(box: OrientedBox2, points: readonly Vector[],
+    tolerance: number): void {
+    for (const p of points) {
+        const d = sub(p, box.center);
+        for (let i = 0; i < 2; ++i) {
+            expect(Math.abs(dot(d, box.axis[i])))
+                .toBeLessThanOrEqual(box.extent.get(i) + tolerance);
+        }
+    }
+}
+
+const latticeCloud = (count: number, range: number): fc.Arbitrary<Vector[]> =>
+    fc.array(latticeVector(2, -range, range),
+        { minLength: count, maxLength: count });
+
+describe('MinimumWidthPoints2 verification', () => {
+    it('attains the exact minimum width over all strip directions', () => {
+        check(fc.oneof(latticeCloud(6, 4), latticeCloud(9, 7),
+            latticeCloud(13, 9)), points => {
+            const query = new MinimumWidthPoints2();
+            const box = query.compute(points);
+            const expected = bruteForceSqrWidthExact(points);
+            if (expected === null) {
+                // All points coincide: the 0-dimensional path.
+                expect(box.extent.get(0)).toBe(0);
+                expect(box.extent.get(1)).toBe(0);
+                return true;
+            }
+            const expectedWidth =
+                Math.sqrt(Number(expected.num) / Number(expected.den));
+            // The width is the exact rational squared width rounded once to
+            // double and then square-rooted, so only a few ulps separate the
+            // two evaluations.
+            expectClose(2 * box.extent.get(0), expectedWidth, 1e-11, 1e-11);
+            expectBoxEncloses(box, points, 1e-9);
+
+            // The frame is orthonormal and right-handed:
+            // axis[0] = -Perp(axis[1]).
+            expectClose(dot(box.axis[0], box.axis[1]), 0, 1e-12, 1e-12);
+            expectClose(dot(box.axis[0], box.axis[0]), 1, 1e-12, 1e-12);
+            expectClose(dot(box.axis[1], box.axis[1]), 1, 1e-12, 1e-12);
+            if (box.extent.get(0) > 0) {
+                expectClose(box.axis[0].values[0], -box.axis[1].values[1],
+                    1e-12, 1e-12);
+                expectClose(box.axis[0].values[1], box.axis[1].values[0],
+                    1e-12, 1e-12);
+            }
+            return true;
+        }, 120);
+    }, 30000);
+
+    it('reports the tightest height along the width direction', () => {
+        // 2*extent[1] must be the exact spread of the points along axis[1],
+        // which is the length of the minimum-width strip's supporting edge
+        // span.
+        check(fc.oneof(latticeCloud(7, 5), latticeCloud(11, 8)), points => {
+            const query = new MinimumWidthPoints2();
+            const box = query.compute(points);
+            if (box.extent.get(0) === 0) { return true; }
+            let lo = Infinity, hi = -Infinity;
+            for (const p of points) {
+                const h = dot(sub(p, box.center), box.axis[1]);
+                if (h < lo) { lo = h; }
+                if (h > hi) { hi = h; }
+            }
+            expectClose(hi - lo, 2 * box.extent.get(1), 1e-9, 1e-9);
+            expectClose(hi + lo, 0, 1e-9, 1e-9);
+            return true;
+        }, 100);
+    }, 30000);
+
+    it('agrees between the calipers and brute-force searches', () => {
+        check(fc.oneof(latticeCloud(7, 5), latticeCloud(12, 9)), points => {
+            const query = new MinimumWidthPoints2();
+            const fast = query.compute(points, true);
+            const slow = query.compute(points, false);
+            // The width must agree; the height need not, because the two
+            // searches can settle on different hull edges when the minimum
+            // width is attained more than once.
+            expectClose(fast.extent.get(0), slow.extent.get(0), 1e-11, 1e-11);
+            expectBoxEncloses(fast, points, 1e-9);
+            expectBoxEncloses(slow, points, 1e-9);
+            return true;
+        }, 100);
+    }, 30000);
+
+    it('is invariant under the lattice symmetry group', () => {
+        check(fc.tuple(latticeCloud(9, 6), fc.integer({ min: 0, max: 7 })),
+            ([points, g]) => {
+                const query = new MinimumWidthPoints2();
+                const base = query.compute(points);
+                const transform = (p: Vector): Vector => {
+                    const x = p.values[0], y = p.values[1];
+                    const flipped = (g & 4) !== 0 ? [y, x] : [x, y];
+                    switch (g & 3) {
+                        case 0: return Vector.fromArray([flipped[0], flipped[1]]);
+                        case 1: return Vector.fromArray([-flipped[1], flipped[0]]);
+                        case 2: return Vector.fromArray([-flipped[0], -flipped[1]]);
+                        default: return Vector.fromArray([flipped[1], -flipped[0]]);
+                    }
+                };
+                const moved = query.compute(points.map(transform));
+                // Only the width is invariant. When several hull edges
+                // attain the minimum width, the search picks one of them and
+                // the reported height (extent[1]) is that strip's length,
+                // which differs between the tied choices.
+                expectClose(moved.extent.get(0), base.extent.get(0),
+                    1e-12, 1e-12);
+                expectBoxEncloses(moved, points.map(transform), 1e-9);
+                return true;
+            }, 120);
+    }, 30000);
+
+    it('handles collinear input with the documented degenerate frame', () => {
+        check(fc.tuple(latticeVector(2, -8, 8), latticeVector(2, -5, 5),
+            fc.array(fc.integer({ min: -6, max: 6 }),
+                { minLength: 3, maxLength: 8 })),
+            ([origin, direction, ts]) => {
+                if (direction.values[0] === 0 && direction.values[1] === 0) {
+                    return true;
+                }
+                const points = ts.map(t => Vector.fromArray([
+                    origin.values[0] + t * direction.values[0],
+                    origin.values[1] + t * direction.values[1]]));
+                const query = new MinimumWidthPoints2();
+                const box = query.compute(points);
+                expect(box.extent.get(0)).toBe(0);
+                expectBoxEncloses(box, points, 1e-9);
+                // The degenerate branch uses Perp(direction) where the
+                // general branch uses -Perp(U); the handedness therefore
+                // differs, an upstream quirk the port preserves. It is
+                // harmless because extent[0] is zero.
+                expectClose(dot(box.axis[0], box.axis[1]), 0, 1e-12, 1e-12);
+                return true;
+            }, 150);
+    }, 30000);
+
+    it('computeIndexed on a subset matches compute on that subset', () => {
+        check(fc.tuple(latticeCloud(12, 7), fc.array(fc.nat(11),
+            { minLength: 3, maxLength: 8 })), ([points, picks]) => {
+            const indices = picks.map(i => i % points.length);
+            const query = new MinimumWidthPoints2();
+            const indexed = query.computeIndexed(points, indices);
+            const direct = query.compute(indices.map(i => points[i]));
+            // computeIndexed forwards to compute on the compacted points, so
+            // both extents must agree exactly here.
+            expect(indexed.extent.values).toEqual(direct.extent.values);
+            expect(indexed.center.values).toEqual(direct.center.values);
+            return true;
+        }, 100);
+    }, 30000);
 });

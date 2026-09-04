@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MinimumAreaBox2 } from '../src/MinimumAreaBox2.js';
 import type { OrientedBox2 } from '../src/OrientedBox.js';
 import { Vector, dot, sub } from '../src/Vector.js';
+import { fc, check, latticeVector, expectClose, expectVectorClose } from './helpers/arbitraries.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -425,4 +426,242 @@ describe('MinimumAreaBox2', () => {
             }
         }
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V11): property-based cross-checks against exact bigint
+// oracles. The generators are integer lattices, so the candidate-box areas
+// below are exact rationals and the minimality assertion is not a tolerance.
+// ---------------------------------------------------------------------------
+
+/** An exact nonnegative rational num/den with den > 0. */
+type ExactRatio = { num: bigint; den: bigint };
+
+function ratioLess(a: ExactRatio, b: ExactRatio): boolean {
+    return a.num * b.den < b.num * a.den;
+}
+
+/**
+ * The exact area of the smallest box whose axes are (dx, dy) and its perp,
+ * over the integer points. The area is |d|^-2 times an integer, so it is
+ * returned as an exact rational.
+ */
+function boxAreaForDirection(points: readonly [bigint, bigint][],
+    dx: bigint, dy: bigint): ExactRatio {
+    let uMin = dx * points[0][0] + dy * points[0][1];
+    let uMax = uMin;
+    let vMin = -dy * points[0][0] + dx * points[0][1];
+    let vMax = vMin;
+    for (const p of points) {
+        const u = dx * p[0] + dy * p[1];
+        const v = -dy * p[0] + dx * p[1];
+        if (u < uMin) { uMin = u; }
+        if (u > uMax) { uMax = u; }
+        if (v < vMin) { vMin = v; }
+        if (v > vMax) { vMax = v; }
+    }
+    return { num: (uMax - uMin) * (vMax - vMin), den: dx * dx + dy * dy };
+}
+
+/**
+ * The exact minimum-area enclosing box, computed by brute force over every
+ * direction spanned by a pair of distinct input points. The minimum-area box
+ * has a side flush with a convex-hull edge, and every hull edge direction is
+ * one of these pairs, so the brute-force minimum is the true minimum. (Every
+ * other pair yields a valid enclosing box, so it can only be larger.)
+ */
+function bruteForceMinAreaExact(points: readonly Vector[]): ExactRatio | null {
+    const pts = points.map(p =>
+        [BigInt(p.values[0]), BigInt(p.values[1])] as [bigint, bigint]);
+    let best: ExactRatio | null = null;
+    for (let i = 0; i < pts.length; ++i) {
+        for (let j = i + 1; j < pts.length; ++j) {
+            const dx = pts[j][0] - pts[i][0];
+            const dy = pts[j][1] - pts[i][1];
+            if (dx === 0n && dy === 0n) { continue; }
+            const area = boxAreaForDirection(pts, dx, dy);
+            if (best === null || ratioLess(area, best)) { best = area; }
+        }
+    }
+    return best;
+}
+
+function boxContainsAllExact(box: OrientedBox2, points: readonly Vector[],
+    tolerance: number): void {
+    for (const p of points) {
+        const d = sub(p, box.center);
+        for (let i = 0; i < 2; ++i) {
+            expect(Math.abs(dot(d, box.axis[i])))
+                .toBeLessThanOrEqual(box.extent.get(i) + tolerance);
+        }
+    }
+}
+
+const latticeCloud = (count: number, range: number): fc.Arbitrary<Vector[]> =>
+    fc.array(latticeVector(2, -range, range),
+        { minLength: count, maxLength: count });
+
+describe('MinimumAreaBox2 verification', () => {
+    it('attains the exact minimum area over all box directions', () => {
+        check(fc.oneof(latticeCloud(6, 4), latticeCloud(9, 7),
+            latticeCloud(13, 9)), points => {
+            const query = new MinimumAreaBox2();
+            const box = query.compute(points);
+            const expected = bruteForceMinAreaExact(points);
+            if (expected === null) {
+                // All points coincide: the 0-dimensional path.
+                expect(query.getArea()).toBe(0);
+                return true;
+            }
+            const expectedArea = Number(expected.num) / Number(expected.den);
+            // getArea() is the exact rational area rounded once to double,
+            // and the oracle is an exact rational evaluated in doubles, so
+            // only a couple of ulps separate them.
+            expectClose(query.getArea(), expectedArea, 1e-12, 1e-12);
+            expectClose(4 * box.extent.get(0) * box.extent.get(1),
+                expectedArea, 1e-9, 1e-9);
+            boxContainsAllExact(box, points, 1e-9);
+            return true;
+        }, 120);
+    }, 30000);
+
+    it('agrees between the O(n) and O(n^2) searches', () => {
+        check(fc.oneof(latticeCloud(7, 5), latticeCloud(12, 9)), points => {
+            const fast = new MinimumAreaBox2();
+            const boxFast = fast.compute(points, true);
+            const slow = new MinimumAreaBox2();
+            const boxSlow = slow.compute(points, false);
+            expectClose(fast.getArea(), slow.getArea(), 1e-12, 1e-12);
+            // The two searches can report different (equal-area) boxes only
+            // if the polygon has ties; the areas must always agree.
+            expectClose(4 * boxFast.extent.get(0) * boxFast.extent.get(1),
+                4 * boxSlow.extent.get(0) * boxSlow.extent.get(1),
+                1e-9, 1e-9);
+            return true;
+        }, 100);
+    }, 30000);
+
+    it('is invariant under the lattice symmetry group', () => {
+        // The eight symmetries of the integer lattice are exact, so the
+        // minimum area must be reproduced bit for bit.
+        check(fc.tuple(latticeCloud(9, 6), fc.integer({ min: 0, max: 7 })),
+            ([points, g]) => {
+                const base = new MinimumAreaBox2();
+                base.compute(points);
+                const transform = (p: Vector): Vector => {
+                    const x = p.values[0], y = p.values[1];
+                    const flipped = (g & 4) !== 0 ? [y, x] : [x, y];
+                    switch (g & 3) {
+                        case 0: return Vector.fromArray([flipped[0], flipped[1]]);
+                        case 1: return Vector.fromArray([-flipped[1], flipped[0]]);
+                        case 2: return Vector.fromArray([-flipped[0], -flipped[1]]);
+                        default: return Vector.fromArray([flipped[1], -flipped[0]]);
+                    }
+                };
+                const moved = new MinimumAreaBox2();
+                moved.compute(points.map(transform));
+                expect(moved.getArea()).toBe(base.getArea());
+                return true;
+            }, 120);
+    }, 30000);
+
+    it('reports the correct extreme indices for collinear input', () => {
+        // Upstream leaves imin = imax = 0 on the dimension-1 path because it
+        // assumes the line origin is points[0]; it is points[hull[0]]
+        // (issue #328). The port seeds both extremes from point 0.
+        check(fc.tuple(latticeVector(2, -8, 8), latticeVector(2, -5, 5),
+            fc.array(fc.integer({ min: -6, max: 6 }),
+                { minLength: 2, maxLength: 8 })),
+            ([origin, direction, ts]) => {
+                if (direction.values[0] === 0 && direction.values[1] === 0) {
+                    return true;
+                }
+                const points = ts.map(t => Vector.fromArray([
+                    origin.values[0] + t * direction.values[0],
+                    origin.values[1] + t * direction.values[1]]));
+                const query = new MinimumAreaBox2();
+                const box = query.compute(points);
+                const hull = query.getHull();
+                if (hull.length !== 2) {
+                    // All the parameters coincided: the 0-dimensional path.
+                    expect(hull.length).toBe(1);
+                    return true;
+                }
+                // The reported extremes attain the extreme parameters. The
+                // hull line direction may be the negative of 'direction', so
+                // compare the pair as a set and pin the order with the box
+                // axis.
+                let tMin = ts[0], tMax = ts[0];
+                for (const t of ts) {
+                    if (t < tMin) { tMin = t; }
+                    if (t > tMax) { tMax = t; }
+                }
+                expect([ts[hull[0]], ts[hull[1]]].sort((a, b) => a - b))
+                    .toEqual([tMin, tMax]);
+                expectClose(dot(sub(points[hull[0]], box.center), box.axis[0]),
+                    -box.extent.get(0), 1e-9, 1e-9);
+                expectClose(dot(sub(points[hull[1]], box.center), box.axis[0]),
+                    box.extent.get(0), 1e-9, 1e-9);
+                expect(query.getArea()).toBe(0);
+                boxContainsAllExact(box, points, 1e-9);
+                return true;
+            }, 150);
+    }, 30000);
+
+    it('reuses the functor without leaking state between data sets', () => {
+        // Upstream returns stale mArea/mSupportIndices from the degenerate
+        // branches and never refreshes mPoints/mNumPoints on the
+        // caller-supplied-polygon overload (issue #328).
+        check(fc.tuple(latticeCloud(9, 6), latticeCloud(9, 6)),
+            ([first, second]) => {
+                const fresh = new MinimumAreaBox2();
+                const boxFresh = fresh.compute(second);
+
+                const reused = new MinimumAreaBox2();
+                reused.compute(first);
+                const boxReused = reused.compute(second);
+
+                expect(reused.getArea()).toBe(fresh.getArea());
+                expect(reused.getHull().slice()).toEqual(fresh.getHull().slice());
+                expect(reused.getSupportIndices().slice())
+                    .toEqual(fresh.getSupportIndices().slice());
+                expect(reused.getNumPoints()).toBe(second.length);
+                expectVectorClose(boxReused.center, boxFresh.center);
+                expectVectorClose(boxReused.extent, boxFresh.extent);
+                return true;
+            }, 100);
+    }, 30000);
+
+    it('supports the box on hull vertices that lie on its boundary', () => {
+        check(fc.oneof(latticeCloud(8, 6), latticeCloud(12, 9)), points => {
+            const query = new MinimumAreaBox2();
+            const box = query.compute(points);
+            if (query.getHull().length < 3) { return true; }
+
+            const hull = query.getHull();
+            const supports = query.getSupportIndices();
+            // The support indices index the collinear-free polygon, which
+            // for compute() is getHull() (ConvexHull2 guarantees no three
+            // consecutive collinear hull points).
+            for (const s of supports) {
+                expect(s).toBeGreaterThanOrEqual(0);
+                expect(s).toBeLessThan(hull.length);
+            }
+            // The support order is bottom, right, top, left, so each support
+            // point attains an extreme of the box in its own axis.
+            const p = supports.map(s => points[hull[s]]);
+            const scale = Math.max(1, ...points.map(q =>
+                Math.max(Math.abs(q.values[0]), Math.abs(q.values[1]))));
+            const tol = 1e-9 * scale;
+            expectClose(dot(sub(p[0], box.center), box.axis[1]),
+                -box.extent.get(1), tol, 1e-9);
+            expectClose(dot(sub(p[1], box.center), box.axis[0]),
+                box.extent.get(0), tol, 1e-9);
+            expectClose(dot(sub(p[2], box.center), box.axis[1]),
+                box.extent.get(1), tol, 1e-9);
+            expectClose(dot(sub(p[3], box.center), box.axis[0]),
+                -box.extent.get(0), tol, 1e-9);
+            return true;
+        }, 100);
+    }, 30000);
 });
