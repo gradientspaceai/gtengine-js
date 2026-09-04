@@ -764,13 +764,42 @@ export class MinimumVolumeBox3FloatingPoint {
         candidate.axis[2] = cross(candidate.axis[0], candidate.axis[1]);
 
         const pmin = [0, 0, 0], pmax = [0, 0, 0];
-        candidate.minSupportIndex[0] = this.mEdges[candidate.edgeIndex[0]].v[0];
-        pmin[0] = dot3(candidate.axis[0], this.mTVertices[candidate.minSupportIndex[0]]);
+        // Upstream bug (MinimumVolumeBox3FloatingPoint.h, ComputeVolume):
+        // upstream does not search for the minimum along axis[0] and axis[1].
+        // It assumes that the candidate axis is a nonnegative combination of
+        // the two (inward) face normals of the corresponding hull edge, so
+        // that a vertex of that edge realizes the minimum:
+        //   minSupportIndex[i] = mEdges[edgeIndex[i]].v[0];
+        //   pmin[i] = Dot(axis[i], mTVertices[minSupportIndex[i]]);
+        // The assumption holds in exact arithmetic, but not in the
+        // floating-point pipeline. When the bilinear form is nearly
+        // degenerate (d = f00*f11 - f10*f01 is at the rounding level), the
+        // endpoint sample of MinimizerVariableS/T evaluates
+        //   q0 = oms*f00 + s*f10 and q1 = oms*f01 + s*f11
+        // as pure cancellation noise (both are zero in exact arithmetic), so
+        // the axis it builds from them, q1*M0 - q0*M1, is a random direction.
+        // The assumed support vertex is then not the minimum, the candidate
+        // volume is underestimated, and that bogus candidate wins the search:
+        // the reported box does not contain the input points. This happens for
+        // roughly 2% of small random integer point sets. Computing the minima
+        // with the same hill climbing that computes the maxima is exact
+        // whenever the upstream assumption holds -- getExtreme returns the
+        // true extreme vertex of a convex polytope -- and repairs the case
+        // where it does not, at the cost of two more hill climbs per
+        // candidate. The exact (Rational) pipeline does not need the fix: its
+        // q0 and q1 are exact, so a degenerate level curve is detected by the
+        // d == 0 branch instead of producing noise.
+        const a0 = candidate.axis[0].values;
+        const e0min = this.getExtreme(Vector.fromArray([-a0[0], -a0[1], -a0[2]]));
+        candidate.minSupportIndex[0] = e0min.vMax;
+        pmin[0] = -e0min.dMax;
         const e0 = this.getExtreme(candidate.axis[0]);
         candidate.maxSupportIndex[0] = e0.vMax;
         pmax[0] = e0.dMax;
-        candidate.minSupportIndex[1] = this.mEdges[candidate.edgeIndex[1]].v[0];
-        pmin[1] = dot3(candidate.axis[1], this.mTVertices[candidate.minSupportIndex[1]]);
+        const a1 = candidate.axis[1].values;
+        const e1min = this.getExtreme(Vector.fromArray([-a1[0], -a1[1], -a1[2]]));
+        candidate.minSupportIndex[1] = e1min.vMax;
+        pmin[1] = -e1min.dMax;
         const e1 = this.getExtreme(candidate.axis[1]);
         candidate.maxSupportIndex[1] = e1.vMax;
         pmax[1] = e1.dMax;

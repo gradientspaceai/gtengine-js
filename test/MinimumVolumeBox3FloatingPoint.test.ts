@@ -8,6 +8,9 @@ import {
     MinimumVolumeBox3FloatingPoint,
     type MinimumVolumeBox3FloatingPointResult
 } from '../src/MinimumVolumeBox3FloatingPoint.js';
+import {
+    check, expectClose, fc, latticeVector, rotationFrame
+} from './helpers/arbitraries.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -499,4 +502,250 @@ describe('MinimumVolumeBox3FloatingPoint', () => {
             expect(again.volume).toBeCloseTo(first.volume, 12);
         });
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V12): property-based checks.
+//
+// The generators place the points on an integer lattice. Small integers are
+// exact in binary64, so the exact convex-hull predicates and the exact
+// (BSNumber) coplanarity tests inside the query see clean input, and the
+// remaining error is only that of the floating-point axis search. Compare with
+// the generator-hygiene note in VERIFYING.md: the default vector() generator
+// emits subnormal components, which underflow in the covariance-like products
+// this algorithm computes.
+// ---------------------------------------------------------------------------
+
+// A lattice point cloud whose convex hull is 3-dimensional.
+const latticeCloud = (count: number, spread = 5): fc.Arbitrary<Vector[]> =>
+    fc.array(latticeVector(3, -spread, spread),
+        { minLength: count, maxLength: count })
+        .filter(points => {
+            const ch3 = new ConvexHull3();
+            ch3.compute(points);
+            return ch3.getDimension() === 3;
+        });
+
+// A lattice point cloud that lies exactly in a plane through the origin with
+// the integer normal (a, b, -1): the points are (x, y, a*x + b*y), all of them
+// exact. 'hullSize' controls whether the planar hull is a triangle (the
+// upstream Newell-loop case) or a larger polygon.
+const coplanarLatticeCloud = (hullSize: 'triangle' | 'polygon'):
+    fc.Arbitrary<Vector[]> =>
+    fc.tuple(fc.integer({ min: -3, max: 3 }), fc.integer({ min: -3, max: 3 }),
+        fc.array(fc.tuple(fc.integer({ min: -4, max: 4 }),
+            fc.integer({ min: -4, max: 4 })), { minLength: 2, maxLength: 4 }))
+        .map(([a, b, extra]) => {
+            const lift = (x: number, y: number): Vector => V(x, y, a * x + b * y);
+            const points = hullSize === 'triangle'
+                ? [lift(0, 0), lift(6, 0), lift(0, 6)]
+                : [lift(0, 0), lift(6, 0), lift(6, 6), lift(0, 6)];
+            // The extra points are strictly inside the hull, so they do not
+            // change it: they are convex combinations with small weights.
+            for (const [x, y] of extra) {
+                points.push(lift(1 + (x + 4) % 3, 1 + (y + 4) % 3));
+            }
+            return points;
+        });
+
+// The volume of the axis-aligned bounding box of the points.
+function alignedBoxVolume(points: readonly Vector[]): number {
+    const lo = [Infinity, Infinity, Infinity];
+    const hi = [-Infinity, -Infinity, -Infinity];
+    for (const p of points) {
+        for (let j = 0; j < 3; ++j) {
+            lo[j] = Math.min(lo[j], p.values[j]);
+            hi[j] = Math.max(hi[j], p.values[j]);
+        }
+    }
+    return (hi[0] - lo[0]) * (hi[1] - lo[1]) * (hi[2] - lo[2]);
+}
+
+describe('MinimumVolumeBox3FloatingPoint verification', () => {
+    it('contains the points for a nearly degenerate bilinear form', () => {
+        // Regression test for the upstream ComputeVolume defect described in
+        // src/MinimumVolumeBox3FloatingPoint.ts. For this hull the edge pair
+        // (5, 11) has d = f00*f11 - f10*f01 = -1e-7, which is cancellation
+        // noise, so the endpoint sample of MinimizerVariableS builds its axis
+        // from q0 = -4e-17 and q1 = -7e-18 -- a random direction. Upstream
+        // then assumes a vertex of the edge realizes the minimum along that
+        // axis, which is false, and reports the box volume 166.5979... whose
+        // box misses the point (-1, 0, 5) by 0.957. The exact pipeline reports
+        // 180 and the fixed floating-point pipeline agrees with it.
+        const points = [
+            V(0, 0, 0), V(-2, -4, 1), V(0, -2, 5),
+            V(-1, 0, 5), V(0, 3, -5), V(0, 3, 0), V(-4, -1, 4)
+        ];
+        for (const lgMaxSample of [2, 3, 4]) {
+            const result = new MinimumVolumeBox3FloatingPoint()
+                .compute(points, lgMaxSample);
+            expect(result.dimension).toBe(3);
+            expectContainsAll(result.box, points, 1e-9);
+            expectClose(result.volume, 180, 1e-9, 1e-12);
+        }
+
+        // The same point set with the origin repeated: the duplicate vertices
+        // are removed before the box search, so the answer is unchanged.
+        const withDuplicates = [
+            V(0, 0, 0), V(-2, -4, 1), V(0, 0, 0), V(0, -2, 5), V(0, 0, 0),
+            V(-1, 0, 5), V(0, 3, -5), V(0, 3, 0), V(-4, -1, 4)
+        ];
+        const duplicated = new MinimumVolumeBox3FloatingPoint()
+            .compute(withDuplicates, 3);
+        expectContainsAll(duplicated.box, withDuplicates, 1e-9);
+        expectClose(duplicated.volume, 180, 1e-9, 1e-12);
+    });
+
+    it('returns a box that contains the points and is no larger than the '
+        + 'aligned or face-aligned candidates', () => {
+        check(latticeCloud(9), points => {
+            const result = new MinimumVolumeBox3FloatingPoint()
+                .compute(points, 3);
+            expect(result.dimension).toBe(3);
+            expectOrthonormalAxes(result.box, 1e-10);
+
+            // The scale of the coordinates is at most 5, so an absolute
+            // tolerance of 1e-9 is far above the accumulated rounding error of
+            // the dot products and well below any real containment failure.
+            expectContainsAll(result.box, points, 1e-9);
+
+            // The reported volume is the product of the box side lengths.
+            const e = result.box.extent.values;
+            expectClose(result.volume, 8 * e[0] * e[1] * e[2], 1e-8, 1e-9);
+
+            // O'Rourke's theorem: the minimum-volume box has a face flush with
+            // a hull face, so the search must do at least as well as the best
+            // face-aligned candidate box and as the axis-aligned box.
+            const faceAligned = bruteForceFaceAlignedVolume(points);
+            expect(result.volume).toBeLessThanOrEqual(faceAligned * (1 + 1e-8));
+            expect(result.volume)
+                .toBeLessThanOrEqual(alignedBoxVolume(points) * (1 + 1e-8));
+
+            // The box contains the hull, so its volume is at least the hull
+            // volume.
+            expect(result.volume)
+                .toBeGreaterThanOrEqual(convexHullVolume(points) * (1 - 1e-8));
+        }, 40);
+    }, 30000);
+
+    it('is invariant under a rigid motion of the point set', () => {
+        check(fc.tuple(latticeCloud(8), rotationFrame(3), latticeVector(3, -9, 9)),
+            ([points, frame, shift]) => {
+                const moved = points.map(p => V(
+                    dot(p, frame[0]) + shift.values[0],
+                    dot(p, frame[1]) + shift.values[1],
+                    dot(p, frame[2]) + shift.values[2]));
+                const mvb = new MinimumVolumeBox3FloatingPoint();
+                const v0 = mvb.compute(points, 3).volume;
+                const v1 = mvb.compute(moved, 3).volume;
+                // The minimizer is iterative and path dependent: rotating the
+                // input changes which sample of each level curve is the best,
+                // so the two volumes agree only to the accuracy of the search,
+                // not to machine precision.
+                expectClose(v1, v0, 1e-6, 1e-6);
+            }, 25);
+    }, 30000);
+
+    it('scales the volume by the cube of a uniform scale', () => {
+        check(fc.tuple(latticeCloud(8), fc.integer({ min: 2, max: 5 })),
+            ([points, s]) => {
+                const mvb = new MinimumVolumeBox3FloatingPoint();
+                const v0 = mvb.compute(points, 3).volume;
+                const v1 = mvb.compute(points.map(
+                    p => V(s * p.values[0], s * p.values[1], s * p.values[2])),
+                3).volume;
+                // A power-of-two scale would be exact; a general integer scale
+                // only rescales the same floating-point search, so allow a
+                // relative tolerance.
+                expectClose(v1, s * s * s * v0, 1e-9, 1e-9);
+            }, 25);
+    }, 30000);
+
+    it('does not get worse when the sample count increases', () => {
+        check(latticeCloud(8), points => {
+            const mvb = new MinimumVolumeBox3FloatingPoint();
+            const coarse = mvb.compute(points, 2).volume;
+            const fine = mvb.compute(points, 3).volume;
+            // The dyadic sample set for lgMaxSample = 2 is a subset of the one
+            // for lgMaxSample = 3, so the minimum cannot increase except by
+            // rounding.
+            expect(fine).toBeLessThanOrEqual(coarse * (1 + 1e-9));
+        }, 25);
+    }, 30000);
+
+    it('classifies coplanar point sets as dimension 2 with a finite basis', () => {
+        // The triangular-hull case is the one for which the upstream Newell
+        // loop sums to the zero vector (issue: the loop starts at i1 = 1, so
+        // it computes Cross(P2,P1) + Cross(P1,P2) = 0 for a 3-gon). A zero
+        // normal makes ComputeOrthogonalComplement produce a degenerate basis
+        // and every output value NaN. The port closes the loop.
+        check(fc.oneof(coplanarLatticeCloud('triangle'),
+            coplanarLatticeCloud('polygon')), points => {
+            const result = new MinimumVolumeBox3FloatingPoint()
+                .compute(points, 3);
+            expect(result.dimension).toBe(2);
+            expect(result.volume).toBe(0);
+            expect(result.box.extent.values[2]).toBe(0);
+            expect(result.box.extent.values[0]).toBeGreaterThan(0);
+            expect(result.box.extent.values[1]).toBeGreaterThan(0);
+            for (const value of result.box.center.values) {
+                expect(Number.isFinite(value)).toBe(true);
+            }
+            expectOrthonormalAxes(result.box, 1e-10);
+            expectContainsAll(result.box, points, 1e-9);
+        }, 60);
+    }, 30000);
+
+    it('computes a nonzero Newell normal for a triangular coplanar hull', () => {
+        // The direct statement of the fixed defect: the third box axis is the
+        // plane normal, so it must be a unit vector parallel to (a, b, -1).
+        check(fc.tuple(fc.integer({ min: -3, max: 3 }),
+            fc.integer({ min: -3, max: 3 })), ([a, b]) => {
+            const lift = (x: number, y: number): Vector => V(x, y, a * x + b * y);
+            const points = [lift(0, 0), lift(4, 0), lift(0, 4), lift(1, 1)];
+            const result = new MinimumVolumeBox3FloatingPoint()
+                .compute(points, 3);
+            expect(result.dimension).toBe(2);
+            const n = result.box.axis[2];
+            expectClose(dot(n, n), 1, 1e-12, 1e-12);
+            // The plane is z = a*x + b*y, whose normal is parallel to
+            // (a, b, -1).
+            const exact = V(a, b, -1);
+            normalize(exact);
+            expectClose(Math.abs(dot(n, exact)), 1, 1e-12, 1e-12);
+        }, 49);
+    }, 30000);
+
+    it('classifies collinear and coincident point sets', () => {
+        check(fc.tuple(latticeVector(3, -6, 6), latticeVector(3, -4, 4),
+            fc.array(fc.integer({ min: -6, max: 6 }),
+                { minLength: 4, maxLength: 7 })),
+        ([origin, direction, ts]) => {
+            const d = direction.values;
+            if (d[0] === 0 && d[1] === 0 && d[2] === 0) {
+                // Coincident points.
+                const points = ts.map(() => origin.clone());
+                const result = new MinimumVolumeBox3FloatingPoint()
+                    .compute(points, 3);
+                expect(result.dimension).toBe(0);
+                expect(result.volume).toBe(0);
+                expect(result.box.extent.values).toEqual([0, 0, 0]);
+                expect(result.box.center.values).toEqual([...origin.values]);
+                return;
+            }
+            const points = ts.map(t => V(
+                origin.values[0] + t * d[0],
+                origin.values[1] + t * d[1],
+                origin.values[2] + t * d[2]));
+            const distinct = new Set(points.map(p => p.values.join(',')));
+            const result = new MinimumVolumeBox3FloatingPoint()
+                .compute(points, 3);
+            expect(result.dimension).toBe(distinct.size === 1 ? 0 : 1);
+            expect(result.volume).toBe(0);
+            expect(result.box.extent.values[1]).toBe(0);
+            expect(result.box.extent.values[2]).toBe(0);
+            expectOrthonormalAxes(result.box, 1e-12);
+            expectContainsAll(result.box, points, 1e-9);
+        }, 60);
+    }, 30000);
 });

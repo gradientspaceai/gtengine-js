@@ -9,6 +9,9 @@ import {
     MinimumVolumeBox3Rational,
     type MinimumVolumeBox3RationalResult
 } from '../src/MinimumVolumeBox3Rational.js';
+import {
+    check, expectClose, fc, latticeVector
+} from './helpers/arbitraries.js';
 
 // The exact pipeline is much slower than the floating-point one, so the point
 // sets are kept small and the number of trials low. A generous per-test
@@ -510,4 +513,209 @@ describe('MinimumVolumeBox3Rational', () => {
             expect(again.volume).toBe(first.volume);
         }, SLOW);
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V12): property-based checks.
+//
+// The generators place the points on an integer lattice, so the exact
+// (BSNumber / BSRational) pipeline sees exact input and its only inexactness
+// is the final conversion of the box to binary64. Point counts are kept small
+// because every candidate volume is an exact rational computation; the heavy
+// properties carry an explicit timeout.
+// ---------------------------------------------------------------------------
+
+// A lattice point cloud whose convex hull is 3-dimensional.
+const latticeCloud = (count: number, spread = 5): fc.Arbitrary<Vector[]> =>
+    fc.array(latticeVector(3, -spread, spread),
+        { minLength: count, maxLength: count })
+        .filter(points => {
+            const ch3 = new ConvexHull3();
+            ch3.compute(points);
+            return ch3.getDimension() === 3;
+        });
+
+// A lattice point cloud lying exactly in the plane z = a*x + b*y. 'hullSize'
+// selects a triangular planar hull (the upstream Newell-loop case) or a
+// quadrilateral one.
+const coplanarLatticeCloud = (hullSize: 'triangle' | 'polygon'):
+    fc.Arbitrary<Vector[]> =>
+    fc.tuple(fc.integer({ min: -3, max: 3 }), fc.integer({ min: -3, max: 3 }),
+        fc.array(fc.tuple(fc.integer({ min: -4, max: 4 }),
+            fc.integer({ min: -4, max: 4 })), { minLength: 2, maxLength: 4 }))
+        .map(([a, b, extra]) => {
+            const lift = (x: number, y: number): Vector => V(x, y, a * x + b * y);
+            const points = hullSize === 'triangle'
+                ? [lift(0, 0), lift(6, 0), lift(0, 6)]
+                : [lift(0, 0), lift(6, 0), lift(6, 6), lift(0, 6)];
+            for (const [x, y] of extra) {
+                points.push(lift(1 + (x + 4) % 3, 1 + (y + 4) % 3));
+            }
+            return points;
+        });
+
+// The volume of the axis-aligned bounding box of the points.
+function alignedBoxVolume(points: readonly Vector[]): number {
+    const lo = [Infinity, Infinity, Infinity];
+    const hi = [-Infinity, -Infinity, -Infinity];
+    for (const p of points) {
+        for (let j = 0; j < 3; ++j) {
+            lo[j] = Math.min(lo[j], p.values[j]);
+            hi[j] = Math.max(hi[j], p.values[j]);
+        }
+    }
+    return (hi[0] - lo[0]) * (hi[1] - lo[1]) * (hi[2] - lo[2]);
+}
+
+describe('MinimumVolumeBox3Rational verification', () => {
+    it('returns a box that contains the points and is no larger than the '
+        + 'aligned or face-aligned candidates', () => {
+        check(latticeCloud(8), points => {
+            const result = new MinimumVolumeBox3Rational().compute(points, 2);
+            expect(result.dimension).toBe(3);
+            expectOrthonormalAxes(result.box, 1e-10);
+
+            // The whole search is exact; the only rounding is the final
+            // conversion of the rational box to binary64, so a tolerance of
+            // 1e-9 on coordinates of magnitude at most 5 is generous.
+            expectContainsAll(result.box, points, 1e-9);
+
+            const e = result.box.extent.values;
+            expectClose(result.volume, 8 * e[0] * e[1] * e[2], 1e-8, 1e-9);
+
+            const faceAligned = bruteForceFaceAlignedVolume(points);
+            expect(result.volume).toBeLessThanOrEqual(faceAligned * (1 + 1e-8));
+            expect(result.volume)
+                .toBeLessThanOrEqual(alignedBoxVolume(points) * (1 + 1e-8));
+            expect(result.volume)
+                .toBeGreaterThanOrEqual(convexHullVolume(points) * (1 - 1e-8));
+        }, 40);
+    }, SLOW);
+
+    it('agrees with the floating-point pipeline on lattice input', () => {
+        check(latticeCloud(8), points => {
+            const lgMaxSample = 4;
+            const exact = new MinimumVolumeBox3Rational()
+                .compute(points, lgMaxSample);
+            const approx = new MinimumVolumeBox3FloatingPoint()
+                .compute(points, lgMaxSample);
+            expect(approx.dimension).toBe(exact.dimension);
+
+            // Both results must be valid containing boxes that are no worse
+            // than the best hull-face-aligned candidate. These are the
+            // assertions with content; the two pipelines are not required to
+            // return the same box.
+            expectContainsAll(approx.box, points, 1e-9);
+            expectContainsAll(exact.box, points, 1e-9);
+            const faceAligned = bruteForceFaceAlignedVolume(points);
+            expect(approx.volume).toBeLessThanOrEqual(faceAligned * (1 + 1e-8));
+            expect(exact.volume).toBeLessThanOrEqual(faceAligned * (1 + 1e-8));
+
+            // The two pipelines search the same family of level curves but
+            // with different parameterizations: the floating-point pipeline
+            // interpolates unit-length face normals while the exact pipeline
+            // interpolates the unnormalized integer normals, because
+            // normalization is not an exact operation. The sampled points
+            // therefore differ and the two minima differ by the accuracy of
+            // the sampling search rather than by the accuracy of the
+            // arithmetic. Over 120 random lattice clouds of 8 points the
+            // relative gap has median 0.09%, 95th percentile 1.0% and maximum
+            // 3.5% at lgMaxSample = 4; the bound below is loose enough to
+            // cover the tail and still catches a pipeline that diverges.
+            const gap = Math.abs(approx.volume - exact.volume)
+                / Math.max(1, exact.volume);
+            expect(gap).toBeLessThan(0.15);
+        }, 30);
+    }, SLOW);
+
+    it('scales the volume by the cube of a uniform scale', () => {
+        check(fc.tuple(latticeCloud(7), fc.integer({ min: 2, max: 4 })),
+            ([points, s]) => {
+                const mvb = new MinimumVolumeBox3Rational();
+                const v0 = mvb.compute(points, 2).volume;
+                const v1 = mvb.compute(points.map(
+                    p => V(s * p.values[0], s * p.values[1], s * p.values[2])),
+                2).volume;
+                // The scaled problem is the same problem in exact arithmetic,
+                // so only the final conversion to binary64 differs.
+                expectClose(v1, s * s * s * v0, 1e-9, 1e-12);
+            }, 20);
+    }, SLOW);
+
+    it('does not get worse when the sample count increases', () => {
+        check(latticeCloud(7), points => {
+            const mvb = new MinimumVolumeBox3Rational();
+            const coarse = mvb.compute(points, 2).volume;
+            const fine = mvb.compute(points, 3).volume;
+            // The dyadic samples for lgMaxSample = 2 are a subset of those for
+            // lgMaxSample = 3, and the comparison of candidate volumes is
+            // exact, so the minimum cannot increase.
+            expect(fine).toBeLessThanOrEqual(coarse * (1 + 1e-12));
+        }, 20);
+    }, SLOW);
+
+    it('classifies coplanar point sets as dimension 2 with a finite basis', () => {
+        // The triangular-hull case is the upstream Newell-loop defect: the
+        // loop starts at i1 = 1, so for a 3-gon the sum of cross products is
+        // Cross(P2,P1) + Cross(P1,P2) = 0 and the plane basis is degenerate.
+        check(fc.oneof(coplanarLatticeCloud('triangle'),
+            coplanarLatticeCloud('polygon')), points => {
+            const result = new MinimumVolumeBox3Rational().compute(points, 2);
+            expect(result.dimension).toBe(2);
+            expect(result.volume).toBe(0);
+            expect(result.box.extent.values[2]).toBe(0);
+            expect(result.box.extent.values[0]).toBeGreaterThan(0);
+            expect(result.box.extent.values[1]).toBeGreaterThan(0);
+            for (const value of result.box.center.values) {
+                expect(Number.isFinite(value)).toBe(true);
+            }
+            expectOrthonormalAxes(result.box, 1e-10);
+            expectContainsAll(result.box, points, 1e-9);
+        }, 40);
+    }, SLOW);
+
+    it('computes a nonzero Newell normal for a triangular coplanar hull', () => {
+        check(fc.tuple(fc.integer({ min: -3, max: 3 }),
+            fc.integer({ min: -3, max: 3 })), ([a, b]) => {
+            const lift = (x: number, y: number): Vector => V(x, y, a * x + b * y);
+            const points = [lift(0, 0), lift(4, 0), lift(0, 4), lift(1, 1)];
+            const result = new MinimumVolumeBox3Rational().compute(points, 2);
+            expect(result.dimension).toBe(2);
+            const n = result.box.axis[2];
+            expect(dot(n, n)).toBeCloseTo(1, 12);
+            const exact = V(a, b, -1);
+            normalize(exact);
+            expect(Math.abs(dot(n, exact))).toBeCloseTo(1, 12);
+        }, 49);
+    }, SLOW);
+
+    it('classifies collinear and coincident point sets', () => {
+        check(fc.tuple(latticeVector(3, -6, 6), latticeVector(3, -4, 4),
+            fc.array(fc.integer({ min: -6, max: 6 }),
+                { minLength: 4, maxLength: 7 })),
+        ([origin, direction, ts]) => {
+            const d = direction.values;
+            if (d[0] === 0 && d[1] === 0 && d[2] === 0) {
+                const points = ts.map(() => origin.clone());
+                const result = new MinimumVolumeBox3Rational().compute(points, 2);
+                expect(result.dimension).toBe(0);
+                expect(result.volume).toBe(0);
+                expect(result.box.extent.values).toEqual([0, 0, 0]);
+                expect(result.box.center.values).toEqual([...origin.values]);
+                return;
+            }
+            const points = ts.map(t => V(
+                origin.values[0] + t * d[0],
+                origin.values[1] + t * d[1],
+                origin.values[2] + t * d[2]));
+            const distinct = new Set(points.map(p => p.values.join(',')));
+            const result = new MinimumVolumeBox3Rational().compute(points, 2);
+            expect(result.dimension).toBe(distinct.size === 1 ? 0 : 1);
+            expect(result.volume).toBe(0);
+            expect(result.box.extent.values[1]).toBe(0);
+            expect(result.box.extent.values[2]).toBe(0);
+            expectOrthonormalAxes(result.box, 1e-12);
+            expectContainsAll(result.box, points, 1e-9);
+        }, 40);
+    }, SLOW);
 });
