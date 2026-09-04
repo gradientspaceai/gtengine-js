@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { Delaunay3 } from '../src/Delaunay3.js';
 import { Delaunay3Mesh } from '../src/Delaunay3Mesh.js';
 import { Vector } from '../src/Vector.js';
+import { fc, check, latticeVector, expectClose } from './helpers/arbitraries.js';
+import { orient3 } from './helpers/exact.js';
 
 const v3 = (x: number, y: number, z: number): Vector =>
     Vector.fromArray([x, y, z]);
@@ -140,4 +142,173 @@ describe('Delaunay3Mesh', () => {
         expect(mesh.getContainingTetrahedron(v3(50, 50, 50)))
             .toBe(mesh.getInvalidIndex());
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V11): property-based cross-checks. All point sets are integer
+// lattices, so the containment oracle is exact bigint orientation arithmetic.
+// ---------------------------------------------------------------------------
+
+const bigXYZ = (p: Vector): [bigint, bigint, bigint] =>
+    [BigInt(p.values[0]), BigInt(p.values[1]), BigInt(p.values[2])];
+
+/**
+ * The indices of every tetrahedron of the tetrahedralization that contains P,
+ * determined exactly. The test is independent of the vertex ordering
+ * convention: P is in the closed tetrahedron when replacing any one vertex by
+ * P does not flip the orientation.
+ */
+function containingTetrahedraExact(mesh: Delaunay3Mesh, p: Vector): number[] {
+    const vertices = mesh.getVertices();
+    const q = bigXYZ(p);
+    const result: number[] = [];
+    for (let t = 0; t < mesh.getNumTetrahedra(); ++t) {
+        const idx = mesh.getTetrahedronIndices(t) as
+            [number, number, number, number];
+        const v = idx.map(i => bigXYZ(vertices[i]));
+        const det = orient3(v[0], v[1], v[2], v[3]);
+        if (det === 0) { continue; }
+        let inside = true;
+        for (let i = 0; i < 4; ++i) {
+            const w = v.slice();
+            w[i] = q;
+            const s = orient3(w[0], w[1], w[2], w[3]);
+            if (s !== 0 && s !== det) {
+                inside = false;
+                break;
+            }
+        }
+        if (inside) { result.push(t); }
+    }
+    return result;
+}
+
+const latticeCloud3 = (count: number, range: number): fc.Arbitrary<Vector[]> =>
+    fc.array(latticeVector(3, -range, range),
+        { minLength: count, maxLength: count });
+
+function buildMesh3(points: readonly Vector[]): Delaunay3Mesh | null {
+    const delaunay = new Delaunay3();
+    if (!delaunay.compute(points) || delaunay.getDimension() !== 3) {
+        return null;
+    }
+    return new Delaunay3Mesh(delaunay);
+}
+
+describe('Delaunay3Mesh verification', () => {
+    it('locates the containing tetrahedron exactly', () => {
+        check(fc.tuple(latticeCloud3(14, 5), latticeVector(3, -2, 2)),
+            ([points, query]) => {
+                const mesh = buildMesh3(points);
+                if (mesh === null) { return true; }
+                const expected = containingTetrahedraExact(mesh, query);
+                const t = mesh.getContainingTetrahedron(query);
+                if (expected.length === 0) {
+                    expect(t).toBe(mesh.getInvalidIndex());
+                }
+                else {
+                    // On a shared face, edge or vertex several tetrahedra
+                    // contain the point; the search may return any of them.
+                    expect(expected).toContain(t);
+                }
+                return true;
+            }, 120);
+    }, 30000);
+
+    it('computes barycentrics that reproduce the query point', () => {
+        check(fc.tuple(latticeCloud3(14, 5), latticeVector(3, -2, 2)),
+            ([points, query]) => {
+                const mesh = buildMesh3(points);
+                if (mesh === null) { return true; }
+                const t = mesh.getContainingTetrahedron(query);
+                if (t === mesh.getInvalidIndex()) { return true; }
+
+                const bary = mesh.getBarycentrics(t, query);
+                expect(bary).not.toBeNull();
+                const b = bary as [number, number, number, number];
+                const vertices = mesh.getTetrahedronVertices(t) as
+                    [Vector, Vector, Vector, Vector];
+
+                expectClose(b[0] + b[1] + b[2] + b[3], 1, 1e-12, 1e-12);
+                for (const bi of b) {
+                    expect(bi).toBeGreaterThanOrEqual(-1e-12);
+                    expect(bi).toBeLessThanOrEqual(1 + 1e-12);
+                }
+
+                // The coordinates are exact rationals rounded once to double,
+                // so the reconstruction is accurate to a few ulps of the
+                // coordinate range.
+                for (let j = 0; j < 3; ++j) {
+                    let value = 0;
+                    for (let i = 0; i < 4; ++i) {
+                        value += b[i] * vertices[i].values[j];
+                    }
+                    expectClose(value, query.values[j], 1e-11, 1e-11);
+                }
+                return true;
+            }, 120);
+    }, 30000);
+
+    it('interpolates a linear function exactly', () => {
+        check(fc.tuple(latticeCloud3(14, 5), latticeVector(3, -2, 2),
+            latticeVector(4, -4, 4)), ([points, query, coeff]) => {
+            const mesh = buildMesh3(points);
+            if (mesh === null) { return true; }
+            const t = mesh.getContainingTetrahedron(query);
+            if (t === mesh.getInvalidIndex()) { return true; }
+            const bary = mesh.getBarycentrics(t, query);
+            if (bary === null) { return true; }
+
+            const f = (v: Vector): number =>
+                coeff.values[0] * v.values[0] + coeff.values[1] * v.values[1]
+                + coeff.values[2] * v.values[2] + coeff.values[3];
+            const vertices = mesh.getTetrahedronVertices(t) as
+                [Vector, Vector, Vector, Vector];
+            let interpolated = 0;
+            for (let i = 0; i < 4; ++i) {
+                interpolated += bary[i] * f(vertices[i]);
+            }
+            expectClose(interpolated, f(query), 1e-10, 1e-10);
+            return true;
+        }, 120);
+    }, 30000);
+
+    it('keeps the accessors consistent with the tetrahedralization', () => {
+        check(latticeCloud3(12, 5), points => {
+            const mesh = buildMesh3(points);
+            if (mesh === null) { return true; }
+            const vertices = mesh.getVertices();
+            const indices = mesh.getIndices();
+            const adjacencies = mesh.getAdjacencies();
+            expect(indices.length).toBe(4 * mesh.getNumTetrahedra());
+            expect(adjacencies.length).toBe(indices.length);
+
+            for (let t = 0; t < mesh.getNumTetrahedra(); ++t) {
+                const idx = mesh.getTetrahedronIndices(t) as
+                    [number, number, number, number];
+                const adj = mesh.getTetrahedronAdjacencies(t) as
+                    [number, number, number, number];
+                const tv = mesh.getTetrahedronVertices(t) as
+                    [Vector, Vector, Vector, Vector];
+                for (let j = 0; j < 4; ++j) {
+                    expect(idx[j]).toBe(indices[4 * t + j]);
+                    expect(adj[j]).toBe(adjacencies[4 * t + j]);
+                    expect(tv[j].values).toEqual(vertices[idx[j]].values);
+                    // The returned vertices are copies, not aliases of the
+                    // tetrahedralization storage (upstream returns by value).
+                    expect(tv[j]).not.toBe(vertices[idx[j]]);
+                    if (adj[j] !== mesh.getInvalidIndex()) {
+                        const back = mesh.getTetrahedronAdjacencies(adj[j]) as
+                            [number, number, number, number];
+                        expect(back).toContain(t);
+                    }
+                }
+            }
+            expect(mesh.getTetrahedronIndices(-1)).toBeNull();
+            expect(mesh.getTetrahedronIndices(mesh.getNumTetrahedra())).toBeNull();
+            expect(mesh.getBarycentrics(mesh.getNumTetrahedra(),
+                points[0])).toBeNull();
+            return true;
+        }, 80);
+    }, 30000);
 });
