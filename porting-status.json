@@ -195,11 +195,13 @@
   "status": "ported"
  },
  "BasisFunction.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 17
  },
  "BezierCurve.h": {
   "status": "ported",
-  "note": "porter: ParametricCurve.getTime is numerically weak across knot discontinuities (upstream design limitation, see upstream-bug issue from B40) — decide arc-length test strategy accordingly"
+  "note": "porter: ParametricCurve.getTime is numerically weak across knot discontinuities (upstream design limitation, see upstream-bug issue from B40) — decide arc-length test strategy accordingly",
+  "verified": 17
  },
  "BitHacks.h": {
   "status": "ported",
@@ -297,7 +299,8 @@
   "verified": 8
  },
  "CLODPolyline.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 17
  },
  "Cone.h": {
   "status": "ported"
@@ -440,7 +443,8 @@
   "status": "ported"
  },
  "DarbouxFrame.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 17
  },
  "DCPQuery.h": {
   "status": "ported",
@@ -709,7 +713,8 @@
   "status": "ported"
  },
  "EllipsoidGeodesic.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 18
  },
  "ETManifoldMesh.h": {
   "status": "ported"
@@ -770,7 +775,8 @@
   "status": "ported"
  },
  "FrenetFrame.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 17
  },
  "Frustum3.h": {
   "status": "ported"
@@ -874,7 +880,8 @@
   "status": "ported"
  },
  "ImplicitCurve2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 17
  },
  "ImplicitSurface3.h": {
   "status": "ported",
@@ -1331,7 +1338,8 @@
   "status": "ported"
  },
  "MassSpringCurve.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 17
  },
  "MassSpringSurface.h": {
   "status": "ported"
@@ -1420,27 +1428,33 @@
   "verified": 11
  },
  "NaturalCubicSpline.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 17
  },
  "NaturalQuinticSpline.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 17
  },
  "NaturalSplineCurve.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 18
  },
  "NearestNeighborQuery.h": {
   "status": "ported",
   "verified": 8
  },
  "NURBSCircle.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 17
  },
  "NURBSCurve.h": {
   "status": "ported",
-  "note": "porter: ParametricCurve.getTime is numerically weak across knot discontinuities (upstream design limitation, see upstream-bug issue from B40) — decide arc-length test strategy accordingly"
+  "note": "porter: ParametricCurve.getTime is numerically weak across knot discontinuities (upstream design limitation, see upstream-bug issue from B40) — decide arc-length test strategy accordingly",
+  "verified": 17
  },
  "NURBSSphere.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 17
  },
  "NURBSSurface.h": {
   "status": "ported"
@@ -1502,7 +1516,8 @@
   "status": "ported"
  },
  "ParametricCurve.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 17
  },
  "ParametricSurface.h": {
   "status": "ported"
@@ -1543,7 +1558,8 @@
   "status": "ported"
  },
  "PolylineOffset.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 17
  },
  "Polynomial1.h": {
   "status": "ported"
@@ -1603,14 +1619,16 @@
   "status": "ported"
  },
  "ReparameterizeByArclength.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 17
  },
  "RevolutionMesh.h": {
   "status": "ported",
   "verified": 16
  },
  "RiemannianGeodesic.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 18
  },
  "RigidBody.h": {
   "status": "ported"
@@ -1660,7 +1678,8 @@
   "verified": 2
  },
  "SampleCircularArc.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 17
  },
  "Sector2.h": {
   "status": "ported"
@@ -1747,7 +1766,8 @@
   "status": "ported"
  },
  "TCBSplineCurve.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 17
  },
  "TetrahedraRasterizer.h": {
   "status": "ported"
