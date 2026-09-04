@@ -429,10 +429,12 @@
   "verified": 15
  },
  "CurveExtractorSquares.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 16
  },
  "CurveExtractorTriangles.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 16
  },
  "Cylinder3.h": {
   "status": "ported"
@@ -713,7 +715,8 @@
   "status": "ported"
  },
  "ETNonmanifoldMesh.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 16
  },
  "EulerAngles.h": {
   "status": "ported",
@@ -852,7 +855,8 @@
   "verified": 15
  },
  "IEEEBinary16.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 16
  },
  "Image.h": {
   "status": "ported"
@@ -873,7 +877,8 @@
   "status": "ported"
  },
  "ImplicitSurface3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 16
  },
  "IncrementalDelaunay2.h": {
   "status": "ported",
@@ -1354,10 +1359,12 @@
   "status": "ported"
  },
  "MeshCurvature.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 16
  },
  "MeshSmoother.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 16
  },
  "MeshStaticManifold2.h": {
   "status": "ported",
@@ -1522,10 +1529,12 @@
   "status": "ported"
  },
  "PolygonTree.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 16
  },
  "PolygonWindingOrder.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 16
  },
  "PolyhedralMassProperties.h": {
   "status": "ported"
@@ -1597,7 +1606,8 @@
   "status": "ported"
  },
  "RevolutionMesh.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 16
  },
  "RiemannianGeodesic.h": {
   "status": "ported"
@@ -1790,7 +1800,8 @@
   "status": "ported"
  },
  "TubeMesh.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 16
  },
  "TypeTraits.h": {
   "status": "ported",
@@ -1843,13 +1854,15 @@
   "status": "ported"
  },
  "VertexCollapseMesh.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 16
  },
  "VETManifoldMesh.h": {
   "status": "ported"
  },
  "VETNonmanifoldMesh.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 16
  },
  "VTSManifoldMesh.h": {
   "status": "ported"
