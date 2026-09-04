@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { IEEEBinary16 } from '../src/IEEEBinary16.js';
 import { IEEEClassification } from '../src/IEEEBinary.js';
+import { check, fc, finite } from './helpers/arbitraries.js';
 
 // An independent reference implementation of binary16, written from the IEEE
 // 754 definition rather than from the upstream bit manipulations.
@@ -528,5 +529,324 @@ describe('IEEEBinary16 upstream quirk: NaN with a small payload', () => {
         const h = IEEEBinary16.fromNumber(NaN);
         expect(h.isNaN()).toBe(true);
         expect(h.isQuietNaN()).toBe(true);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification block (V16).
+// ---------------------------------------------------------------------------
+
+// Bit-pattern views for the binary32 reference computations.
+const refBuffer = new ArrayBuffer(4);
+const refF32 = new Float32Array(refBuffer);
+const refU32 = new Uint32Array(refBuffer);
+
+function bitsOf32(value: number): number {
+    refF32[0] = value;
+    return refU32[0] >>> 0;
+}
+
+function valueOf32(bits: number): number {
+    refU32[0] = bits >>> 0;
+    return refF32[0];
+}
+
+// Every uint32 bit pattern, drawn uniformly.
+const bits32 = fc.integer({ min: -0x80000000, max: 0x7FFFFFFF })
+    .map(x => x >>> 0);
+
+// Every uint16 encoding, drawn uniformly.
+const encoding16 = fc.integer({ min: 0, max: 0xFFFF });
+
+describe('IEEEBinary16 verification', () => {
+    it('decodes every one of the 65536 encodings to the IEEE 754 value', () => {
+        for (let e = 0; e <= 0xFFFF; ++e) {
+            const x = IEEEBinary16.fromEncoding(e);
+            const expected = decodeHalf(e);
+            if (Number.isNaN(expected)) {
+                expect(Number.isNaN(x.number)).toBe(true);
+            } else {
+                // Object.is separates -0 from +0, which is what the sign bit
+                // of the encoding demands.
+                expect(Object.is(x.number, expected)).toBe(true);
+            }
+            // Every binary16 value is exactly a binary32 value.
+            expect(Object.is(Math.fround(x.number), x.number)).toBe(true);
+        }
+    }, 30000);
+
+    it('re-encodes every non-NaN value back to the same encoding', () => {
+        for (let e = 0; e <= 0xFFFF; ++e) {
+            const x = IEEEBinary16.fromEncoding(e);
+            if (x.isNaN()) { continue; }
+            expect(IEEEBinary16.fromNumber(x.number).encoding).toBe(e);
+            // Idempotence of the encoding pipeline.
+            expect(IEEEBinary16.convert32To16(
+                IEEEBinary16.convert16To32(e))).toBe(e);
+        }
+    }, 30000);
+
+    it('splits and rebuilds the sign, biased exponent and trailing fields', () => {
+        for (let e = 0; e <= 0xFFFF; ++e) {
+            const x = IEEEBinary16.fromEncoding(e);
+            const { sign, biased, trailing } = x.getEncoding();
+            expect(sign).toBe(e >>> 15);
+            expect(biased).toBe((e >>> 10) & 0x1F);
+            expect(trailing).toBe(e & 0x3FF);
+            expect(IEEEBinary16.fromParts(sign, biased, trailing).encoding)
+                .toBe(e);
+        }
+    }, 30000);
+
+    it('classifies every encoding consistently with its fields', () => {
+        for (let e = 0; e <= 0xFFFF; ++e) {
+            const x = IEEEBinary16.fromEncoding(e);
+            const sign = e >>> 15;
+            const biased = (e >>> 10) & 0x1F;
+            const trailing = e & 0x3FF;
+            let expected: IEEEClassification;
+            if (biased === 0) {
+                expected = trailing === 0
+                    ? (sign ? IEEEClassification.NEG_ZERO
+                        : IEEEClassification.POS_ZERO)
+                    : (sign ? IEEEClassification.NEG_SUBNORMAL
+                        : IEEEClassification.POS_SUBNORMAL);
+            } else if (biased < 31) {
+                expected = sign ? IEEEClassification.NEG_NORMAL
+                    : IEEEClassification.POS_NORMAL;
+            } else if (trailing === 0) {
+                expected = sign ? IEEEClassification.NEG_INFINITY
+                    : IEEEClassification.POS_INFINITY;
+            } else {
+                expected = (trailing & 0x200) !== 0
+                    ? IEEEClassification.QUIET_NAN
+                    : IEEEClassification.SIGNALING_NAN;
+            }
+            expect(x.getClassification()).toBe(expected);
+            expect(x.isZero()).toBe(biased === 0 && trailing === 0);
+            expect(x.isSignMinus()).toBe(sign === 1);
+            expect(x.isSubnormal()).toBe(biased === 0 && trailing > 0);
+            expect(x.isNormal()).toBe(biased > 0 && biased < 31);
+            expect(x.isFinite()).toBe(biased < 31);
+            expect(x.isInfinite()).toBe(biased === 31 && trailing === 0);
+            expect(x.isNaN()).toBe(biased === 31 && trailing !== 0);
+        }
+    }, 30000);
+
+    it('orders next-up and next-down by the value ordering of the encodings', () => {
+        // The nonnegative encodings 0x0000..0x7C00 are increasing in value and
+        // the negative ones mirror them, which is what the branchy upstream
+        // code implements.
+        const order: number[] = [];
+        for (let e = 0x7C00; e >= 0x0001; --e) { order.push(0x8000 | e); }
+        order.push(0x8000);            // -0
+        order.push(0x0000);            // +0
+        for (let e = 0x0001; e <= 0x7C00; ++e) { order.push(e); }
+
+        for (let i = 0; i < order.length; ++i) {
+            const x = IEEEBinary16.fromEncoding(order[i]);
+            // -0 and +0 are adjacent in the list but equal in value; upstream
+            // maps both to MIN_SUBNORMAL going up and to -MIN_SUBNORMAL going
+            // down, so treat the pair as a single step.
+            const isZero = order[i] === 0x0000 || order[i] === 0x8000;
+            if (isZero) {
+                expect(x.getNextUp()).toBe(IEEEBinary16.MIN_SUBNORMAL);
+                expect(x.getNextDown())
+                    .toBe(IEEEBinary16.SIGN_MASK | IEEEBinary16.MIN_SUBNORMAL);
+                continue;
+            }
+            const up = i + 1 < order.length ? order[i + 1] : IEEEBinary16.POS_INFINITY;
+            const down = i > 0 ? order[i - 1] : IEEEBinary16.NEG_INFINITY;
+            expect(x.getNextUp()).toBe(up);
+            expect(x.getNextDown()).toBe(down);
+        }
+
+        // Every NaN is its own neighbor in both directions.
+        for (let t = 1; t <= 0x3FF; ++t) {
+            for (const s of [0x0000, 0x8000]) {
+                const e = s | 0x7C00 | t;
+                expect(IEEEBinary16.fromEncoding(e).getNextUp()).toBe(e);
+                expect(IEEEBinary16.fromEncoding(e).getNextDown()).toBe(e);
+            }
+        }
+    }, 30000);
+
+    it('flips only the sign bit when negating, for every encoding', () => {
+        for (let e = 0; e <= 0xFFFF; ++e) {
+            const n = IEEEBinary16.negate(IEEEBinary16.fromEncoding(e));
+            expect(n.encoding).toBe(e ^ 0x8000);
+            expect(IEEEBinary16.negate(n).encoding).toBe(e);
+        }
+    }, 30000);
+
+    it('rounds every binary32 bit pattern the way the reference encoder does', () => {
+        check(bits32, bits => {
+            const value = valueOf32(bits);
+            const encoded = IEEEBinary16.convert32To16(bits);
+            if (Number.isNaN(value)) {
+                // Upstream keeps only the high-order 9 payload bits, so a NaN
+                // whose payload lives in the low 13 bits becomes an infinity
+                // (upstream bug, preserved by the port).
+                const payload = (bits & 0x007FFFFF) >>> 13;
+                expect(encoded).toBe(((bits >>> 16) & 0x8000) | 0x7C00 | payload);
+                expect(IEEEBinary16.fromEncoding(encoded).isNaN())
+                    .toBe(payload !== 0);
+                return;
+            }
+            expect(encoded).toBe(encodeHalf(value));
+        });
+    });
+
+    it('rounds every double to the nearest binary16 of its binary32 rounding', () => {
+        // The C++ constructor from double first converts to float, so the
+        // conversion is a double rounding by construction.
+        check(finite(-70000, 70000), value => {
+            const x = IEEEBinary16.fromNumber(value);
+            expect(x.encoding).toBe(encodeHalf(f32(value)));
+        });
+    });
+
+    it('evaluates the binary operators in binary32', () => {
+        check(fc.tuple(encoding16, encoding16), ([e0, e1]) => {
+            const x = IEEEBinary16.fromEncoding(e0);
+            const y = IEEEBinary16.fromEncoding(e1);
+            const a = x.number;
+            const b = y.number;
+            // For binary32 operands the binary64 result rounds to the same
+            // binary32 value the C++ float arithmetic produces (2*24+1 <= 53).
+            const ops: Array<[number, number]> = [
+                [IEEEBinary16.add(x, y), f32(a + b)],
+                [IEEEBinary16.sub(x, y), f32(a - b)],
+                [IEEEBinary16.mul(x, y), f32(a * b)],
+                [IEEEBinary16.div(x, y), f32(a / b)]
+            ];
+            for (const [got, want] of ops) {
+                if (Number.isNaN(want)) {
+                    expect(Number.isNaN(got)).toBe(true);
+                } else {
+                    expect(Object.is(got, want)).toBe(true);
+                }
+                // The result stays a binary32 value, as the C++ float return
+                // type requires.
+                expect(Object.is(f32(got), got) || Number.isNaN(got)).toBe(true);
+            }
+            // The mixed IEEEBinary16/number overloads agree.
+            expect(Object.is(IEEEBinary16.add(x, b), IEEEBinary16.add(x, y))
+                || Number.isNaN(b)).toBe(true);
+            expect(Object.is(IEEEBinary16.mul(a, y), IEEEBinary16.mul(x, y))
+                || Number.isNaN(a)).toBe(true);
+        });
+    });
+
+    it('rounds the compound assignments back into binary16', () => {
+        check(fc.tuple(encoding16, encoding16), ([e0, e1]) => {
+            const y = IEEEBinary16.fromEncoding(e1);
+            for (const [assign, binary] of [
+                [IEEEBinary16.addAssign, IEEEBinary16.add],
+                [IEEEBinary16.subAssign, IEEEBinary16.sub],
+                [IEEEBinary16.mulAssign, IEEEBinary16.mul],
+                [IEEEBinary16.divAssign, IEEEBinary16.div]
+            ] as Array<[typeof IEEEBinary16.addAssign, typeof IEEEBinary16.add]>) {
+                const x = IEEEBinary16.fromEncoding(e0);
+                const expected = IEEEBinary16.fromNumber(binary(x, y)).encoding;
+                const returned = assign(x, y);
+                // Upstream mutates the left operand and returns a reference.
+                expect(returned).toBe(x);
+                expect(x.encoding).toBe(expected);
+            }
+        });
+    });
+
+    it('compares by the converted values, with NaN unordered', () => {
+        check(fc.tuple(encoding16, encoding16), ([e0, e1]) => {
+            const x = IEEEBinary16.fromEncoding(e0);
+            const y = IEEEBinary16.fromEncoding(e1);
+            const a = x.number;
+            const b = y.number;
+            expect(IEEEBinary16.equals(x, y)).toBe(a === b);
+            expect(IEEEBinary16.notEquals(x, y)).toBe(a !== b);
+            expect(IEEEBinary16.lessThan(x, y)).toBe(a < b);
+            expect(IEEEBinary16.lessThanOrEqual(x, y)).toBe(a <= b);
+            expect(IEEEBinary16.greaterThan(x, y)).toBe(a > b);
+            expect(IEEEBinary16.greaterThanOrEqual(x, y)).toBe(a >= b);
+            if (x.isNaN() || y.isNaN()) {
+                expect(IEEEBinary16.equals(x, y)).toBe(false);
+                expect(IEEEBinary16.lessThan(x, y)).toBe(false);
+                expect(IEEEBinary16.greaterThan(x, y)).toBe(false);
+            }
+            // +0 and -0 compare equal even though the encodings differ.
+            if ((e0 & 0x7FFF) === 0 && (e1 & 0x7FFF) === 0) {
+                expect(IEEEBinary16.equals(x, y)).toBe(true);
+            }
+        });
+    });
+
+    it('decomposes every finite nonzero encoding exactly with frexp', () => {
+        for (let e = 0; e <= 0xFFFF; ++e) {
+            const x = IEEEBinary16.fromEncoding(e);
+            const { result, exponent } = IEEEBinary16.frexp(x);
+            if (x.isZero()) {
+                expect(Object.is(result.number, x.number)).toBe(true);
+                expect(exponent).toBe(0);
+                continue;
+            }
+            if (!x.isFinite()) {
+                expect(exponent).toBe(0);
+                if (x.isNaN()) {
+                    expect(result.isNaN()).toBe(true);
+                } else {
+                    expect(Object.is(result.number, x.number)).toBe(true);
+                }
+                continue;
+            }
+            const f = result.number;
+            expect(Math.abs(f)).toBeGreaterThanOrEqual(0.5);
+            expect(Math.abs(f)).toBeLessThan(1);
+            // f has at most as many significand bits as x, and the scaling is
+            // a power of two, so the reconstruction is exact.
+            expect(f * Math.pow(2, exponent)).toBe(x.number);
+            expect(exponent).toBeGreaterThanOrEqual(-23);
+            expect(exponent).toBeLessThanOrEqual(16);
+        }
+    }, 30000);
+
+    it('evaluates the math wrappers in binary32 and rounds to binary16', () => {
+        check(encoding16, e => {
+            const x = IEEEBinary16.fromEncoding(e);
+            const v = x.number;
+            const cases: Array<[IEEEBinary16, number]> = [
+                [IEEEBinary16.fabs(x), Math.abs(v)],
+                [IEEEBinary16.ceil(x), Math.ceil(v)],
+                [IEEEBinary16.floor(x), Math.floor(v)],
+                [IEEEBinary16.sqrt(x), Math.sqrt(v)],
+                [IEEEBinary16.sin(x), Math.sin(v)],
+                [IEEEBinary16.cos(x), Math.cos(v)],
+                [IEEEBinary16.atan(x), Math.atan(v)],
+                [IEEEBinary16.exp(x), Math.exp(v)],
+                [IEEEBinary16.log(x), Math.log(v)]
+            ];
+            for (const [got, want] of cases) {
+                expect(got.encoding).toBe(
+                    IEEEBinary16.fromNumber(f32(want)).encoding);
+            }
+            // fabs never changes anything but the sign bit.
+            expect(IEEEBinary16.fabs(x).encoding).toBe(
+                x.isNaN() ? IEEEBinary16.fromNumber(Math.abs(v)).encoding
+                    : (e & 0x7FFF));
+        });
+    });
+
+    it('round-trips the 16 -> 32 -> 16 conversions for every encoding', () => {
+        check(encoding16, e => {
+            const bits = IEEEBinary16.convert16To32(e);
+            expect(bits).toBe(bits >>> 0);
+            expect(IEEEBinary16.convert32To16(bits)).toBe(e);
+            // The binary32 encoding agrees with the platform conversion for
+            // everything but NaN, whose payload the platform may canonicalize.
+            const x = IEEEBinary16.fromEncoding(e);
+            if (!x.isNaN()) {
+                expect(bitsOf32(x.number)).toBe(bits);
+            }
+        });
     });
 });
