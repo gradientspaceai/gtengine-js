@@ -8,7 +8,13 @@ import {
     intersectRayTriangle, intersectSegmentTriangle
 } from '../src/BVTreeOfTriangles.js';
 import { Triangle } from '../src/Triangle.js';
-import { Vector, sub } from '../src/Vector.js';
+import {
+    Vector, add, div, dot, length, mul, normalize, sub
+} from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
+import {
+    check, expectClose, fc, scaled
+} from './helpers/arbitraries.js';
 
 // ---------------------------------------------------------------------------
 // A concrete BoundingVolume: an axis-aligned bounding box, the same minimal
@@ -413,5 +419,263 @@ describe('BVTreeOfTriangles', () => {
         expect(() => tree.createFromTriangles([
             Vector.zero(3), Vector.zero(3), Vector.zero(3)
         ], [])).toThrow('Expecting at least 3 vertices and at least 1 triangle.');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V07): property-based re-check of BVTreeOfTriangles.h.
+//
+// The cross-checks below compare the pruned traversal against a brute-force
+// sweep of every triangle, and the two must agree exactly. That is only a
+// meaningful comparison when the per-triangle query is well conditioned: the
+// FIQuery divides the barycentric numerators by Dot(D, N), so a direction
+// whose component along the triangle normal is subnormal produces infinite
+// parameters and hits that no bounding volume can contain. Coordinates are
+// therefore drawn from a uniform grid (scaled(), no dynamic range at all)
+// instead of fc.double(), which samples bit patterns and reaches 1e-320
+// readily. Exactly-parallel configurations are still generated and are
+// harmless: both sides run the same query and both report no intersection.
+// ---------------------------------------------------------------------------
+
+const gridCoordinate = scaled(-6, 6, 512);
+
+const gridDirection = fc.tuple(scaled(-1, 1, 64), scaled(-1, 1, 64),
+    scaled(-1, 1, 64))
+    .map(c => Vector.fromArray([c[0], c[1], c[2]]))
+    .filter(v => dot(v, v) > 0.05)
+    .map(v => { const u = v.clone(); normalize(u); return u; });
+
+const gridPoint = fc.tuple(gridCoordinate, gridCoordinate, gridCoordinate)
+    .map(c => Vector.fromArray([c[0], c[1], c[2]]));
+
+// A triangle soup: independent, non-degenerate triangles with their own
+// vertices, so no shared edges muddy the brute-force comparison.
+const triangleSoup = fc.array(
+    fc.tuple(gridPoint, gridPoint, gridPoint)
+        .filter((t) => {
+            const n = cross(sub(t[1], t[0]), sub(t[2], t[0]));
+            return dot(n, n) > 1;
+        }),
+    { minLength: 1, maxLength: 9 })
+    .map((tris) => {
+        const vertices: Vector[] = [];
+        const triangles: [number, number, number][] = [];
+        for (const t of tris) {
+            const b = vertices.length;
+            vertices.push(t[0], t[1], t[2]);
+            triangles.push([b, b + 1, b + 2]);
+        }
+        return { vertices: vertices, triangles: triangles };
+    });
+
+function bvtReachable(tree: AABBTreeOfTriangles): number[] {
+    const nodes = tree.getNodes();
+    const list: number[] = [];
+    const stack = [0];
+    while (stack.length > 0) {
+        const index = stack.pop()!;
+        list.push(index);
+        const node = nodes[index];
+        if (!isLeaf(node)) {
+            stack.push(node.leftChild, node.rightChild);
+        }
+    }
+    return list;
+}
+
+// The point lies in the plane of the triangle and has nonnegative barycentric
+// coordinates (it is inside or on the solid triangle).
+function expectOnTriangle(point: Vector, tri: [number, number, number],
+    vertices: Vector[]): void {
+    const v0 = vertices[tri[0]];
+    const e1 = sub(vertices[tri[1]], v0);
+    const e2 = sub(vertices[tri[2]], v0);
+    const n = cross(e1, e2);
+    const d = sub(point, v0);
+    const nn = dot(n, n);
+    // Plane membership, scaled by the triangle size so the tolerance is
+    // relative to the data rather than absolute.
+    expect(Math.abs(dot(n, d))).toBeLessThanOrEqual(1e-8 * nn);
+    const b1 = dot(cross(d, e2), n) / nn;
+    const b2 = dot(cross(e1, d), n) / nn;
+    expect(b1).toBeGreaterThanOrEqual(-1e-8);
+    expect(b2).toBeGreaterThanOrEqual(-1e-8);
+    expect(b1 + b2).toBeLessThanOrEqual(1 + 1e-8);
+}
+
+describe('BVTreeOfTriangles verification', () => {
+    it('computes the exact triangle centroids and copies its inputs', () => {
+        check(triangleSoup, (mesh) => {
+            const tree = new AABBTreeOfTriangles();
+            tree.createFromTriangles(mesh.vertices, mesh.triangles);
+
+            const centroids = tree.getCentroids();
+            const third = 1 / 3;
+            for (let t = 0; t < mesh.triangles.length; ++t) {
+                const tri = mesh.triangles[t];
+                for (let j = 0; j < 3; ++j) {
+                    // Upstream is (V0 + V1 + V2) / three, and Vector's
+                    // operator/= multiplies by the reciprocal rather than
+                    // dividing, so the port must too. (v * (1/3) and v / 3
+                    // differ by an ulp on many inputs, which is what makes
+                    // this an exact rather than an approximate check.)
+                    expect(centroids[t].values[j]).toBe(
+                        (mesh.vertices[tri[0]].values[j]
+                            + mesh.vertices[tri[1]].values[j]
+                            + mesh.vertices[tri[2]].values[j]) * third);
+                }
+            }
+
+            expect(tree.getTriangles().map(t => [t[0], t[1], t[2]]))
+                .toEqual(mesh.triangles.map(t => [t[0], t[1], t[2]]));
+            for (let i = 0; i < mesh.vertices.length; ++i) {
+                expect(tree.getVertices()[i]).not.toBe(mesh.vertices[i]);
+            }
+        }, 100);
+    });
+
+    it('matches brute force over every triangle for all three query types', () => {
+        check(fc.tuple(triangleSoup, gridPoint, gridDirection, gridPoint),
+            (input) => {
+                const mesh = input[0];
+                const P = input[1];
+                const D = input[2];
+                const Q = input[3];
+                const tree = new AABBTreeOfTriangles();
+                tree.createFromTriangles(mesh.vertices, mesh.triangles);
+
+                const cases: Array<{ queryType: number; A: Vector; B: Vector }> = [
+                    { queryType: BVTree.LINE_QUERY, A: P, B: D },
+                    { queryType: BVTree.RAY_QUERY, A: P, B: D },
+                    { queryType: BVTree.SEGMENT_QUERY, A: P, B: Q }
+                ];
+
+                for (const c of cases) {
+                    const result = tree.execute(c.queryType, c.A, c.B);
+                    const expected = bruteForce(c.queryType, c.A, c.B,
+                        mesh.vertices, mesh.triangles);
+                    // The tree runs the identical per-triangle query, so the
+                    // surviving hits agree bit for bit; only the pruning can
+                    // differ, and a correct bounding volume prunes nothing
+                    // that the triangle query would have hit.
+                    expect(result.intersections.map(x => x.triangleIndex))
+                        .toEqual(expected.map(x => x.triangleIndex));
+                    for (let k = 0; k < expected.length; ++k) {
+                        expect(result.intersections[k].parameter)
+                            .toBe(expected[k].parameter);
+                        expect([...result.intersections[k].point.values])
+                            .toEqual([...expected[k].point.values]);
+                    }
+                    // The reported leaves are distinct leaves of the tree.
+                    const nodes = tree.getNodes();
+                    expect(new Set(result.nodeIndices).size)
+                        .toBe(result.nodeIndices.length);
+                    for (const index of result.nodeIndices) {
+                        expect(isLeaf(nodes[index])).toBe(true);
+                    }
+                    expect(bvtReachable(tree)).toEqual(
+                        expect.arrayContaining(result.nodeIndices));
+                }
+            }, 60);
+    });
+
+    it('sorts the hits by (parameter, triangleIndex) and keeps them all', () => {
+        check(fc.tuple(triangleSoup, gridPoint, gridDirection), (input) => {
+            const tree = new AABBTreeOfTriangles();
+            tree.createFromTriangles(input[0].vertices, input[0].triangles);
+            const hits = tree.execute(BVTree.LINE_QUERY, input[1],
+                input[2]).intersections;
+            for (let k = 1; k < hits.length; ++k) {
+                expect(hits[k - 1].lessThan(hits[k])).toBe(true);
+                expect(hits[k].lessThan(hits[k - 1])).toBe(false);
+            }
+            // No triangle is reported twice: the leaf ranges are disjoint.
+            expect(new Set(hits.map(h => h.triangleIndex)).size)
+                .toBe(hits.length);
+        }, 100);
+    });
+
+    it('places each hit on its triangle and on the linear component', () => {
+        check(fc.tuple(triangleSoup, gridPoint, gridDirection, gridPoint),
+            (input) => {
+                const mesh = input[0];
+                const P = input[1];
+                const D = input[2];
+                const Q = input[3];
+                const tree = new AABBTreeOfTriangles();
+                tree.createFromTriangles(mesh.vertices, mesh.triangles);
+
+                // Line and ray: the reported parameter is the parameter of
+                // P + t * Q directly.
+                for (const queryType of [BVTree.LINE_QUERY, BVTree.RAY_QUERY]) {
+                    for (const hit of tree.execute(queryType, P, D).intersections) {
+                        if (queryType === BVTree.RAY_QUERY) {
+                            expect(hit.parameter).toBeGreaterThanOrEqual(0);
+                        }
+                        for (let j = 0; j < 3; ++j) {
+                            expectClose(hit.point.values[j],
+                                P.values[j] + hit.parameter * D.values[j],
+                                1e-9, 1e-9);
+                        }
+                        expectOnTriangle(hit.point,
+                            mesh.triangles[hit.triangleIndex], mesh.vertices);
+                    }
+                }
+
+                // Segment: upstream BVTreeOfTriangles.h forwards the FIQuery
+                // parameter unchanged, and that is the parameter s of the
+                // centered form C + s * D with |s| <= e -- NOT the t in [0,1]
+                // of (1-t)*P + t*Q that BVTree.h documents. OBBTreeOfTriangles.h
+                // does apply the conversion; see the port notes. The port
+                // preserves the upstream value, which this property pins.
+                const diff = sub(Q, P);
+                const len = length(diff);
+                if (len > 1e-3) {
+                    const dir = div(diff, len);
+                    const mid = mul(0.5, add(P, Q));
+                    for (const hit of tree.execute(BVTree.SEGMENT_QUERY, P, Q)
+                        .intersections) {
+                        expect(Math.abs(hit.parameter))
+                            .toBeLessThanOrEqual(0.5 * len + 1e-9);
+                        for (let j = 0; j < 3; ++j) {
+                            expectClose(hit.point.values[j],
+                                mid.values[j] + hit.parameter * dir.values[j],
+                                1e-9, 1e-9);
+                        }
+                        expectOnTriangle(hit.point,
+                            mesh.triangles[hit.triangleIndex], mesh.vertices);
+                    }
+                }
+            }, 50);
+    });
+
+    it('bounds every node by its own triangles and tiles the partition', () => {
+        check(triangleSoup, (mesh) => {
+            const tree = new AABBTreeOfTriangles();
+            tree.createFromTriangles(mesh.vertices, mesh.triangles);
+            const nodes = tree.getNodes();
+            const partition = tree.getPartition();
+
+            expect([...partition].sort((a, b) => a - b))
+                .toEqual([...Array(mesh.triangles.length).keys()]);
+
+            const covered = new Array<number>(mesh.triangles.length).fill(0);
+            for (const index of bvtReachable(tree)) {
+                const node = nodes[index];
+                for (let i = node.minIndex; i <= node.maxIndex; ++i) {
+                    const tri = mesh.triangles[partition[i]];
+                    for (let k = 0; k < 3; ++k) {
+                        expect(node.boundingVolume.contains(mesh.vertices[tri[k]]))
+                            .toBe(true);
+                    }
+                }
+                if (isLeaf(node)) {
+                    for (let i = node.minIndex; i <= node.maxIndex; ++i) {
+                        ++covered[i];
+                    }
+                }
+            }
+            expect(covered.every(c => c === 1)).toBe(true);
+        }, 100);
     });
 });

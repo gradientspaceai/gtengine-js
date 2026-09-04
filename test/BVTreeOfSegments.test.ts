@@ -5,6 +5,9 @@ import type {
 } from '../src/BVTree.js';
 import { BVTreeOfSegments } from '../src/BVTreeOfSegments.js';
 import { Vector, sub } from '../src/Vector.js';
+import {
+    check, fc, unitVector, vector
+} from './helpers/arbitraries.js';
 
 // ---------------------------------------------------------------------------
 // A concrete BoundingVolume: an axis-aligned bounding box, the same minimal
@@ -287,5 +290,169 @@ describe('BVTreeOfSegments', () => {
         const tree = new AABBTreeOfSegments();
         expect(() => tree.createFromSegments([], [])).toThrow(
             'Expecting vertices to create a bounding volume tree.');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V07): property-based re-check of BVTreeOfSegments.h. The
+// derived class adds the vertex/segment copies and the midpoint centroids;
+// the rest is the inherited BVTree contract.
+// ---------------------------------------------------------------------------
+
+// A vertex pool with index-pair segments. Indices may repeat, so degenerate
+// (zero-length) segments occur, which is what upstream accepts silently.
+const segmentSoup = fc.array(vector(3, -8, 8), { minLength: 2, maxLength: 10 })
+    .chain((vertices) => fc.array(
+        fc.tuple(fc.nat({ max: vertices.length - 1 }),
+            fc.nat({ max: vertices.length - 1 })),
+        { minLength: 1, maxLength: 13 })
+        .map((pairs) => ({
+            vertices: vertices,
+            segments: pairs.map(p => [p[0], p[1]] as [number, number])
+        })));
+
+function bvsReachable(tree: AABBTreeOfSegments): number[] {
+    const nodes = tree.getNodes();
+    const list: number[] = [];
+    const stack = [0];
+    while (stack.length > 0) {
+        const index = stack.pop()!;
+        list.push(index);
+        const node = nodes[index];
+        if (!isLeaf(node)) {
+            stack.push(node.leftChild, node.rightChild);
+        }
+    }
+    return list;
+}
+
+describe('BVTreeOfSegments verification', () => {
+    it('computes the exact segment midpoints as the centroids', () => {
+        check(segmentSoup, (mesh) => {
+            const tree = new AABBTreeOfSegments();
+            tree.createFromSegments(mesh.vertices, mesh.segments);
+
+            const centroids = tree.getCentroids();
+            expect(centroids.length).toBe(mesh.segments.length);
+            for (let i = 0; i < mesh.segments.length; ++i) {
+                const seg = mesh.segments[i];
+                for (let j = 0; j < 3; ++j) {
+                    // Upstream: half * (V[seg[0]] + V[seg[1]]). The port must
+                    // use exactly that expression, so this is bit-exact.
+                    expect(centroids[i].values[j]).toBe(
+                        0.5 * (mesh.vertices[seg[0]].values[j]
+                            + mesh.vertices[seg[1]].values[j]));
+                }
+            }
+
+            // Both inputs are copied, so later mutation cannot reach the tree.
+            const vertices = tree.getVertices();
+            const segments = tree.getSegments();
+            expect(segments.map(s => [s[0], s[1]])).toEqual(
+                mesh.segments.map(s => [s[0], s[1]]));
+            for (let i = 0; i < mesh.vertices.length; ++i) {
+                expect(vertices[i]).not.toBe(mesh.vertices[i]);
+                mesh.vertices[i].values[0] += 1000;
+                expect(vertices[i].values[0])
+                    .not.toBe(mesh.vertices[i].values[0]);
+            }
+            mesh.segments[0][0] = 0;
+        }, 100);
+    });
+
+    it('bounds every node by the endpoints of its segments', () => {
+        check(segmentSoup, (mesh) => {
+            const tree = new AABBTreeOfSegments();
+            tree.createFromSegments(mesh.vertices, mesh.segments);
+            const nodes = tree.getNodes();
+            const partition = tree.getPartition();
+
+            expect([...partition].sort((a, b) => a - b))
+                .toEqual([...Array(mesh.segments.length).keys()]);
+
+            const covered = new Array<number>(mesh.segments.length).fill(0);
+            for (const index of bvsReachable(tree)) {
+                const node = nodes[index];
+                for (let i = node.minIndex; i <= node.maxIndex; ++i) {
+                    const seg = mesh.segments[partition[i]];
+                    expect(node.boundingVolume.contains(mesh.vertices[seg[0]]))
+                        .toBe(true);
+                    expect(node.boundingVolume.contains(mesh.vertices[seg[1]]))
+                        .toBe(true);
+                }
+                if (isLeaf(node)) {
+                    for (let i = node.minIndex; i <= node.maxIndex; ++i) {
+                        ++covered[i];
+                    }
+                }
+            }
+            expect(covered.every(c => c === 1)).toBe(true);
+        }, 100);
+    });
+
+    it('execute never misses a leaf whose own volume is hit', () => {
+        check(fc.tuple(segmentSoup, vector(3, -8, 8), unitVector(3),
+            vector(3, -8, 8)), (input) => {
+                const tree = new AABBTreeOfSegments();
+                tree.createFromSegments(input[0].vertices, input[0].segments);
+                const P = input[1];
+                const D = input[2];
+                const Q = input[3];
+                const nodes = tree.getNodes();
+                const leaves = bvsReachable(tree).filter(i => isLeaf(nodes[i]));
+
+                const cases: Array<{
+                    queryType: number; A: Vector; B: Vector;
+                    hit: (bv: AABB) => boolean;
+                }> = [
+                    {
+                        queryType: BVTree.LINE_QUERY, A: P, B: D,
+                        hit: (bv) => intersectSlabs(P, D, -Infinity, Infinity, bv)
+                    },
+                    {
+                        queryType: BVTree.RAY_QUERY, A: P, B: D,
+                        hit: (bv) => intersectSlabs(P, D, 0, Infinity, bv)
+                    },
+                    {
+                        queryType: BVTree.SEGMENT_QUERY, A: P, B: Q,
+                        hit: (bv) => intersectSlabs(P, sub(Q, P), 0, 1, bv)
+                    }
+                ];
+
+                for (const c of cases) {
+                    const reported = tree.execute(c.queryType, c.A, c.B);
+                    expect(new Set(reported).size).toBe(reported.length);
+                    for (const index of reported) {
+                        expect(isLeaf(nodes[index])).toBe(true);
+                    }
+                    for (const leaf of leaves) {
+                        if (c.hit(nodes[leaf].boundingVolume)) {
+                            expect(reported).toContain(leaf);
+                        }
+                    }
+                }
+            }, 60);
+    });
+
+    it('accepts degenerate zero-length segments', () => {
+        check(fc.tuple(vector(3, -8, 8), fc.integer({ min: 1, max: 8 })),
+            (input) => {
+                // Every segment collapses to the same vertex.
+                const vertices = [input[0].clone(), input[0].clone()];
+                const segments: [number, number][] = [];
+                for (let i = 0; i < input[1]; ++i) {
+                    segments.push([0, 1]);
+                }
+                const tree = new AABBTreeOfSegments();
+                tree.createFromSegments(vertices, segments);
+                for (const c of tree.getCentroids()) {
+                    for (let j = 0; j < 3; ++j) {
+                        expect(c.values[j]).toBe(input[0].values[j]);
+                    }
+                }
+                const hits = tree.execute(BVTree.LINE_QUERY, input[0],
+                    Vector.unit(3, 1));
+                expect(hits.length).toBeGreaterThan(0);
+            });
     });
 });
