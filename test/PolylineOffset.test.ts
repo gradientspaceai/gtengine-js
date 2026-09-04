@@ -305,3 +305,191 @@ describe('PolylineOffset randomized cross-check', () => {
         }
     });
 });
+
+// ---------------------------------------------------------------------------
+// Independent verification pass (VERIFYING.md). PolylineOffset.h was read line
+// by line against src/PolylineOffset.ts. The defining property of the offset
+// (each output vertex is at signed distance d from the lines of both segments
+// meeting at it) is checked over random polylines, together with the frame
+// conventions (N = Perp(D) points to the right), the exact mirror relation
+// between the two sides and equivariance under rigid motions.
+import {
+    check, fc, expectClose, wellScaled
+} from './helpers/arbitraries.js';
+import { dotPerp } from '../src/Vector2.js';
+
+// An open polyline that always turns by less than 90 degrees, so consecutive
+// directions are never antiparallel (the singularity upstream documents) and
+// the bisector denominator 1 + Dot(N0,N1) stays bounded away from zero.
+const openPolyline = fc.array(fc.tuple(
+    fc.double({ min: 1, max: 3, noNaN: true, noDefaultInfinity: true }),
+    fc.double({ min: -1, max: 1, noNaN: true, noDefaultInfinity: true })),
+{ minLength: 1, maxLength: 7 })
+    .map(steps => {
+        const vertices = [v2(0, 0)];
+        let x = 0, y = 0;
+        for (const [dx, dy] of steps) {
+            x += dx;
+            y += dy;
+            vertices.push(v2(x, y));
+        }
+        return vertices;
+    });
+
+// A convex counterclockwise polygon: distinct sorted angles on an ellipse.
+const closedPolyline = fc.tuple(
+    fc.uniqueArray(fc.integer({ min: 0, max: 359 }),
+        { minLength: 3, maxLength: 9 }),
+    fc.double({ min: 1, max: 3, noNaN: true, noDefaultInfinity: true }),
+    fc.double({ min: 1, max: 3, noNaN: true, noDefaultInfinity: true }))
+    .map(([degrees, a, b]) => {
+        const sorted = [...degrees].sort((p, q) => p - q);
+        return sorted.map(deg => {
+            const t = (deg * Math.PI) / 180;
+            return v2(a * Math.cos(t), b * Math.sin(t));
+        });
+    })
+    .filter(vertices => {
+        // Reject nearly coincident vertices and near-180-degree turns, both of
+        // which make the bisector formula ill conditioned.
+        const n = vertices.length;
+        const dirs: Vector[] = [];
+        for (let i = 0; i < n; ++i) {
+            const e = sub(vertices[(i + 1) % n], vertices[i]);
+            if (vectorLength(e) < 0.1) { return false; }
+            normalize(e);
+            dirs.push(e);
+        }
+        for (let i = 0; i < n; ++i) {
+            if (1 + dot(dirs[i], dirs[(i + 1) % n]) < 0.1) { return false; }
+        }
+        return true;
+    });
+
+const distance = fc.double({ min: 0.05, max: 1.5, noNaN: true,
+    noDefaultInfinity: true });
+
+// Segment indices adjacent to vertex i.
+function adjacentSegments(i: number, n: number, isOpen: boolean): number[] {
+    const numSegments = isOpen ? n - 1 : n;
+    const adjacent: number[] = [];
+    if (i > 0) { adjacent.push(i - 1); }
+    else if (!isOpen) { adjacent.push(numSegments - 1); }
+    if (i < numSegments) { adjacent.push(i); }
+    return adjacent;
+}
+
+function expectOffsetGeometry(vertices: readonly Vector[], isOpen: boolean,
+    d: number): void {
+    const query = new PolylineOffset(vertices, isOpen);
+    const directions = query.getDirections();
+    const normals = query.getNormals();
+    const result = query.execute(d, true, true);
+    const n = vertices.length;
+
+    expect(normals.length).toBe(isOpen ? n - 1 : n);
+    expect(result.rightPolyline.length).toBe(n);
+    expect(result.leftPolyline.length).toBe(n);
+
+    for (let s = 0; s < normals.length; ++s) {
+        // The direction is unit length and N = Perp(D) = (D.y, -D.x), which
+        // makes N point to the right: DotPerp(D, N) = -1.
+        expectClose(vectorLength(directions[s]), 1, 1e-12, 1e-12);
+        expectClose(vectorLength(normals[s]), 1, 1e-12, 1e-12);
+        expectClose(dot(directions[s], normals[s]), 0, 1e-12, 1e-12);
+        expectClose(dotPerp(directions[s], normals[s]), -1, 1e-12, 1e-12);
+    }
+
+    for (let i = 0; i < n; ++i) {
+        for (const s of adjacentSegments(i, n, isOpen)) {
+            const base = vertices[s];
+            const N = normals[s];
+            expectClose(dot(sub(result.rightPolyline[i], base), N), d,
+                1e-9, 1e-9);
+            expectClose(dot(sub(result.leftPolyline[i], base), N), -d,
+                1e-9, 1e-9);
+        }
+        // The two sides are exact mirror images through the input vertex.
+        for (let k = 0; k < 2; ++k) {
+            expectClose(result.rightPolyline[i].values[k] +
+                result.leftPolyline[i].values[k],
+            2 * vertices[i].values[k], 1e-12, 1e-12);
+        }
+    }
+}
+
+describe('PolylineOffset verification', () => {
+    it('offsets an open polyline to the documented distance', () => {
+        check(fc.tuple(openPolyline, distance), ([vertices, d]) => {
+            expectOffsetGeometry(vertices, true, d);
+        });
+    });
+
+    it('offsets a closed polyline to the documented distance', () => {
+        check(fc.tuple(closedPolyline, distance), ([vertices, d]) => {
+            expectOffsetGeometry(vertices, false, d);
+        });
+    });
+
+    it('the offset displacement is linear in the distance', () => {
+        // Every output vertex is V + d*B with B independent of d, so doubling
+        // the distance doubles the displacement.
+        check(fc.tuple(openPolyline, distance,
+            fc.double({ min: 1.5, max: 4, noNaN: true,
+                noDefaultInfinity: true })), ([vertices, d, s]) => {
+            const query = new PolylineOffset(vertices, true);
+            const one = query.execute(d, true, false).rightPolyline;
+            const many = query.execute(s * d, true, false).rightPolyline;
+            for (let i = 0; i < vertices.length; ++i) {
+                for (let k = 0; k < 2; ++k) {
+                    expectClose(many[i].values[k] - vertices[i].values[k],
+                        s * (one[i].values[k] - vertices[i].values[k]),
+                        1e-9, 1e-9);
+                }
+            }
+        });
+    });
+
+    it('is equivariant under rigid motions of the polyline', () => {
+        check(fc.tuple(closedPolyline, distance,
+            wellScaled(-Math.PI, Math.PI), wellScaled(-5, 5),
+            wellScaled(-5, 5)), ([vertices, d, angle, tx, ty]) => {
+            const c = Math.cos(angle), s = Math.sin(angle);
+            const moved = vertices.map(p => v2(
+                c * p.values[0] - s * p.values[1] + tx,
+                s * p.values[0] + c * p.values[1] + ty));
+            const base = new PolylineOffset(vertices, false)
+                .execute(d, true, false).rightPolyline;
+            const other = new PolylineOffset(moved, false)
+                .execute(d, true, false).rightPolyline;
+            for (let i = 0; i < vertices.length; ++i) {
+                expectClose(other[i].values[0],
+                    c * base[i].values[0] - s * base[i].values[1] + tx,
+                    1e-8, 1e-8);
+                expectClose(other[i].values[1],
+                    s * base[i].values[0] + c * base[i].values[1] + ty,
+                    1e-8, 1e-8);
+            }
+        });
+    });
+
+    it('rejects degenerate inputs before sizing anything', () => {
+        // Upstream issue #112: the member initializer list computes
+        // 'vertices.size() - 1' before LogAssert runs, so an empty open
+        // polyline wraps size_t and throws length_error instead of the
+        // intended diagnostic. The port validates first.
+        expect(() => new PolylineOffset([], true))
+            .toThrow('Invalid number of polyline vertices.');
+        expect(() => new PolylineOffset([], false))
+            .toThrow('Invalid number of polyline vertices.');
+        expect(() => new PolylineOffset([v2(0, 0)], true))
+            .toThrow('Invalid number of polyline vertices.');
+        expect(() => new PolylineOffset([v2(0, 0), v2(1, 0)], false))
+            .toThrow('Invalid number of polyline vertices.');
+        const query = new PolylineOffset([v2(0, 0), v2(1, 0)], true);
+        expect(() => query.execute(0, true, true))
+            .toThrow('The offset distance must be positive.');
+        expect(() => query.execute(1, false, false))
+            .toThrow('Expecting a directive to compute an offset polyline.');
+    });
+});

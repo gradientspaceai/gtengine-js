@@ -346,3 +346,190 @@ describe('CLODPolyline', () => {
         }
     });
 });
+
+
+// ---------------------------------------------------------------------------
+// Independent verification pass (VERIFYING.md). CLODPolyline.h was read line by
+// line against src/CLODPolyline.ts. The central property below is stronger
+// than the topology check above: at every level of detail the active edges
+// must be exactly the sub-polyline of the ORIGINAL vertex order restricted to
+// the surviving vertices. That pins the collapse bookkeeping (the indices[]
+// table, the edge swaps in ComputeEdges and the permutation in
+// ReorderVertices) against a definition that shares no code with them, and it
+// is the property that fails under upstream's out-of-range edges[1] for open
+// polylines (issue #182).
+import {
+    check, fc, latticeVector
+} from './helpers/arbitraries.js';
+
+// Distinct integer-lattice vertices, so the permuted array can be matched back
+// to the input by exact coordinate comparison.
+const distinctVertices = (dim: number, minCount: number):
+    fc.Arbitrary<Vector[]> =>
+    fc.array(latticeVector(dim, -20, 20),
+        { minLength: minCount, maxLength: 9 })
+        .filter(vs => {
+            const seen = new Set<string>();
+            for (const v of vs) {
+                const k = v.values.join(',');
+                if (seen.has(k)) { return false; }
+                seen.add(k);
+            }
+            return true;
+        });
+
+// The unordered active edge set at the current level of detail, as sorted
+// "a,b" strings over permuted vertex indices.
+function activeEdgeSet(polyline: CLODPolyline): Set<string> {
+    const edges = polyline.getEdges();
+    const set = new Set<string>();
+    for (let e = 0; e < polyline.getNumEdges(); ++e) {
+        const a = edges[2 * e];
+        const b = edges[2 * e + 1];
+        set.add(a < b ? `${a},${b}` : `${b},${a}`);
+    }
+    return set;
+}
+
+function expectSubPolyline(vertices: readonly Vector[], closed: boolean):
+    void {
+    const polyline = new CLODPolyline(vertices, closed);
+    const permuted = polyline.getVertices();
+    const n = vertices.length;
+
+    // permutedToOriginal[i] is the index in 'vertices' of the vertex stored at
+    // position i of the permuted array.
+    const originalOf = new Map<string, number>();
+    for (let i = 0; i < n; ++i) {
+        originalOf.set(vertices[i].values.join(','), i);
+    }
+    const permutedToOriginal: number[] = [];
+    const originalToPermuted = new Array<number>(n).fill(-1);
+    for (let i = 0; i < n; ++i) {
+        const j = originalOf.get(permuted[i].values.join(','));
+        expect(j).not.toBeUndefined();
+        permutedToOriginal.push(j as number);
+        originalToPermuted[j as number] = i;
+    }
+
+    for (let lod = polyline.getMaxLevelOfDetail();
+        lod >= polyline.getMinLevelOfDetail(); --lod) {
+        polyline.setLevelOfDetail(lod);
+        expect(polyline.getLevelOfDetail()).toBe(lod);
+        expect(polyline.getNumEdges()).toBe(closed ? lod : lod - 1);
+
+        // The surviving vertices, in the order of the original polyline.
+        const surviving = permutedToOriginal.slice(0, lod)
+            .sort((a, b) => a - b);
+        if (!closed) {
+            // The endpoints of an open polyline have infinite weight, so they
+            // survive to the lowest level of detail.
+            expect(surviving[0]).toBe(0);
+            expect(surviving[lod - 1]).toBe(n - 1);
+        }
+
+        const expected = new Set<string>();
+        const numExpected = closed ? lod : lod - 1;
+        for (let i = 0; i < numExpected; ++i) {
+            const a = originalToPermuted[surviving[i]];
+            const b = originalToPermuted[surviving[(i + 1) % lod]];
+            expected.add(a < b ? `${a},${b}` : `${b},${a}`);
+        }
+        expect(activeEdgeSet(polyline)).toEqual(expected);
+    }
+}
+
+describe('CLODPolyline verification', () => {
+    it('every open level of detail is the induced sub-polyline', () => {
+        check(distinctVertices(2, 2), vertices => {
+            expectSubPolyline(vertices, false);
+        });
+    });
+
+    it('every closed level of detail is the induced sub-polyline', () => {
+        check(distinctVertices(2, 3), vertices => {
+            expectSubPolyline(vertices, true);
+        });
+    });
+
+    it('works the same in three dimensions', () => {
+        check(distinctVertices(3, 3), vertices => {
+            expectSubPolyline(vertices, false);
+            expectSubPolyline(vertices, true);
+        }, 50);
+    });
+
+    it('orders the permuted vertices by non-increasing collapse weight', () => {
+        // The weights are computed once from the input polyline and the heap
+        // removes the smallest first, storing it last, so the permuted array
+        // is sorted by non-increasing weight.
+        check(fc.tuple(distinctVertices(2, 4), fc.boolean()),
+            ([vertices, closed]) => {
+                const polyline = new CLODPolyline(vertices, closed);
+                const weights = bruteForceWeights(vertices, closed);
+                const permuted = polyline.getVertices();
+                const originalOf = new Map<string, number>();
+                for (let i = 0; i < vertices.length; ++i) {
+                    originalOf.set(vertices[i].values.join(','), i);
+                }
+                let previous = Number.POSITIVE_INFINITY;
+                for (let i = 0; i < permuted.length; ++i) {
+                    const j = originalOf.get(
+                        permuted[i].values.join(',')) as number;
+                    // DistPointSegment and the brute-force formula can differ
+                    // in the last ulp, so near-equal weights are allowed to
+                    // appear in either order.
+                    expect(weights[j]).toBeLessThanOrEqual(
+                        previous * (1 + 1e-9) + 1e-12);
+                    previous = weights[j];
+                }
+            });
+    });
+
+    it('is round-trip stable in the level of detail', () => {
+        check(fc.tuple(distinctVertices(2, 3), fc.boolean(),
+            fc.integer({ min: 0, max: 8 })),
+        ([vertices, closed, drop]) => {
+            const polyline = new CLODPolyline(vertices, closed);
+            const max = polyline.getMaxLevelOfDetail();
+            const min = polyline.getMinLevelOfDetail();
+            const before = activeEdgeSet(polyline);
+            const target = Math.max(min, max - drop);
+            polyline.setLevelOfDetail(target);
+            polyline.setLevelOfDetail(max);
+            expect(polyline.getLevelOfDetail()).toBe(max);
+            expect(activeEdgeSet(polyline)).toEqual(before);
+
+            // Out-of-range requests are ignored.
+            polyline.setLevelOfDetail(min - 1);
+            expect(polyline.getLevelOfDetail()).toBe(max);
+            polyline.setLevelOfDetail(max + 1);
+            expect(polyline.getLevelOfDetail()).toBe(max);
+        });
+    });
+
+    it('stores its own copy of a permutation of the input vertices', () => {
+        check(fc.tuple(distinctVertices(2, 3), fc.boolean()),
+            ([vertices, closed]) => {
+                const polyline = new CLODPolyline(vertices, closed);
+                const permuted = polyline.getVertices();
+                expect(permuted.length).toBe(vertices.length);
+                const inputKeys = vertices.map(v => v.values.join(','))
+                    .sort();
+                const storedKeys = permuted.map(v => v.values.join(','))
+                    .sort();
+                expect(storedKeys).toEqual(inputKeys);
+                for (const v of permuted) {
+                    expect(vertices.includes(v)).toBe(false);
+                }
+                // Every stored coordinate is finite: upstream's open-polyline
+                // ComputeEdges reads permute[numVertices], which would make one
+                // edge index undefined (issue #182).
+                for (const e of polyline.getEdges()) {
+                    expect(Number.isInteger(e)).toBe(true);
+                }
+                expect(polyline.getMaxLevelOfDetail())
+                    .toBe(vertices.length);
+            });
+    });
+});
