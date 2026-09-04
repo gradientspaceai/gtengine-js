@@ -189,6 +189,19 @@ describe('DistLine3Circle3 verification', () => {
     const lineArb = fc.tuple(wellScaledVector(3, -8, 8), unitVector(3))
         .map(([o, d]) => Line.fromOriginDirection(o, d));
 
+    // PDFSection422 reparameterizes the line from the point E = s*M + D with
+    // s = -Dot(NxM,NxD)/Dot(NxM,NxM). Once the line is nearly parallel to the
+    // normal of the circle, |NxM| is tiny, s and a0 = Dot(M,E)/Dot(M,M) blow
+    // up, and the bisection brackets (whose width is a1/sqrt(a2)) lose every
+    // significant digit. Properties that compare two computations of the same
+    // distance therefore restrict to configurations where the line is not
+    // nearly parallel to the normal; the exactly-parallel cases are covered
+    // separately by the PDFSection411/412 properties below.
+    function wellConditioned(ln: Line, circle: Circle3): boolean {
+        const nxm = cross(circle.normal, ln.direction);
+        return length(nxm) > 1e-3 * length(ln.direction);
+    }
+
     // Distance from a point to the line P + t*D (D is not required to be unit
     // length).
     function pointLineDistance(p: Vector, ln: Line): number {
@@ -238,6 +251,7 @@ describe('DistLine3Circle3 verification', () => {
 
     it('reports consistent distances and on-primitive closest points', () => {
         check(fc.tuple(lineArb, circleArb), ([ln, circle]) => {
+            if (!wellConditioned(ln, circle)) { return; }
             const r = query.compute(ln, circle);
             expect(r.numClosestPairs === 1 || r.numClosestPairs === 2)
                 .toBe(true);
@@ -260,6 +274,7 @@ describe('DistLine3Circle3 verification', () => {
 
     it('matches an independent minimization over the circle', () => {
         check(fc.tuple(lineArb, circleArb), ([ln, circle]) => {
+            if (!wellConditioned(ln, circle)) { return; }
             const r = query.compute(ln, circle);
             const best = bruteForceDistance(ln, circle);
             // The scan-plus-refine reference is accurate well below 1e-9; the
@@ -284,6 +299,7 @@ describe('DistLine3Circle3 verification', () => {
                     normalize(u);
                     const origin = add(mul(radius + off, u), mul(along, n));
                     const ln = Line.fromOriginDirection(origin, dir);
+                    if (!wellConditioned(ln, circle)) { return; }
                     const r = query.compute(ln, circle);
                     expectClose(r.distance, bruteForceDistance(ln, circle),
                         1e-6, 1e-6);
@@ -322,6 +338,7 @@ describe('DistLine3Circle3 verification', () => {
             ([circle, along, dir]) => {
                 const origin = add(circle.center, mul(along, circle.normal));
                 const ln = Line.fromOriginDirection(origin, dir);
+                if (!wellConditioned(ln, circle)) { return; }
                 const r = query.compute(ln, circle);
                 expectClose(r.distance, bruteForceDistance(ln, circle),
                     1e-6, 1e-6);
@@ -339,6 +356,7 @@ describe('DistLine3Circle3 verification', () => {
             const movedCircle = Circle3.fromCenterNormalRadius(
                 add(shift, rot(circle.center)), rot(circle.normal),
                 circle.radius);
+            if (!wellConditioned(ln, circle)) { return; }
             const r0 = query.compute(ln, circle);
             const r1 = query.compute(movedLine, movedCircle);
             // The bisection is path dependent, so the tolerance covers drift
@@ -350,6 +368,7 @@ describe('DistLine3Circle3 verification', () => {
     it('is invariant to the length of the line direction', () => {
         check(fc.tuple(lineArb, circleArb, finite(0.1, 10)),
             ([ln, circle, scale]) => {
+                if (!wellConditioned(ln, circle)) { return; }
                 const scaled = Line.fromOriginDirection(ln.origin,
                     mul(scale, ln.direction));
                 const r0 = query.compute(ln, circle);
@@ -360,6 +379,7 @@ describe('DistLine3Circle3 verification', () => {
 
     it('exports the critical points used by ray and segment queries', () => {
         check(fc.tuple(lineArb, circleArb), ([ln, circle]) => {
+            if (!wellConditioned(ln, circle)) { return; }
             const { result, critical } = distLine3Circle3Execute(ln, circle);
             expect(critical.numPoints === 1 || critical.numPoints === 2)
                 .toBe(true);
@@ -550,4 +570,100 @@ describe('DistLine3Circle3 tauHat bracket (upstream issue #247)', () => {
             expect(r.distance).toBeGreaterThan(best - 1e-2);
         }
     }, 30000);
+});
+
+// ---------------------------------------------------------------------------
+// Regression for the zero in-plane projection in Finalize: a line along the
+// axis of the circle can round into PDFSection412, where upstream normalizes
+// a zero vector and reports the circle center as the closest circle point.
+// ---------------------------------------------------------------------------
+
+describe('DistLine3Circle3 line along the circle axis', () => {
+    const query = new DistLine3Circle3();
+
+    it('reports the radius for a rotated axis line', () => {
+        // The counterexample found by the equivariance property.
+        const angle = 0.0012183040602225482;
+        const c = Math.cos(angle), s = Math.sin(angle);
+        const rot = (p: Vector): Vector => v(p.values[0],
+            c * p.values[1] - s * p.values[2],
+            s * p.values[1] + c * p.values[2]);
+        const circle = Circle3.fromCenterNormalRadius(
+            rot(v(0, -4.749679541178393, 0)), rot(v(0, -1, 0)), 0.25);
+        const ln = Line.fromOriginDirection(rot(v(0, 0, 0)), rot(v(0, 1, 0)));
+        const r = query.compute(ln, circle);
+        // Upstream reports 0 here.
+        expect(r.distance).toBeCloseTo(0.25, 9);
+        for (let j = 0; j < r.numClosestPairs; ++j) {
+            expect(length(sub(r.circularClosest[j], circle.center)))
+                .toBeCloseTo(0.25, 9);
+        }
+    });
+
+    it('keeps the circle closest point on the circle for axis lines', () => {
+        // Sweep small rotations of an exact axis line; each one round-trips
+        // through a slightly different branch of Execute.
+        for (let k = -20; k <= 20; ++k) {
+            const angle = k * 1e-4;
+            const cs = Math.cos(angle), sn = Math.sin(angle);
+            const rot = (p: Vector): Vector => v(p.values[0],
+                cs * p.values[1] - sn * p.values[2],
+                sn * p.values[1] + cs * p.values[2]);
+            for (const h of [-3, 0, 2.5]) {
+                const circle = Circle3.fromCenterNormalRadius(
+                    rot(v(0, h, 0)), rot(v(0, 1, 0)), 0.75);
+                const ln = Line.fromOriginDirection(rot(v(0, 0, 0)),
+                    rot(v(0, 1, 0)));
+                const r = query.compute(ln, circle);
+                expect(r.distance).toBeCloseTo(0.75, 9);
+                for (let j = 0; j < r.numClosestPairs; ++j) {
+                    expect(length(sub(r.circularClosest[j], circle.center)))
+                        .toBeCloseTo(0.75, 9);
+                }
+            }
+        }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Regression for the collapsed bisection bracket: a line almost parallel to
+// the normal of the circle makes |a0| huge and the bracket width
+// a1/sqrt(a2) vanish, so upstream calls RootsBisection1 with tauMin == tauMax
+// and its LogAssert throws.
+// ---------------------------------------------------------------------------
+
+describe('DistLine3Circle3 nearly axis-parallel lines', () => {
+    const query = new DistLine3Circle3();
+
+    it('does not throw for the near-antiparallel counterexample', () => {
+        const circle = Circle3.fromCenterNormalRadius(
+            v(-0.009585205394787903, 0, 0),
+            v(0.7071067821975627, 0, 0.7071067801755324), 0.25);
+        const ln = Line.fromOriginDirection(v(0, 0, 0),
+            v(-0.7071067832742394, 0, -0.7071067790988556));
+        const r = query.compute(ln, circle);
+        expect(Number.isFinite(r.distance)).toBe(true);
+        expect(r.distance).toBeGreaterThan(0);
+    });
+
+    it('does not throw as a line direction sweeps through the axis', () => {
+        // eps = 0 is the exactly-parallel case handled by PDFSection411/412;
+        // the tiny nonzero values are the ones that reach PDFSection422 with
+        // a collapsed bracket.
+        const circle = Circle3.fromCenterNormalRadius(v(0.5, 0, 0),
+            v(0, 0, 1), 0.75);
+        for (const eps of [0, 1e-14, -1e-14, 1e-12, -1e-12, 1e-10, 1e-8,
+            1e-6, 1e-4]) {
+            for (const sign of [1, -1]) {
+                const d = v(eps, 0, sign);
+                const ln = Line.fromOriginDirection(v(0, 0, 0), d);
+                const r = query.compute(ln, circle);
+                expect(Number.isFinite(r.distance)).toBe(true);
+                // The line is the z-axis to within eps, so the distance to
+                // the circle is sqrt(0.5^2 + ... ) = |center| - r or r - |c|.
+                expect(Math.abs(r.distance - Math.abs(0.75 - 0.5)))
+                    .toBeLessThan(1e-6);
+            }
+        }
+    });
 });

@@ -103,6 +103,21 @@ function bisect(a0: number, a1: number, a2: number, a3: number,
     tauMin: number, tauMax: number): number {
     const maxIterations = 4096;
 
+    // Upstream bug (fixed here): every bracket passed here has width
+    // a1/sqrt(a2) (or is bounded by it), and every bracket endpoint is one of
+    // -a0, -a0 +/- a1/sqrt(a2) or tauHat. When |a0| is many orders of
+    // magnitude larger than a1/sqrt(a2), which happens once the line is
+    // nearly parallel to the normal of the circle (|NxM| tiny makes s and
+    // hence a0 huge), the endpoints round to the same double and upstream
+    // calls RootsBisection1 with tauMin == tauMax (or an inverted pair). The
+    // bisector's LogAssert(tMin < tMax) then throws. Since |G(tau)| is
+    // bounded by a1/sqrt(a2), Phi(tau) = tau + a0 - G(tau) has its root
+    // within that collapsed bracket, so the bracket midpoint is the root to
+    // the available precision.
+    if (!(tauMin < tauMax)) {
+        return 0.5 * (tauMin + tauMax);
+    }
+
     const phi = (tau: number): number => {
         return tau + a0 - a1 * tau / Math.sqrt(a2 * tau * tau + a3);
     };
@@ -121,8 +136,30 @@ function finalize(line: Line3, circle: Circle3, D: Vector,
         // Get the closest pair of line and circle points.
         let linearPoint = add(mul(critical.parameter[i], line.direction), D);
         const d = dot(circle.normal, linearPoint);
-        const project = sub(linearPoint, mul(d, circle.normal));
-        normalize(project);
+        let project = sub(linearPoint, mul(d, circle.normal));
+        if (normalize(project) === 0) {
+            // Upstream bug (fixed here): DistLine3Circle3.h normalizes the
+            // in-plane component of the closest line point without checking
+            // that it is nonzero. Vector::Normalize sets a zero vector to
+            // zero, so the circle point becomes the circle center, which is
+            // not on the circle, and the reported distance collapses to the
+            // distance from the line point to the center (zero when the line
+            // passes through the center).
+            //
+            // In exact arithmetic PDFSection411 catches every configuration
+            // that reaches this state, but round-off does not: for a line
+            // along the axis of the circle, NxM is exactly zero while NxD
+            // may round to a nonzero vector, which routes the query to
+            // PDFSection412 and then here. Example: the unit-normal circle
+            // of radius 1/4 centered at (0,-4.749679541178393,0) with the
+            // line (0,0,0) + t*(0,1,0), both rotated by 0.0012183 radians
+            // about the x-axis; upstream reports distance 0 instead of 1/4.
+            //
+            // Every circle point is equidistant from the line point here, so
+            // the port returns one of them, matching what PDFSection411 does
+            // for the exactly-degenerate case.
+            project = getOrthogonal(circle.normal, true);
+        }
         linearPoint = add(linearPoint, circle.center);
         critical.linearPoint[i] = linearPoint;
         critical.circularPoint[i] = add(circle.center,
