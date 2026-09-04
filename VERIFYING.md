@@ -23,6 +23,9 @@ in GitHub: one `verify-batch` issue and one PR per group in
      must not alias internal scratch state that a later call overwrites;
    - `std::swap`, `std::sort` comparators (strict weak ordering, stable?),
      `std::map`/`std::set` iteration order, `std::numeric_limits` constants;
+   - `Vector`/`GVector` `operator/=` multiplies by the reciprocal and sets the
+     vector to ZERO when the divisor is zero (`Vector.h`); a plain `/` in the
+     port yields NaN instead, observable whenever the result escapes (V03);
    - `T(0)`/`T(1)`/`(T)0.5` literals, `std::fabs` vs `Math.abs`,
      `std::sqrt` of tiny negatives, `atan2` argument order;
    - constructor defaults and member initialisation order; static locals;
