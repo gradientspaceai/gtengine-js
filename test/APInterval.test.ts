@@ -400,20 +400,22 @@ describe('APInterval verification', () => {
         check(fc.tuple(interval, interval), ([u, v]) => {
             const e = v.getEndpoints();
             const straddles = e[0].getSign() < 0 && e[1].getSign() > 0;
-            const w = u.div(v);
-            if (straddles) {
-                expect(isInfinite(w.get(0))).toBe(true);
-                expect(isInfinite(w.get(1))).toBe(true);
-            } else if (e[0].getSign() === 0 && e[1].getSign() === 0) {
-                // [0,0]: reciprocalDown of 0 divides by zero.
-                expect(() => u.div(v)).toThrow();
+            if (e[0].getSign() === 0 && e[1].getSign() === 0) {
+                // The divisor [0,0] takes the v[0] == 0 branch, whose
+                // reciprocalDown(v[1]) divides by zero, so upstream throws
+                // instead of returning the whole real line (issue #280.6).
+                expect(() => u.div(v)).toThrow(/Division by zero/);
             } else {
-                // A divisor with one zero endpoint gives a half-line. For a
-                // nonnegative numerator interval with a positive upper bound
-                // the finite endpoint is the exact quotient by the nonzero
-                // divisor endpoint and the other endpoint is a sentinel.
+                const w = u.div(v);
                 const uu = u.getEndpoints();
-                if (uu[0].getSign() >= 0 && uu[1].getSign() > 0) {
+                if (straddles) {
+                    expect(isInfinite(w.get(0))).toBe(true);
+                    expect(isInfinite(w.get(1))).toBe(true);
+                } else if (uu[0].getSign() >= 0 && uu[1].getSign() > 0) {
+                    // A divisor with one zero endpoint gives a half-line. For
+                    // a nonnegative numerator interval with a positive upper
+                    // bound the finite endpoint is the exact quotient by the
+                    // nonzero divisor endpoint and the other is a sentinel.
                     if (e[0].getSign() === 0 && e[1].getSign() > 0) {
                         // v = [0,b]: reciprocal is [1/b, +infinity).
                         expect(w.get(0).equals(uu[0].div(e[1]))).toBe(true);
@@ -425,6 +427,7 @@ describe('APInterval verification', () => {
                     }
                 }
             }
+
             // Division by the zero scalar is the whole real line.
             const z = u.div(new BSRational());
             expect(isInfinite(z.get(0))).toBe(true);
