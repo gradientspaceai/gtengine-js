@@ -97,8 +97,12 @@ export const invertibleMatrix = (n: number, minRelDet = 1e-3,
         });
 
 /** Unit-length vector of dimension n. */
+/**
+ * Unit vector built from wellScaled components, so no component is tiny but
+ * nonzero (which would square to a subnormal in most consumers).
+ */
 export const unitVector = (n: number): fc.Arbitrary<Vector> =>
-    vector(n, -1, 1).filter(v => length(v) > 1e-2).map(v => {
+    wellScaledVector(n, -1, 1).filter(v => length(v) > 1e-2).map(v => {
         const u = v.clone();
         normalize(u);
         return u;

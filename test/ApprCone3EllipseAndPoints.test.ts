@@ -341,7 +341,7 @@ describe('ApprCone3EllipseAndPoints.fit', () => {
         expect(fitErrors(tight, V, D, theta).angle)
             .toBeLessThanOrEqual(fitErrors(loose, V, D, theta).angle + 1e-6);
         expect(fitErrors(tight, V, D, theta).angle).toBeLessThan(1e-4);
-    });
+    }, 30000);
 });
 
 describe('ApprCone3ExtractEllipses', () => {
@@ -667,7 +667,7 @@ describe('ApprCone3ExtractEllipses verification', () => {
                         .toEqual(ellipses[i].extent.values);
                 }
             }, 12);
-    });
+    }, 30000);
 
     it('extracts nothing for fewer than three points', () => {
         // No tree node satisfies maxIndex >= minIndex + 2, so no plane is

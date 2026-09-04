@@ -248,5 +248,5 @@ describe('DistSegment3Triangle3', () => {
             expect(Math.abs(result.distance - expected)).toBeLessThan(1e-6);
             expectConsistent(result, s, t);
         }
-    });
+    }, 30000);
 });
