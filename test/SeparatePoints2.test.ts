@@ -3,6 +3,7 @@ import { SeparatePoints2 } from '../src/SeparatePoints2.js';
 import type { Line2 } from '../src/Line.js';
 import { Vector, dot } from '../src/Vector.js';
 import { perp } from '../src/Vector2.js';
+import { fc, check, latticeVector, expectClose } from './helpers/arbitraries.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -203,4 +204,223 @@ describe('SeparatePoints2', () => {
         expect(numSeparated).toBeGreaterThan(0);
         expect(numOverlapping).toBeGreaterThan(0);
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V11): property-based cross-checks against an exact bigint
+// separating-axis oracle. The generators are integer lattices, so every
+// projection below is exact and the decision is not a tolerance.
+// ---------------------------------------------------------------------------
+
+type BigPoint2 = [bigint, bigint];
+
+const toBig2 = (p: Vector): BigPoint2 =>
+    [BigInt(p.values[0]), BigInt(p.values[1])];
+
+/**
+ * The convex hull of integer points as a counterclockwise vertex list,
+ * computed by an independent monotone chain in bigint. Returns null when the
+ * points are 0- or 1-dimensional, the cases SeparatePoints2 declines.
+ */
+function exactHullCCW(points: readonly Vector[]): BigPoint2[] | null {
+    const pts = points.map(toBig2);
+    pts.sort((p, q) => (p[0] < q[0] ? -1 : p[0] > q[0] ? 1
+        : p[1] < q[1] ? -1 : p[1] > q[1] ? 1 : 0));
+    const uniq: BigPoint2[] = [];
+    for (const p of pts) {
+        const last = uniq[uniq.length - 1];
+        if (!last || last[0] !== p[0] || last[1] !== p[1]) { uniq.push(p); }
+    }
+    if (uniq.length < 3) { return null; }
+    const cross = (o: BigPoint2, a: BigPoint2, b: BigPoint2): bigint =>
+        (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    const build = (src: BigPoint2[]): BigPoint2[] => {
+        const out: BigPoint2[] = [];
+        for (const p of src) {
+            while (out.length >= 2
+                && cross(out[out.length - 2], out[out.length - 1], p) <= 0n) {
+                out.pop();
+            }
+            out.push(p);
+        }
+        out.pop();
+        return out;
+    };
+    const hull = build(uniq).concat(build(uniq.slice().reverse()));
+    return hull.length >= 3 ? hull : null;
+}
+
+/**
+ * The exact separating-axis decision, formulated by projection extremes
+ * rather than by upstream's side counting: the sets are separated when some
+ * directed hull edge <a,b> has the whole other hull in the closed halfplane
+ * its outward normal Perp(b - a) points into, with at least one vertex
+ * strictly outside. That is exactly the acceptance condition of upstream's
+ * OnSameSide/WhichSide pair for a convex counterclockwise hull.
+ */
+function exactSeparated(hull0: readonly BigPoint2[],
+    hull1: readonly BigPoint2[]): boolean {
+    const testEdges = (owner: readonly BigPoint2[],
+        other: readonly BigPoint2[]): boolean => {
+        for (let j = 0; j < owner.length; ++j) {
+            const a = owner[j];
+            const b = owner[(j + 1) % owner.length];
+            const nx = b[1] - a[1];
+            const ny = a[0] - b[0];          // Perp(b - a) = (dy, -dx)
+            let lo: bigint | null = null;
+            let hi: bigint | null = null;
+            for (const q of other) {
+                const s = nx * (q[0] - a[0]) + ny * (q[1] - a[1]);
+                if (lo === null || s < lo) { lo = s; }
+                if (hi === null || s > hi) { hi = s; }
+            }
+            if (lo !== null && hi !== null && lo >= 0n && hi > 0n) {
+                return true;
+            }
+        }
+        return false;
+    };
+    return testEdges(hull0, hull1) || testEdges(hull1, hull0);
+}
+
+const latticeSet = (count: number, range: number, cx = 0, cy = 0):
+    fc.Arbitrary<Vector[]> =>
+    fc.array(latticeVector(2, -range, range), { minLength: count, maxLength: count })
+        .map(vs => vs.map(v =>
+            Vector.fromArray([v.values[0] + cx, v.values[1] + cy])));
+
+describe('SeparatePoints2 verification', () => {
+    it('agrees with an exact separating-axis oracle', () => {
+        // The offsets make separated and overlapping draws roughly equally
+        // likely.
+        const pair = fc.oneof(
+            fc.tuple(latticeSet(6, 4), latticeSet(6, 4, 5, 2)),
+            fc.tuple(latticeSet(7, 5), latticeSet(7, 5, 9, 0)),
+            fc.tuple(latticeSet(5, 3), latticeSet(8, 6, 2, 2)),
+            fc.tuple(latticeSet(6, 4), latticeSet(6, 4)));
+        check(pair, ([points0, points1]) => {
+            const query = new SeparatePoints2();
+            const result = query.compute(points0, points1);
+            const hull0 = exactHullCCW(points0);
+            const hull1 = exactHullCCW(points1);
+            if (hull0 === null || hull1 === null) {
+                // A 0- or 1-dimensional hull: upstream declines.
+                expect(result.separated).toBe(false);
+                return true;
+            }
+            expect(result.separated).toBe(exactSeparated(hull0, hull1));
+            return true;
+        }, 200);
+    }, 30000);
+
+    it('returns a line that really separates the point sets', () => {
+        const pair = fc.oneof(
+            fc.tuple(latticeSet(6, 4), latticeSet(6, 4, 6, 3)),
+            fc.tuple(latticeSet(7, 5), latticeSet(7, 5, 11, 0)),
+            fc.tuple(latticeSet(5, 3), latticeSet(8, 6, 4, 4)));
+        let separations = 0;
+        check(pair, ([points0, points1]) => {
+            const query = new SeparatePoints2();
+            const result = query.compute(points0, points1);
+            if (!result.separated) { return true; }
+            ++separations;
+
+            const line = result.separatingLine;
+            // The direction is unit length and the origin is one of the
+            // input points of the owning set.
+            expectClose(dot(line.direction, line.direction), 1, 1e-12, 1e-12);
+            const normal = perp(line.direction);
+            const signed = (p: Vector): number =>
+                dot(normal, Vector.fromArray([
+                    p.values[0] - line.origin.values[0],
+                    p.values[1] - line.origin.values[1]]));
+
+            // Every point of one set is on the closed nonpositive side and
+            // every point of the other on the closed nonnegative side. The
+            // coordinates are small integers and the direction is a rounded
+            // unit vector, so the round-off in the signed distance is a few
+            // ulps of the coordinate range.
+            const tol = 1e-12;
+            const max0 = Math.max(...points0.map(signed));
+            const min0 = Math.min(...points0.map(signed));
+            const max1 = Math.max(...points1.map(signed));
+            const min1 = Math.min(...points1.map(signed));
+            const zeroBelow = max0 <= tol && min1 >= -tol;
+            const zeroAbove = min0 >= -tol && max1 <= tol;
+            expect(zeroBelow || zeroAbove).toBe(true);
+            // At least one point is strictly off the line on its side, which
+            // is what OnSameSide's "+1" requires.
+            expect(zeroBelow ? max1 > tol : min1 < -tol).toBe(true);
+            return true;
+        }, 150);
+        expect(separations).toBeGreaterThan(20);
+    }, 30000);
+
+    it('is symmetric in its arguments', () => {
+        const pair = fc.oneof(
+            fc.tuple(latticeSet(6, 4), latticeSet(6, 4, 5, 2)),
+            fc.tuple(latticeSet(7, 5), latticeSet(7, 5)));
+        check(pair, ([points0, points1]) => {
+            const query = new SeparatePoints2();
+            expect(query.compute(points0, points1).separated)
+                .toBe(query.compute(points1, points0).separated);
+            return true;
+        }, 150);
+    }, 30000);
+
+    it('is invariant under integer translation and lattice symmetry', () => {
+        check(fc.tuple(latticeSet(6, 4), latticeSet(6, 4, 5, 2),
+            latticeVector(2, -20, 20), fc.integer({ min: 0, max: 7 })),
+            ([points0, points1, shift, g]) => {
+                const query = new SeparatePoints2();
+                const base = query.compute(points0, points1).separated;
+                const transform = (p: Vector): Vector => {
+                    const x = p.values[0] + shift.values[0];
+                    const y = p.values[1] + shift.values[1];
+                    const flipped = (g & 4) !== 0 ? [y, x] : [x, y];
+                    switch (g & 3) {
+                        case 0: return Vector.fromArray([flipped[0], flipped[1]]);
+                        case 1: return Vector.fromArray([-flipped[1], flipped[0]]);
+                        case 2: return Vector.fromArray([-flipped[0], -flipped[1]]);
+                        default: return Vector.fromArray([flipped[1], -flipped[0]]);
+                    }
+                };
+                expect(query.compute(points0.map(transform),
+                    points1.map(transform)).separated).toBe(base);
+                return true;
+            }, 150);
+    }, 30000);
+
+    it('never separates a set from a superset that contains it', () => {
+        // The hull of points0 is contained in the hull of points0 + extra,
+        // so their interiors overlap and no separating line can exist.
+        check(fc.tuple(latticeSet(6, 5), latticeSet(4, 5)),
+            ([points0, extra]) => {
+                const query = new SeparatePoints2();
+                const both = points0.concat(extra);
+                const hull0 = exactHullCCW(points0);
+                if (hull0 === null) { return true; }
+                expect(query.compute(points0, both).separated).toBe(false);
+                expect(query.compute(both, points0).separated).toBe(false);
+                return true;
+            }, 120);
+    }, 30000);
+
+    it('separates half-plane-disjoint sets by construction', () => {
+        // Every point of set 0 has x <= 0 and every point of set 1 has
+        // x >= 1, so the sets are strictly separated by the y-axis.
+        check(fc.tuple(latticeSet(6, 5), latticeSet(6, 5)),
+            ([a, b]) => {
+                const points0 = a.map(p => Vector.fromArray(
+                    [-Math.abs(p.values[0]), p.values[1]]));
+                const points1 = b.map(p => Vector.fromArray(
+                    [Math.abs(p.values[0]) + 1, p.values[1]]));
+                const hull0 = exactHullCCW(points0);
+                const hull1 = exactHullCCW(points1);
+                if (hull0 === null || hull1 === null) { return true; }
+                expect(new SeparatePoints2().compute(points0, points1)
+                    .separated).toBe(true);
+                return true;
+            }, 120);
+    }, 30000);
 });
