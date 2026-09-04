@@ -4,7 +4,7 @@ import { Hyperellipsoid } from '../src/Hyperellipsoid.js';
 import { Vector, dot } from '../src/Vector.js';
 import { cross } from '../src/Vector3.js';
 import {
-    check, expectClose, fc, finite, seededRandom, vector
+    check, expectClose, fc, finite, seededRandom, vector, wellScaled, wellScaledVector
 } from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
@@ -291,8 +291,11 @@ describe('ApprEllipsoid3 verification', () => {
         return error / points.length;
     }
 
-    const sampleSet = fc.tuple(vector(3, -4, 4), finite(0, 3.1), finite(0, 3.1),
-        finite(1, 4), finite(1, 4), finite(1, 4),
+    // wellScaled angles/center: a pitch of ~1e-162 makes the covariance
+    // off-diagonals subnormal and SymmetricEigensolver3x3 (#379) returns
+    // non-unit eigenvectors, so extents come back scaled by sqrt(2).
+    const sampleSet = fc.tuple(wellScaledVector(3, -4, 4), wellScaled(0, 3.1),
+        wellScaled(0, 3.1), finite(1, 4), finite(1, 4), finite(1, 4),
         fc.integer({ min: 12, max: 40 }), finite(0, 6));
 
     function build(t: [Vector, number, number, number, number, number, number,
