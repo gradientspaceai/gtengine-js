@@ -279,3 +279,176 @@ describe('NURBSCircularArcDegree2', () => {
         }
     });
 });
+
+
+// ---------------------------------------------------------------------------
+// Independent verification pass (VERIFYING.md). NURBSCircle.h was read line by
+// line against src/NURBSCircle.ts: every control point, weight and knot of the
+// five constructions was compared term by term. The properties below check
+// what the constructions claim - that the curves lie exactly on a circle, that
+// they cover the documented portion of it and that they sweep it
+// monotonically - rather than restating the control nets.
+import {
+    check, fc, expectClose
+} from './helpers/arbitraries.js';
+
+function circleAngles(curve: NURBSCurve, count: number,
+    center: readonly number[] = [0, 0]): number[] {
+    const jet = curve.createJet();
+    const tmin = curve.getTMin();
+    const tmax = curve.getTMax();
+    const angles: number[] = [];
+    for (let i = 0; i <= count; ++i) {
+        curve.evaluate(tmin + ((tmax - tmin) * i) / count, 0, jet);
+        angles.push(Math.atan2(jet[0].values[1] - center[1],
+            jet[0].values[0] - center[0]));
+    }
+    return angles;
+}
+
+const unitParam = fc.double({ min: 0, max: 1, noNaN: true,
+    noDefaultInfinity: true });
+
+describe('NURBSCircle verification', () => {
+    it('every construction lies exactly on the unit circle', () => {
+        const curves: [string, NURBSCurve][] = [
+            ['quarter2', new NURBSQuarterCircleDegree2()],
+            ['quarter4', new NURBSQuarterCircleDegree4()],
+            ['half3', new NURBSHalfCircleDegree3()],
+            ['full3', new NURBSFullCircleDegree3()]];
+        check(unitParam, u => {
+            for (const [, curve] of curves) {
+                const jet = curve.createJet();
+                curve.evaluate(u, 0, jet);
+                expectClose(length(jet[0]), 1, 1e-13, 1e-13);
+            }
+        });
+    });
+
+    it('covers the documented portion of the circle', () => {
+        // The two quarter circles cover the first quadrant, the half circle
+        // covers y >= 0 (upstream's comment says x >= 0, which the control
+        // points (1,0), (1,2), (-1,2), (-1,0) contradict), and the full circle
+        // covers everything.
+        check(unitParam, u => {
+            for (const curve of [new NURBSQuarterCircleDegree2(),
+                new NURBSQuarterCircleDegree4()]) {
+                const jet = curve.createJet();
+                curve.evaluate(u, 0, jet);
+                expect(jet[0].values[0]).toBeGreaterThanOrEqual(-1e-13);
+                expect(jet[0].values[1]).toBeGreaterThanOrEqual(-1e-13);
+            }
+            const half = new NURBSHalfCircleDegree3();
+            const jet = half.createJet();
+            half.evaluate(u, 0, jet);
+            expect(jet[0].values[1]).toBeGreaterThanOrEqual(-1e-13);
+        });
+    });
+
+    it('sweeps counterclockwise and monotonically', () => {
+        const sweep = (angles: number[]): number[] => {
+            let previous = angles[0];
+            let turns = 0;
+            return angles.map(a => {
+                if (a < previous - 1e-9) { turns += 2 * Math.PI; }
+                previous = a;
+                return a + turns;
+            });
+        };
+        for (const [curve, total] of [
+            [new NURBSQuarterCircleDegree2(), Math.PI / 2],
+            [new NURBSQuarterCircleDegree4(), Math.PI / 2],
+            [new NURBSHalfCircleDegree3(), Math.PI],
+            [new NURBSFullCircleDegree3(), 2 * Math.PI]] as
+            [NURBSCurve, number][]) {
+            const swept = sweep(circleAngles(curve, 64));
+            expectClose(swept[0], 0, 1e-12, 1e-12);
+            for (let i = 1; i < swept.length; ++i) {
+                expect(swept[i]).toBeGreaterThan(swept[i - 1]);
+            }
+            expectClose(swept[swept.length - 1], total, 1e-9, 1e-9);
+        }
+    });
+
+    it('the two quarter circles trace the same point set', () => {
+        // Different degrees and different parameterizations, but the same
+        // geometry: for each parameter of one curve there is a point of the
+        // other at the same polar angle.
+        check(unitParam, u => {
+            const a = new NURBSQuarterCircleDegree2();
+            const b = new NURBSQuarterCircleDegree4();
+            const ja = a.createJet();
+            a.evaluate(u, 0, ja);
+            const angle = Math.atan2(ja[0].values[1], ja[0].values[0]);
+            // Invert the degree-4 parameterization by bisection on the angle.
+            const jb = b.createJet();
+            const angleAt = (t: number): number => {
+                b.evaluate(t, 0, jb);
+                return Math.atan2(jb[0].values[1], jb[0].values[0]);
+            };
+            let lo = 0, hi = 1;
+            for (let i = 0; i < 60; ++i) {
+                const mid = 0.5 * (lo + hi);
+                if (angleAt(mid) < angle) { lo = mid; } else { hi = mid; }
+            }
+            expectClose(angleAt(0.5 * (lo + hi)), angle, 1e-9, 1e-9);
+        });
+    });
+
+    it('the circular arc construction reproduces the given arc', () => {
+        check(fc.tuple(
+            fc.tuple(fc.double({ min: -5, max: 5, noNaN: true,
+                noDefaultInfinity: true }),
+            fc.double({ min: -5, max: 5, noNaN: true,
+                noDefaultInfinity: true })),
+            fc.double({ min: 0.2, max: 8, noNaN: true,
+                noDefaultInfinity: true }),
+            fc.double({ min: -Math.PI, max: Math.PI, noNaN: true,
+                noDefaultInfinity: true }),
+            // The rational quadratic represents an arc of less than pi; at pi
+            // the tangent-intersection control point is at infinity.
+            fc.double({ min: 0.05, max: Math.PI - 0.05, noNaN: true,
+                noDefaultInfinity: true }),
+            unitParam),
+        ([center, radius, a0, span, u]) => {
+            const point = (angle: number): Vector => Vector.fromArray([
+                center[0] + radius * Math.cos(angle),
+                center[1] + radius * Math.sin(angle)]);
+            const arc = Arc2.fromCenterRadiusEnds(
+                Vector.fromArray([center[0], center[1]]), radius,
+                point(a0), point(a0 + span));
+            const curve = new NURBSCircularArcDegree2(arc);
+            const jet = curve.createJet();
+            curve.evaluate(u, 0, jet);
+            // On the circle.
+            expectClose(Math.hypot(jet[0].values[0] - center[0],
+                jet[0].values[1] - center[1]), radius, 1e-9 * radius, 1e-11);
+            // Inside the angular span, measured from the first endpoint.
+            const twoPi = 2 * Math.PI;
+            let swept = Math.atan2(jet[0].values[1] - center[1],
+                jet[0].values[0] - center[0]) - a0;
+            swept = ((swept % twoPi) + twoPi) % twoPi;
+            // A sample at the first endpoint can land a rounding step below
+            // zero, which wraps to just under 2*pi; fold that back.
+            if (swept > twoPi - 1e-6) { swept -= twoPi; }
+            expect(swept).toBeGreaterThanOrEqual(-1e-6);
+            expect(swept).toBeLessThanOrEqual(span + 1e-6);
+            // The endpoints are interpolated.
+            curve.evaluate(0, 0, jet);
+            expectClose(jet[0].values[0], point(a0).values[0],
+                1e-9 * radius, 1e-11);
+            expectClose(jet[0].values[1], point(a0).values[1],
+                1e-9 * radius, 1e-11);
+            curve.evaluate(1, 0, jet);
+            expectClose(jet[0].values[0], point(a0 + span).values[0],
+                1e-9 * radius, 1e-11);
+            expectClose(jet[0].values[1], point(a0 + span).values[1],
+                1e-9 * radius, 1e-11);
+            // The outer weights are equal and the middle weight is 1.
+            const w = curve.getWeights();
+            expect(w[1]).toBe(1);
+            expect(w[2]).toBe(w[0]);
+            expectClose(w[0], 1 / Math.cos(0.5 * span), 1e-9, 1e-9);
+        });
+    });
+});
