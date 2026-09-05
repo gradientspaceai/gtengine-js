@@ -526,6 +526,21 @@ const latticeCloud = (count: number, spread = 5): fc.Arbitrary<Vector[]> =>
             return ch3.getDimension() === 3;
         });
 
+// A lattice point cloud of 'count' + 1 points: 'count' lattice points plus
+// the midpoint of two of them. Halves of small integers are exact in
+// binary64, so the extra point lies exactly on the segment between the two.
+// When that segment is on the hull, the midpoint is a hull vertex that is
+// only weakly extreme.
+const cloudWithMidpoint = (count: number): fc.Arbitrary<Vector[]> =>
+    fc.tuple(latticeCloud(count), fc.nat(), fc.nat()).map(([points, i, j]) => {
+        const p = points[i % count];
+        const q = points[(i + 1 + j % (count - 1)) % count];
+        return points.concat([V(
+            0.5 * (p.values[0] + q.values[0]),
+            0.5 * (p.values[1] + q.values[1]),
+            0.5 * (p.values[2] + q.values[2]))]);
+    });
+
 // A lattice point cloud that lies exactly in a plane through the origin with
 // the integer normal (a, b, -1): the points are (x, y, a*x + b*y), all of them
 // exact. 'hullSize' controls whether the planar hull is a triangle (the
@@ -596,6 +611,57 @@ describe('MinimumVolumeBox3FloatingPoint verification', () => {
         expectClose(duplicated.volume, 180, 1e-9, 1e-12);
     });
 
+    it('contains the points for a rotated lattice cloud whose hull has a '
+        + 'nearly flat face', () => {
+        // Regression test for the upstream getExtreme defect described in
+        // src/MinimumVolumeBox3FloatingPoint.ts (issue #426). In the lattice
+        // cloud below the point (3, 1, 1) is the midpoint of the segment from
+        // (2, -1, 3) to (4, 3, -1) and lies in a flat hull face, so the exact
+        // tests of removeCoplanarTriangleAdjacencies drop it from the
+        // adjacency graph. Rotating the cloud by 0.1 degrees about the y-axis
+        // makes the face flat only to within rounding: the vertex survives in
+        // the graph, and for a search direction along that face's normal every
+        // neighbor of the vertex ties with it in double precision. The hill
+        // climb then stalls on the resulting plateau, the candidate whose
+        // second axis is that normal gets the extent 8.5e-17 instead of 3.90,
+        // its volume of 5.7e-15 wins the minimization, and the query returns a
+        // degenerate box that misses the cloud by 3.90 units. With the plateau
+        // traversal the rotated cloud reproduces the unrotated answer to
+        // machine precision.
+        const points = [
+            V(3, 1, 1), V(0, 0, 0), V(0, -1, -3), V(2, -1, 3),
+            V(-2, 0, 1), V(0, 0, 0), V(0, -4, 0), V(4, 3, -1)
+        ];
+        const frame = [
+            V(0.9999983994110458, 0, -0.0017891828711411968),
+            V(0, 1, 0),
+            V(0.0017891828711411968, 0, 0.9999983994110458)
+        ];
+        const moved = points.map(p => V(
+            dot(p, frame[0]), dot(p, frame[1]), dot(p, frame[2])));
+
+        for (const lgMaxSample of [2, 3, 4]) {
+            const unrotated = new MinimumVolumeBox3FloatingPoint()
+                .compute(points, lgMaxSample);
+            const rotated = new MinimumVolumeBox3FloatingPoint()
+                .compute(moved, lgMaxSample);
+            expect(rotated.dimension).toBe(3);
+            expectOrthonormalAxes(rotated.box, 1e-10);
+            expectContainsAll(rotated.box, moved, 1e-9);
+
+            // No extent is degenerate: the cloud is 3-dimensional and its
+            // smallest containing box has side lengths of at least 3.
+            for (const extent of rotated.box.extent.values) {
+                expect(extent).toBeGreaterThan(1);
+            }
+
+            // A rotation cannot change the volume of the minimum-volume box,
+            // and here the candidate search follows the same path on both
+            // clouds, so the two volumes agree to rounding.
+            expectClose(rotated.volume, unrotated.volume, 1e-9, 1e-12);
+        }
+    });
+
     it('returns a box that contains the points and is no larger than the '
         + 'aligned or face-aligned candidates', () => {
         check(latticeCloud(9), points => {
@@ -648,6 +714,151 @@ describe('MinimumVolumeBox3FloatingPoint verification', () => {
                 expectClose(v1, v0, 1e-6, 5e-2);
             }, 25);
     }, 30000);
+
+    it('contains the points for a deterministic sweep of rotated clouds with '
+        + 'a weakly extreme hull vertex', () => {
+        // The property below samples the same space, but the plateau stall of
+        // issue #426 needs the degenerate candidate to also win the
+        // minimization, which happens for roughly 0.3% of these clouds -- too
+        // rare for 25 fast-check runs to be a dependable guard. This sweep is
+        // a fixed pseudo-random stream of 300 clouds; the pre-fix code returns
+        // a box that misses the cloud by 3.77 on the cloud of trial 160.
+        const rnd = makeRandom(20260905);
+        let tested = 0;
+        for (let trial = 0; trial < 300; ++trial) {
+            const points: Vector[] = [];
+            for (let i = 0; i < 7; ++i) {
+                points.push(V(Math.round(rnd() * 10 - 5),
+                    Math.round(rnd() * 10 - 5), Math.round(rnd() * 10 - 5)));
+            }
+            const ch3 = new ConvexHull3();
+            ch3.compute(points);
+            if (ch3.getDimension() !== 3) {
+                continue;
+            }
+
+            // Append the midpoint of an edge of a hull triangle. Halves of
+            // these integers are exact in binary64, so the new point lies
+            // exactly on the hull and is only weakly extreme.
+            const hull = ch3.getHull();
+            const t = 3 * Math.floor(rnd() * (hull.length / 3));
+            const k = Math.floor(rnd() * 3);
+            const p = points[hull[t + k]], q = points[hull[t + (k + 1) % 3]];
+            points.push(V(0.5 * (p.values[0] + q.values[0]),
+                0.5 * (p.values[1] + q.values[1]),
+                0.5 * (p.values[2] + q.values[2])));
+
+            const a = rnd() * 2 * Math.PI, b = rnd() * 2 * Math.PI;
+            const c = rnd() * 2 * Math.PI;
+            const ca = Math.cos(a), sa = Math.sin(a);
+            const cb = Math.cos(b), sb = Math.sin(b);
+            const cc = Math.cos(c), sc = Math.sin(c);
+            const frame = [
+                V(ca * cb, sa * cb, -sb),
+                V(ca * sb * sc - sa * cc, sa * sb * sc + ca * cc, cb * sc),
+                V(ca * sb * cc + sa * sc, sa * sb * cc - ca * sc, cb * cc)
+            ];
+            const moved = points.map(v => V(
+                dot(v, frame[0]), dot(v, frame[1]), dot(v, frame[2])));
+
+            const result = new MinimumVolumeBox3FloatingPoint()
+                .compute(moved, [2, 3, 5][trial % 3]);
+            expect(result.dimension).toBe(3);
+            expectContainsAll(result.box, moved, 1e-9);
+            ++tested;
+        }
+        expect(tested).toBeGreaterThan(250);
+    }, 60000);
+
+    it('contains the points for a rotated cloud whose plateau is flat only to '
+        + 'within rounding', () => {
+        // A second cloud from the sweep above, kept explicitly because it
+        // pins the tolerance of the plateau traversal rather than the
+        // traversal itself. The dot products across the flat face differ by a
+        // few units in the last place instead of being equal, so a traversal
+        // that expanded only through exact ties would still stall: the pre-fix
+        // code and a tie-only traversal both report the extent 1.5e-16 along
+        // the first axis, a volume of 1.7e-14 and a box that misses the cloud
+        // by 6.53. The points are a lattice cloud plus the midpoint of a hull
+        // edge, rotated by a pseudo-random frame.
+        const points = [
+            V(-2.5592634747427425, -1.8167041808335136, 0.3869837027443625),
+            V(3.984271911243738, 2.4157801038470605, 1.513137081407649),
+            V(-3.2845609605519765, -3.024000308835922, 0.2590008273695822),
+            V(0.30841092652503344, 4.5135544318554, 2.5559164875008027),
+            V(4.691911868787187, -1.5090305348123525, 3.2724287403300125),
+            V(-0.41688655928420043, 3.3062583038529927, 2.4279336121260227),
+            V(0.4424730944016727, -1.4907419708617227, -4.072088645528473),
+            V(0.01279326755873611, 0.9077581664956351, -0.8220775167012255)
+        ];
+        const hullVolume = convexHullVolume(points);
+        const faceAligned = bruteForceFaceAlignedVolume(points);
+        for (const lgMaxSample of [2, 3, 5]) {
+            const result = new MinimumVolumeBox3FloatingPoint()
+                .compute(points, lgMaxSample);
+            expect(result.dimension).toBe(3);
+            expectOrthonormalAxes(result.box, 1e-10);
+            expectContainsAll(result.box, points, 1e-9);
+            expect(result.volume).toBeGreaterThan(hullVolume * (1 - 1e-8));
+            expect(result.volume).toBeLessThanOrEqual(faceAligned * (1 + 1e-8));
+        }
+    });
+
+    it('returns a box that contains the points after a rigid motion of a '
+        + 'cloud with a weakly extreme hull vertex', () => {
+        // The generator appends the midpoint of two of the points, which is
+        // exact in binary64 for these coordinates. When the segment lies on
+        // the hull, the midpoint is a hull vertex that is only weakly extreme:
+        // it sits in the relative interior of a hull edge or face. Those are
+        // the vertices removeCoplanarTriangleAdjacencies drops with its exact
+        // colinearity and coplanarity tests, and the vertices whose
+        // neighborhood becomes a rounding-level plateau for the hill climb
+        // once the rigid motion makes the degeneracy inexact (issue #426).
+        check(fc.tuple(cloudWithMidpoint(7), rotationFrame(3),
+            latticeVector(3, -9, 9)),
+            ([points, frame, shift]) => {
+                const moved = points.map(p => V(
+                    dot(p, frame[0]) + shift.values[0],
+                    dot(p, frame[1]) + shift.values[1],
+                    dot(p, frame[2]) + shift.values[2]));
+                const result = new MinimumVolumeBox3FloatingPoint()
+                    .compute(moved, 3);
+                expect(result.dimension).toBe(3);
+                expectContainsAll(result.box, moved, 1e-9);
+                const e = result.box.extent.values;
+                expect(8 * e[0] * e[1] * e[2]).toBeGreaterThan(1 / 6);
+            }, 25);
+    }, 60000);
+
+    it('returns a box that contains the points after a rigid motion', () => {
+        // The companion of the invariance property above and the property
+        // that exposed issue #426. A rigid motion turns the exact
+        // degeneracies of a lattice cloud -- coplanar hull faces, hull
+        // vertices in the interior of a face or of an edge -- into
+        // near-degeneracies, which the exact tests of
+        // removeCoplanarTriangleAdjacencies no longer detect. Containment is
+        // the invariant that a plateau stall in the hill climb breaks: the
+        // stalled axis gets a rounding-level extent and the box collapses.
+        check(fc.tuple(latticeCloud(8), rotationFrame(3), latticeVector(3, -9, 9)),
+            ([points, frame, shift]) => {
+                const moved = points.map(p => V(
+                    dot(p, frame[0]) + shift.values[0],
+                    dot(p, frame[1]) + shift.values[1],
+                    dot(p, frame[2]) + shift.values[2]));
+                const result = new MinimumVolumeBox3FloatingPoint()
+                    .compute(moved, 3);
+                expect(result.dimension).toBe(3);
+                expectOrthonormalAxes(result.box, 1e-10);
+                // The coordinates are bounded by 5 + 9 = 14 in magnitude, so
+                // 1e-9 is far above the rounding error of the dot products.
+                expectContainsAll(result.box, moved, 1e-9);
+                // The box is not degenerate: it contains the hull, whose
+                // volume is a positive integer multiple of 1/6 and therefore
+                // at least 1/6.
+                const e = result.box.extent.values;
+                expect(8 * e[0] * e[1] * e[2]).toBeGreaterThan(1 / 6);
+            }, 25);
+    }, 60000);
 
     it('scales the volume by the cube of a uniform scale', () => {
         check(fc.tuple(latticeCloud(8), fc.integer({ min: 2, max: 5 })),

@@ -202,6 +202,20 @@ export class MinimumVolumeBox3FloatingPoint {
     protected mAdjacentPoolLocation: number[];
     protected mVClimbStart: number;
 
+    // Scratch storage for the plateau traversal of getExtreme; see the
+    // comment there. These have no upstream counterpart. mClimbVisited[v]
+    // stores the stamp of the getExtreme call that last visited vertex v, so
+    // the visited set does not have to be cleared between calls, and
+    // mClimbDot[v] caches the dot product computed at that visit.
+    protected mClimbVisited: Int32Array;
+    protected mClimbDot: Float64Array;
+    protected mClimbStack: Int32Array;
+    protected mClimbStamp: number;
+
+    // max(|x| + |y| + |z|) over the translated vertices. It bounds the
+    // rounding error of the dot products of getExtreme.
+    protected mMaxVertexL1: number;
+
     // These members store geometric information.
     protected mTVertices: Vector[];
     protected mTNormals: Vector[];
@@ -242,6 +256,11 @@ export class MinimumVolumeBox3FloatingPoint {
         this.mAdjacentPool = [];
         this.mAdjacentPoolLocation = [];
         this.mVClimbStart = 0;
+        this.mClimbVisited = new Int32Array(0);
+        this.mClimbDot = new Float64Array(0);
+        this.mClimbStack = new Int32Array(0);
+        this.mClimbStamp = 0;
+        this.mMaxVertexL1 = 0;
         this.mTVertices = [];
         this.mTNormals = [];
         this.mTOrigin = Vector.zero(3);
@@ -475,6 +494,14 @@ export class MinimumVolumeBox3FloatingPoint {
         this.mTNormals = new Array<Vector>(numT);
         this.mNVertices = new Array<NVector3>(numV);
         this.mNNormals = new Array<NVector3>(numT);
+
+        // Scratch storage for the plateau traversal of getExtreme. The arrays
+        // are zero-filled and the stamp counter is pre-incremented, so the
+        // first traversal stamps with 1 and no entry is stale.
+        this.mClimbVisited = new Int32Array(numV);
+        this.mClimbDot = new Float64Array(numV);
+        this.mClimbStack = new Int32Array(numV);
+        this.mClimbStamp = 0;
     }
 
     protected extractMeshTopology(mesh: VETManifoldMesh): void {
@@ -587,6 +614,7 @@ export class MinimumVolumeBox3FloatingPoint {
         }
         this.mTVertices[0] = Vector.zero(3);
         this.mNVertices[0] = nZero3();
+        this.mMaxVertexL1 = 0;
         for (let i = 1; i < numVertices; ++i) {
             const p = vertices[i].values, o = this.mTOrigin.values;
             this.mTVertices[i] = Vector.fromArray([p[0] - o[0], p[1] - o[1], p[2] - o[2]]);
@@ -595,6 +623,11 @@ export class MinimumVolumeBox3FloatingPoint {
                 BSNumber.fromNumber(p[1]).sub(this.mNOrigin[1]),
                 BSNumber.fromNumber(p[2]).sub(this.mNOrigin[2])
             ];
+            const t = this.mTVertices[i].values;
+            const l1 = Math.abs(t[0]) + Math.abs(t[1]) + Math.abs(t[2]);
+            if (l1 > this.mMaxVertexL1) {
+                this.mMaxVertexL1 = l1;
+            }
         }
 
         // Create the triangles and normals to the triangles. The normals
@@ -728,7 +761,9 @@ export class MinimumVolumeBox3FloatingPoint {
 
     // The hill-climbing algorithm that computes the extreme hull vertex in
     // the specified direction. Upstream returns the vertex index and writes
-    // the extreme dot product through a reference parameter.
+    // the extreme dot product through a reference parameter. The port adds
+    // the plateau traversal that follows the upstream climb; see the comment
+    // on it for the upstream defect it repairs.
     protected getExtreme(direction: Vector): { vMax: number, dMax: number } {
         let vMax = this.mVClimbStart;
         let dMax = dot3(direction, this.mTVertices[vMax]);
@@ -751,6 +786,93 @@ export class MinimumVolumeBox3FloatingPoint {
                 dMax = dLocalMax;
             } else {
                 break;
+            }
+        }
+
+        // Upstream bug (MinimumVolumeBox3FloatingPoint.h, GetExtreme): the
+        // strict comparison 'dCandidate > dLocalMax' cannot leave a plateau,
+        // so the climb stops at a vertex that is only a weak local maximum
+        // and need not be the extreme vertex of the polytope. Upstream avoids
+        // plateaus by merging coplanar faces in
+        // removeCoplanarTriangleAdjacencies, but that test is exact: it fires
+        // only when the vertex coordinates make the faces exactly coplanar.
+        // Rotate an integer point cloud by a small angle and the coplanarity
+        // becomes approximate, the merge no longer happens, and a vertex that
+        // lies (to within rounding) in the interior of a hull face survives
+        // in the adjacency graph. When the search direction is the normal of
+        // that face, every neighbor of such a vertex ties with it in double
+        // precision, the climb stalls there, and the candidate gets an extent
+        // of ~0 along that axis. Its volume is then ~0, so it wins the
+        // minimization and the query returns a degenerate box that does not
+        // contain the input points (issue #426: extents (2.48, 8.5e-17,
+        // 3.37) and a containment violation of 3.90 for a lattice cloud
+        // rotated by 0.1 degrees).
+        //
+        // The repair traverses the plateau. Flood the graph from the vertex
+        // where the climb stalled, expanding through every vertex whose dot
+        // product is within the rounding error of the largest dot product
+        // found so far, and keep the strictly largest one. Because dMax never
+        // decreases, every vertex that is skipped is below the final dMax by
+        // more than the rounding error, so the explored set is a connected
+        // set whose boundary lies strictly below its maximum. The upper level
+        // sets of a linear function on the edge graph of a convex polytope
+        // are connected, hence the traversal cannot be separated from the
+        // true extreme vertex and dMax is the true maximum. Each vertex is
+        // visited at most once, so the extra work is O(V + E) in the worst
+        // case, which is the bound the climb loop above already carries. When
+        // the climb ends at a maximum that is strict by more than the
+        // rounding error -- the non-degenerate case, which is every case
+        // where upstream is correct -- nothing is pushed and vMax is
+        // unchanged, so the port reports exactly the upstream support vertex.
+        //
+        // The threshold is the standard bound for the error of a dot product
+        // of three terms, |error| <= 3u/(1 - 3u) * sum(|d[i]*v[i]|), rounded
+        // up and doubled because two dot products are compared:
+        // 8 * eps * max|d[i]| * max(|v[0]| + |v[1]| + |v[2]|). A threshold
+        // larger than the true error only widens the traversal; it cannot
+        // change the answer, because a vertex is accepted as the new maximum
+        // only when its dot product is strictly larger.
+        if (this.mClimbStamp === 0x7fffffff) {
+            // Keep the stamps representable in the Int32Array.
+            this.mClimbVisited.fill(0);
+            this.mClimbStamp = 0;
+        }
+        const d = direction.values;
+        const epsilon = 8 * Number.EPSILON * this.mMaxVertexL1 *
+            Math.max(Math.abs(d[0]), Math.abs(d[1]), Math.abs(d[2]));
+        const stamp = ++this.mClimbStamp;
+        const visited = this.mClimbVisited;
+        const dots = this.mClimbDot;
+        const stack = this.mClimbStack;
+        visited[vMax] = stamp;
+        dots[vMax] = dMax;
+        stack[0] = vMax;
+        let top = 1;
+        while (top > 0) {
+            const v = stack[--top];
+            if (dots[v] < dMax - epsilon) {
+                // The threshold grew after this vertex was pushed, so it is
+                // no longer part of the level set being traversed.
+                continue;
+            }
+            const base = this.mAdjacentPoolLocation[v];
+            const numAdjacent = this.mAdjacentPool[base];
+            for (let j = 1; j <= numAdjacent; ++j) {
+                const vCandidate = this.mAdjacentPool[base + j];
+                if (visited[vCandidate] === stamp) {
+                    continue;
+                }
+                const dCandidate = dot3(direction, this.mTVertices[vCandidate]);
+                visited[vCandidate] = stamp;
+                dots[vCandidate] = dCandidate;
+                if (dCandidate < dMax - epsilon) {
+                    continue;
+                }
+                if (dCandidate > dMax) {
+                    vMax = vCandidate;
+                    dMax = dCandidate;
+                }
+                stack[top++] = vCandidate;
             }
         }
 
