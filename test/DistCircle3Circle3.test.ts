@@ -649,6 +649,72 @@ describe('DistCircle3Circle3 verification', () => {
             .toBeCloseTo(c0.radius, 12);
     });
 
+    // Port fix 5 (upstream defect). DoQueryParallelPlanes splits the vector
+    // between the two centers into the components along and perpendicular to
+    // the common plane normal. For coaxial circles the perpendicular
+    // component is mathematically zero, but the normal that reaches the
+    // function is a unit vector only up to the rounding of the rotation in
+    // PrepareCircles, so the computed component is a residue of size
+    // |D|*O(eps) directed along the normal rather than zero. Upstream takes
+    // its length as evidence that the circles are not concentric and
+    // normalizes it into the radial direction of both closest points, which
+    // then land on the common axis instead of on the circles; the reported
+    // distance stays correct. Both routes into the parallel-planes code are
+    // covered here: the exact 'circle0.normal[2] < 1' test being false, and
+    // the p6 == p7 == 0 fallback of port fix 4.
+    it('reports coaxial closest points on the circles, not on the axis', () => {
+        // The p6 == p7 == 0 fallback. The transformed normal is one ulp
+        // below 1, so the polynomial path runs and the fallback fires. Before
+        // the fix the closest points were (0,0,-0.2) and (0,0,-0.201), both
+        // on the common axis and 0.2 away from their own circles.
+        const c0 = Circle3.fromCenterNormalRadius(v(0, 0, 0), v(0, 0, -1), 0.2);
+        const c1 = Circle3.fromCenterNormalRadius(v(0, 0, -0.001),
+            v(0, 0, 0.9999999999999999), 0.2);
+        const r = query.compute(c0, c1);
+        expect(r.distance).toBeCloseTo(0.001, 12);
+        expectValidResult(c0, c1, r);
+        expect(r.equidistant).toBe(true);
+
+        // The parallel-planes branch. The transformed normal rounds to one
+        // ulp above 1, so 'circle0.normal[2] < 1' is false. Before the fix
+        // both closest points were on the (1,1,1) axis, 2 away from their
+        // own circles.
+        const n = v(1, 1, 1);
+        normalize(n);
+        for (const sign of [1, -1]) {
+            const a0 = Circle3.fromCenterNormalRadius(v(0, 0, 0), n, 1);
+            const a1 = Circle3.fromCenterNormalRadius(mul(0.5, n),
+                mul(sign, n), 2);
+            const ra = query.compute(a0, a1);
+            expect(ra.distance).toBeCloseTo(Math.sqrt(1.25), 12);
+            expectValidResult(a0, a1, ra);
+            expect(ra.equidistant).toBe(true);
+        }
+
+        // A deterministic family of coaxial pairs: separated, nested and
+        // equal-radius, on axes whose rotation to the z-axis leaves the
+        // transformed normal on either side of 1.
+        const axes = [v(1, 1, 1), v(1, 2, 2), v(0, 3, 4), v(1, 0, 1),
+            v(2, 3, 6), v(1, 1, 0), v(1, 2, 3), v(0, 0, 1)];
+        for (const axis of axes) {
+            const u = axis.clone();
+            normalize(u);
+            for (const offset of [0, 0.25, 0.5, 1, 1.5, 2]) {
+                for (const [r0, r1] of [[1, 2], [0.5, 1.5], [1, 1],
+                    [2, 0.5]] as Array<[number, number]>) {
+                    const b0 = Circle3.fromCenterNormalRadius(v(1, -2, 3), u,
+                        r0);
+                    const b1 = Circle3.fromCenterNormalRadius(
+                        add(v(1, -2, 3), mul(offset, u)), u, r1);
+                    const rb = query.compute(b0, b1);
+                    expectValidResult(b0, b1, rb);
+                    expect(rb.distance).toBeCloseTo(
+                        Math.sqrt((r1 - r0) ** 2 + offset ** 2), 12);
+                }
+            }
+        }
+    });
+
     it('records the subnormal-offset breakdown in PrepareCircles', () => {
         // PrepareCircles rotates about the circle1 normal to zero the
         // x-component of the circle0 center, guarding only on

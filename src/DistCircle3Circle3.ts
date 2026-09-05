@@ -40,6 +40,13 @@
 //  4. p6 and p7 vanish identically for coaxial circles in parallel planes
 //     and for a zero-radius circle on the other circle's axis; upstream
 //     reports an assertion instead of the answer.
+//  5. DoQueryParallelPlanes computes the in-plane component of the vector
+//     between the centers with a normal that is a unit vector only up to
+//     rounding. For coaxial circles that component is mathematically zero
+//     but is computed as a rounding residue along the normal, so the
+//     concentric case is missed and both reported closest points land on the
+//     common axis instead of on their circles. The port passes the exact
+//     common normal, which makes the component exact.
 // Two further upstream quirks are preserved: the result reports at most two
 // closest pairs even when more exist, and PrepareCircles divides by an
 // underflowed length when the transformed circle0 center has subnormal x-
@@ -267,6 +274,30 @@ function prepareCircles(inCircle0: Circle3, inCircle1: Circle3): {
     }
 
     return { circle0, circle1, rotate, translate, scale, swapped };
+}
+
+// Port fix for an upstream defect (item 5 in the list at the top of the file).
+// doQueryParallelPlanes splits D = C1 - C0 into the component along the common
+// plane normal N and the in-plane component compProj = D - Dot(N,D)*N, and it
+// takes d = |compProj| > 0 as evidence that the circles are not concentric,
+// using U = compProj/d as the radial direction of both closest points. For
+// coaxial circles D is parallel to N, so compProj is mathematically zero, but
+// the computed value is not: the transformed circle0.normal that upstream
+// passes is the rotated input normal, a unit vector only up to rounding, and
+// D - Dot(N,D)*N keeps the residue (1 - |N|^2)*Dot(N,D)*N, of size |D|*O(eps)
+// and directed along N. Upstream then normalizes that residue and reports
+// "closest points" on the common axis, at distance r0 and r1 from their own
+// circles (the reported distance stays correct). Both call sites below work in
+// the frame prepareCircles produces, where circle1.normal is exactly (0,0,1)
+// and the plane of circle0 is known to be parallel to the plane of circle1, so
+// (0,0,1) is the exact common plane normal: the copy of circle0 returned here
+// carries it in place of the rounded normal. Dot(N,D) and D - Dot(N,D)*N are
+// then exact, compProj is exactly zero for coaxial circles and exactly in-plane
+// for every other configuration, and no tolerance is needed anywhere.
+function withCommonNormal(circle0: Circle3, circle1: Circle3): Circle3 {
+    const aligned = circle0.clone();
+    aligned.normal = circle1.normal.clone();
+    return aligned;
 }
 
 // The port of DoQueryParallelPlanes. The two circles are in parallel planes
@@ -539,9 +570,11 @@ export class DistCircle3Circle3
                 // z-component a few ulps below one. Upstream reports its
                 // "Unexpected degree for p6" assertion; the port answers the
                 // query with the parallel-planes code, which is written for
-                // exactly this configuration.
-                doQueryParallelPlanes(circle0, circle1,
-                    sub(circle1.center, circle0.center), result);
+                // exactly this configuration. The normal is passed through
+                // withCommonNormal because circle0.normal is (0,0,1) only up
+                // to the rounding of the rotation in prepareCircles.
+                doQueryParallelPlanes(withCommonNormal(circle0, circle1),
+                    circle1, sub(circle1.center, circle0.center), result);
                 parallelPlanesUsed = true;
             }
 
@@ -631,8 +664,15 @@ export class DistCircle3Circle3
             // two circles in the same plane are separated, tangent with one
             // circle outside the other, overlapping, or one circle contained
             // inside the other circle.
+            // Upstream passes circle0 with the normal prepareCircles computed;
+            // the port passes the exact common normal instead (see
+            // withCommonNormal). This branch is reached only when
+            // circle0.normal[2] >= 1, so the two planes are parallel to within
+            // the rounding of that z-component and (0,0,1) is as good a normal
+            // for circle0's plane as the rotated one.
             const D = sub(circle1.center, circle0.center);
-            doQueryParallelPlanes(circle0, circle1, D, result);
+            doQueryParallelPlanes(withCommonNormal(circle0, circle1), circle1,
+                D, result);
         }
 
         result.distance /= scale;
