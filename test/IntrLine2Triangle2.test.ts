@@ -11,6 +11,8 @@ import {
     intrLine2Triangle2DoQuery,
     defaultIntrLine2Triangle2FIResult
 } from '../src/IntrLine2Triangle2.js';
+import { sub } from '../src/Vector.js';
+import { check, expectVectorClose, fc, seededRandom } from './helpers/arbitraries.js';
 
 function line(px: number, py: number, dx: number, dy: number): Line {
     return Line.fromOriginDirection(Vector.fromArray([px, py]),
@@ -196,5 +198,149 @@ describe('intrLine2Triangle2DoQuery', () => {
             Vector.fromArray([1, 0]), tri, result);
         expect(result.intersect).toBe(false);
         expect(result.numIntersections).toBe(0);
+    });
+});
+
+describe('IntrLine2Triangle2 verification', () => {
+    const ti = new IntrLine2Triangle2TI();
+    const fi = new IntrLine2Triangle2FI();
+
+    // Integer origins, directions and vertices make every DotPerp exact, so
+    // the (n,p,z) classification the queries branch on is decided without
+    // round-off and the on-line vertex cases are common draws.
+    const latticeLine = fc.tuple(fc.integer({ min: -4, max: 4 }),
+        fc.integer({ min: -4, max: 4 }), fc.integer({ min: -3, max: 3 }),
+        fc.integer({ min: -3, max: 3 }))
+        .filter(([, , dx, dy]) => dx !== 0 || dy !== 0)
+        .map(([px, py, dx, dy]) => line(px, py, dx, dy));
+    const latticeTri = fc.array(
+        fc.array(fc.integer({ min: -4, max: 4 }), { minLength: 2, maxLength: 2 }),
+        { minLength: 3, maxLength: 3 })
+        .map(vs => triangle(vs[0], vs[1], vs[2]));
+
+    function signs(l: Line, t: Triangle): number[] {
+        return t.v.map(v => {
+            const s = dotPerp(l.direction, Vector.fromArray(
+                [v.values[0] - l.origin.values[0],
+                    v.values[1] - l.origin.values[1]]));
+            return s > 0 ? 1 : (s < 0 ? -1 : 0);
+        });
+    }
+
+    it('TI matches the exact (n,p,z) table', () => {
+        check(fc.tuple(latticeLine, latticeTri), ([l, t]) => {
+            const s = signs(l, t);
+            const numZero = s.filter(x => x === 0).length;
+            const numPos = s.filter(x => x > 0).length;
+            const numNeg = s.filter(x => x < 0).length;
+            const expected = (numZero === 0 && numPos > 0 && numNeg > 0)
+                || numZero === 1 || numZero === 2;
+            expect(ti.test(l, t).intersect).toBe(expected);
+            expect(fi.find(l, t).intersect).toBe(expected);
+        });
+    });
+
+    it('FI parameters are ordered and their points are on the line and in the triangle', () => {
+        check(fc.tuple(latticeLine, latticeTri), ([l, t]) => {
+            const r = fi.find(l, t);
+            if (!r.intersect) {
+                expect(r.numIntersections).toBe(0);
+                return;
+            }
+            expect(r.parameter[0]).toBeLessThanOrEqual(r.parameter[1]);
+            if (r.numIntersections === 1) {
+                expect(r.parameter[1]).toBe(r.parameter[0]);
+            }
+            const e1 = sub(t.v[1], t.v[0]), e2 = sub(t.v[2], t.v[0]);
+            const det = e1.values[0] * e2.values[1] - e1.values[1] * e2.values[0];
+            for (let k = 0; k < r.numIntersections; ++k) {
+                const p = r.point[k];
+                expect(Number.isFinite(p.values[0])).toBe(true);
+                expect(Number.isFinite(p.values[1])).toBe(true);
+                expectVectorClose(p,
+                    add(l.origin, mul(r.parameter[k], l.direction)), 0, 0);
+                if (det === 0) {
+                    continue;    // degenerate triangle: no barycentrics
+                }
+                const w = sub(p, t.v[0]);
+                const b1 = (w.values[0] * e2.values[1]
+                    - w.values[1] * e2.values[0]) / det;
+                const b2 = (e1.values[0] * w.values[1]
+                    - e1.values[1] * w.values[0]) / det;
+                // The clip parameters are single quotients of exact integer
+                // combinations, so the barycentrics are accurate to ~1e-12
+                // relative to the triangle size.
+                expect(b1).toBeGreaterThanOrEqual(-1e-9);
+                expect(b2).toBeGreaterThanOrEqual(-1e-9);
+                expect(b1 + b2).toBeLessThanOrEqual(1 + 1e-9);
+            }
+        });
+    });
+
+    it('the reported interval contains every line parameter inside the triangle', () => {
+        const rnd = seededRandom(0x4de210b);
+        check(fc.tuple(latticeLine, latticeTri), ([l, t]) => {
+            const e1 = sub(t.v[1], t.v[0]), e2 = sub(t.v[2], t.v[0]);
+            const det = e1.values[0] * e2.values[1] - e1.values[1] * e2.values[0];
+            if (det === 0) {
+                return;
+            }
+            const r = fi.find(l, t);
+            for (let k = 0; k < 400; ++k) {
+                const tt = 24 * rnd() - 12;
+                const p = add(l.origin, mul(tt, l.direction));
+                const w = sub(p, t.v[0]);
+                const b1 = (w.values[0] * e2.values[1]
+                    - w.values[1] * e2.values[0]) / det;
+                const b2 = (e1.values[0] * w.values[1]
+                    - e1.values[1] * w.values[0]) / det;
+                if (b1 > 1e-9 && b2 > 1e-9 && b1 + b2 < 1 - 1e-9) {
+                    expect(r.intersect).toBe(true);
+                    expect(tt).toBeGreaterThanOrEqual(r.parameter[0] - 1e-9);
+                    expect(tt).toBeLessThanOrEqual(r.parameter[1] + 1e-9);
+                }
+            }
+        }, 60);
+    }, 30000);
+
+    it('the parameters are those of the given direction, not of a unit direction', () => {
+        check(fc.tuple(latticeLine, latticeTri, fc.integer({ min: 2, max: 4 })),
+            ([l, t, k]) => {
+                const a = fi.find(l, t);
+                if (!a.intersect) {
+                    return;
+                }
+                const scaled = Line.fromOriginDirection(l.origin,
+                    mul(k, l.direction));
+                const b = fi.find(scaled, t);
+                expect(b.intersect).toBe(true);
+                expect(b.numIntersections).toBe(a.numIntersections);
+                for (let i = 0; i < a.numIntersections; ++i) {
+                    expect(b.parameter[i] * k).toBeCloseTo(a.parameter[i], 9);
+                    expectVectorClose(b.point[i], a.point[i], 1e-12, 1e-12);
+                }
+            });
+    });
+
+    it('a degenerate triangle on the line reports no intersection', () => {
+        // (n,p,z) = (0,0,3): all three vertices project to zero.
+        const l = line(0, 0, 1, 0);
+        const t = triangle([0, 0], [2, 0], [5, 0]);
+        expect(ti.test(l, t).intersect).toBe(false);
+        const r = fi.find(l, t);
+        expect(r.intersect).toBe(false);
+        expect(r.numIntersections).toBe(0);
+    });
+
+    it('the exported DoQuery reproduces the class result', () => {
+        check(fc.tuple(latticeLine, latticeTri), ([l, t]) => {
+            const r = defaultIntrLine2Triangle2FIResult();
+            intrLine2Triangle2DoQuery(l.origin, l.direction, t, r);
+            const expected = fi.find(l, t);
+            expect(r.intersect).toBe(expected.intersect);
+            expect(r.numIntersections).toBe(expected.numIntersections);
+            expect(r.parameter[0]).toBe(expected.parameter[0]);
+            expect(r.parameter[1]).toBe(expected.parameter[1]);
+        });
     });
 });

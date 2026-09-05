@@ -6,6 +6,9 @@ import {
 import { Line } from '../src/Line.js';
 import { Rectangle } from '../src/Rectangle.js';
 import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
+import { length } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
+import { check, expectVectorClose, fc, positive, rotationFrame, unitVector, wellScaled } from './helpers/arbitraries.js';
 
 const ti = new IntrLine3Rectangle3TI();
 const fi = new IntrLine3Rectangle3FI();
@@ -174,5 +177,120 @@ describe('IntrLine3Rectangle3 consistency', () => {
             }
         }
         expect(hits).toBeGreaterThan(10);
+    });
+});
+
+describe('IntrLine3Rectangle3 verification', () => {
+    const rectArb = fc.tuple(
+        fc.array(wellScaled(-4, 4), { minLength: 3, maxLength: 3 }),
+        rotationFrame(3), positive(3), positive(3))
+        .map(([c, axes, e0, e1]) => Rectangle.fromCenterAxisExtent(
+            Vector.fromArray(c), [axes[0], axes[1]],
+            Vector.fromArray([e0, e1])));
+    const lineArb = fc.tuple(
+        fc.array(wellScaled(-6, 6), { minLength: 3, maxLength: 3 }),
+        unitVector(3))
+        .map(([p, d]) => Line.fromOriginDirection(Vector.fromArray(p), d));
+
+    it('TI and FI agree on intersect', () => {
+        check(fc.tuple(lineArb, rectArb), ([l, rect]) => {
+            expect(fi.find(l, rect).intersect).toBe(ti.test(l, rect).intersect);
+        });
+    });
+
+    it('the reported point is on the line and inside the rectangle', () => {
+        check(fc.tuple(lineArb, rectArb), ([l, rect]) => {
+            const r = fi.find(l, rect);
+            if (!r.intersect) {
+                return;
+            }
+            expect(Number.isFinite(r.parameter)).toBe(true);
+            expectVectorClose(r.point,
+                add(l.origin, mul(r.parameter, l.direction)), 0, 0);
+
+            // The rectangle coordinates must be inside the extents and must
+            // reconstruct the point. Both come from one shared denominator
+            // Dot(D,N), so the residual scales with the geometry, not with
+            // the conditioning of the query.
+            expect(Math.abs(r.rectCoord[0]))
+                .toBeLessThanOrEqual(rect.extent.values[0] * (1 + 1e-9) + 1e-9);
+            expect(Math.abs(r.rectCoord[1]))
+                .toBeLessThanOrEqual(rect.extent.values[1] * (1 + 1e-9) + 1e-9);
+            const rebuilt = add(add(rect.center,
+                mul(r.rectCoord[0], rect.axis[0])),
+                mul(r.rectCoord[1], rect.axis[1]));
+            const scale = 1 + length(l.origin) + length(rect.center)
+                + Math.abs(r.parameter);
+            expect(length(sub(rebuilt, r.point)))
+                .toBeLessThanOrEqual(1e-9 * scale);
+
+            // Upstream declares rectCoord as a 3-array copied from the
+            // triangle query; the third entry is always zero (issue #141).
+            expect(r.rectCoord[2]).toBe(0);
+        });
+    });
+
+    it('a line through a sampled rectangle point always intersects', () => {
+        const rnd = makeRandom(0x2f81cd);
+        check(fc.tuple(rectArb, unitVector(3)), ([rect, d]) => {
+            const s0 = (2 * rnd() - 1) * rect.extent.values[0] * 0.9;
+            const s1 = (2 * rnd() - 1) * rect.extent.values[1] * 0.9;
+            const target = add(add(rect.center, mul(s0, rect.axis[0])),
+                mul(s1, rect.axis[1]));
+            const normal = cross(rect.axis[0], rect.axis[1]);
+            if (Math.abs(dot(d, normal)) < 1e-3) {
+                return;    // nearly in the plane: upstream reports no hit
+            }
+            const l = Line.fromOriginDirection(
+                sub(target, mul(3, d)), d);
+            const r = fi.find(l, rect);
+            expect(r.intersect).toBe(true);
+            expect(ti.test(l, rect).intersect).toBe(true);
+            const scale = 1 + length(target);
+            expect(length(sub(r.point, target)))
+                .toBeLessThanOrEqual(1e-9 * scale);
+            expect(r.rectCoord[0]).toBeCloseTo(s0, 8);
+            expect(r.rectCoord[1]).toBeCloseTo(s1, 8);
+        });
+    });
+
+    it('a line in the plane of the rectangle reports no intersection', () => {
+        // Upstream calls the parallel case "no intersection" even when the
+        // line lies in the plane and crosses the rectangle.
+        const rect = xyRectangle(v3(0, 0, 0), 2, 1);
+        const inPlane = makeLine(v3(-5, 0, 0), v3(1, 0, 0));
+        expect(ti.test(inPlane, rect).intersect).toBe(false);
+        const r = fi.find(inPlane, rect);
+        expect(r.intersect).toBe(false);
+        expect(r.parameter).toBe(0);
+        expect(r.point.values).toEqual([0, 0, 0]);
+        // A line parallel to but off the plane is also reported as a miss.
+        expect(ti.test(makeLine(v3(-5, 0, 1), v3(1, 0, 0)), rect).intersect)
+            .toBe(false);
+    });
+
+    it('parameters scale with a non-unit direction while the point does not', () => {
+        check(fc.tuple(lineArb, rectArb, fc.integer({ min: 2, max: 4 })),
+            ([l, rect, k]) => {
+                const a = fi.find(l, rect);
+                if (!a.intersect) {
+                    return;
+                }
+                const b = fi.find(Line.fromOriginDirection(l.origin,
+                    mul(k, l.direction)), rect);
+                expect(b.intersect).toBe(true);
+                expect(b.parameter * k).toBeCloseTo(a.parameter, 9);
+                expectVectorClose(b.point, a.point, 1e-9, 1e-9);
+                expect(b.rectCoord[0]).toBeCloseTo(a.rectCoord[0], 9);
+                expect(b.rectCoord[1]).toBeCloseTo(a.rectCoord[1], 9);
+            });
+    });
+
+    it('a degenerate (zero-extent) rectangle is the point test', () => {
+        const rect = xyRectangle(v3(1, 2, 0), 0, 0);
+        expect(fi.find(makeLine(v3(1, 2, -3), v3(0, 0, 1)), rect).intersect)
+            .toBe(true);
+        expect(fi.find(makeLine(v3(1.5, 2, -3), v3(0, 0, 1)), rect).intersect)
+            .toBe(false);
     });
 });

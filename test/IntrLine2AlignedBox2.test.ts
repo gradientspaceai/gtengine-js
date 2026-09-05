@@ -12,6 +12,8 @@ import {
     defaultIntrLine2AlignedBox2TIResult,
     defaultIntrLine2AlignedBox2FIResult
 } from '../src/IntrLine2AlignedBox2.js';
+import { add, mul, sub } from '../src/Vector.js';
+import { check, expectVectorClose, fc, positive, seededRandom, unitVector, wellScaled } from './helpers/arbitraries.js';
 
 function box(minX: number, minY: number, maxX: number, maxY: number): AlignedBox {
     return AlignedBox.fromMinMax(Vector.fromArray([minX, minY]),
@@ -216,5 +218,129 @@ describe('intrLine2AlignedBox2 DoQuery helpers', () => {
             Vector.fromArray([1, 0]), extent, result);
         expect(result.intersect).toBe(false);
         expect(result.numIntersections).toBe(0);
+    });
+});
+
+describe('IntrLine2AlignedBox2 verification', () => {
+    const ti = new IntrLine2AlignedBox2TI();
+    const fi = new IntrLine2AlignedBox2FI();
+
+    const boxArb = fc.tuple(wellScaled(-4, 4), wellScaled(-4, 4),
+        positive(4), positive(4))
+        .map(([x, y, w, h]) => box(x, y, x + w, y + h));
+    const lineArb = fc.tuple(wellScaled(-6, 6), wellScaled(-6, 6),
+        unitVector(2))
+        .map(([x, y, d]) => line(x, y, d.values[0], d.values[1]));
+
+    function inBox(p: Vector, b: AlignedBox, tol: number): boolean {
+        for (let i = 0; i < 2; ++i) {
+            if (p.values[i] < b.min.values[i] - tol
+                || p.values[i] > b.max.values[i] + tol) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    it('TI and FI agree on intersect', () => {
+        check(fc.tuple(lineArb, boxArb), ([l, b]) => {
+            expect(fi.find(l, b).intersect).toBe(ti.test(l, b).intersect);
+        });
+    });
+
+    it('FI parameters are ordered and their points lie on the line and in the box', () => {
+        check(fc.tuple(lineArb, boxArb), ([l, b]) => {
+            const r = fi.find(l, b);
+            if (!r.intersect) {
+                expect(r.numIntersections).toBe(0);
+                return;
+            }
+            expect(r.parameter[0]).toBeLessThanOrEqual(r.parameter[1]);
+            if (r.numIntersections === 1) {
+                expect(r.parameter[1]).toBe(r.parameter[0]);
+            }
+            const scale = 1 + Math.abs(b.min.values[0]) + Math.abs(b.max.values[0])
+                + Math.abs(b.min.values[1]) + Math.abs(b.max.values[1]);
+            for (let k = 0; k < r.numIntersections; ++k) {
+                const p = r.point[k];
+                expect(Number.isFinite(p.values[0])).toBe(true);
+                expect(Number.isFinite(p.values[1])).toBe(true);
+                expectVectorClose(p,
+                    add(l.origin, mul(r.parameter[k], l.direction)), 0, 0);
+                // Each clip parameter is one division of exactly representable
+                // differences, so the point sits on the face to a few ulps.
+                expect(inBox(p, b, 1e-12 * scale)).toBe(true);
+            }
+        });
+    });
+
+    it('the reported [t0,t1] is exactly the set of line parameters inside the box', () => {
+        const rnd = seededRandom(0x3ac71d);
+        check(fc.tuple(lineArb, boxArb), ([l, b]) => {
+            const r = fi.find(l, b);
+            const scale = 1 + Math.abs(b.min.values[0]) + Math.abs(b.max.values[0])
+                + Math.abs(b.min.values[1]) + Math.abs(b.max.values[1]);
+            for (let k = 0; k < 400; ++k) {
+                const t = 20 * rnd() - 10;
+                const p = add(l.origin, mul(t, l.direction));
+                if (inBox(p, b, -1e-9 * scale)) {
+                    // Strictly inside: the query must have found the hit and
+                    // the parameter must lie in the reported interval.
+                    expect(r.intersect).toBe(true);
+                    expect(t).toBeGreaterThanOrEqual(r.parameter[0] - 1e-9 * scale);
+                    expect(t).toBeLessThanOrEqual(r.parameter[1] + 1e-9 * scale);
+                }
+            }
+        }, 60);
+    }, 30000);
+
+    it('an axis-parallel line hitting a face reports the whole face span', () => {
+        const b = box(-1, -1, 1, 1);
+        const r = fi.find(line(0, 5, 0, -1), b);
+        expect(r.intersect).toBe(true);
+        expect(r.numIntersections).toBe(2);
+        expect(r.parameter[0]).toBeCloseTo(4, 12);
+        expect(r.parameter[1]).toBeCloseTo(6, 12);
+    });
+
+    it('a line grazing a corner reports a single point', () => {
+        const b = box(0, 0, 2, 2);
+        // The line through (2,0) with direction (1,1) touches only the corner.
+        const d = Vector.fromArray([1, 1]);
+        normalize(d);
+        const r = fi.find(Line.fromOriginDirection(Vector.fromArray([2, 0]), d), b);
+        expect(r.intersect).toBe(true);
+        expect(r.numIntersections).toBe(1);
+        expect(r.parameter[0]).toBe(r.parameter[1]);
+        expectVectorClose(r.point[0], Vector.fromArray([2, 0]), 1e-12, 1e-12);
+    });
+
+    it('a zero-extent (degenerate) box is the point-on-line test', () => {
+        const pt = box(1, 1, 1, 1);
+        const d = Vector.fromArray([1, 1]);
+        normalize(d);
+        const through = fi.find(
+            Line.fromOriginDirection(Vector.fromArray([0, 0]), d), pt);
+        expect(through.intersect).toBe(true);
+        expect(through.numIntersections).toBe(1);
+        expect(fi.find(line(0, 0, 1, 0), pt).intersect).toBe(false);
+    });
+
+    it('the exported DoQuery helpers reproduce the class results', () => {
+        check(fc.tuple(lineArb, boxArb), ([l, b]) => {
+            const { center, extent } = b.getCenteredForm();
+            const origin = sub(l.origin, center);
+            const tr = defaultIntrLine2AlignedBox2TIResult();
+            intrLine2AlignedBox2TIDoQuery(origin, l.direction, extent, tr);
+            expect(tr.intersect).toBe(ti.test(l, b).intersect);
+
+            const fr = defaultIntrLine2AlignedBox2FIResult();
+            intrLine2AlignedBox2FIDoQuery(origin, l.direction, extent, fr);
+            const expected = fi.find(l, b);
+            expect(fr.intersect).toBe(expected.intersect);
+            expect(fr.numIntersections).toBe(expected.numIntersections);
+            expect(fr.parameter[0]).toBe(expected.parameter[0]);
+            expect(fr.parameter[1]).toBe(expected.parameter[1]);
+        });
     });
 });
