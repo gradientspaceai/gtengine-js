@@ -6,6 +6,8 @@ import {
 import type { IntpBSplineUniformControls } from '../src/IntpBSplineUniform.js';
 import { Vector } from '../src/Vector.js';
 import { add as vadd, mul as vmul } from '../src/Vector.js';
+import { check, expectClose, fc, finite, seededRandom }
+    from './helpers/arbitraries.js';
 
 const NO_CACHING = IntpBSplineUniformCacheMode.NO_CACHING;
 const PRE_CACHING = IntpBSplineUniformCacheMode.PRE_CACHING;
@@ -644,5 +646,343 @@ describe('IntpBSplineUniform (general dimension)', () => {
             // [-0.5 + m, 0.5 + m).
             expect(interp.evaluate([0], [m])).toBeCloseTo(data[m], 14);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (V29): property-based checks against upstream
+// IntpBSplineUniform.h.
+// ---------------------------------------------------------------------------
+
+const degreeArb = fc.integer({ min: 1, max: 3 });
+const controlArb = fc.integer({ min: -20, max: 20 });
+
+describe('IntpBSplineUniform verification', () => {
+    // Row r of the blending matrix holds the coefficients of the local basis
+    // polynomial Q_{d,d-r}(s). The B-spline basis is a partition of unity, so
+    // the row polynomials sum to one for every s in [0,1], and each of them is
+    // nonnegative there.
+    it('produces a blending matrix whose rows are a partition of unity', () => {
+        check(fc.tuple(fc.integer({ min: 0, max: 5 }), finite(0, 1)),
+            ([degree, u]) => {
+                const A = IntpBSplineUniformShared.computeBlendingMatrix(degree);
+                const degreeP1 = degree + 1;
+                expect(A.length).toBe(degreeP1 * degreeP1);
+                let sum = 0;
+                for (let row = 0; row < degreeP1; ++row) {
+                    let value = 0;
+                    for (let col = degree; col >= 0; --col) {
+                        value = value * u + A[col + degreeP1 * row];
+                    }
+                    expect(value).toBeGreaterThanOrEqual(-1e-12);
+                    sum += value;
+                }
+                expectClose(sum, 1, 1e-12, 1e-12);
+                return true;
+            });
+    });
+
+    // ComputePowers must fill powerDSDT[i] with (ds/dt)^i. Degree 0 is the
+    // case upstream overruns its buffer (issue #135); the port relies on the
+    // JavaScript array growing and is exercised by the degree-0 spline below.
+    it('produces the powers of ds/dt', () => {
+        check(fc.tuple(fc.integer({ min: 0, max: 5 }),
+            fc.integer({ min: 6, max: 12 })), ([degree, numControls]) => {
+                const tmin = -0.5, tmax = numControls - 0.5;
+                const powers = IntpBSplineUniformShared.computePowers(degree,
+                    numControls, tmin, tmax);
+                const dsdt = (numControls - degree) / (tmax - tmin);
+                expect(powers[0]).toBe(1);
+                for (let i = 1; i <= degree; ++i) {
+                    expectClose(powers[i], Math.pow(dsdt, i), 1e-12, 1e-12);
+                }
+                return true;
+            });
+    });
+
+    // GetKey maps t to the interval index and the local parameter. Below tmin
+    // it pins (0, 0); at or above tmax it pins the last interval with u = 1,
+    // which extends the s-domain [d, c+1) to its support [d, c+1].
+    it('produces a key with 0 <= u <= 1 in the correct interval', () => {
+        check(fc.tuple(fc.integer({ min: 0, max: 4 }),
+            fc.integer({ min: 6, max: 12 }), finite(-20, 20)),
+            ([degree, numControls, t]) => {
+                const tmin = -0.5, tmax = numControls - 0.5;
+                const dsdt = (numControls - degree) / (tmax - tmin);
+                const { index, u } = IntpBSplineUniformShared.getKey(t, tmin,
+                    tmax, dsdt, numControls, degree);
+                expect(index).toBeGreaterThanOrEqual(0);
+                expect(index).toBeLessThanOrEqual(numControls - 1 - degree);
+                expect(u).toBeGreaterThanOrEqual(0);
+                expect(u).toBeLessThanOrEqual(1);
+                if (t <= tmin) {
+                    expect(index).toBe(0);
+                    expect(u).toBe(0);
+                } else if (t >= tmax) {
+                    expect(index).toBe(numControls - 1 - degree);
+                    expect(u).toBe(1);
+                } else {
+                    // index + u is the continuous s - d coordinate.
+                    expectClose(index + u, dsdt * (t - tmin), 1e-9, 1e-12);
+                }
+                return true;
+            });
+    });
+
+    // The three cache modes evaluate the same spline. The two caching modes
+    // share ComputeTensor and the same accumulation order, so they must agree
+    // bit for bit; the non-caching mode sums the same terms in a different
+    // order, so it agrees to round-off.
+    it('agrees across the three cache modes in one dimension', () => {
+        check(fc.tuple(degreeArb,
+            fc.array(controlArb, { minLength: 6, maxLength: 10 }),
+            fc.integer({ min: 0, max: 3 }), finite(-2, 12)),
+            ([degree, data, order, t]) => {
+                if (order > degree) {
+                    return true;
+                }
+                const controls = new NumberControls([data.length], data);
+                const make = (mode: IntpBSplineUniformCacheMode) =>
+                    new IntpBSplineUniform1<number>(degree, controls, 0, mode);
+                const none = make(NO_CACHING).evaluate([order], [t]);
+                const pre = make(PRE_CACHING).evaluate([order], [t]);
+                const demand = make(ON_DEMAND_CACHING).evaluate([order], [t]);
+                expect(demand).toBe(pre);
+                expectClose(none, pre, 1e-9, 1e-11);
+                return true;
+            });
+    });
+
+    // The hand-optimized one-dimensional specialization and the
+    // general-dimension implementation must evaluate the same spline.
+    it('the 1D specialization agrees with the general-dimension class', () => {
+        check(fc.tuple(degreeArb,
+            fc.array(controlArb, { minLength: 6, maxLength: 10 }),
+            fc.integer({ min: 0, max: 3 }), finite(-2, 12),
+            fc.constantFrom(NO_CACHING, PRE_CACHING, ON_DEMAND_CACHING)),
+            ([degree, data, order, t, mode]) => {
+                if (order > degree) {
+                    return true;
+                }
+                const controls = new NumberControls([data.length], data);
+                const special = new IntpBSplineUniform1<number>(degree, controls,
+                    0, mode);
+                const general = new IntpBSplineUniform<number>([degree], controls,
+                    0, mode);
+                expectClose(special.evaluate([order], [t]),
+                    general.evaluate([order], [t]), 1e-9, 1e-11);
+                return true;
+            });
+    });
+
+    // The two-dimensional spline is the tensor product of the two
+    // one-dimensional splines, so it must agree with the general-dimension
+    // class on separable control data as well as on arbitrary data.
+    it('the 2D specialization agrees with the general-dimension class', () => {
+        check(fc.tuple(degreeArb, degreeArb,
+            fc.integer({ min: 5, max: 7 }), fc.integer({ min: 5, max: 7 }),
+            fc.integer({ min: 0, max: 0xffff }), finite(-1, 8), finite(-1, 8),
+            fc.constantFrom(NO_CACHING, PRE_CACHING, ON_DEMAND_CACHING)),
+            ([d0, d1, n0, n1, seed, t0, t1, mode]) => {
+                const rand = seededRandom(seed + 1);
+                const data: number[] = [];
+                for (let i = 0; i < n0 * n1; ++i) {
+                    data.push(Math.round(20 * (2 * rand() - 1)));
+                }
+                const controls = new NumberControls([n0, n1], data);
+                const special = new IntpBSplineUniform2<number>([d0, d1],
+                    controls, 0, mode);
+                const general = new IntpBSplineUniform<number>([d0, d1],
+                    controls, 0, mode);
+                for (let o0 = 0; o0 <= d0 && o0 <= 1; ++o0) {
+                    for (let o1 = 0; o1 <= d1 && o1 <= 1; ++o1) {
+                        expectClose(special.evaluate([o0, o1], [t0, t1]),
+                            general.evaluate([o0, o1], [t0, t1]), 1e-8, 1e-10);
+                    }
+                }
+                return true;
+            }, 60);
+    }, 30000);
+
+    it('the 3D specialization agrees with the general-dimension class', () => {
+        check(fc.tuple(degreeArb, degreeArb, degreeArb,
+            fc.integer({ min: 0, max: 0xffff }),
+            finite(-1, 6), finite(-1, 6), finite(-1, 6),
+            fc.constantFrom(NO_CACHING, PRE_CACHING, ON_DEMAND_CACHING)),
+            ([d0, d1, d2, seed, t0, t1, t2, mode]) => {
+                const n = 5;
+                const rand = seededRandom(seed + 1);
+                const data: number[] = [];
+                for (let i = 0; i < n * n * n; ++i) {
+                    data.push(Math.round(20 * (2 * rand() - 1)));
+                }
+                const controls = new NumberControls([n, n, n], data);
+                const special = new IntpBSplineUniform3<number>([d0, d1, d2],
+                    controls, 0, mode);
+                const general = new IntpBSplineUniform<number>([d0, d1, d2],
+                    controls, 0, mode);
+                expectClose(special.evaluate([0, 0, 0], [t0, t1, t2]),
+                    general.evaluate([0, 0, 0], [t0, t1, t2]), 1e-8, 1e-10);
+                expectClose(special.evaluate([1, 0, 0], [t0, t1, t2]),
+                    general.evaluate([1, 0, 0], [t0, t1, t2]), 1e-7, 1e-9);
+                return true;
+            }, 40);
+    }, 30000);
+
+    // The one-dimensional spline must agree with the standard uniform
+    // B-spline basis, written out independently above.
+    it('agrees with the standard uniform B-spline basis', () => {
+        check(fc.tuple(degreeArb,
+            fc.array(controlArb, { minLength: 6, maxLength: 10 }),
+            finite(-2, 12),
+            fc.constantFrom(NO_CACHING, PRE_CACHING, ON_DEMAND_CACHING)),
+            ([degree, data, t, mode]) => {
+                const controls = new NumberControls([data.length], data);
+                const spline = new IntpBSplineUniform1<number>(degree, controls,
+                    0, mode);
+                expectClose(spline.evaluate([0], [t]),
+                    reference1(degree, data, t), 1e-9, 1e-11);
+                return true;
+            });
+    });
+
+    // The basis is a partition of unity in every dimension, so a constant
+    // control field is reproduced everywhere and its derivative vanishes.
+    it('reproduces a constant control field in two dimensions', () => {
+        check(fc.tuple(degreeArb, degreeArb, fc.integer({ min: -9, max: 9 }),
+            finite(-2, 8), finite(-2, 8),
+            fc.constantFrom(NO_CACHING, PRE_CACHING, ON_DEMAND_CACHING)),
+            ([d0, d1, value, t0, t1, mode]) => {
+                const n = 6;
+                const controls = new NumberControls([n, n],
+                    new Array<number>(n * n).fill(value));
+                const spline = new IntpBSplineUniform2<number>([d0, d1],
+                    controls, 0, mode);
+                expectClose(spline.evaluate([0, 0], [t0, t1]), value,
+                    1e-9, 1e-11);
+                expectClose(spline.evaluate([1, 0], [t0, t1]), 0, 1e-8, 1e-9);
+                return true;
+            });
+    });
+
+    // The derivative accessor must agree with numerical differentiation. The
+    // spline is a polynomial of degree at most three on each interval, so the
+    // fourth-order five-point stencil is exact for it up to round-off; the
+    // sample point is placed at the middle of the domain and the step is a
+    // small fraction of one interval so the stencil stays inside it.
+    it('computes derivatives that match a fourth-order stencil', () => {
+        check(fc.tuple(degreeArb,
+            fc.array(controlArb, { minLength: 8, maxLength: 10 }),
+            fc.integer({ min: 1, max: 3 }).map(k => k / 4),
+            fc.constantFrom(NO_CACHING, PRE_CACHING, ON_DEMAND_CACHING)),
+            ([degree, data, frac, mode]) => {
+                const controls = new NumberControls([data.length], data);
+                const spline = new IntpBSplineUniform1<number>(degree, controls,
+                    0, mode);
+                const tmin = spline.getTMin(0), tmax = spline.getTMax(0);
+                const numIntervals = data.length - degree;
+                const width = (tmax - tmin) / numIntervals;
+                // A point strictly inside interval 2 of the s-parameter.
+                const t = tmin + width * (2 + frac);
+                const h = width / 16;
+                const f = (x: number) => spline.evaluate([0], [x]);
+                const d1 = (-f(t + 2 * h) + 8 * f(t + h) - 8 * f(t - h)
+                    + f(t - 2 * h)) / (12 * h);
+                expectClose(spline.evaluate([1], [t]), d1, 1e-6, 1e-7);
+                if (degree >= 2) {
+                    const d2 = (-f(t + 2 * h) + 16 * f(t + h) - 30 * f(t)
+                        + 16 * f(t - h) - f(t - 2 * h)) / (12 * h * h);
+                    expectClose(spline.evaluate([2], [t]), d2, 1e-4, 1e-5);
+                }
+                return true;
+            });
+    });
+
+    // Degree 0 gives a piecewise-constant spline. Upstream's ComputePowers
+    // writes powerDSDT[1] into a buffer sized degree+1 = 1 (issue #135); in
+    // the port the array simply grows and degree 0 evaluates correctly.
+    it('supports degree 0 in every cache mode', () => {
+        check(fc.tuple(fc.array(controlArb, { minLength: 4, maxLength: 8 }),
+            finite(-2, 10),
+            fc.constantFrom(NO_CACHING, PRE_CACHING, ON_DEMAND_CACHING)),
+            ([data, t, mode]) => {
+                const controls = new NumberControls([data.length], data);
+                const spline = new IntpBSplineUniform1<number>(0, controls, 0,
+                    mode);
+                const value = spline.evaluate([0], [t]);
+                // The value is one of the control points: the degree-0 basis
+                // selects the control point of the containing interval.
+                expect(data).toContain(value);
+                const { index } = IntpBSplineUniformShared.getKey(t, -0.5,
+                    data.length - 0.5, 1, data.length, 0);
+                expect(value).toBe(data[index]);
+                return true;
+            });
+    });
+
+    // Upstream returns the zero control point when any order is negative or
+    // exceeds the degree of its dimension.
+    it('returns the zero control point for orders outside [0, degree]', () => {
+        check(fc.tuple(degreeArb,
+            fc.array(controlArb, { minLength: 6, maxLength: 8 }),
+            fc.integer({ min: 4, max: 8 }), finite(-2, 10),
+            fc.constantFrom(NO_CACHING, PRE_CACHING, ON_DEMAND_CACHING)),
+            ([degree, data, order, t, mode]) => {
+                const controls = new NumberControls([data.length], data);
+                const spline = new IntpBSplineUniform1<number>(degree, controls,
+                    0, mode);
+                expect(spline.evaluate([order], [t])).toBe(0);
+                const general = new IntpBSplineUniform<number>([degree],
+                    controls, 0, mode);
+                expect(general.evaluate([order], [t])).toBe(0);
+                expect(general.evaluate([-1], [t])).toBe(0);
+                return true;
+            });
+    });
+
+    // The domain of the interpolator is [-1/2, c - 1/2] and the evaluators pin
+    // the key outside it, so the spline is constant beyond either end.
+    it('is constant outside the parameter domain', () => {
+        check(fc.tuple(degreeArb,
+            fc.array(controlArb, { minLength: 6, maxLength: 9 }),
+            finite(0.01, 50),
+            fc.constantFrom(NO_CACHING, PRE_CACHING, ON_DEMAND_CACHING)),
+            ([degree, data, delta, mode]) => {
+                const controls = new NumberControls([data.length], data);
+                const spline = new IntpBSplineUniform1<number>(degree, controls,
+                    0, mode);
+                const tmin = spline.getTMin(0), tmax = spline.getTMax(0);
+                expect(spline.evaluate([0], [tmin - delta]))
+                    .toBe(spline.evaluate([0], [tmin]));
+                expect(spline.evaluate([0], [tmax + delta]))
+                    .toBe(spline.evaluate([0], [tmax]));
+                return true;
+            });
+    });
+
+    // The evaluator is linear in the control points: it is a fixed weighted
+    // sum of them for a given (order, t).
+    it('is linear in the control points', () => {
+        check(fc.tuple(degreeArb,
+            fc.array(controlArb, { minLength: 7, maxLength: 9 }),
+            fc.array(controlArb, { minLength: 9, maxLength: 9 }),
+            fc.integer({ min: -4, max: 4 }), fc.integer({ min: -4, max: 4 }),
+            fc.integer({ min: 0, max: 1 }), finite(-1, 9),
+            fc.constantFrom(NO_CACHING, PRE_CACHING, ON_DEMAND_CACHING)),
+            ([degree, d1, d2raw, a, b, order, t, mode]) => {
+                if (order > degree) {
+                    return true;
+                }
+                const d2 = d2raw.slice(0, d1.length);
+                const dc = d1.map((v, i) => a * v + b * d2[i]);
+                const make = (data: number[]) =>
+                    new IntpBSplineUniform1<number>(degree,
+                        new NumberControls([data.length], data), 0, mode);
+                const v1 = make(d1).evaluate([order], [t]);
+                const v2 = make(d2).evaluate([order], [t]);
+                const vc = make(dc).evaluate([order], [t]);
+                expectClose(a * v1 + b * v2, vc, 1e-8, 1e-10);
+                return true;
+            });
     });
 });
