@@ -41,10 +41,10 @@ type HermiteBicubicBlocks = readonly [
 ];
 
 export class HermiteBicubic {
-    // Set the coefficients manually as desired. For Hermite bicubic
+    // Set the coefficients manually as desired (public, as upstream). For Hermite bicubic
     // interpolation on a lattice, use generate(...). The lattice
     // interpolator is globally C1-continuous.
-    private c: number[][];
+    c: number[][];
 
     // The default polynomial is identically zero. When 'blocks' is provided,
     // generate the 4x4 coefficients c[][] for a cell of the lattice with

@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { HermiteBiquintic, HermiteBiquinticSample } from '../src/HermiteBiquintic.js';
+import { HermiteQuintic, HermiteQuinticSample } from '../src/HermiteQuintic.js';
+import { check, expectClose, fc, finite, scaled } from './helpers/arbitraries.js';
 
 // Polynomial helpers: value and derivative of sum_i c[i] x^i.
 function polyval(c: readonly number[], x: number): number {
@@ -143,5 +145,120 @@ describe('HermiteBiquintic', () => {
         expect(h.evaluate(6, 0, 0.5, 0.5)).toBe(0);
         expect(h.evaluate(0, 6, 0.5, 0.5)).toBe(0);
         expect(h.evaluate(7, 7, 0.25, 0.75)).toBe(0);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V28): property-based cross-checks against HermiteBiquintic.h.
+// ---------------------------------------------------------------------------
+describe('HermiteBiquintic verification', () => {
+    // d^k/dt^k t^i evaluated at t (zero once k exceeds i).
+    const mono = (k: number, i: number, t: number): number => {
+        if (i < k) { return 0; }
+        let c = 1;
+        for (let m = 0; m < k; ++m) { c *= i - m; }
+        return c * Math.pow(t, i - k);
+    };
+    // p(x,y) = sum_{i,j<=5} a[6i+j] x^i y^j, differentiated mx times in x and
+    // my times in y.
+    const evalPoly = (a: number[], mx: number, my: number,
+        x: number, y: number): number => {
+        let sum = 0;
+        for (let i = 0; i <= 5; ++i) {
+            const mi = mono(mx, i, x);
+            if (mi === 0) { continue; }
+            for (let j = 0; j <= 5; ++j) {
+                sum += a[6 * i + j] * mi * mono(my, j, y);
+            }
+        }
+        return sum;
+    };
+    const sampleAt = (a: number[], bx: number, by: number) =>
+        new HermiteBiquinticSample(
+            evalPoly(a, 0, 0, bx, by), evalPoly(a, 1, 0, bx, by),
+            evalPoly(a, 0, 1, bx, by), evalPoly(a, 2, 0, bx, by),
+            evalPoly(a, 1, 1, bx, by), evalPoly(a, 0, 2, bx, by),
+            evalPoly(a, 2, 1, bx, by), evalPoly(a, 1, 2, bx, by),
+            evalPoly(a, 2, 2, bx, by));
+
+    it('reproduces every biquintic from exact samples of its nine derivatives', () => {
+        check(fc.tuple(fc.array(finite(-1, 1), { minLength: 36, maxLength: 36 }),
+            scaled(0, 1), scaled(0, 1)), ([a, x, y]) => {
+            const h = new HermiteBiquintic([
+                [sampleAt(a, 0, 0), sampleAt(a, 0, 1)],
+                [sampleAt(a, 1, 0), sampleAt(a, 1, 1)]]);
+            // generateSingle weights the data by up to 100 and the corner data
+            // themselves reach ~400 for unit coefficients, so the worst-case
+            // cancellation costs about four digits of the 16 available.
+            for (const [mx, my] of [[0, 0], [1, 0], [0, 1], [2, 0], [1, 1], [0, 2]]) {
+                expectClose(h.evaluate(mx, my, x, y), evalPoly(a, mx, my, x, y),
+                    1e-8, 1e-9);
+            }
+        });
+    });
+
+    it('interpolates the prescribed data at all four corners', () => {
+        check(fc.array(finite(-4, 4), { minLength: 36, maxLength: 36 }), s => {
+            const mk = (k: number) => new HermiteBiquinticSample(
+                s[9 * k], s[9 * k + 1], s[9 * k + 2], s[9 * k + 3], s[9 * k + 4],
+                s[9 * k + 5], s[9 * k + 6], s[9 * k + 7], s[9 * k + 8]);
+            const blocks = [[mk(0), mk(1)], [mk(2), mk(3)]] as const;
+            const h = new HermiteBiquintic(blocks);
+            for (let b0 = 0; b0 <= 1; ++b0) {
+                for (let b1 = 0; b1 <= 1; ++b1) {
+                    const b = blocks[b0][b1];
+                    expectClose(h.evaluate(0, 0, b0, b1), b.f, 1e-11, 1e-11);
+                    expectClose(h.evaluate(1, 0, b0, b1), b.fx, 1e-9, 1e-9);
+                    expectClose(h.evaluate(0, 1, b0, b1), b.fy, 1e-9, 1e-9);
+                    expectClose(h.evaluate(2, 0, b0, b1), b.fxx, 1e-8, 1e-8);
+                    expectClose(h.evaluate(1, 1, b0, b1), b.fxy, 1e-8, 1e-8);
+                    expectClose(h.evaluate(0, 2, b0, b1), b.fyy, 1e-8, 1e-8);
+                    expectClose(h.evaluate(2, 2, b0, b1), b.fxxyy, 1e-6, 1e-7);
+                }
+            }
+        });
+    });
+
+    it('agrees with the tensor product of two HermiteQuintics on separable data', () => {
+        check(fc.tuple(fc.array(finite(-3, 3), { minLength: 6, maxLength: 6 }),
+            scaled(0, 1), scaled(0, 1)), ([s, x, y]) => {
+            const g = new HermiteQuintic([new HermiteQuinticSample(s[0], s[1], s[2]),
+                new HermiteQuinticSample(s[3], s[4], s[5])]);
+            const k = new HermiteQuintic([new HermiteQuinticSample(s[5], s[3], s[1]),
+                new HermiteQuinticSample(s[0], s[2], s[4])]);
+            const mk = (bx: number, by: number) => new HermiteBiquinticSample(
+                g.evaluate(0, bx) * k.evaluate(0, by),
+                g.evaluate(1, bx) * k.evaluate(0, by),
+                g.evaluate(0, bx) * k.evaluate(1, by),
+                g.evaluate(2, bx) * k.evaluate(0, by),
+                g.evaluate(1, bx) * k.evaluate(1, by),
+                g.evaluate(0, bx) * k.evaluate(2, by),
+                g.evaluate(2, bx) * k.evaluate(1, by),
+                g.evaluate(1, bx) * k.evaluate(2, by),
+                g.evaluate(2, bx) * k.evaluate(2, by));
+            const b = new HermiteBiquintic([[mk(0, 0), mk(0, 1)], [mk(1, 0), mk(1, 1)]]);
+            expectClose(b.evaluate(0, 0, x, y),
+                g.evaluate(0, x) * k.evaluate(0, y), 1e-9, 1e-10);
+            expectClose(b.evaluate(2, 2, x, y),
+                g.evaluate(2, x) * k.evaluate(2, y), 1e-7, 1e-8);
+        });
+    });
+
+    it('exposes c publicly for manual coefficient assignment (upstream API)', () => {
+        const h = new HermiteBiquintic();
+        h.c[5][0] = 2;
+        // P(5,x) P(0,y) = x^5 (1-y)^5, so H(1,0) = 2.
+        expectClose(h.evaluate(0, 0, 1, 0), 2, 1e-15, 1e-15);
+        expect(h.evaluate(0, 0, 0, 1)).toBe(0);
+    });
+
+    it('returns zero when either order exceeds the degree', () => {
+        check(fc.tuple(fc.integer({ min: 6, max: 20 }), fc.integer({ min: 0, max: 5 }),
+            scaled(0, 1), scaled(0, 1)), ([big, small, x, y]) => {
+            const h = new HermiteBiquintic();
+            h.c[3][2] = 1;
+            expect(h.evaluate(big, small, x, y)).toBe(0);
+            expect(h.evaluate(small, big, x, y)).toBe(0);
+        });
     });
 });

@@ -56,10 +56,10 @@ type HermiteBiquinticBlocks = readonly [
 ];
 
 export class HermiteBiquintic {
-    // Set the coefficients manually as desired. For Hermite biquintic
+    // Set the coefficients manually as desired (public, as upstream). For Hermite biquintic
     // interpolation on a lattice, use generate(...). The lattice
     // interpolator is globally C2-continuous.
-    private c: number[][];
+    c: number[][];
 
     // The default polynomial is identically zero. When 'blocks' is provided,
     // generate the 6x6 coefficients c[][] for a cell of the lattice with

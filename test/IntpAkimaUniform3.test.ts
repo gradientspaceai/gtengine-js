@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { IntpAkimaUniform3 } from '../src/IntpAkimaUniform3.js';
 import { IntpAkimaUniform2 } from '../src/IntpAkimaUniform2.js';
+import { check, expectClose, fc, finite, positive, scaled, wellScaled } from './helpers/arbitraries.js';
 
 // Build the lexicographic sample array F[c + xBound*(r + yBound*s)] =
 // f(xMin + c*dx, yMin + r*dy, zMin + s*dz).
@@ -151,16 +152,16 @@ describe('IntpAkimaUniform3', () => {
         }
     });
 
-    it('preserves the upstream max-boundary sign quirk in the mixed partials', () => {
-        // GetFXY/GetFXZ/GetFYZ/GetFXYZ reuse the min-boundary one-sided
-        // difference coefficients at the max boundaries with reflected sample
-        // indices and without negating the mask, so each reflected direction
-        // flips the sign of the estimated mixed partial there (the 3D analogue
-        // of the IntpAkimaUniform2 issue). With f = x*y (constant in z) the
-        // exact f_xy is +1, yet the estimates on the x-max column and the
-        // y-max row come out as -1, and the pinned value below is the
-        // resulting upstream value (it matches the IntpAkimaUniform2 port,
-        // whose 2D value 1.1015625 is hand-computed from the algorithm).
+    it('reproduces a bilinear field over the whole box (corrected max-boundary sign)', () => {
+        // Upstream's GetFXY/GetFXZ/GetFYZ/GetFXYZ reuse the min-boundary
+        // one-sided difference coefficients at the max boundaries with
+        // reflected sample indices and without negating the mask, so each
+        // reflected direction flips the sign of the estimated mixed partial
+        // there (the 3D analogue of upstream issue #58). With f = x*y
+        // (constant in z) the exact f_xy is +1, yet upstream's estimates on
+        // the x-max column and the y-max row come out as -1, leaving
+        // f(1.5, 0.75) = 1.1015625 instead of 1.125. The port corrects the
+        // sign, so the bilinear field is now reproduced over the whole box.
         const F = makeSamples(3, 3, 3, 0, 1, 0, 1, 0, 1, (x, y) => x * y);
         const interp = new IntpAkimaUniform3(3, 3, 3, 0, 1, 0, 1, 0, 1, F);
 
@@ -170,9 +171,11 @@ describe('IntpAkimaUniform3', () => {
             expect(interp.evaluate(1, 1, 0, 0.5, 0.5, z)).toBeCloseTo(1, 11);
             expect(interp.evaluate(0, 0, 1, 0.5, 0.5, z)).toBeCloseTo(0, 11);
         }
-        // The cell touching the x-max boundary deviates.
+        // The cells touching the max boundaries are exact as well.
         for (const z of [0, 0.5, 2]) {
-            expect(interp.evaluate(1.5, 0.75, z)).toBeCloseTo(1.1015625, 11);
+            expect(interp.evaluate(1.5, 0.75, z)).toBeCloseTo(1.125, 11);
+            expect(interp.evaluate(1.75, 1.5, z)).toBeCloseTo(1.75 * 1.5, 11);
+            expect(interp.evaluate(1, 1, 0, 1.5, 1.75, z)).toBeCloseTo(1, 11);
         }
         // The samples themselves are still interpolated exactly.
         for (let s = 0; s < 3; ++s) {
@@ -299,4 +302,160 @@ describe('IntpAkimaUniform3', () => {
         expect(interp.evaluate(-1, 0, 0, 0.5, 0.5, 0.5)).toBe(0);
         expect(interp.evaluate(3, 0, 0, 0.5, 0.5, 0.5)).toBeCloseTo(0, 10);
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V28): property-based cross-checks against IntpAkimaUniform3.h.
+// ---------------------------------------------------------------------------
+describe('IntpAkimaUniform3 verification', () => {
+    const XB = 4, YB = 4, ZB = 3;
+    const geometry = () => fc.tuple(
+        finite(-2, 2), positive(2, 0.5),
+        finite(-2, 2), positive(2, 0.5),
+        finite(-2, 2), positive(2, 0.5));
+    type Geom = [number, number, number, number, number, number];
+    // wellScaled snaps |x| < 1e-3 to zero so no sample is subnormal; the
+    // construction divides sample differences by the spacing three times.
+    const samples = () => fc.array(wellScaled(-4, 4),
+        { minLength: XB * YB * ZB, maxLength: XB * YB * ZB });
+    const latticeSamples = () => fc.array(fc.integer({ min: -20, max: 20 }),
+        { minLength: XB * YB * ZB, maxLength: XB * YB * ZB });
+    const signedPowerOfTwo = () =>
+        fc.tuple(fc.integer({ min: -4, max: 4 }), fc.boolean())
+            .map(([m, neg]) => (neg ? -1 : 1) * Math.pow(2, m));
+    const build = (F: number[], g: Geom) =>
+        new IntpAkimaUniform3(XB, YB, ZB, g[0], g[1], g[2], g[3], g[4], g[5], F);
+
+    it('interpolates the samples at the grid points', () => {
+        check(fc.tuple(samples(), geometry()), ([F, g]) => {
+            const intp = build(F, g as Geom);
+            for (let iz = 0; iz < ZB; ++iz) {
+                for (let iy = 0; iy < YB; ++iy) {
+                    for (let ix = 0; ix < XB; ++ix) {
+                        expectClose(
+                            intp.evaluate(g[0] + g[1] * ix, g[2] + g[3] * iy,
+                                g[4] + g[5] * iz),
+                            F[ix + XB * (iy + YB * iz)], 1e-10, 1e-11);
+                    }
+                }
+            }
+        }, 60);
+    }, 30000);
+
+    it('reproduces every trilinear field exactly, including the boundary cells', () => {
+        // For f = a + bx + cy + dz + e xy + f xz + g yz + h xyz every x-slope
+        // along a grid line is constant, so the Akima estimates FX, FY, FZ are
+        // exact; the mixed differences give FXY = e + h z, FXZ = f + h y,
+        // FYZ = g + h x and FXYZ = h exactly. The tricubic through those data
+        // is therefore the trilinear itself -- but only once the one-sided
+        // stencils at the max boundaries carry the sign correction described
+        // in getFXY (upstream issue #58 and its 3D analogue). This property
+        // fails on every boundary cell without that fix.
+        check(fc.tuple(fc.array(finite(-2, 2), { minLength: 8, maxLength: 8 }),
+            geometry(), scaled(0, 1), scaled(0, 1), scaled(0, 1)),
+            ([k, gg, u, v, w]) => {
+                const g = gg as Geom;
+                const f = (x: number, y: number, z: number) =>
+                    k[0] + k[1] * x + k[2] * y + k[3] * z + k[4] * x * y
+                    + k[5] * x * z + k[6] * y * z + k[7] * x * y * z;
+                const F: number[] = [];
+                for (let iz = 0; iz < ZB; ++iz) {
+                    for (let iy = 0; iy < YB; ++iy) {
+                        for (let ix = 0; ix < XB; ++ix) {
+                            F.push(f(g[0] + g[1] * ix, g[2] + g[3] * iy,
+                                g[4] + g[5] * iz));
+                        }
+                    }
+                }
+                const intp = build(F, g);
+                const x = g[0] + u * g[1] * (XB - 1);
+                const y = g[2] + v * g[3] * (YB - 1);
+                const z = g[4] + w * g[5] * (ZB - 1);
+                // construct() divides the corner data by dx^2 dy^2 dz^2, so
+                // the absolute error is about |f| * eps / spacing^3; with
+                // |f| <= 30 and spacing >= 0.5 that is a few times 1e-13,
+                // accumulated over the 64 coefficient terms.
+                expectClose(intp.evaluate(x, y, z), f(x, y, z), 1e-8, 1e-10);
+                expectClose(intp.evaluate(1, 1, 1, x, y, z), k[7], 1e-7, 1e-9);
+            }, 60);
+    }, 30000);
+
+    it('clamps queries to the sample box', () => {
+        check(fc.tuple(samples(), geometry(), finite(-20, 20), finite(-20, 20),
+            finite(-20, 20)), ([F, gg, x, y, z]) => {
+            const g = gg as Geom;
+            const intp = build(F, g);
+            const cx = Math.min(Math.max(x, intp.getXMin()), intp.getXMax());
+            const cy = Math.min(Math.max(y, intp.getYMin()), intp.getYMax());
+            const cz = Math.min(Math.max(z, intp.getZMin()), intp.getZMax());
+            expect(intp.evaluate(x, y, z)).toBe(intp.evaluate(cx, cy, cz));
+            expect(intp.evaluate(1, 1, 1, x, y, z))
+                .toBe(intp.evaluate(1, 1, 1, cx, cy, cz));
+        }, 60);
+    }, 30000);
+
+    it('is homogeneous of degree one in the sample values', () => {
+    // Integer samples (and an integer offset, or a power-of-two scale) keep
+    // every slope difference exact, so the branch that computeDerivative takes
+    // is unchanged by the transformation. With general doubles the Akima
+    // weights |s3-s2| and |s0-s1| are catastrophically cancelled differences
+    // and the convex weight they define is not stable under either map.
+        check(fc.tuple(latticeSamples(), signedPowerOfTwo(), geometry(),
+            scaled(0, 1), scaled(0, 1), scaled(0, 1)), ([F, kk, gg, u, v, w]) => {
+            const g = gg as Geom;
+            const x = g[0] + u * g[1] * (XB - 1);
+            const y = g[2] + v * g[3] * (YB - 1);
+            const z = g[4] + w * g[5] * (ZB - 1);
+            expectClose(build(F.map(t => kk * t), g).evaluate(x, y, z),
+                kk * build(F, g).evaluate(x, y, z), 1e-9, 1e-11);
+        }, 60);
+    }, 30000);
+
+    it('adds a constant to the result when a constant is added to the samples', () => {
+        check(fc.tuple(latticeSamples(), fc.integer({ min: -30, max: 30 }),
+            geometry(), scaled(0, 1), scaled(0, 1), scaled(0, 1)),
+            ([F, c, gg, u, v, w]) => {
+            const g = gg as Geom;
+            const x = g[0] + u * g[1] * (XB - 1);
+            const y = g[2] + v * g[3] * (YB - 1);
+            const z = g[4] + w * g[5] * (ZB - 1);
+            expectClose(build(F.map(t => t + c), g).evaluate(x, y, z),
+                build(F, g).evaluate(x, y, z) + c, 1e-9, 1e-11);
+        }, 60);
+    }, 30000);
+
+    it('agrees with IntpAkimaUniform2 when the samples do not depend on z', () => {
+        // The z-slopes vanish, so FZ, FXZ, FYZ and FXYZ are all zero and each
+        // z-slice reduces to the 2D scheme on the same data.
+        check(fc.tuple(fc.array(finite(-4, 4), { minLength: XB * YB, maxLength: XB * YB }),
+            geometry(), scaled(0, 1), scaled(0, 1), scaled(0, 1)),
+            ([slice, gg, u, v, w]) => {
+                const g = gg as Geom;
+                const F: number[] = [];
+                for (let iz = 0; iz < ZB; ++iz) { F.push(...slice); }
+                const a = build(F, g);
+                const b = new IntpAkimaUniform2(XB, YB, g[0], g[1], g[2], g[3], slice);
+                const x = g[0] + u * g[1] * (XB - 1);
+                const y = g[2] + v * g[3] * (YB - 1);
+                const z = g[4] + w * g[5] * (ZB - 1);
+                // The 3D construct() runs the same recursion with the z terms
+                // multiplied by zero, so the two agree to a few ulps of the
+                // O(1/spacing^2) intermediates.
+                expectClose(a.evaluate(x, y, z), b.evaluate(x, y), 1e-9, 1e-11);
+                expectClose(a.evaluate(1, 1, 0, x, y, z),
+                    b.evaluate(1, 1, x, y), 1e-8, 1e-10);
+                expectClose(a.evaluate(0, 0, 1, x, y, z), 0, 1e-9, 0);
+            }, 60);
+    }, 30000);
+
+    it('returns zero for derivative orders above three', () => {
+        check(fc.tuple(samples(), geometry(), fc.integer({ min: 4, max: 20 })),
+            ([F, gg, big]) => {
+                const g = gg as Geom;
+                const intp = build(F, g);
+                expect(intp.evaluate(big, 0, 0, g[0], g[2], g[4])).toBe(0);
+                expect(intp.evaluate(0, big, 0, g[0], g[2], g[4])).toBe(0);
+                expect(intp.evaluate(0, 0, big, g[0], g[2], g[4])).toBe(0);
+            }, 60);
+    }, 30000);
 });

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { IntpBicubic2 } from '../src/IntpBicubic2.js';
+import { check, expectClose, fc, finite, positive, scaled, wellScaled } from './helpers/arbitraries.js';
 
 // Build the row-major sample array F[c + xBound*r] = f(xMin + c*dx, yMin + r*dy).
 function makeSamples(xBound: number, yBound: number, xMin: number, dx: number,
@@ -251,5 +252,190 @@ describe('IntpBicubic2', () => {
             expect(wide.evaluate(1, 1, 4 * c, 4 * r))
                 .toBeCloseTo(unit.evaluate(1, 1, c, r) / 16, 11);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V28): property-based cross-checks against IntpBicubic2.h.
+// ---------------------------------------------------------------------------
+describe('IntpBicubic2 verification', () => {
+    const XB = 7, YB = 6;
+    const geometry = () => fc.tuple(finite(-3, 3), positive(3, 0.25),
+        finite(-3, 3), positive(3, 0.25));
+    type Geom = [number, number, number, number];
+    const samples = () => fc.array(wellScaled(-6, 6),
+        { minLength: XB * YB, maxLength: XB * YB });
+    const build = (F: number[], g: Geom, catmullRom: boolean) =>
+        new IntpBicubic2(XB, YB, g[0], g[1], g[2], g[3], F, catmullRom);
+
+    // A cell index and offset that keep the 4x4 stencil strictly inside the
+    // grid, so no index clamping happens and the scheme is the plain uniform
+    // one. Requires 1 <= ix <= xBound - 3.
+    const interiorParam = (bound: number) =>
+        fc.tuple(fc.integer({ min: 1, max: bound - 3 }), scaled(0.02, 0.98));
+
+    it('reproduces biquadratics with the Catmull-Rom blend in the interior', () => {
+        // The Catmull-Rom tangent at a knot is the centered difference, which
+        // is exact for polynomials of degree <= 2 but not for cubics, so the
+        // scheme has quadratic precision in each variable.
+        check(fc.tuple(fc.array(wellScaled(-2, 2), { minLength: 9, maxLength: 9 }),
+            geometry(), interiorParam(XB), interiorParam(YB)),
+            ([a, gg, [ix, u], [iy, v]]) => {
+                const g = gg as Geom;
+                const f = (x: number, y: number) => {
+                    let s = 0;
+                    for (let i = 0; i <= 2; ++i) {
+                        for (let j = 0; j <= 2; ++j) {
+                            s += a[3 * i + j] * Math.pow(x, i) * Math.pow(y, j);
+                        }
+                    }
+                    return s;
+                };
+                const F: number[] = [];
+                for (let r = 0; r < YB; ++r) {
+                    for (let c = 0; c < XB; ++c) {
+                        F.push(f(g[0] + g[1] * c, g[2] + g[3] * r));
+                    }
+                }
+                const x = g[0] + g[1] * (ix + u);
+                const y = g[2] + g[3] * (iy + v);
+                // The samples reach |f| ~ 2*(1 + 21 + 441) ~ 900 near the far
+                // corner, and the blend recombines 16 of them, so a few
+                // hundred ulps of that scale is the achievable accuracy.
+                expectClose(build(F, g, true).evaluate(x, y), f(x, y), 1e-9, 1e-11);
+            });
+    });
+
+    it('reproduces linear data with the B-spline blend in the interior', () => {
+        // The uniform cubic B-spline with the samples used directly as control
+        // points is the Schoenberg operator, which has linear precision.
+        check(fc.tuple(fc.array(wellScaled(-3, 3), { minLength: 3, maxLength: 3 }),
+            geometry(), interiorParam(XB), interiorParam(YB)),
+            ([k, gg, [ix, u], [iy, v]]) => {
+                const g = gg as Geom;
+                const f = (x: number, y: number) => k[0] + k[1] * x + k[2] * y;
+                const F: number[] = [];
+                for (let r = 0; r < YB; ++r) {
+                    for (let c = 0; c < XB; ++c) {
+                        F.push(f(g[0] + g[1] * c, g[2] + g[3] * r));
+                    }
+                }
+                const x = g[0] + g[1] * (ix + u);
+                const y = g[2] + g[3] * (iy + v);
+                expectClose(build(F, g, false).evaluate(x, y), f(x, y), 1e-10, 1e-12);
+            });
+    });
+
+    it('interpolates the samples at interior grid points (Catmull-Rom only)', () => {
+        // At an integer parameter the Catmull-Rom blend column is (0,1,0,0),
+        // so the stencil collapses onto the sample itself. The B-spline blend
+        // column is (1,4,1,0)/6 and only approximates.
+        check(fc.tuple(samples(), geometry()), ([F, gg]) => {
+            const g = gg as Geom;
+            const cr = build(F, g, true);
+            for (let iy = 1; iy < YB - 1; ++iy) {
+                for (let ix = 1; ix < XB - 1; ++ix) {
+                    expectClose(cr.evaluate(g[0] + g[1] * ix, g[2] + g[3] * iy),
+                        F[ix + XB * iy], 1e-10, 1e-12);
+                }
+            }
+        });
+    });
+
+    it('reproduces constants everywhere with both blends', () => {
+        // Every blend column but the first sums to zero and the first sums to
+        // one, so (M*U) is a partition of unity for any parameter, including
+        // the out-of-range parameters produced outside the domain.
+        check(fc.tuple(wellScaled(-5, 5), geometry(), fc.boolean(),
+            scaled(-1.5, 2.5), scaled(-1.5, 2.5)), ([c, gg, cm, s, t]) => {
+            const g = gg as Geom;
+            const F = new Array<number>(XB * YB).fill(c);
+            const x = g[0] + s * g[1] * (XB - 1);
+            const y = g[2] + t * g[3] * (YB - 1);
+            // Upstream clamps the cell index but not the cell parameter, so
+            // outside the domain the monomials (1, p, p^2, p^3) grow without
+            // bound and the partition-of-unity cancellation is only as good as
+            // the largest weight. The tolerance is therefore |c| times the
+            // largest product of monomials times a few hundred ulps.
+            const pu = Math.abs((x - g[0]) / g[1]) + 1;
+            const pv = Math.abs((y - g[2]) / g[3]) + 1;
+            const tol = 1e-12 + Math.abs(c) * 1e-13 * pu * pu * pu * pv * pv * pv;
+            expectClose(build(F, g, cm).evaluate(x, y), c, tol, 0);
+        });
+    });
+
+    it('reports derivatives consistently with central differences', () => {
+        const h = 1e-5;
+        check(fc.tuple(samples(), geometry(), fc.boolean(),
+            interiorParam(XB), interiorParam(YB)),
+            ([F, gg, cm, [ix, u], [iy, v]]) => {
+                const g = gg as Geom;
+                const intp = build(F, gg as Geom, cm);
+                const x = g[0] + g[1] * (ix + u);
+                const y = g[2] + g[3] * (iy + v);
+                const dfx = (intp.evaluate(x + h, y) - intp.evaluate(x - h, y)) / (2 * h);
+                const dfy = (intp.evaluate(x, y + h) - intp.evaluate(x, y - h)) / (2 * h);
+                // The offsets stay inside the same cell (u is at least 0.02
+                // cell widths from a boundary and the spacing is at least
+                // 0.25). Truncation is h^2/6 * P''' with P''' up to ~1e3;
+                // roundoff is O(eps * |P| / h) ~ 1e-11.
+                expectClose(intp.evaluate(1, 0, x, y), dfx, 1e-4, 1e-5);
+                expectClose(intp.evaluate(0, 1, x, y), dfy, 1e-4, 1e-5);
+            });
+    });
+
+    it('is affine in the sample values', () => {
+        // Unlike the Akima schemes, the blend weights do not depend on the
+        // data at all, so the interpolant is exactly linear in the samples.
+        check(fc.tuple(samples(), samples(), wellScaled(-4, 4), geometry(),
+            fc.boolean(), scaled(0, 1), scaled(0, 1)),
+            ([P, Q, k, gg, cm, u, v]) => {
+                const g = gg as Geom;
+                const x = g[0] + u * g[1] * (XB - 1);
+                const y = g[2] + v * g[3] * (YB - 1);
+                const lhs = build(P.map((p, i) => p + k * Q[i]), g, cm).evaluate(x, y);
+                const rhs = build(P, g, cm).evaluate(x, y)
+                    + k * build(Q, g, cm).evaluate(x, y);
+                expectClose(lhs, rhs, 1e-10, 1e-12);
+            });
+    });
+
+    it('is equivariant under translation of the grid origin', () => {
+        check(fc.tuple(samples(), geometry(), finite(-6, 6), finite(-6, 6),
+            fc.boolean(), scaled(0, 1), scaled(0, 1)),
+            ([F, gg, tx, ty, cm, u, v]) => {
+                const g = gg as Geom;
+                const a = build(F, g, cm);
+                const b = build(F, [g[0] + tx, g[1], g[2] + ty, g[3]], cm);
+                const x = g[0] + u * g[1] * (XB - 1);
+                const y = g[2] + v * g[3] * (YB - 1);
+                // (x + tx) - (xMin + tx) reassociates the shift, so the cell
+                // parameter differs by a few ulps; the blend then amplifies
+                // that by the derivative of the interpolant.
+                expectClose(a.evaluate(x, y), b.evaluate(x + tx, y + ty),
+                    1e-9, 1e-10);
+            });
+    });
+
+    it('returns zero for derivative orders above three', () => {
+        check(fc.tuple(samples(), geometry(), fc.boolean(),
+            fc.integer({ min: 4, max: 20 }), scaled(0, 1), scaled(0, 1)),
+            ([F, gg, cm, big, u, v]) => {
+                const g = gg as Geom;
+                const intp = build(F, g, cm);
+                const x = g[0] + u * g[1] * (XB - 1);
+                const y = g[2] + v * g[3] * (YB - 1);
+                expect(intp.evaluate(big, 0, x, y)).toBe(0);
+                expect(intp.evaluate(0, big, x, y)).toBe(0);
+            });
+    });
+
+    it('rejects grids smaller than 3x3 and non-positive spacings', () => {
+        const F = new Array<number>(9).fill(1);
+        expect(() => new IntpBicubic2(2, 3, 0, 1, 0, 1, F, true)).toThrow();
+        expect(() => new IntpBicubic2(3, 2, 0, 1, 0, 1, F, true)).toThrow();
+        expect(() => new IntpBicubic2(3, 3, 0, 0, 0, 1, F, true)).toThrow();
+        expect(() => new IntpBicubic2(3, 3, 0, 1, 0, -1, F, false)).toThrow();
+        expect(() => new IntpBicubic2(3, 3, 0, 1, 0, 1, [1, 2, 3], true)).toThrow();
     });
 });

@@ -475,6 +475,23 @@ export class IntpAkimaUniform3 {
         }
     }
 
+    // Estimate FXY = d^2F/dxdy. The interior uses the centered mixed
+    // difference; the boundary rows and columns use one-sided stencils.
+    //
+    // Upstream bug (fixed here): upstream evaluates the one-sided stencils at
+    // the high-index boundary on the reversed index sequence
+    // (ix0, ix1, ix2) = (xBound-1, xBound-2, xBound-3) while keeping the
+    // coefficients of the *forward* difference (-3, 4, -1)/(2h). That computes
+    // the derivative with respect to the reversed coordinate, i.e. -dF/dx, so
+    // every FXY entry in the last column, in the last row, and at the two
+    // corners where exactly one direction is reversed comes out negated. The
+    // effect is not subtle: with upstream's signs the interpolator does not
+    // even reproduce a bilinear function in the last row and column of cells
+    // (for F = x*y on a unit lattice it recovers FXY = -1 there). The port
+    // negates those four groups; the two corners where both directions are
+    // reversed already have the two sign errors cancel and are unchanged.
+    // The same slip is in getFXZ, getFYZ and getFXYZ below, and in
+    // IntpAkimaUniform2::GetFXY.
     private getFXY(F: Array3<number>, FXY: Array3<number>): void {
         const xBoundM1 = this.mXBound - 1;
         const yBoundM1 = this.mYBound - 1;
@@ -495,7 +512,7 @@ export class IntpAkimaUniform3 {
                 - 4 * F.get(1, 2, iz)
                 + F.get(2, 2, iz)));
 
-            FXY.set(xBoundM1, 0, iz, 0.25 * invDXDY * (
+            FXY.set(xBoundM1, 0, iz, -0.25 * invDXDY * (
                 9 * F.get(ix0, 0, iz)
                 - 12 * F.get(ix1, 0, iz)
                 + 3 * F.get(ix2, 0, iz)
@@ -506,7 +523,7 @@ export class IntpAkimaUniform3 {
                 - 4 * F.get(ix1, 2, iz)
                 + F.get(ix2, 2, iz)));
 
-            FXY.set(0, yBoundM1, iz, 0.25 * invDXDY * (
+            FXY.set(0, yBoundM1, iz, -0.25 * invDXDY * (
                 9 * F.get(0, iy0, iz)
                 - 12 * F.get(1, iy0, iz)
                 + 3 * F.get(2, iy0, iz)
@@ -535,7 +552,7 @@ export class IntpAkimaUniform3 {
                     4 * (F.get(ix - 1, 1, iz) - F.get(ix + 1, 1, iz)) +
                     (F.get(ix - 1, 2, iz) - F.get(ix + 1, 2, iz))));
 
-                FXY.set(ix, yBoundM1, iz, 0.25 * invDXDY * (
+                FXY.set(ix, yBoundM1, iz, -0.25 * invDXDY * (
                     3 * (F.get(ix - 1, iy0, iz) - F.get(ix + 1, iy0, iz))
                     - 4 * (F.get(ix - 1, iy1, iz) - F.get(ix + 1, iy1, iz)) +
                     (F.get(ix - 1, iy2, iz) - F.get(ix + 1, iy2, iz))));
@@ -548,7 +565,7 @@ export class IntpAkimaUniform3 {
                     4 * (F.get(1, iy - 1, iz) - F.get(1, iy + 1, iz)) +
                     (F.get(2, iy - 1, iz) - F.get(2, iy + 1, iz))));
 
-                FXY.set(xBoundM1, iy, iz, 0.25 * invDXDY * (
+                FXY.set(xBoundM1, iy, iz, -0.25 * invDXDY * (
                     3 * (F.get(ix0, iy - 1, iz) - F.get(ix0, iy + 1, iz))
                     - 4 * (F.get(ix1, iy - 1, iz) - F.get(ix1, iy + 1, iz)) +
                     (F.get(ix2, iy - 1, iz) - F.get(ix2, iy + 1, iz))));
@@ -565,6 +582,9 @@ export class IntpAkimaUniform3 {
         }
     }
 
+    // As getFXY, with the (x and z) pair; the one-sided stencils at
+    // the high-index boundary carry the sign correction described
+    // there.
     private getFXZ(F: Array3<number>, FXZ: Array3<number>): void {
         const xBoundM1 = this.mXBound - 1;
         const zBoundM1 = this.mZBound - 1;
@@ -585,7 +605,7 @@ export class IntpAkimaUniform3 {
                 - 4 * F.get(1, iy, 2)
                 + F.get(2, iy, 2)));
 
-            FXZ.set(xBoundM1, iy, 0, 0.25 * invDXDZ * (
+            FXZ.set(xBoundM1, iy, 0, -0.25 * invDXDZ * (
                 9 * F.get(ix0, iy, 0)
                 - 12 * F.get(ix1, iy, 0)
                 + 3 * F.get(ix2, iy, 0)
@@ -596,7 +616,7 @@ export class IntpAkimaUniform3 {
                 - 4 * F.get(ix1, iy, 2)
                 + F.get(ix2, iy, 2)));
 
-            FXZ.set(0, iy, zBoundM1, 0.25 * invDXDZ * (
+            FXZ.set(0, iy, zBoundM1, -0.25 * invDXDZ * (
                 9 * F.get(0, iy, iz0)
                 - 12 * F.get(1, iy, iz0)
                 + 3 * F.get(2, iy, iz0)
@@ -625,7 +645,7 @@ export class IntpAkimaUniform3 {
                     4 * (F.get(ix - 1, iy, 1) - F.get(ix + 1, iy, 1)) +
                     (F.get(ix - 1, iy, 2) - F.get(ix + 1, iy, 2))));
 
-                FXZ.set(ix, iy, zBoundM1, 0.25 * invDXDZ * (
+                FXZ.set(ix, iy, zBoundM1, -0.25 * invDXDZ * (
                     3 * (F.get(ix - 1, iy, iz0) - F.get(ix + 1, iy, iz0))
                     - 4 * (F.get(ix - 1, iy, iz1) - F.get(ix + 1, iy, iz1)) +
                     (F.get(ix - 1, iy, iz2) - F.get(ix + 1, iy, iz2))));
@@ -638,7 +658,7 @@ export class IntpAkimaUniform3 {
                     4 * (F.get(1, iy, iz - 1) - F.get(1, iy, iz + 1)) +
                     (F.get(2, iy, iz - 1) - F.get(2, iy, iz + 1))));
 
-                FXZ.set(xBoundM1, iy, iz, 0.25 * invDXDZ * (
+                FXZ.set(xBoundM1, iy, iz, -0.25 * invDXDZ * (
                     3 * (F.get(ix0, iy, iz - 1) - F.get(ix0, iy, iz + 1))
                     - 4 * (F.get(ix1, iy, iz - 1) - F.get(ix1, iy, iz + 1)) +
                     (F.get(ix2, iy, iz - 1) - F.get(ix2, iy, iz + 1))));
@@ -655,6 +675,9 @@ export class IntpAkimaUniform3 {
         }
     }
 
+    // As getFXY, with the (y and z) pair; the one-sided stencils at
+    // the high-index boundary carry the sign correction described
+    // there.
     private getFYZ(F: Array3<number>, FYZ: Array3<number>): void {
         const yBoundM1 = this.mYBound - 1;
         const zBoundM1 = this.mZBound - 1;
@@ -675,7 +698,7 @@ export class IntpAkimaUniform3 {
                 - 4 * F.get(ix, 1, 2)
                 + F.get(ix, 2, 2)));
 
-            FYZ.set(ix, yBoundM1, 0, 0.25 * invDYDZ * (
+            FYZ.set(ix, yBoundM1, 0, -0.25 * invDYDZ * (
                 9 * F.get(ix, iy0, 0)
                 - 12 * F.get(ix, iy1, 0)
                 + 3 * F.get(ix, iy2, 0)
@@ -686,7 +709,7 @@ export class IntpAkimaUniform3 {
                 - 4 * F.get(ix, iy1, 2)
                 + F.get(ix, iy2, 2)));
 
-            FYZ.set(ix, 0, zBoundM1, 0.25 * invDYDZ * (
+            FYZ.set(ix, 0, zBoundM1, -0.25 * invDYDZ * (
                 9 * F.get(ix, 0, iz0)
                 - 12 * F.get(ix, 1, iz0)
                 + 3 * F.get(ix, 2, iz0)
@@ -715,7 +738,7 @@ export class IntpAkimaUniform3 {
                     4 * (F.get(ix, iy - 1, 1) - F.get(ix, iy + 1, 1)) +
                     (F.get(ix, iy - 1, 2) - F.get(ix, iy + 1, 2))));
 
-                FYZ.set(ix, iy, zBoundM1, 0.25 * invDYDZ * (
+                FYZ.set(ix, iy, zBoundM1, -0.25 * invDYDZ * (
                     3 * (F.get(ix, iy - 1, iz0) - F.get(ix, iy + 1, iz0))
                     - 4 * (F.get(ix, iy - 1, iz1) - F.get(ix, iy + 1, iz1)) +
                     (F.get(ix, iy - 1, iz2) - F.get(ix, iy + 1, iz2))));
@@ -728,7 +751,7 @@ export class IntpAkimaUniform3 {
                     4 * (F.get(ix, 1, iz - 1) - F.get(ix, 1, iz + 1)) +
                     (F.get(ix, 2, iz - 1) - F.get(ix, 2, iz + 1))));
 
-                FYZ.set(ix, yBoundM1, iz, 0.25 * invDYDZ * (
+                FYZ.set(ix, yBoundM1, iz, -0.25 * invDYDZ * (
                     3 * (F.get(ix, iy0, iz - 1) - F.get(ix, iy0, iz + 1))
                     - 4 * (F.get(ix, iy1, iz - 1) - F.get(ix, iy1, iz + 1)) +
                     (F.get(ix, iy2, iz - 1) - F.get(ix, iy2, iz + 1))));
@@ -745,6 +768,13 @@ export class IntpAkimaUniform3 {
         }
     }
 
+    // Estimate FXYZ = d^3F/dxdydz by convolving the centered mask CDer in
+    // each interior direction and the one-sided mask ODer in each boundary
+    // direction. Upstream reflects the sample index (bound-1 - i) at the
+    // high-index boundary while reusing the forward mask, which negates the
+    // derivative in that direction; the port therefore subtracts the
+    // contribution whenever an odd number of directions is reflected. See the
+    // note in getFXY.
     private getFXYZ(F: Array3<number>, FXYZ: Array3<number>): void {
         const xBoundM1 = this.mXBound - 1;
         const yBoundM1 = this.mYBound - 1;
@@ -775,19 +805,19 @@ export class IntpAkimaUniform3 {
                     FXYZ.set(0, 0, 0,
                         FXYZ.get(0, 0, 0) + mask * F.get(ix, iy, iz));
                     FXYZ.set(xBoundM1, 0, 0,
-                        FXYZ.get(xBoundM1, 0, 0) + mask * F.get(xBoundM1 - ix, iy, iz));
+                        FXYZ.get(xBoundM1, 0, 0) - mask * F.get(xBoundM1 - ix, iy, iz));
                     FXYZ.set(0, yBoundM1, 0,
-                        FXYZ.get(0, yBoundM1, 0) + mask * F.get(ix, yBoundM1 - iy, iz));
+                        FXYZ.get(0, yBoundM1, 0) - mask * F.get(ix, yBoundM1 - iy, iz));
                     FXYZ.set(xBoundM1, yBoundM1, 0,
                         FXYZ.get(xBoundM1, yBoundM1, 0) + mask * F.get(xBoundM1 - ix, yBoundM1 - iy, iz));
                     FXYZ.set(0, 0, zBoundM1,
-                        FXYZ.get(0, 0, zBoundM1) + mask * F.get(ix, iy, zBoundM1 - iz));
+                        FXYZ.get(0, 0, zBoundM1) - mask * F.get(ix, iy, zBoundM1 - iz));
                     FXYZ.set(xBoundM1, 0, zBoundM1,
                         FXYZ.get(xBoundM1, 0, zBoundM1) + mask * F.get(xBoundM1 - ix, iy, zBoundM1 - iz));
                     FXYZ.set(0, yBoundM1, zBoundM1,
                         FXYZ.get(0, yBoundM1, zBoundM1) + mask * F.get(ix, yBoundM1 - iy, zBoundM1 - iz));
                     FXYZ.set(xBoundM1, yBoundM1, zBoundM1,
-                        FXYZ.get(xBoundM1, yBoundM1, zBoundM1) + mask * F.get(xBoundM1 - ix, yBoundM1 - iy, zBoundM1 - iz));
+                        FXYZ.get(xBoundM1, yBoundM1, zBoundM1) - mask * F.get(xBoundM1 - ix, yBoundM1 - iy, zBoundM1 - iz));
                 }
             }
         }
@@ -805,9 +835,9 @@ export class IntpAkimaUniform3 {
                         FXYZ.set(ix0, 0, 0,
                             FXYZ.get(ix0, 0, 0) + mask * F.get(ix0 + ix - 1, iy, iz));
                         FXYZ.set(ix0, yBoundM1, 0,
-                            FXYZ.get(ix0, yBoundM1, 0) + mask * F.get(ix0 + ix - 1, yBoundM1 - iy, iz));
+                            FXYZ.get(ix0, yBoundM1, 0) - mask * F.get(ix0 + ix - 1, yBoundM1 - iy, iz));
                         FXYZ.set(ix0, 0, zBoundM1,
-                            FXYZ.get(ix0, 0, zBoundM1) + mask * F.get(ix0 + ix - 1, iy, zBoundM1 - iz));
+                            FXYZ.get(ix0, 0, zBoundM1) - mask * F.get(ix0 + ix - 1, iy, zBoundM1 - iz));
                         FXYZ.set(ix0, yBoundM1, zBoundM1,
                             FXYZ.get(ix0, yBoundM1, zBoundM1) + mask * F.get(ix0 + ix - 1, yBoundM1 - iy, zBoundM1 - iz));
                     }
@@ -828,9 +858,9 @@ export class IntpAkimaUniform3 {
                         FXYZ.set(0, iy0, 0,
                             FXYZ.get(0, iy0, 0) + mask * F.get(ix, iy0 + iy - 1, iz));
                         FXYZ.set(xBoundM1, iy0, 0,
-                            FXYZ.get(xBoundM1, iy0, 0) + mask * F.get(xBoundM1 - ix, iy0 + iy - 1, iz));
+                            FXYZ.get(xBoundM1, iy0, 0) - mask * F.get(xBoundM1 - ix, iy0 + iy - 1, iz));
                         FXYZ.set(0, iy0, zBoundM1,
-                            FXYZ.get(0, iy0, zBoundM1) + mask * F.get(ix, iy0 + iy - 1, zBoundM1 - iz));
+                            FXYZ.get(0, iy0, zBoundM1) - mask * F.get(ix, iy0 + iy - 1, zBoundM1 - iz));
                         FXYZ.set(xBoundM1, iy0, zBoundM1,
                             FXYZ.get(xBoundM1, iy0, zBoundM1) + mask * F.get(xBoundM1 - ix, iy0 + iy - 1, zBoundM1 - iz));
                     }
@@ -851,9 +881,9 @@ export class IntpAkimaUniform3 {
                         FXYZ.set(0, 0, iz0,
                             FXYZ.get(0, 0, iz0) + mask * F.get(ix, iy, iz0 + iz - 1));
                         FXYZ.set(xBoundM1, 0, iz0,
-                            FXYZ.get(xBoundM1, 0, iz0) + mask * F.get(xBoundM1 - ix, iy, iz0 + iz - 1));
+                            FXYZ.get(xBoundM1, 0, iz0) - mask * F.get(xBoundM1 - ix, iy, iz0 + iz - 1));
                         FXYZ.set(0, yBoundM1, iz0,
-                            FXYZ.get(0, yBoundM1, iz0) + mask * F.get(ix, yBoundM1 - iy, iz0 + iz - 1));
+                            FXYZ.get(0, yBoundM1, iz0) - mask * F.get(ix, yBoundM1 - iy, iz0 + iz - 1));
                         FXYZ.set(xBoundM1, yBoundM1, iz0,
                             FXYZ.get(xBoundM1, yBoundM1, iz0) + mask * F.get(xBoundM1 - ix, yBoundM1 - iy, iz0 + iz - 1));
                     }
@@ -873,7 +903,7 @@ export class IntpAkimaUniform3 {
                             FXYZ.set(ix0, iy0, 0,
                                 FXYZ.get(ix0, iy0, 0) + mask * F.get(ix0 + ix - 1, iy0 + iy - 1, iz));
                             FXYZ.set(ix0, iy0, zBoundM1,
-                                FXYZ.get(ix0, iy0, zBoundM1) + mask * F.get(ix0 + ix - 1, iy0 + iy - 1, zBoundM1 - iz));
+                                FXYZ.get(ix0, iy0, zBoundM1) - mask * F.get(ix0 + ix - 1, iy0 + iy - 1, zBoundM1 - iz));
                         }
                     }
                 }
@@ -892,7 +922,7 @@ export class IntpAkimaUniform3 {
                             FXYZ.set(ix0, 0, iz0,
                                 FXYZ.get(ix0, 0, iz0) + mask * F.get(ix0 + ix - 1, iy, iz0 + iz - 1));
                             FXYZ.set(ix0, yBoundM1, iz0,
-                                FXYZ.get(ix0, yBoundM1, iz0) + mask * F.get(ix0 + ix - 1, yBoundM1 - iy, iz0 + iz - 1));
+                                FXYZ.get(ix0, yBoundM1, iz0) - mask * F.get(ix0 + ix - 1, yBoundM1 - iy, iz0 + iz - 1));
                         }
                     }
                 }
@@ -911,7 +941,7 @@ export class IntpAkimaUniform3 {
                             FXYZ.set(0, iy0, iz0,
                                 FXYZ.get(0, iy0, iz0) + mask * F.get(ix, iy0 + iy - 1, iz0 + iz - 1));
                             FXYZ.set(xBoundM1, iy0, iz0,
-                                FXYZ.get(xBoundM1, iy0, iz0) + mask * F.get(xBoundM1 - ix, iy0 + iy - 1, iz0 + iz - 1));
+                                FXYZ.get(xBoundM1, iy0, iz0) - mask * F.get(xBoundM1 - ix, iy0 + iy - 1, iz0 + iz - 1));
                         }
                     }
                 }

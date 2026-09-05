@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { HermiteBicubic, HermiteBicubicSample } from '../src/HermiteBicubic.js';
+import { HermiteCubic, HermiteCubicSample } from '../src/HermiteCubic.js';
+import { check, expectClose, fc, finite, scaled } from './helpers/arbitraries.js';
 
 // Polynomial helpers: value and derivative of sum_i c[i] x^i.
 function polyval(c: readonly number[], x: number): number {
@@ -132,5 +134,139 @@ describe('HermiteBicubic', () => {
         expect(h.evaluate(4, 0, 0.5, 0.5)).toBe(0);
         expect(h.evaluate(0, 4, 0.5, 0.5)).toBe(0);
         expect(h.evaluate(5, 5, 0.25, 0.75)).toBe(0);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V28): property-based cross-checks against HermiteBicubic.h.
+// ---------------------------------------------------------------------------
+describe('HermiteBicubic verification', () => {
+    // A random polynomial of degree <= 3 in each variable, with exact
+    // derivatives. deriv(a, k) differentiates the 1D coefficient list k times.
+    const deriv = (a: number[], k: number): number[] => {
+        let c = a.slice();
+        for (let n = 0; n < k; ++n) {
+            c = c.slice(1).map((ci, i) => (i + 1) * ci);
+        }
+        return c.length > 0 ? c : [0];
+    };
+    const horner = (c: number[], t: number): number =>
+        c.reduceRight((acc, ci) => acc * t + ci, 0);
+
+    // p(x,y) = sum_{i,j} a[i][j] x^i y^j; d(p)/dx^m dy^n at (x,y).
+    const polyArb = (deg: number) =>
+        fc.array(finite(-2, 2),
+            { minLength: (deg + 1) * (deg + 1), maxLength: (deg + 1) * (deg + 1) });
+    const evalPoly = (a: number[], deg: number, mx: number, my: number,
+        x: number, y: number): number => {
+        let sum = 0;
+        for (let i = 0; i <= deg; ++i) {
+            // Row i of the coefficient table as a polynomial in y.
+            const row: number[] = [];
+            for (let j = 0; j <= deg; ++j) { row.push(a[i * (deg + 1) + j]); }
+            sum += horner(deriv(row, my), y)
+                * horner(deriv(unit(i, deg), mx), x);
+        }
+        return sum;
+    };
+    // The 1D monomial x^i as a coefficient list of length deg+1.
+    const unit = (i: number, deg: number): number[] => {
+        const c = new Array<number>(deg + 1).fill(0);
+        c[i] = 1;
+        return c;
+    };
+
+    const sampleAt = (a: number[], bx: number, by: number): HermiteBicubicSample =>
+        new HermiteBicubicSample(
+            evalPoly(a, 3, 0, 0, bx, by),
+            evalPoly(a, 3, 1, 0, bx, by),
+            evalPoly(a, 3, 0, 1, bx, by),
+            evalPoly(a, 3, 1, 1, bx, by));
+
+    const blocksOf = (a: number[]) => [
+        [sampleAt(a, 0, 0), sampleAt(a, 0, 1)],
+        [sampleAt(a, 1, 0), sampleAt(a, 1, 1)]
+    ] as const;
+
+    it('reproduces every bicubic from exact samples of f, fx, fy, fxy', () => {
+        check(fc.tuple(polyArb(3), scaled(0, 1), scaled(0, 1)), ([a, x, y]) => {
+            const h = new HermiteBicubic(blocksOf(a));
+            // generateSingle mixes the data with weights up to 9, so the
+            // reconstruction keeps roughly 13 significant digits for
+            // coefficients bounded by 2.
+            expectClose(h.evaluate(0, 0, x, y), evalPoly(a, 3, 0, 0, x, y),
+                1e-11, 1e-11);
+            expectClose(h.evaluate(1, 0, x, y), evalPoly(a, 3, 1, 0, x, y),
+                1e-10, 1e-10);
+            expectClose(h.evaluate(0, 1, x, y), evalPoly(a, 3, 0, 1, x, y),
+                1e-10, 1e-10);
+            expectClose(h.evaluate(1, 1, x, y), evalPoly(a, 3, 1, 1, x, y),
+                1e-10, 1e-10);
+            expectClose(h.evaluate(2, 0, x, y), evalPoly(a, 3, 2, 0, x, y),
+                1e-9, 1e-9);
+            expectClose(h.evaluate(0, 2, x, y), evalPoly(a, 3, 0, 2, x, y),
+                1e-9, 1e-9);
+        });
+    });
+
+    it('interpolates the prescribed data at all four corners', () => {
+        check(fc.array(finite(-4, 4), { minLength: 16, maxLength: 16 }), s => {
+            const mk = (k: number) =>
+                new HermiteBicubicSample(s[4 * k], s[4 * k + 1], s[4 * k + 2], s[4 * k + 3]);
+            const blocks = [[mk(0), mk(1)], [mk(2), mk(3)]] as const;
+            const h = new HermiteBicubic(blocks);
+            for (let b0 = 0; b0 <= 1; ++b0) {
+                for (let b1 = 0; b1 <= 1; ++b1) {
+                    const b = blocks[b0][b1];
+                    expectClose(h.evaluate(0, 0, b0, b1), b.f, 1e-12, 1e-12);
+                    expectClose(h.evaluate(1, 0, b0, b1), b.fx, 1e-11, 1e-11);
+                    expectClose(h.evaluate(0, 1, b0, b1), b.fy, 1e-11, 1e-11);
+                    expectClose(h.evaluate(1, 1, b0, b1), b.fxy, 1e-10, 1e-10);
+                }
+            }
+        });
+    });
+
+    it('agrees with the tensor product of two HermiteCubics on separable data', () => {
+        check(fc.tuple(fc.array(finite(-3, 3), { minLength: 4, maxLength: 4 }),
+            scaled(0, 1), scaled(0, 1)), ([s, x, y]) => {
+            // f(x,y) = g(x) h(y) with g, h Hermite cubics; then
+            // F = g h, Fx = g' h, Fy = g h', Fxy = g' h'.
+            const g = new HermiteCubic([new HermiteCubicSample(s[0], s[1]),
+                new HermiteCubicSample(s[2], s[3])]);
+            const hh = new HermiteCubic([new HermiteCubicSample(s[3], s[0]),
+                new HermiteCubicSample(s[1], s[2])]);
+            const mk = (bx: number, by: number) => new HermiteBicubicSample(
+                g.evaluate(0, bx) * hh.evaluate(0, by),
+                g.evaluate(1, bx) * hh.evaluate(0, by),
+                g.evaluate(0, bx) * hh.evaluate(1, by),
+                g.evaluate(1, bx) * hh.evaluate(1, by));
+            const b = new HermiteBicubic([[mk(0, 0), mk(0, 1)], [mk(1, 0), mk(1, 1)]]);
+            expectClose(b.evaluate(0, 0, x, y),
+                g.evaluate(0, x) * hh.evaluate(0, y), 1e-11, 1e-11);
+            expectClose(b.evaluate(1, 1, x, y),
+                g.evaluate(1, x) * hh.evaluate(1, y), 1e-10, 1e-10);
+        });
+    });
+
+    it('exposes c publicly for manual coefficient assignment (upstream API)', () => {
+        // Upstream declares 'c' public with the comment "Set the coefficients
+        // manually as desired"; this is the regression guard for that.
+        const h = new HermiteBicubic();
+        h.c[2][1] = 3;
+        // P(2,x) P(1,y) = (1-x) x^2 * (1-y)^2 y, so H(1/2,1/2) = 3/8 * 1/8.
+        expectClose(h.evaluate(0, 0, 0.5, 0.5), 3 * 0.125 * 0.125, 1e-15, 1e-15);
+    });
+
+    it('returns zero when either order exceeds the degree', () => {
+        check(fc.tuple(fc.integer({ min: 4, max: 20 }), fc.integer({ min: 0, max: 3 }),
+            scaled(0, 1), scaled(0, 1)), ([big, small, x, y]) => {
+            const h = new HermiteBicubic([
+                [new HermiteBicubicSample(1, 2, 3, 4), new HermiteBicubicSample(5, 6, 7, 8)],
+                [new HermiteBicubicSample(-1, -2, -3, -4), new HermiteBicubicSample(9, 8, 7, 6)]
+            ]);
+            expect(h.evaluate(big, small, x, y)).toBe(0);
+            expect(h.evaluate(small, big, x, y)).toBe(0);
+        });
     });
 });

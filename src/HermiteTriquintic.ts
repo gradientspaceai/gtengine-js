@@ -111,10 +111,10 @@ interface HermiteTriquinticCorner {
 }
 
 export class HermiteTriquintic {
-    // Set the coefficients manually as desired. For Hermite triquintic
+    // Set the coefficients manually as desired (public, as upstream). For Hermite triquintic
     // interpolation on a lattice, use generate(...). The lattice
     // interpolator is globally C2-continuous.
-    private c: number[][][];
+    c: number[][][];
 
     // The default polynomial is identically zero. When 'blocks' is provided,
     // generate the 6x6x6 coefficients c[][][] for a cell of the lattice with

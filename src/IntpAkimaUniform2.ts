@@ -319,6 +319,22 @@ export class IntpAkimaUniform2 {
         }
     }
 
+    // Estimate FXY = d^2F/dxdy. The interior uses the centered mixed
+    // difference; the boundary rows and columns use one-sided stencils.
+    //
+    // Upstream bug (fixed here): upstream evaluates the one-sided stencils at
+    // the high-index boundary on the reversed index sequence
+    // (ix0, ix1, ix2) = (xBound-1, xBound-2, xBound-3) while keeping the
+    // coefficients of the *forward* difference (-3, 4, -1)/(2h). That computes
+    // the derivative with respect to the reversed coordinate, i.e. -dF/dx, so
+    // every FXY entry in the last column, in the last row, and at the two
+    // corners where exactly one direction is reversed comes out negated. The
+    // effect is not subtle: with upstream's signs the interpolator does not
+    // even reproduce a bilinear function in the last row and column of cells
+    // (for F = x*y on a unit lattice it recovers FXY = -1 there). The port
+    // negates those four groups; the two corners where both directions are
+    // reversed already have the two sign errors cancel and are unchanged.
+    // The same slip is in IntpAkimaUniform3 GetFXY/GetFXZ/GetFYZ/GetFXYZ.
     private getFXY(F: Array2<number>, FXY: Array2<number>): void {
         const xBoundM1 = this.mXBound - 1;
         const yBoundM1 = this.mYBound - 1;
@@ -340,7 +356,7 @@ export class IntpAkimaUniform2 {
             - 4 * F.get(1, 2)
             + F.get(2, 2)));
 
-        FXY.set(xBoundM1, 0, 0.25 * invDXDY * (
+        FXY.set(xBoundM1, 0, -0.25 * invDXDY * (
             9 * F.get(ix0, 0)
             - 12 * F.get(ix1, 0)
             + 3 * F.get(ix2, 0)
@@ -351,7 +367,7 @@ export class IntpAkimaUniform2 {
             - 4 * F.get(ix1, 2)
             + F.get(ix2, 2)));
 
-        FXY.set(0, yBoundM1, 0.25 * invDXDY * (
+        FXY.set(0, yBoundM1, -0.25 * invDXDY * (
             9 * F.get(0, iy0)
             - 12 * F.get(1, iy0)
             + 3 * F.get(2, iy0)
@@ -380,7 +396,7 @@ export class IntpAkimaUniform2 {
                 - 4 * (F.get(ix - 1, 1) - F.get(ix + 1, 1))
                 + (F.get(ix - 1, 2) - F.get(ix + 1, 2))));
 
-            FXY.set(ix, yBoundM1, 0.25 * invDXDY * (
+            FXY.set(ix, yBoundM1, -0.25 * invDXDY * (
                 3 * (F.get(ix - 1, iy0) - F.get(ix + 1, iy0))
                 - 4 * (F.get(ix - 1, iy1) - F.get(ix + 1, iy1))
                 + (F.get(ix - 1, iy2) - F.get(ix + 1, iy2))));
@@ -393,7 +409,7 @@ export class IntpAkimaUniform2 {
                 - 4 * (F.get(1, iy - 1) - F.get(1, iy + 1))
                 + (F.get(2, iy - 1) - F.get(2, iy + 1))));
 
-            FXY.set(xBoundM1, iy, 0.25 * invDXDY * (
+            FXY.set(xBoundM1, iy, -0.25 * invDXDY * (
                 3 * (F.get(ix0, iy - 1) - F.get(ix0, iy + 1))
                 - 4 * (F.get(ix1, iy - 1) - F.get(ix1, iy + 1))
                 + (F.get(ix2, iy - 1) - F.get(ix2, iy + 1))));
