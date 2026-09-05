@@ -365,7 +365,8 @@ describe('ConvertCoordinates verification', () => {
                         1e-5);
 
                     // vToU undoes uToV on transformations too.
-                    expectMatrixClose(convert.vToU(B), A, 1e-6);
+                    // Same conditioning argument as above: cond(C) ~ 1e3-1e4.
+                    expectMatrixClose(convert.vToU(B), A, 1e-5);
                 }, 40);
         });
 
