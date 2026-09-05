@@ -3,6 +3,10 @@ import { IntpLinearNonuniform3 } from '../src/IntpLinearNonuniform3.js';
 import type { IntpLinearNonuniform3TetrahedronMesh } from '../src/IntpLinearNonuniform3.js';
 import { Vector } from '../src/Vector.js';
 import { computeBarycentrics3 } from '../src/Vector3.js';
+import { Delaunay3 } from '../src/Delaunay3.js';
+import { Delaunay3Mesh } from '../src/Delaunay3Mesh.js';
+import { check, expectClose, fc, latticeVector, seededRandom, unitVector }
+    from './helpers/arbitraries.js';
 
 // A minimal tetrahedron mesh adapter that satisfies the interface required
 // by IntpLinearNonuniform3. The tetrahedra are index quadruples into
@@ -28,7 +32,7 @@ class TestMesh implements IntpLinearNonuniform3TetrahedronMesh {
         return -1;
     }
 
-    getIndices(t: number): readonly number[] | null {
+    getTetrahedronIndices(t: number): readonly number[] | null {
         return 0 <= t && t < this.tetrahedra.length ? this.tetrahedra[t] : null;
     }
 
@@ -144,7 +148,7 @@ describe('IntpLinearNonuniform3', () => {
     it('reports a missing index quadruple as invalid', () => {
         const mesh = makeCubeMesh();
         const broken = Object.create(mesh) as TestMesh;
-        broken.getIndices = () => null;
+        broken.getTetrahedronIndices = () => null;
         const interp = new IntpLinearNonuniform3(broken, [3, -1, 5, 2, 0, 7, -2, 1.5]);
         expect(interp.evaluate(Vector.fromArray([0.2, 0.1, 0.05])).valid).toBe(false);
     });
@@ -169,5 +173,164 @@ describe('IntpLinearNonuniform3', () => {
                 expect(result.F).toBeCloseTo(b0 * F[0] + b1 * F[2] + b2 * F[5], 12);
             }
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (V29): property-based checks against the upstream
+// IntpLinearNonuniform3.h and cross-checks with the real Delaunay3Mesh.
+// ---------------------------------------------------------------------------
+
+describe('IntpLinearNonuniform3 verification', () => {
+    // Regression for the port defect found in V29: the duck-typed mesh
+    // interface required getIndices(t), but Delaunay3Mesh (the mesh the
+    // upstream header names as the source of the tetrahedralization) exposes
+    // getIndices() for the whole flat index array plus
+    // getTetrahedronIndices(t) for one tetrahedron. TypeScript's
+    // parameter-arity assignability let the zero-argument accessor satisfy
+    // the interface, so every query blended the samples of the FIRST
+    // tetrahedron. On the old code the value below was 2.5, not 0.5.
+    it('interpolates through the real Delaunay3Mesh', () => {
+        const points = [
+            Vector.fromArray([0, 0, 0]), Vector.fromArray([2, 0, 0]),
+            Vector.fromArray([0, 2, 0]), Vector.fromArray([0, 0, 2]),
+            Vector.fromArray([2, 2, 2]), Vector.fromArray([2, 2, 0]),
+            Vector.fromArray([0, 2, 2]), Vector.fromArray([2, 0, 2])
+        ];
+        const delaunay = new Delaunay3();
+        expect(delaunay.compute(points)).toBe(true);
+        const mesh: IntpLinearNonuniform3TetrahedronMesh =
+            new Delaunay3Mesh(delaunay);
+        const f = (p: Vector) =>
+            1 + 2 * p.values[0] - 3 * p.values[1] + 0.5 * p.values[2];
+        const F = points.map(f);
+        const interp = new IntpLinearNonuniform3(mesh, F);
+        const P = Vector.fromArray([1, 1, 1]);
+        const result = interp.evaluate(P);
+        expect(result.valid).toBe(true);
+        expectClose(result.F, f(P), 1e-12, 1e-12);
+    });
+
+    // Linear interpolation of a linear function over a tetrahedralization is
+    // exact in exact arithmetic; the lattice generator keeps the vertices and
+    // the sample values exactly representable.
+    it('reproduces an affine function on a Delaunay tetrahedralization of lattice points',
+        () => {
+            let numValid = 0;
+            check(fc.tuple(
+                fc.array(latticeVector(3, -5, 5), { minLength: 8, maxLength: 14 }),
+                fc.integer({ min: -4, max: 4 }),
+                fc.integer({ min: -4, max: 4 }),
+                fc.integer({ min: -4, max: 4 }),
+                fc.integer({ min: -4, max: 4 }),
+                fc.integer({ min: 0, max: 0xffff })
+            ), ([pts, a, b, c, d, seed]) => {
+                const delaunay = new Delaunay3();
+                if (!delaunay.compute(pts) || delaunay.getDimension() !== 3) {
+                    return true;   // degenerate (coplanar or duplicate) input
+                }
+                const mesh = new Delaunay3Mesh(delaunay);
+                const f = (p: Vector) => a + b * p.values[0] + c * p.values[1]
+                    + d * p.values[2];
+                const F = mesh.getVertices().map(f);
+                const interp = new IntpLinearNonuniform3(mesh, F);
+
+                const rand = seededRandom(seed + 3);
+                for (let n = 0; n < 15; ++n) {
+                    const P = Vector.fromArray([-5 + 10 * rand(),
+                        -5 + 10 * rand(), -5 + 10 * rand()]);
+                    const result = interp.evaluate(P);
+                    if (!result.valid) {
+                        continue;
+                    }
+                    ++numValid;
+                    // The barycentrics come from exact rational arithmetic
+                    // rounded once, so the error is a few ulps of the largest
+                    // term.
+                    expectClose(result.F, f(P), 1e-9, 1e-12);
+                }
+                return true;
+            }, 25);
+            expect(numValid).toBeGreaterThan(20);
+        }, 30000);
+
+    // The interpolation must be exactly the barycentric combination of the
+    // samples at the vertices of the containing tetrahedron.
+    it('equals the barycentric combination of the containing tetrahedron', () => {
+        let numValid = 0;
+        check(fc.tuple(
+            fc.array(latticeVector(3, -4, 4), { minLength: 8, maxLength: 12 }),
+            fc.array(fc.integer({ min: -20, max: 20 }),
+                { minLength: 12, maxLength: 12 }),
+            fc.integer({ min: 0, max: 0xffff })
+        ), ([pts, samples, seed]) => {
+            const delaunay = new Delaunay3();
+            if (!delaunay.compute(pts) || delaunay.getDimension() !== 3) {
+                return true;
+            }
+            const mesh = new Delaunay3Mesh(delaunay);
+            const F = mesh.getVertices().map((_, i) => samples[i % samples.length]);
+            const interp = new IntpLinearNonuniform3(mesh, F);
+
+            const rand = seededRandom(seed + 11);
+            for (let n = 0; n < 10; ++n) {
+                const P = Vector.fromArray([-4 + 8 * rand(), -4 + 8 * rand(),
+                    -4 + 8 * rand()]);
+                const t = mesh.getContainingTetrahedron(P);
+                const result = interp.evaluate(P);
+                if (t === -1) {
+                    expect(result.valid).toBe(false);
+                    continue;
+                }
+                const bary = mesh.getBarycentrics(t, P);
+                const idx = mesh.getTetrahedronIndices(t);
+                if (bary === null || idx === null) {
+                    expect(result.valid).toBe(false);
+                    continue;
+                }
+                expect(result.valid).toBe(true);
+                ++numValid;
+                const expected = bary[0] * F[idx[0]] + bary[1] * F[idx[1]]
+                    + bary[2] * F[idx[2]] + bary[3] * F[idx[3]];
+                expect(result.F).toBe(expected);
+            }
+            return true;
+        }, 25);
+        expect(numValid).toBeGreaterThan(20);
+    }, 30000);
+
+    // The upstream contract: the result is valid if and only if the point is
+    // in the convex hull, so a point far outside is never valid.
+    it('reports points far outside the hull as invalid', () => {
+        check(fc.tuple(
+            fc.array(latticeVector(3, -4, 4), { minLength: 8, maxLength: 12 }),
+            unitVector(3)
+        ), ([pts, dir]) => {
+            const delaunay = new Delaunay3();
+            if (!delaunay.compute(pts) || delaunay.getDimension() !== 3) {
+                return true;
+            }
+            const mesh = new Delaunay3Mesh(delaunay);
+            const F = mesh.getVertices().map((_, i) => i);
+            const interp = new IntpLinearNonuniform3(mesh, F);
+            // dir is unit length, so 'far' is 1000 units from the origin and
+            // therefore well outside the hull of points in [-4,4]^3.
+            const far = Vector.fromArray(dir.values.map(x => 1e3 * x));
+            expect(interp.evaluate(far).valid).toBe(false);
+            return true;
+        }, 100);
+    }, 30000);
+
+    // The samples array is aliased, not copied (upstream stores Real const*).
+    it('aliases the sample array rather than copying it', () => {
+        const mesh = makeCubeMesh();
+        const F = [1, 2, 3, 4, 5, 6, 7, 8];
+        const interp = new IntpLinearNonuniform3(mesh, F);
+        const P = Vector.fromArray([0.2, 0.3, 0.1]);
+        const before = interp.evaluate(P);
+        expect(before.valid).toBe(true);
+        F[0] += 10;
+        const after = interp.evaluate(P);
+        expect(after.F).not.toBe(before.F);
     });
 });

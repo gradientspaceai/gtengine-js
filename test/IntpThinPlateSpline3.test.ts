@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
     IntpThinPlateSpline3, intpThinPlateSpline3Kernel
 } from '../src/IntpThinPlateSpline3.js';
+import { check, expectClose, fc, latticeVector, rotationFrame, seededRandom }
+    from './helpers/arbitraries.js';
 
 // ---------------------------------------------------------------------------
 // An independent implementation of the classical 3D thin-plate spline, used to
@@ -540,5 +542,209 @@ describe('IntpThinPlateSpline3 degenerate inputs', () => {
         const tps = new IntpThinPlateSpline3(X.length, X, Y, CZ, F, 0, true);
         expect(tps.isInitialized()).toBe(false);
         expect(tps.evaluate(0.5, 0.5, 5)).toBe(Number.MAX_VALUE);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (V29): property-based checks against upstream
+// IntpThinPlateSpline3.h, cross-checked with the independent saddle-point
+// solve above.
+// ---------------------------------------------------------------------------
+
+// Scattered sample sets on a lattice: distinct points that are not coplanar,
+// so that B has full rank and Q is invertible. Integer coordinates and
+// integer samples keep the input exactly representable.
+const tps3Samples = fc.tuple(
+    fc.array(latticeVector(3, -5, 5), { minLength: 6, maxLength: 9 }),
+    fc.array(fc.integer({ min: -9, max: 9 }), { minLength: 9, maxLength: 9 })
+).filter(([pts]) => {
+    for (let i = 0; i < pts.length; ++i) {
+        for (let j = i + 1; j < pts.length; ++j) {
+            if (pts[i].values.every((v, k) => v === pts[j].values[k])) {
+                return false;
+            }
+        }
+    }
+    // Reject coplanar sets: pick three points spanning a plane through pts[0]
+    // and require a fourth off it.
+    const p0 = pts[0].values;
+    for (let i = 1; i < pts.length; ++i) {
+        for (let j = i + 1; j < pts.length; ++j) {
+            const u = pts[i].values.map((v, k) => v - p0[k]);
+            const v = pts[j].values.map((w, k) => w - p0[k]);
+            const nrm = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2],
+                u[0] * v[1] - u[1] * v[0]];
+            if (nrm.every(t => t === 0)) {
+                continue;
+            }
+            for (let k = j + 1; k < pts.length; ++k) {
+                const w = pts[k].values.map((t, m) => t - p0[m]);
+                if (Math.abs(nrm[0] * w[0] + nrm[1] * w[1] + nrm[2] * w[2])
+                    > 0.5) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}).map(([pts, samples]) => ({
+    X: pts.map(p => p.values[0]),
+    Y: pts.map(p => p.values[1]),
+    Z: pts.map(p => p.values[2]),
+    F: pts.map((_, i) => samples[i % samples.length])
+}));
+
+describe('IntpThinPlateSpline3 verification', () => {
+    // The port and the independent saddle-point solve must produce the same
+    // interpolant; the tolerance is relative because the two solvers round
+    // differently on a moderately ill-conditioned kernel matrix.
+    it('agrees with the independent saddle-point solve', () => {
+        let numChecked = 0;
+        check(fc.tuple(tps3Samples, fc.boolean(),
+            fc.constantFrom(0, 0.05, 0.5, 5),
+            fc.integer({ min: 0, max: 0xffff })),
+            ([{ X, Y, Z, F }, transform, smooth, seed]) => {
+                const spline = new IntpThinPlateSpline3(X.length, X, Y, Z, F,
+                    smooth, transform);
+                const ref = refBuild(X, Y, Z, F, smooth, transform);
+                if (!spline.isInitialized() || ref === null) {
+                    return true;
+                }
+                ++numChecked;
+                const rand = seededRandom(seed + 1);
+                for (let n = 0; n < 6; ++n) {
+                    const px = -5 + 10 * rand();
+                    const py = -5 + 10 * rand();
+                    const pz = -5 + 10 * rand();
+                    expectClose(spline.evaluate(px, py, pz),
+                        refEval(ref, px, py, pz), 1e-6, 1e-6);
+                }
+                expectClose(spline.computeFunctional(), refFunctional(ref),
+                    1e-6, 1e-6);
+                return true;
+            }, 50);
+        expect(numChecked).toBeGreaterThan(10);
+    }, 30000);
+
+    // With lambda = 0 the diagonal of A is zero and the system enforces the
+    // interpolation conditions exactly.
+    it('interpolates the samples exactly when smooth = 0', () => {
+        check(fc.tuple(tps3Samples, fc.boolean()),
+            ([{ X, Y, Z, F }, transform]) => {
+                const spline = new IntpThinPlateSpline3(X.length, X, Y, Z, F, 0,
+                    transform);
+                if (!spline.isInitialized()) {
+                    return true;
+                }
+                for (let i = 0; i < X.length; ++i) {
+                    expectClose(spline.evaluate(X[i], Y[i], Z[i]), F[i],
+                        1e-7, 1e-8);
+                }
+                return true;
+            }, 50);
+    }, 30000);
+
+    // Affine data is reproduced for every lambda: the affine part of the
+    // spline fits it with a = 0.
+    it('reproduces affine data for every smoothing parameter', () => {
+        check(fc.tuple(tps3Samples, fc.boolean(),
+            fc.constantFrom(0, 0.25, 2),
+            fc.integer({ min: -4, max: 4 }), fc.integer({ min: -4, max: 4 }),
+            fc.integer({ min: -4, max: 4 }), fc.integer({ min: -4, max: 4 }),
+            fc.integer({ min: 0, max: 0xffff })),
+            ([{ X, Y, Z }, transform, smooth, a, b, c, d, seed]) => {
+                const F = X.map((x, i) => a + b * x + c * Y[i] + d * Z[i]);
+                const spline = new IntpThinPlateSpline3(X.length, X, Y, Z, F,
+                    smooth, transform);
+                if (!spline.isInitialized()) {
+                    return true;
+                }
+                const rand = seededRandom(seed + 5);
+                for (let n = 0; n < 4; ++n) {
+                    const px = -5 + 10 * rand();
+                    const py = -5 + 10 * rand();
+                    const pz = -5 + 10 * rand();
+                    expectClose(spline.evaluate(px, py, pz),
+                        a + b * px + c * py + d * pz, 1e-6, 1e-7);
+                }
+                expectClose(spline.computeFunctional(), 0, 1e-6, 1e-6);
+                return true;
+            }, 50);
+    }, 30000);
+
+    // The classical (untransformed) spline is built only from the pairwise
+    // distances and the affine basis, so it commutes with a rigid motion of
+    // space. This is the half of the upstream WARNING comment that is correct
+    // (issue #191).
+    it('the classical spline is invariant to rigid motions', () => {
+        check(fc.tuple(tps3Samples, rotationFrame(3),
+            fc.integer({ min: -4, max: 4 }), fc.integer({ min: -4, max: 4 }),
+            fc.integer({ min: -4, max: 4 }), fc.integer({ min: 0, max: 0xffff })),
+            ([{ X, Y, Z, F }, frame, tx, ty, tz, seed]) => {
+                const base = new IntpThinPlateSpline3(X.length, X, Y, Z, F, 0,
+                    false);
+                if (!base.isInitialized()) {
+                    return true;
+                }
+                const move = (x: number, y: number, z: number) => [
+                    frame[0].values[0] * x + frame[1].values[0] * y
+                        + frame[2].values[0] * z + tx,
+                    frame[0].values[1] * x + frame[1].values[1] * y
+                        + frame[2].values[1] * z + ty,
+                    frame[0].values[2] * x + frame[1].values[2] * y
+                        + frame[2].values[2] * z + tz];
+                const moved3 = X.map((x, i) => move(x, Y[i], Z[i]));
+                const moved = new IntpThinPlateSpline3(X.length,
+                    moved3.map(p => p[0]), moved3.map(p => p[1]),
+                    moved3.map(p => p[2]), F, 0, false);
+                if (!moved.isInitialized()) {
+                    return true;
+                }
+                const rand = seededRandom(seed + 7);
+                for (let n = 0; n < 4; ++n) {
+                    const px = -5 + 10 * rand();
+                    const py = -5 + 10 * rand();
+                    const pz = -5 + 10 * rand();
+                    const q = move(px, py, pz);
+                    expectClose(moved.evaluate(q[0], q[1], q[2]),
+                        base.evaluate(px, py, pz), 1e-5, 1e-6);
+                }
+                return true;
+            }, 50);
+    }, 30000);
+
+    // Smoothing trades fidelity for bending energy: as lambda grows the
+    // interpolant departs further from the samples.
+    it('increases the sample residual monotonically with the smoothing parameter',
+        () => {
+            check(tps3Samples, ({ X, Y, Z, F }) => {
+                let previous = -1;
+                for (const lambda of [0, 0.01, 0.1, 1, 10]) {
+                    const spline = new IntpThinPlateSpline3(X.length, X, Y, Z, F,
+                        lambda, false);
+                    if (!spline.isInitialized()) {
+                        return true;
+                    }
+                    let residual = 0;
+                    for (let i = 0; i < X.length; ++i) {
+                        residual += (spline.evaluate(X[i], Y[i], Z[i]) - F[i]) ** 2;
+                    }
+                    expect(residual).toBeGreaterThan(previous - 1e-6);
+                    previous = residual;
+                }
+                return true;
+            }, 40);
+        }, 30000);
+
+    // Upstream (issue #191): when the data has zero range along an axis, the
+    // unit-cube transform divides by zero. The port preserves that.
+    it('produces a non-finite transform for a zero-range axis', () => {
+        const Xc = [1, 1, 1, 1, 1];
+        const Yc = [0, 1, 2, 3, 1];
+        const Zc = [0, 1, 0, 1, 2];
+        const Fc = [0, 1, 4, 9, 3];
+        const spline = new IntpThinPlateSpline3(5, Xc, Yc, Zc, Fc, 0, true);
+        expect(spline.isInitialized()).toBe(false);
+        expect(spline.evaluate(1, 1, 1)).toBe(Number.MAX_VALUE);
     });
 });

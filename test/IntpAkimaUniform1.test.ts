@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { IntpAkimaUniform1 } from '../src/IntpAkimaUniform1.js';
+import { check, expectClose, fc, finite, seededRandom }
+    from './helpers/arbitraries.js';
 
 describe('IntpAkimaUniform1', () => {
     it('throws for invalid inputs', () => {
@@ -147,5 +149,149 @@ describe('IntpAkimaUniform1', () => {
         expect(interp.evaluate(0)).toBeCloseTo(0, 14);
         expect(interp.evaluate(1)).toBeCloseTo(2, 14);
         expect(interp.evaluate(2)).toBeCloseTo(1, 14);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (V29): property-based checks against upstream
+// IntpAkimaUniform1.h and the shared IntpAkima1.h base.
+// ---------------------------------------------------------------------------
+
+// A uniform Akima interpolator built from generated parameters. The spacing is
+// bounded away from zero so that the divided differences and the finite
+// differences below keep their significant digits.
+const uniformAkima = fc.tuple(
+    fc.integer({ min: -4, max: 4 }),                       // xMin
+    fc.integer({ min: 1, max: 4 }).map(k => k / 2),        // xSpacing in [0.5,2]
+    fc.array(fc.integer({ min: -20, max: 20 }),
+        { minLength: 3, maxLength: 9 })                    // samples
+).map(([xMin, xSpacing, F]) =>
+    ({ xMin, xSpacing, F, intp: new IntpAkimaUniform1(F.length, xMin, xSpacing, F) }));
+
+describe('IntpAkimaUniform1 verification', () => {
+    // The polynomial of cell i has constant term F[i] and Lookup returns
+    // dx = 0 there, so every sample but the last is reproduced bit-exactly.
+    // The last sample is the right end of the last cell and is only
+    // reproduced up to rounding.
+    it('interpolates every sample', () => {
+        check(uniformAkima, ({ xMin, xSpacing, F, intp }) => {
+            for (let i = 0; i + 1 < F.length; ++i) {
+                expect(intp.evaluate(xMin + xSpacing * i)).toBe(F[i]);
+            }
+            expectClose(intp.evaluate(intp.getXMax()), F[F.length - 1],
+                1e-9, 1e-12);
+            return true;
+        });
+    });
+
+    // All divided differences of a linear sample set are equal, so
+    // ComputeDerivative takes the slope[1] == slope[2] branch and the cubic
+    // terms vanish.
+    it('reproduces linear data, with zero second and third derivatives', () => {
+        check(fc.tuple(
+            fc.integer({ min: -4, max: 4 }),
+            fc.integer({ min: 1, max: 4 }).map(k => k / 2),
+            fc.integer({ min: -9, max: 9 }),
+            fc.integer({ min: -9, max: 9 }),
+            fc.integer({ min: 3, max: 9 })
+        ), ([xMin, xSpacing, a, b, n]) => {
+            const F: number[] = [];
+            for (let i = 0; i < n; ++i) {
+                F.push(a + b * (xMin + xSpacing * i));
+            }
+            const intp = new IntpAkimaUniform1(n, xMin, xSpacing, F);
+            const rand = seededRandom(n * 131 + 17);
+            for (let k = 0; k < 8; ++k) {
+                const x = intp.getXMin()
+                    + rand() * (intp.getXMax() - intp.getXMin());
+                expectClose(intp.evaluate(x), a + b * x, 1e-9, 1e-12);
+                expectClose(intp.evaluate(1, x), b, 1e-9, 1e-12);
+                expectClose(intp.evaluate(2, x), 0, 1e-9, 1e-12);
+                expectClose(intp.evaluate(3, x), 0, 1e-9, 1e-12);
+            }
+            return true;
+        });
+    });
+
+    // The interpolant is a cubic on each cell, so the fourth derivative is
+    // zero and the second central difference is exact for it: the only error
+    // is the round-off of the difference quotient, which is bounded by
+    // eps*|F|/h^2 with h = spacing/4.
+    it('matches the exact second central difference inside a cell', () => {
+        check(uniformAkima, ({ xMin, xSpacing, F, intp }) => {
+            const h = xSpacing / 4;
+            for (let i = 0; i + 1 < F.length; ++i) {
+                const x = xMin + xSpacing * (i + 0.5);
+                const d2 = (intp.evaluate(x + h) - 2 * intp.evaluate(x)
+                    + intp.evaluate(x - h)) / (h * h);
+                expectClose(intp.evaluate(2, x), d2, 1e-8, 1e-8);
+            }
+            return true;
+        });
+    });
+
+    // The fourth-order five-point stencil is exact for polynomials of degree
+    // at most four, so it reproduces the first derivative of the cell cubic.
+    it('matches the fourth-order first-derivative stencil inside a cell', () => {
+        check(uniformAkima, ({ xMin, xSpacing, F, intp }) => {
+            const h = xSpacing / 8;
+            for (let i = 0; i + 1 < F.length; ++i) {
+                const x = xMin + xSpacing * (i + 0.5);
+                const d1 = (-intp.evaluate(x + 2 * h) + 8 * intp.evaluate(x + h)
+                    - 8 * intp.evaluate(x - h) + intp.evaluate(x - 2 * h))
+                    / (12 * h);
+                expectClose(intp.evaluate(1, x), d1, 1e-8, 1e-8);
+            }
+            return true;
+        });
+    });
+
+    // The third derivative of a cubic is constant, so it does not vary inside
+    // a cell.
+    it('has a constant third derivative inside each cell', () => {
+        check(uniformAkima, ({ xMin, xSpacing, F, intp }) => {
+            for (let i = 0; i + 1 < F.length; ++i) {
+                const base = intp.evaluate(3, xMin + xSpacing * (i + 0.25));
+                expect(intp.evaluate(3, xMin + xSpacing * (i + 0.75)))
+                    .toBe(base);
+            }
+            return true;
+        });
+    });
+
+    // The base class clamps x into [xMin, xMax] before the lookup, so an
+    // out-of-domain query returns exactly the boundary value.
+    it('clamps queries outside the domain', () => {
+        check(fc.tuple(uniformAkima, finite(0, 50), fc.integer({ min: 0, max: 3 })),
+            ([{ intp }, delta, order]) => {
+                expect(intp.evaluate(order, intp.getXMin() - delta))
+                    .toBe(intp.evaluate(order, intp.getXMin()));
+                expect(intp.evaluate(order, intp.getXMax() + delta))
+                    .toBe(intp.evaluate(order, intp.getXMax()));
+                return true;
+            });
+    });
+
+    // Polynomial::operator()(order, x) falls through its switch and returns
+    // zero for orders above three (and, as a JavaScript-only case, for
+    // negative orders).
+    it('returns zero for derivative orders outside [0,3]', () => {
+        check(fc.tuple(uniformAkima, fc.integer({ min: 4, max: 12 })),
+            ([{ intp }, order]) => {
+                const x = 0.5 * (intp.getXMin() + intp.getXMax());
+                expect(intp.evaluate(order, x)).toBe(0);
+                return true;
+            });
+    });
+
+    // The samples are aliased, not copied (upstream stores Real const* mF),
+    // but the polynomial coefficients are computed once in the constructor,
+    // so a later mutation of F does not change the evaluations.
+    it('exposes the aliased sample array through getF', () => {
+        check(uniformAkima, ({ F, intp }) => {
+            expect(intp.getF()).toBe(F);
+            expect(intp.getQuantity()).toBe(F.length);
+            return true;
+        });
     });
 });
