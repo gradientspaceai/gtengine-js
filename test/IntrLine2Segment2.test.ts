@@ -170,3 +170,132 @@ describe('IntrLine2Segment2', () => {
         expect(fi.find(l, offLine).numIntersections).toBe(INT32_MAX);
     });
 });
+
+// ---------------------------------------------------------------------------
+// Verification (V31): property-based checks against the upstream header.
+// ---------------------------------------------------------------------------
+import {
+    check, fc, latticeVector, unitVector, wellScaledVector, expectVectorClose
+} from './helpers/arbitraries.js';
+import { IntrLine2Line2FI } from '../src/IntrLine2Line2.js';
+import { dotPerp } from '../src/Vector2.js';
+
+const INT32_MAX_V = 2147483647;
+
+// A line and a segment whose directions are transverse with a comfortable
+// margin, so the line-line parameters are well conditioned.
+const transverseLineSegment = fc.tuple(wellScaledVector(2), unitVector(2),
+    wellScaledVector(2), unitVector(2),
+    fc.double({ min: 0.5, max: 5, noNaN: true }))
+    .filter(([, d0, , d1]) => Math.abs(dotPerp(d0, d1)) > 0.1)
+    .map(([o0, d0, o1, d1, len]) => ({
+        line: Line.fromOriginDirection(o0, d0),
+        segment: Segment.fromEndpoints(o1, add(o1, mul(len, d1)))
+    }));
+
+describe('IntrLine2Segment2 verification', () => {
+    const tiq = new IntrLine2Segment2TI();
+    const fiq = new IntrLine2Segment2FI();
+    const llq = new IntrLine2Line2FI();
+
+    it('TI and FI agree on intersect and numIntersections', () => {
+        check(transverseLineSegment, ({ line: l, segment: s }) => {
+            const t = tiq.test(l, s);
+            const f = fiq.find(l, s);
+            expect(t.intersect).toBe(f.intersect);
+            expect(t.numIntersections).toBe(f.numIntersections);
+        });
+    });
+
+    it('a hit has segment parameter in [0,1] and reproduces the point', () => {
+        check(transverseLineSegment, ({ line: l, segment: s }) => {
+            const f = fiq.find(l, s);
+            if (f.numIntersections !== 1) {
+                return;
+            }
+            expect(f.lineParameter[0]).toBe(f.lineParameter[1]);
+            expect(f.segmentParameter[0]).toBe(f.segmentParameter[1]);
+            expect(f.segmentParameter[0]).toBeGreaterThanOrEqual(0);
+            expect(f.segmentParameter[0]).toBeLessThanOrEqual(1);
+            expectVectorClose(f.point,
+                add(l.origin, mul(f.lineParameter[0], l.direction)), 0, 0);
+            const u = f.segmentParameter[0];
+            expectVectorClose(f.point,
+                add(s.p[0], mul(u, sub(s.p[1], s.p[0]))), 1e-9, 1e-12);
+        });
+    });
+
+    it('a hit is exactly a line-line hit with parameter in [0,1]', () => {
+        check(transverseLineSegment, ({ line: l, segment: s }) => {
+            const segLine = Line.fromOriginDirection(s.p[0],
+                sub(s.p[1], s.p[0]));
+            const ll = llq.find(l, segLine);
+            expect(ll.numIntersections).toBe(1);
+            const onSeg = ll.line1Parameter[0] >= 0
+                && ll.line1Parameter[1] <= 1;
+            const f = fiq.find(l, s);
+            expect(f.intersect).toBe(onSeg);
+            if (onSeg) {
+                expect(f.lineParameter[0]).toBe(ll.line0Parameter[0]);
+                expect(f.segmentParameter[0]).toBe(ll.line1Parameter[0]);
+            } else {
+                expect(f.numIntersections).toBe(0);
+                expect(f.lineParameter).toEqual([0, 0]);
+                expect(f.segmentParameter).toEqual([0, 0]);
+            }
+        });
+    });
+
+    it('a line through a sampled segment point always hits', () => {
+        check(fc.tuple(wellScaledVector(2), unitVector(2),
+            fc.double({ min: 0.5, max: 5, noNaN: true }),
+            fc.double({ min: 0.05, max: 0.95, noNaN: true }), unitVector(2)),
+            ([p0, d, len, u, e]) => {
+                const s = Segment.fromEndpoints(p0, add(p0, mul(len, d)));
+                if (Math.abs(dotPerp(d, e)) <= 0.1) {
+                    return;
+                }
+                const target = add(s.p[0], mul(u, sub(s.p[1], s.p[0])));
+                const l = Line.fromOriginDirection(target, e);
+                const f = fiq.find(l, s);
+                expect(f.intersect).toBe(true);
+                expect(f.numIntersections).toBe(1);
+                expectVectorClose(f.point, target, 1e-9, 1e-12);
+            });
+    });
+
+    it('a segment on the line is collinear with the documented values', () => {
+        // Integer coordinates make the collinearity test exact; see the note
+        // in IntrLine2Ray2.test.ts.
+        check(fc.tuple(latticeVector(2), latticeVector(2),
+            fc.integer({ min: -5, max: 5 }), fc.integer({ min: 1, max: 5 }))
+            .filter(([, d]) => d.values[0] !== 0 || d.values[1] !== 0),
+            ([o, d, t, len]) => {
+                const l = Line.fromOriginDirection(o, d);
+                const s = Segment.fromEndpoints(add(o, mul(t, d)),
+                    add(o, mul(t + len, d)));
+                const f = fiq.find(l, s);
+                expect(f.intersect).toBe(true);
+                expect(f.numIntersections).toBe(INT32_MAX_V);
+                expect(tiq.test(l, s).numIntersections).toBe(INT32_MAX_V);
+                expect(f.lineParameter).toEqual([-Number.MAX_VALUE,
+                    Number.MAX_VALUE]);
+                expect(f.segmentParameter).toEqual([0, 1]);
+                expect(f.point.values).toEqual([0, 0]);
+            });
+    });
+
+    it('a segment parallel to but off the line never intersects', () => {
+        check(fc.tuple(wellScaledVector(2), unitVector(2),
+            fc.double({ min: 0.5, max: 5, noNaN: true }),
+            fc.double({ min: 0.5, max: 5, noNaN: true })),
+            ([o, d, offset, len]) => {
+                const l = Line.fromOriginDirection(o, d);
+                const n = Vector.fromArray([-d.values[1], d.values[0]]);
+                const q0 = add(o, mul(offset, n));
+                const s = Segment.fromEndpoints(q0, add(q0, mul(len, d)));
+                expect(fiq.find(l, s).intersect).toBe(false);
+                expect(tiq.test(l, s).intersect).toBe(false);
+            });
+    });
+});

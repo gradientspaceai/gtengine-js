@@ -168,3 +168,150 @@ describe('IntrLine2OrientedBox2', () => {
         expect(ti.test(line(0, 0.5, 1, 1), box).intersect).toBe(false);
     });
 });
+
+// ---------------------------------------------------------------------------
+// Verification (V31): property-based checks against the upstream header.
+// ---------------------------------------------------------------------------
+import {
+    check, fc, rotationFrame, unitVector, wellScaledVector, expectClose,
+    expectVectorClose
+} from './helpers/arbitraries.js';
+import { length } from '../src/Vector.js';
+
+// An oriented box built from a rotation frame, so no axis component is
+// subnormal, together with a line whose direction is unit length.
+const lineBox2 = fc.tuple(wellScaledVector(2, -5, 5), unitVector(2),
+    wellScaledVector(2, -5, 5), rotationFrame(2),
+    fc.double({ min: 0.1, max: 4, noNaN: true }),
+    fc.double({ min: 0.1, max: 4, noNaN: true }))
+    .map(([o, d, c, R, e0, e1]) => ({
+        line: Line.fromOriginDirection(o, d),
+        box: OrientedBox.fromCenterAxisExtent(c, R, Vector.fromArray([e0, e1]))
+    }));
+
+// The box coordinates of a point.
+function boxCoords(box: OrientedBox, p: Vector): number[] {
+    const diff = sub(p, box.center);
+    return [dot(diff, box.axis[0]), dot(diff, box.axis[1])];
+}
+
+describe('IntrLine2OrientedBox2 verification', () => {
+    const tiq = new IntrLine2OrientedBox2TI();
+    const fiq = new IntrLine2OrientedBox2FI();
+
+    it('TI and FI agree on intersect', () => {
+        check(lineBox2, ({ line: l, box: b }) => {
+            expect(tiq.test(l, b).intersect).toBe(fiq.find(l, b).intersect);
+        });
+    });
+
+    it('matches the aligned-box query on the box-frame line', () => {
+        const atiq = new IntrLine2AlignedBox2TI();
+        const afiq = new IntrLine2AlignedBox2FI();
+        check(lineBox2, ({ line: l, box: b }) => {
+            const diff = sub(l.origin, b.center);
+            const local = Line.fromOriginDirection(
+                Vector.fromArray([dot(diff, b.axis[0]), dot(diff, b.axis[1])]),
+                Vector.fromArray([dot(l.direction, b.axis[0]),
+                    dot(l.direction, b.axis[1])]));
+            const alignedBox = AlignedBox.fromMinMax(
+                Vector.fromArray([-b.extent.values[0], -b.extent.values[1]]),
+                Vector.fromArray([b.extent.values[0], b.extent.values[1]]));
+            const at = atiq.test(local, alignedBox);
+            const af = afiq.find(local, alignedBox);
+            const t = tiq.test(l, b);
+            const f = fiq.find(l, b);
+            expect(t.intersect).toBe(at.intersect);
+            expect(f.intersect).toBe(af.intersect);
+            expect(f.numIntersections).toBe(af.numIntersections);
+            for (let i = 0; i < f.numIntersections; ++i) {
+                // Bit-identical: both go through the same DoQuery.
+                expect(f.parameter[i]).toBe(af.parameter[i]);
+            }
+        });
+    });
+
+    it('the reported points are on the line and inside the box', () => {
+        check(lineBox2, ({ line: l, box: b }) => {
+            const f = fiq.find(l, b);
+            if (!f.intersect) {
+                return;
+            }
+            expect(f.parameter[0]).toBeLessThanOrEqual(f.parameter[1]);
+            for (let i = 0; i < f.numIntersections; ++i) {
+                const p = add(l.origin, mul(f.parameter[i], l.direction));
+                expectVectorClose(f.point[i], p, 0, 0);
+                const q = boxCoords(b, f.point[i]);
+                expect(Math.abs(q[0]))
+                    .toBeLessThanOrEqual(b.extent.values[0] + 1e-9);
+                expect(Math.abs(q[1]))
+                    .toBeLessThanOrEqual(b.extent.values[1] + 1e-9);
+            }
+        });
+    });
+
+    it('a line through a sampled box point always hits', () => {
+        check(fc.tuple(wellScaledVector(2, -5, 5), rotationFrame(2),
+            fc.double({ min: 0.1, max: 4, noNaN: true }),
+            fc.double({ min: 0.1, max: 4, noNaN: true }),
+            fc.double({ min: -0.9, max: 0.9, noNaN: true }),
+            fc.double({ min: -0.9, max: 0.9, noNaN: true }), unitVector(2)),
+            ([c, R, e0, e1, s0, s1, d]) => {
+                const b = OrientedBox.fromCenterAxisExtent(c, R,
+                    Vector.fromArray([e0, e1]));
+                const target = add(c, add(mul(s0 * e0, R[0]),
+                    mul(s1 * e1, R[1])));
+                const l = Line.fromOriginDirection(target, d);
+                const t = tiq.test(l, b);
+                const f = fiq.find(l, b);
+                expect(t.intersect).toBe(true);
+                expect(f.intersect).toBe(true);
+                expect(f.parameter[0]).toBeLessThanOrEqual(0 + 1e-9);
+                expect(f.parameter[1]).toBeGreaterThanOrEqual(0 - 1e-9);
+            });
+    });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(lineBox2, rotationFrame(2),
+            wellScaledVector(2, -5, 5)), ([{ line: l, box: b }, R, tr]) => {
+            const rot = (p: Vector): Vector =>
+                add(mul(p.values[0], R[0]), mul(p.values[1], R[1]));
+            const xf = (p: Vector): Vector => add(tr, rot(p));
+            const l2 = Line.fromOriginDirection(xf(l.origin), rot(l.direction));
+            const b2 = OrientedBox.fromCenterAxisExtent(xf(b.center),
+                [rot(b.axis[0]), rot(b.axis[1])], b.extent);
+            const f1 = fiq.find(l, b);
+            const f2 = fiq.find(l2, b2);
+            // A grazing hit legitimately flips under perturbation; require a
+            // robustly transverse interval.
+            if (f1.intersect && f1.parameter[1] - f1.parameter[0] < 1e-6) {
+                return;
+            }
+            if (f2.intersect && f2.parameter[1] - f2.parameter[0] < 1e-6) {
+                return;
+            }
+            expect(f1.intersect).toBe(f2.intersect);
+            if (!f1.intersect) {
+                return;
+            }
+            expectClose(f1.parameter[0], f2.parameter[0], 1e-8, 1e-9);
+            expectClose(f1.parameter[1], f2.parameter[1], 1e-8, 1e-9);
+        });
+    });
+
+    it('a zero-extent box behaves as a point on the line', () => {
+        check(fc.tuple(wellScaledVector(2, -5, 5), unitVector(2),
+            rotationFrame(2), fc.double({ min: -3, max: 3, noNaN: true })),
+            ([o, d, R, t]) => {
+                const center = add(o, mul(t, d));
+                const b = OrientedBox.fromCenterAxisExtent(center, R,
+                    Vector.fromArray([0, 0]));
+                const l = Line.fromOriginDirection(o, d);
+                const f = fiq.find(l, b);
+                for (let i = 0; i < f.numIntersections; ++i) {
+                    expect(length(sub(f.point[i], center)))
+                        .toBeLessThan(1e-6);
+                }
+            });
+    });
+});
