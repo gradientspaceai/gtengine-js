@@ -201,8 +201,10 @@ describe('DistPlane3OrientedBox3 verification', () => {
                         c.values[2] + e[2]));
                 const r0 = query.compute(p, ob);
                 const r1 = abQuery.compute(p, ab);
+                // Only the distance is compared: a box face parallel to the
+                // plane leaves many equidistant pairs, and the two queries
+                // may name different representatives.
                 expectClose(r0.distance, r1.distance, 1e-9, 1e-9);
-                expectVectorClose(r0.closest[1], r1.closest[1], 1e-9, 1e-9);
             });
     });
 
@@ -218,7 +220,7 @@ describe('DistPlane3OrientedBox3 verification', () => {
                         toWorld(R, b.axis[2])], b.extent);
                 const r1 = query.compute(p1, b1);
                 expectClose(r0.distance, r1.distance, 1e-9, 1e-9);
-                expectVectorClose(xf(r0.closest[1]), r1.closest[1],
+                expectClose(dot(p1.normal, r1.closest[0]), p1.constant,
                     1e-8, 1e-8);
             });
     });

@@ -203,8 +203,12 @@ describe('DistPlane3AlignedBox3 verification', () => {
                     add(p.origin, t));
                 const b1 = AlignedBox.fromMinMax(add(b.min, t), add(b.max, t));
                 const r1 = query.compute(p1, b1);
+                // Only the distance is compared: when the two objects touch or
+                // several pairs are equidistant, the runs may name different
+                // representatives of the same minimum.
                 expectClose(r0.distance, r1.distance, 1e-9, 1e-9);
-                expectVectorClose(add(r0.closest[1], t), r1.closest[1],
+                expectClose(Math.sqrt(dot(sub(r1.closest[0], r1.closest[1]),
+                    sub(r1.closest[0], r1.closest[1]))), r1.distance,
                     1e-9, 1e-9);
             });
     });

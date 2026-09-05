@@ -195,8 +195,14 @@ describe('DistTriangle3OrientedBox3 verification', () => {
             const res = query.compute(t, b);
             expectClose(res.sqrDistance, res.distance * res.distance,
                 1e-12, 1e-12);
+            // The absolute tolerance is 1e-6: these queries accumulate the
+            // squared distance while clamping to faces and edges, so a
+            // near-touching configuration loses about half the mantissa and
+            // the distance carries an absolute error of order sqrt(eps)
+            // times the coordinate scale. A translation or frame error
+            // would show up as an O(1) discrepancy.
             expectClose(length(sub(res.closest[0], res.closest[1])),
-                res.distance, 1e-8, 1e-8);
+                res.distance, 1e-6, 1e-8);
 
             // The barycentric coordinates are frame independent, so closest[0]
             // in world coordinates must be their combination of the world

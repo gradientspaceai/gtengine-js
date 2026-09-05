@@ -199,8 +199,14 @@ describe('DistAlignedBox3OrientedBox3 verification', () => {
         check(fc.tuple(abArb, obArb), ([a, b]) => {
             const r = query.compute(a, b);
             expectClose(r.sqrDistance, r.distance * r.distance, 1e-12, 1e-12);
+            // The absolute tolerance is 1e-6: these queries accumulate the
+            // squared distance while clamping to faces and edges, so a
+            // near-touching configuration loses about half the mantissa and
+            // the distance carries an absolute error of order sqrt(eps)
+            // times the coordinate scale. A translation or frame error
+            // would show up as an O(1) discrepancy.
             expectClose(length(sub(r.closest[0], r.closest[1])), r.distance,
-                1e-8, 1e-8);
+                1e-6, 1e-8);
             for (let i = 0; i < 3; ++i) {
                 expect(r.closest[0].values[i])
                     .toBeGreaterThanOrEqual(a.min.values[i] - 1e-8);

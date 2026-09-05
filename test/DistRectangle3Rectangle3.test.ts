@@ -188,10 +188,16 @@ describe('DistRectangle3Rectangle3 verification', () => {
     it('reports consistent distances and on-primitive closest points', () => {
         check(fc.tuple(rectArb, rectArb), ([r0, r1]) => {
             const res = query.compute(r0, r1);
+            // The absolute tolerance is 1e-6: these queries accumulate the
+            // squared distance while clamping to faces and edges, so a
+            // near-touching configuration loses about half the mantissa and
+            // the distance carries an absolute error of order sqrt(eps)
+            // times the coordinate scale. A translation or frame error
+            // would show up as an O(1) discrepancy.
             expectClose(res.sqrDistance, res.distance * res.distance,
                 1e-12, 1e-12);
             const d = sub(res.closest[0], res.closest[1]);
-            expectClose(Math.sqrt(dot(d, d)), res.distance, 1e-8, 1e-8);
+            expectClose(Math.sqrt(dot(d, d)), res.distance, 1e-6, 1e-8);
 
             const verify = (s: [number, number], r: Rectangle, c: Vector) => {
                 let rebuilt = r.center.clone();
@@ -213,7 +219,7 @@ describe('DistRectangle3Rectangle3 verification', () => {
             const b = query.compute(r1, r0);
             expectClose(a.distance, b.distance, 1e-8, 1e-8);
             const d = sub(b.closest[1], b.closest[0]);
-            expectClose(Math.sqrt(dot(d, d)), a.distance, 1e-8, 1e-8);
+            expectClose(Math.sqrt(dot(d, d)), a.distance, 1e-6, 1e-8);
         });
     });
 

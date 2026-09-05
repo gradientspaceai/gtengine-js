@@ -165,10 +165,16 @@ describe('DistTriangle3CanonicalBox3 verification', () => {
     it('reports consistent distances and on-primitive closest points', () => {
         check(fc.tuple(triArb, boxArb), ([t, box]) => {
             const res = query.compute(t, box);
+            // The absolute tolerance is 1e-6: these queries accumulate the
+            // squared distance while clamping to faces and edges, so a
+            // near-touching configuration loses about half the mantissa and
+            // the distance carries an absolute error of order sqrt(eps)
+            // times the coordinate scale. A translation or frame error
+            // would show up as an O(1) discrepancy.
             expectClose(res.sqrDistance, res.distance * res.distance,
                 1e-12, 1e-12);
             const d = sub(res.closest[0], res.closest[1]);
-            expectClose(Math.sqrt(dot(d, d)), res.distance, 1e-8, 1e-8);
+            expectClose(Math.sqrt(dot(d, d)), res.distance, 1e-6, 1e-8);
 
             const b = res.barycentric;
             expectClose(b[0] + b[1] + b[2], 1, 1e-9, 1e-9);

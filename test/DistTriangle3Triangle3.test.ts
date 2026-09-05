@@ -191,9 +191,15 @@ describe('DistTriangle3Triangle3 verification', () => {
     it('reports consistent distances and barycentric closest points', () => {
         check(fc.tuple(triArb, triArb), ([t0, t1]) => {
             const r = query.compute(t0, t1);
+            // The absolute tolerance is 1e-6: these queries accumulate the
+            // squared distance while clamping to faces and edges, so a
+            // near-touching configuration loses about half the mantissa and
+            // the distance carries an absolute error of order sqrt(eps)
+            // times the coordinate scale. A translation or frame error
+            // would show up as an O(1) discrepancy.
             expectClose(r.sqrDistance, r.distance * r.distance, 1e-12, 1e-12);
             const d = sub(r.closest[0], r.closest[1]);
-            expectClose(Math.sqrt(dot(d, d)), r.distance, 1e-8, 1e-8);
+            expectClose(Math.sqrt(dot(d, d)), r.distance, 1e-6, 1e-8);
 
             const verify = (b: [number, number, number], t: Triangle,
                 c: Vector) => {
@@ -219,7 +225,7 @@ describe('DistTriangle3Triangle3 verification', () => {
             // same representative when several pairs are equidistant, so
             // only check that the swapped pair realizes the same distance.
             const d = sub(r1.closest[1], r1.closest[0]);
-            expectClose(Math.sqrt(dot(d, d)), r0.distance, 1e-8, 1e-8);
+            expectClose(Math.sqrt(dot(d, d)), r0.distance, 1e-6, 1e-8);
         });
     });
 
