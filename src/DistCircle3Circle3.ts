@@ -15,15 +15,35 @@
 // - Upstream builds the polynomials with 'Polynomial1<Rational>', where
 //   Rational is BSRational<UIntegerAP32>. The port's Polynomial1 is
 //   number-valued only, so the small set of rational polynomial operations
-//   needed here (add, subtract, multiply, scalar multiply, evaluate) is
-//   implemented as module-private functions on BSRational[] coefficient
-//   arrays, listed in increasing order of power. The behavior matches
-//   Polynomial1: addition and subtraction eliminate high-order zero
-//   coefficients, multiplication does not.
+//   needed here (add, subtract, multiply, scalar multiply) is implemented as
+//   module-private functions on BSRational[] coefficient arrays, listed in
+//   increasing order of power. The behavior matches Polynomial1: addition
+//   and subtraction eliminate high-order zero coefficients, multiplication
+//   does not.
 // - The private class SCPolynomial in the upstream header is dead code (no
 //   member of the class references it), so it is not ported.
 // - The private helpers PrepareCircles and DoQueryParallelPlanes become
 //   module-private functions.
+//
+// Upstream defects fixed here, each explained at the site and covered by a
+// regression test in test/DistCircle3Circle3.test.ts:
+//  1. PrepareCircles fails to align anti-parallel normals that are
+//     orthogonal to the z-axis, so circles in parallel planes are answered
+//     by the general polynomial path and get the wrong distance.
+//  2. sn = -p6(cs)/p7(cs) is only on the unit circle for an exact root of
+//     phi, so the reported closest point can be off its circle and the
+//     distance below the true minimum. Both signs of sqrt(1 - cs^2) are used
+//     instead.
+//  3. For concentric and coaxial circles phi and p6 are perfect squares and
+//     the sign-change bisection finds no roots at all; upstream then reports
+//     distance 0 with the closest points at the shared axis point.
+//  4. p6 and p7 vanish identically for coaxial circles in parallel planes
+//     and for a zero-radius circle on the other circle's axis; upstream
+//     reports an assertion instead of the answer.
+// Two further upstream quirks are preserved: the result reports at most two
+// closest pairs even when more exist, and PrepareCircles divides by an
+// underflowed length when the transformed circle0 center has subnormal x-
+// and y-components.
 
 import { AxisAngle } from './AxisAngle.js';
 import { BSRational } from './BSRational.js';
