@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { AdaptiveSkeletonClimbing2 } from '../src/AdaptiveSkeletonClimbing2.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 // Build a (2^N+1)-by-(2^N+1) integer image from a function f(x, y).
 function makeImage(N: number, f: (x: number, y: number) => number): number[] {
@@ -291,5 +292,257 @@ describe('AdaptiveSkeletonClimbing2', () => {
         for (const v of valence) {
             expect(v).toBe(2);
         }
+    });
+});
+
+
+// ---------------------------------------------------------------------------
+// Verification wave (V24): properties cross-checking the port against the
+// upstream AdaptiveSkeletonClimbing2.h algorithm.
+// ---------------------------------------------------------------------------
+
+// Independent marching squares on the same image. Each cell contributes one
+// segment when exactly two of its four edges are crossed; cells with four
+// crossings (the ambiguous saddle) are counted so the caller can skip them.
+function marchingSquares(pixels: readonly number[], size: number, level: number) {
+    const key = (x: number, y: number) => `${x.toFixed(9)},${y.toFixed(9)}`;
+    const segments: string[] = [];
+    const crossings = new Set<string>();
+    let ambiguous = 0;
+    for (let y = 0; y + 1 < size; ++y) {
+        for (let x = 0; x + 1 < size; ++x) {
+            const f00 = pixels[x + size * y];
+            const f10 = pixels[x + 1 + size * y];
+            const f01 = pixels[x + size * (y + 1)];
+            const f11 = pixels[x + 1 + size * (y + 1)];
+            const points: [number, number][] = [];
+            if ((f00 < level) !== (f01 < level)) {
+                points.push([x, y + (level - f00) / (f01 - f00)]);
+            }
+            if ((f10 < level) !== (f11 < level)) {
+                points.push([x + 1, y + (level - f10) / (f11 - f10)]);
+            }
+            if ((f00 < level) !== (f10 < level)) {
+                points.push([x + (level - f00) / (f10 - f00), y]);
+            }
+            if ((f01 < level) !== (f11 < level)) {
+                points.push([x + (level - f01) / (f11 - f01), y + 1]);
+            }
+            for (const p of points) {
+                crossings.add(key(p[0], p[1]));
+            }
+            if (points.length === 2) {
+                const a = key(points[0][0], points[0][1]);
+                const b = key(points[1][0], points[1][1]);
+                segments.push(a < b ? `${a}|${b}` : `${b}|${a}`);
+            } else if (points.length === 4) {
+                ++ambiguous;
+            }
+        }
+    }
+    return { segments: segments.sort(), crossings, ambiguous };
+}
+
+function segmentKeys(vertices: readonly [number, number][],
+    edges: readonly [number, number][]): string[] {
+    const key = (v: readonly number[]) => `${v[0].toFixed(9)},${v[1].toFixed(9)}`;
+    return edges.map(e => {
+        const a = key(vertices[e[0]]), b = key(vertices[e[1]]);
+        return a < b ? `${a}|${b}` : `${b}|${a}`;
+    }).sort();
+}
+
+describe('AdaptiveSkeletonClimbing2 verification', () => {
+    // Smooth integer images: a few low-frequency terms rounded to integers.
+    // Saddle cells (the ambiguous four-crossing configuration) essentially
+    // never occur for these, which lets the reference marching squares stay
+    // an independent computation instead of replicating the upstream
+    // determinant disambiguation.
+    const coefficient = fc.integer({ min: -10, max: 10 });
+    const smoothImage = (N: number) =>
+        fc.tuple(coefficient, coefficient, coefficient, coefficient)
+            .map(([a, b, c, d]) => {
+                const size = (1 << N) + 1;
+                const pixels = new Array<number>(size * size);
+                for (let y = 0; y < size; ++y) {
+                    for (let x = 0; x < size; ++x) {
+                        const u = x / (size - 1), v = y / (size - 1);
+                        pixels[x + size * y] = Math.round(
+                            a * Math.sin(2 * Math.PI * u) + b * Math.cos(2 * Math.PI * v)
+                            + c * u * v + d * Math.sin(Math.PI * (u + v)));
+                    }
+                }
+                return pixels;
+            });
+
+    // An ellipse whose level curve is strictly inside the image, so the
+    // extracted curve is closed.
+    const ellipseImage = (N: number) =>
+        fc.tuple(fc.integer({ min: 25, max: 40 }), fc.integer({ min: 25, max: 40 }))
+            .map(([ra, rb]) => {
+                const size = (1 << N) + 1;
+                const center = (size - 1) / 2;
+                const a = (ra / 100) * (size - 1), b = (rb / 100) * (size - 1);
+                const pixels = new Array<number>(size * size);
+                for (let y = 0; y < size; ++y) {
+                    for (let x = 0; x < size; ++x) {
+                        pixels[x + size * y] = Math.round(20 * (1
+                            - ((x - center) / a) ** 2 - ((y - center) / b) ** 2));
+                    }
+                }
+                return pixels;
+            });
+
+    it('full-resolution extraction reproduces marching squares', () => {
+        // depth >= N prevents every merge, so each rectangle is a single
+        // image cell and the result must be the marching-squares segments.
+        const N = 3;
+        const size = (1 << N) + 1;
+        check(smoothImage(N), pixels => {
+            const level = 0.5;
+            const reference = marchingSquares(pixels, size, level);
+            if (reference.ambiguous > 0) { return; }
+            const asc = new AdaptiveSkeletonClimbing2(N, pixels);
+            const { vertices, edges } = asc.extract(level, N);
+            expect(segmentKeys(vertices, edges)).toEqual(reference.segments);
+            // Every extracted edge has two distinct endpoints.
+            for (const [v0, v1] of edges) {
+                expect(v0).not.toBe(v1);
+            }
+        }, 80);
+    });
+
+    it('every vertex sits on a grid edge at the extraction level', () => {
+        const N = 4;
+        const size = (1 << N) + 1;
+        check(fc.tuple(smoothImage(N), fc.constantFrom(-1, 0, 1, 2, N)),
+            ([pixels, depth]) => {
+                const asc = new AdaptiveSkeletonClimbing2(N, pixels);
+                const { vertices } = asc.extract(0.5, depth);
+                checkVerticesOnLevelSet(pixels, size, 0.5, vertices);
+            }, 60);
+    });
+
+    it('adaptive vertices are a subset of the full-resolution crossings', () => {
+        // Merging only removes crossings from the output; it never invents a
+        // point that is not a zero crossing of a grid edge.
+        const N = 4;
+        const size = (1 << N) + 1;
+        const key = (v: readonly number[]) => `${v[0].toFixed(9)},${v[1].toFixed(9)}`;
+        check(smoothImage(N), pixels => {
+            const reference = marchingSquares(pixels, size, 0.5);
+            if (reference.ambiguous > 0) { return; }
+            const asc = new AdaptiveSkeletonClimbing2(N, pixels);
+            const adaptive = asc.extract(0.5, -1);
+            for (const vertex of adaptive.vertices) {
+                expect(reference.crossings.has(key(vertex)),
+                    `vertex ${key(vertex)}`).toBe(true);
+            }
+            // The adaptive extraction never produces more segments than the
+            // full-resolution one.
+            const full = asc.extract(0.5, N);
+            expect(adaptive.edges.length).toBeLessThanOrEqual(full.edges.length);
+        }, 60);
+    });
+
+    it('a level outside the image range extracts nothing', () => {
+        const N = 3;
+        check(fc.tuple(smoothImage(N), fc.constantFrom(-1, 0, N)), ([pixels, depth]) => {
+            const asc = new AdaptiveSkeletonClimbing2(N, pixels);
+            const above = Math.max(...pixels) + 0.5;
+            const below = Math.min(...pixels) - 0.5;
+            for (const level of [above, below]) {
+                const { vertices, edges } = asc.extract(level, depth);
+                expect(vertices).toEqual([]);
+                expect(edges).toEqual([]);
+            }
+        }, 60);
+    });
+
+    it('closed level curves have even vertex degree after makeUnique', () => {
+        const N = 4;
+        check(fc.tuple(ellipseImage(N), fc.constantFrom(-1, 0, 1, N)),
+            ([pixels, depth]) => {
+                const asc = new AdaptiveSkeletonClimbing2(N, pixels);
+                const { vertices, edges } = asc.extract(0.5, depth);
+                asc.makeUnique(vertices, edges);
+                expect(vertices.length).toBeGreaterThan(0);
+                const degree = new Array<number>(vertices.length).fill(0);
+                for (const [v0, v1] of edges) {
+                    ++degree[v0];
+                    ++degree[v1];
+                }
+                for (let i = 0; i < vertices.length; ++i) {
+                    expect(degree[i] % 2, `vertex ${i}`).toBe(0);
+                    expect(degree[i]).toBeGreaterThan(0);
+                }
+            }, 60);
+    });
+
+    it('makeUnique preserves the segment geometry and packs first-encounter order', () => {
+        const N = 3;
+        check(fc.tuple(smoothImage(N), fc.constantFrom(-1, 0, N)), ([pixels, depth]) => {
+            const asc = new AdaptiveSkeletonClimbing2(N, pixels);
+            const { vertices, edges } = asc.extract(0.5, depth);
+            if (edges.length === 0) { return; }
+            const before = segmentKeys(vertices, edges);
+            const key = (v: readonly number[]) => `${v[0].toFixed(9)},${v[1].toFixed(9)}`;
+
+            // Independent expectation: distinct vertices in first-encounter
+            // order (upstream packs by the std::map insertion index).
+            const seen: string[] = [];
+            const seenSet = new Set<string>();
+            for (const vertex of vertices) {
+                if (!seenSet.has(key(vertex))) {
+                    seenSet.add(key(vertex));
+                    seen.push(key(vertex));
+                }
+            }
+
+            const original = vertices.map(v => [v[0], v[1]] as [number, number]);
+            asc.makeUnique(vertices, edges);
+            expect(vertices.map(key)).toEqual(seen);
+            // Edges are unique and index the packed vertices.
+            const asStrings = edges.map(e => `${e[0]}_${e[1]}`);
+            expect(new Set(asStrings).size).toBe(asStrings.length);
+            for (const [v0, v1] of edges) {
+                expect(v0).toBeGreaterThanOrEqual(0);
+                expect(v0).toBeLessThan(vertices.length);
+                expect(v1).toBeGreaterThanOrEqual(0);
+                expect(v1).toBeLessThan(vertices.length);
+            }
+            // The undirected segment set is unchanged apart from duplicates.
+            expect(new Set(segmentKeys(vertices, edges)))
+                .toEqual(new Set(before));
+            // Every original vertex is still present.
+            for (const vertex of original) {
+                expect(seenSet.has(key(vertex))).toBe(true);
+            }
+        }, 60);
+    });
+
+    it('rejects a nonpositive N (upstream #52: the comment says N >= 0)', () => {
+        check(fc.integer({ min: -4, max: 0 }), N => {
+            const size = (1 << Math.max(N, 0)) + 1;
+            const pixels = new Array<number>(size * size).fill(0);
+            expect(() => new AdaptiveSkeletonClimbing2(N, pixels))
+                .toThrow('Invalid input.');
+        });
+    });
+
+    it('is idempotent across repeated extractions with the same arguments', () => {
+        // The merge trees are rebuilt by every SetLevel call, so a second
+        // extraction must not see stale state from the first.
+        const N = 4;
+        check(fc.tuple(smoothImage(N), fc.constantFrom(-1, 0, 1, N)),
+            ([pixels, depth]) => {
+                const asc = new AdaptiveSkeletonClimbing2(N, pixels);
+                const first = asc.extract(0.5, depth);
+                asc.extract(1.5, -1);
+                asc.extract(-2.5, N);
+                const second = asc.extract(0.5, depth);
+                expect(segmentKeys(second.vertices, second.edges))
+                    .toEqual(segmentKeys(first.vertices, first.edges));
+            }, 60);
     });
 });

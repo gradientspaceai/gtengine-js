@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { MarchingCubes } from '../src/MarchingCubes.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 describe('MarchingCubes', () => {
     const mc = new MarchingCubes();
@@ -159,4 +160,245 @@ describe('MarchingCubes', () => {
                 .toBe(key(tc.vpair, tc.numVertices));
         }
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V24): properties cross-checking the port against the
+// upstream MarchingCubes.h lookup table.
+// ---------------------------------------------------------------------------
+
+// Extract a level surface from a sampled scalar field with the port's table,
+// welding vertices by the grid edge they lie on. The bit assignment is the
+// upstream one: bit i of the entry is set when the corner (x + (i & 1),
+// y + ((i >> 1) & 1), z + ((i >> 2) & 1)) has a negative value.
+function extractSurface(mc: MarchingCubes, n: number, f: Float64Array) {
+    const index = (x: number, y: number, z: number) => x + n * (y + n * z);
+    const vmap = new Map<string, number>();
+    const vertices: [number, number, number][] = [];
+    const triangles: [number, number, number][] = [];
+
+    for (let z = 0; z + 1 < n; ++z) {
+        for (let y = 0; y + 1 < n; ++y) {
+            for (let x = 0; x + 1 < n; ++x) {
+                const corner = (i: number): [number, number, number] =>
+                    [x + (i & 1), y + ((i >> 1) & 1), z + ((i >> 2) & 1)];
+                let entry = 0;
+                for (let i = 0; i < 8; ++i) {
+                    const c = corner(i);
+                    if (f[index(c[0], c[1], c[2])] < 0) {
+                        entry |= (1 << i);
+                    }
+                }
+                const topology = mc.getTable(entry);
+                const local: number[] = [];
+                for (let i = 0; i < topology.numVertices; ++i) {
+                    const [a, b] = topology.vpair[i];
+                    const ca = corner(a), cb = corner(b);
+                    const ia = index(ca[0], ca[1], ca[2]);
+                    const ib = index(cb[0], cb[1], cb[2]);
+                    const key = ia < ib ? `${ia}_${ib}` : `${ib}_${ia}`;
+                    let vi = vmap.get(key);
+                    if (vi === undefined) {
+                        const t = f[ia] / (f[ia] - f[ib]);
+                        vi = vertices.length;
+                        vertices.push([
+                            ca[0] + t * (cb[0] - ca[0]),
+                            ca[1] + t * (cb[1] - ca[1]),
+                            ca[2] + t * (cb[2] - ca[2])]);
+                        vmap.set(key, vi);
+                    }
+                    local.push(vi);
+                }
+                for (let i = 0; i < topology.numTriangles; ++i) {
+                    const [p, q, r] = topology.itriple[i];
+                    triangles.push([local[p], local[q], local[r]]);
+                }
+            }
+        }
+    }
+    return { vertices, triangles };
+}
+
+// Edge bookkeeping for a triangle soup: a closed oriented manifold uses each
+// directed edge exactly once and each undirected edge exactly twice.
+function edgeCounts(triangles: readonly [number, number, number][]) {
+    const directed = new Map<string, number>();
+    const undirected = new Map<string, number>();
+    for (const [a, b, c] of triangles) {
+        for (const [u, v] of [[a, b], [b, c], [c, a]] as [number, number][]) {
+            directed.set(`${u}_${v}`, (directed.get(`${u}_${v}`) ?? 0) + 1);
+            const key = u < v ? `${u}_${v}` : `${v}_${u}`;
+            undirected.set(key, (undirected.get(key) ?? 0) + 1);
+        }
+    }
+    return {
+        directed, undirected,
+        repeatedDirected: [...directed.values()].filter(v => v !== 1).length,
+        nonManifold: [...undirected.values()].filter(v => v !== 2).length
+    };
+}
+
+function signedVolume(vertices: readonly [number, number, number][],
+    triangles: readonly [number, number, number][]): number {
+    let volume = 0;
+    for (const [a, b, c] of triangles) {
+        const p = vertices[a], q = vertices[b], r = vertices[c];
+        volume += (p[0] * (q[1] * r[2] - q[2] * r[1])
+            - p[1] * (q[0] * r[2] - q[2] * r[0])
+            + p[2] * (q[0] * r[1] - q[1] * r[0])) / 6;
+    }
+    return volume;
+}
+
+describe('MarchingCubes verification', () => {
+    const mc = new MarchingCubes();
+
+    it('lists exactly the sign-changing voxel edges, once each', () => {
+        // The vertex pairs of an entry must be the complete set of the 12
+        // voxel edges whose two corner signs differ -- no missing edge and
+        // no duplicate. This pins every row of the configuration table and
+        // every Bits* generator against the sign pattern it belongs to.
+        for (let entry = 0; entry < 256; ++entry) {
+            const expected: string[] = [];
+            for (let a = 0; a < 8; ++a) {
+                for (const bit of [1, 2, 4]) {
+                    const b = a ^ bit;
+                    if (b > a && ((entry >> a) & 1) !== ((entry >> b) & 1)) {
+                        expected.push(`${a},${b}`);
+                    }
+                }
+            }
+            const topology = mc.getTable(entry);
+            const got: string[] = [];
+            for (let i = 0; i < topology.numVertices; ++i) {
+                got.push(`${topology.vpair[i][0]},${topology.vpair[i][1]}`);
+            }
+            expect(got.sort(), `entry ${entry}`).toEqual(expected.sort());
+        }
+    });
+
+    it('gives every configuration a manifold triangle patch', () => {
+        // Within one voxel no directed edge may repeat (consistent winding)
+        // and no undirected edge may be shared by more than two triangles.
+        for (let entry = 0; entry < 256; ++entry) {
+            const topology = mc.getTable(entry);
+            const triangles = topology.itriple.slice(0, topology.numTriangles)
+                .map(t => [t[0], t[1], t[2]] as [number, number, number]);
+            const counts = edgeCounts(triangles);
+            expect(counts.repeatedDirected, `entry ${entry}`).toBe(0);
+            expect([...counts.undirected.values()].every(v => v <= 2),
+                `entry ${entry}`).toBe(true);
+            // Every vertex of the entry is used by at least one triangle.
+            const used = new Set<number>();
+            for (const [a, b, c] of triangles) { used.add(a); used.add(b); used.add(c); }
+            expect(used.size, `entry ${entry}`).toBe(topology.numVertices);
+        }
+    });
+
+    it('closes each patch on the voxel faces', () => {
+        // A boundary edge of the patch (one used by a single triangle) must
+        // join two surface vertices that lie on voxel edges of a common
+        // voxel face. That is what lets the patches of adjacent voxels meet,
+        // and it fails immediately if a triangle triple indexes the wrong
+        // vertex pair.
+        const inFace = (edge: readonly number[], axis: number, side: number) =>
+            edge.every(c => ((c >> axis) & 1) === side);
+        for (let entry = 0; entry < 256; ++entry) {
+            const topology = mc.getTable(entry);
+            const triangles = topology.itriple.slice(0, topology.numTriangles)
+                .map(t => [t[0], t[1], t[2]] as [number, number, number]);
+            const counts = edgeCounts(triangles);
+            for (const [key, count] of counts.undirected) {
+                if (count !== 1) { continue; }
+                const [u, v] = key.split('_').map(Number);
+                const e0 = topology.vpair[u], e1 = topology.vpair[v];
+                let onFace = false;
+                for (let axis = 0; axis < 3 && !onFace; ++axis) {
+                    for (const side of [0, 1]) {
+                        if (inFace(e0, axis, side) && inFace(e1, axis, side)) {
+                            onFace = true;
+                            break;
+                        }
+                    }
+                }
+                expect(onFace, `entry ${entry} boundary edge ${key}`).toBe(true);
+            }
+        }
+    });
+
+    it('extracts a closed, inward-oriented sphere with Euler characteristic 2', () => {
+        const n = 12;
+        const center = (n - 1) / 2;
+        const radius = 4.3;
+        const f = new Float64Array(n * n * n);
+        for (let z = 0; z < n; ++z) {
+            for (let y = 0; y < n; ++y) {
+                for (let x = 0; x < n; ++x) {
+                    f[x + n * (y + n * z)] = (x - center) ** 2 + (y - center) ** 2
+                        + (z - center) ** 2 - radius * radius;
+                }
+            }
+        }
+        // The table assumes no sample is zero.
+        for (const value of f) { expect(value).not.toBe(0); }
+
+        const { vertices, triangles } = extractSurface(mc, n, f);
+        const counts = edgeCounts(triangles);
+        expect(counts.repeatedDirected).toBe(0);
+        expect(counts.nonManifold).toBe(0);
+        expect(vertices.length - counts.undirected.size + triangles.length).toBe(2);
+
+        // Upstream orients triangles counterclockwise as seen from the
+        // negative side, that is with normals pointing into the sphere, so
+        // the divergence-theorem volume is negative.
+        const volume = signedVolume(vertices, triangles);
+        expect(volume).toBeLessThan(0);
+        const exact = (4 / 3) * Math.PI * radius ** 3;
+        // Marching cubes on a quadratic field under-resolves the sphere; the
+        // relative error at this resolution is a few percent.
+        expect(Math.abs(-volume - exact) / exact).toBeLessThan(0.06);
+    });
+
+    it('extracts closed oriented surfaces from random two-sphere fields', () => {
+        // Two overlapping or disjoint balls produce saddle configurations
+        // that exercise the ambiguous-face entries of the table.
+        const coordinate = fc.integer({ min: 30, max: 70 }).map(v => v / 10);
+        check(fc.tuple(coordinate, coordinate, coordinate,
+            coordinate, coordinate, coordinate,
+            fc.integer({ min: 15, max: 30 }), fc.integer({ min: 15, max: 30 })),
+            ([ax, ay, az, bx, by, bz, ra, rb]) => {
+                const n = 12;
+                const radiusA = ra / 10, radiusB = rb / 10;
+                const f = new Float64Array(n * n * n);
+                for (let z = 0; z < n; ++z) {
+                    for (let y = 0; y < n; ++y) {
+                        for (let x = 0; x < n; ++x) {
+                            const da = (x - ax) ** 2 + (y - ay) ** 2 + (z - az) ** 2
+                                - radiusA * radiusA;
+                            const db = (x - bx) ** 2 + (y - by) ** 2 + (z - bz) ** 2
+                                - radiusB * radiusB;
+                            // The offset keeps the level surface off the
+                            // lattice; a sample that still lands on zero
+                            // violates the table's precondition and the
+                            // draw is skipped below.
+                            f[x + n * (y + n * z)] = Math.min(da, db) + 1 / 3;
+                        }
+                    }
+                }
+                if (f.some(value => value === 0)) { return; }
+
+                const { vertices, triangles } = extractSurface(mc, n, f);
+                if (triangles.length === 0) { return; }
+                const counts = edgeCounts(triangles);
+                // Closed (no boundary edge) and consistently oriented.
+                expect(counts.repeatedDirected).toBe(0);
+                expect(counts.nonManifold).toBe(0);
+                const euler = vertices.length - counts.undirected.size + triangles.length;
+                expect(euler % 2).toBe(0);
+                expect(euler).toBeGreaterThan(0);
+                expect(signedVolume(vertices, triangles)).toBeLessThan(0);
+            }, 40);
+    });
+
+
 });
