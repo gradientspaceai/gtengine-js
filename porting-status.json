@@ -429,10 +429,12 @@
   "status": "ported"
  },
  "CurvatureFlow2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 25
  },
  "CurvatureFlow3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 25
  },
  "CurveExtractor.h": {
   "status": "ported",
@@ -848,10 +850,12 @@
   "verified": 24
  },
  "FastMarch2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 25
  },
  "FastMarch3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 25
  },
  "FeatureKey.h": {
   "status": "ported"
@@ -876,10 +880,12 @@
   "verified": 15
  },
  "GaussianBlur2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 25
  },
  "GaussianBlur3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 25
  },
  "GaussianElimination.h": {
   "status": "ported"
@@ -895,10 +901,12 @@
   "verified": 1
  },
  "GradientAnisotropic2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 25
  },
  "GradientAnisotropic3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 25
  },
  "GVector.h": {
   "status": "ported",
@@ -964,7 +972,8 @@
   "verified": 24
  },
  "Image3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 25
  },
  "ImageUtility2.h": {
   "status": "ported"
@@ -1627,13 +1636,16 @@
   "verified": 24
  },
  "PdeFilter1.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 25
  },
  "PdeFilter2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 25
  },
  "PdeFilter3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 25
  },
  "PlanarMesh.h": {
   "status": "ported"
@@ -1840,7 +1852,8 @@
   "notes": "C++ narrow/wide string conversions, not applicable in TS"
  },
  "SurfaceExtractor.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 25
  },
  "SurfaceExtractorCubes.h": {
   "status": "ported"
@@ -1873,7 +1886,8 @@
   "verified": 17
  },
  "TetrahedraRasterizer.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 25
  },
  "Tetrahedron3.h": {
   "status": "ported"
