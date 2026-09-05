@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { IntpAkima1, IntpAkima1Polynomial } from '../src/IntpAkima1.js';
+import { check, expectClose, fc, finite, scaled, wellScaled } from './helpers/arbitraries.js';
 
 // Minimal concrete subclass on the uniform lattice x = 0, 1, ..., q-1 whose
 // segment polynomials are Hermite cubics built from prescribed derivatives.
@@ -143,5 +144,139 @@ describe('IntpAkima1', () => {
         it('respects the window offset', () => {
             expect(interp.derivative([99, 42, 1, 2, 4, 8, 77], 2)).toBeCloseTo(2.4, 14);
         });
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V28): property-based cross-checks against IntpAkima1.h.
+// ---------------------------------------------------------------------------
+describe('IntpAkima1 verification', () => {
+    // computeDerivative is the Akima slope estimator; the concrete uniform and
+    // nonuniform subclasses feed it a sliding window of four slopes.
+    const cd = (s: number[]): number => {
+        const t = new TestInterp([0, 1, 2], [0, 0, 0]);
+        return t.derivative(s, 0);
+    };
+    // wellScaled snaps |x| < 1e-3 to exactly zero, so no slope is subnormal;
+    // a subnormal would underflow when multiplied by the power-of-two scale
+    // below and break the exact-scaling argument.
+    const slopes = () => fc.array(wellScaled(-6, 6), { minLength: 4, maxLength: 4 });
+    // +/- 2^m, so multiplying a double by it is exact.
+    const signedPowerOfTwo = () =>
+        fc.tuple(fc.integer({ min: -4, max: 4 }), fc.boolean())
+            .map(([m, neg]) => (neg ? -1 : 1) * Math.pow(2, m));
+
+    it('always returns a value between the two middle slopes', () => {
+        // This is the property that makes the Akima spline overshoot-free:
+        // the estimate is a convex combination of slope[1] and slope[2] in the
+        // generic branch and one of them (or their midpoint) otherwise.
+        check(slopes(), s => {
+            const d = cd(s);
+            const lo = Math.min(s[1], s[2]);
+            const hi = Math.max(s[1], s[2]);
+            expect(d).toBeGreaterThanOrEqual(lo - 1e-12 * (1 + Math.abs(lo)));
+            expect(d).toBeLessThanOrEqual(hi + 1e-12 * (1 + Math.abs(hi)));
+        });
+    });
+
+    it('reproduces the common slope of linear data exactly', () => {
+        check(finite(-6, 6), m => {
+            expect(cd([m, m, m, m])).toBe(m);
+        });
+    });
+
+    it('is invariant under reversal of the slope window', () => {
+        // Reversing the sample order negates the abscissa and the ordinate
+        // slopes together, so the estimate must be unchanged. Every branch of
+        // upstream's decision tree maps onto its mirror image.
+        check(slopes(), s => {
+            expect(cd(s)).toBe(cd([s[3], s[2], s[1], s[0]]));
+        });
+    });
+
+    it('is homogeneous of degree one in the slopes', () => {
+        // The scale is a signed power of two so that k*slope, the differences
+        // |s3-s2| and |s0-s1| and their quotient all scale exactly. With a
+        // general k the weights are formed from differences of nearly equal
+        // slopes, and that cancellation makes the ratio -- though not the
+        // result's enclosure between s1 and s2 -- arbitrarily ill-conditioned.
+        check(fc.tuple(slopes(), signedPowerOfTwo()), ([s, k]) => {
+            // '+ 0' normalizes -0 to 0; toBe uses Object.is, which separates
+            // them, and a zero slope makes the two sides differ only in sign
+            // of zero.
+            expect(cd(s.map(si => si * k)) + 0).toBe(k * cd(s) + 0);
+        });
+    });
+
+    it('is exact when only one side has curvature', () => {
+        // slope[0] == slope[1] != slope[2] == slope[3] is the "corner" case;
+        // upstream averages the two middle slopes there.
+        check(fc.tuple(finite(-5, 5), finite(-5, 5)), ([a, b]) => {
+            expectClose(cd([a, a, b, b]), 0.5 * (a + b), 1e-15, 1e-15);
+            // One-sided flatness picks the slope on the flat side's far end.
+            if (a !== b) {
+                expect(cd([a, a, b, 2 * b - a])).toBe(a);
+                expect(cd([2 * a - b, a, b, b])).toBe(b);
+            }
+        });
+    });
+
+    it('clamps the query to [xMin, xMax] before evaluating', () => {
+        check(fc.tuple(fc.array(finite(-5, 5), { minLength: 5, maxLength: 5 }),
+            fc.array(finite(-3, 3), { minLength: 5, maxLength: 5 }),
+            finite(-40, 40)), ([F, FD, x]) => {
+            const t = new TestInterp(F, FD);
+            const clamped = Math.min(Math.max(x, t.getXMin()), t.getXMax());
+            expect(t.evaluate(x)).toBe(t.evaluate(clamped));
+            for (let order = 0; order <= 3; ++order) {
+                expect(t.evaluate(order, x)).toBe(t.evaluate(order, clamped));
+            }
+        });
+    });
+
+    it('interpolates the data and slopes it was built from', () => {
+        check(fc.tuple(fc.array(finite(-5, 5), { minLength: 5, maxLength: 5 }),
+            fc.array(finite(-3, 3), { minLength: 5, maxLength: 5 })), ([F, FD]) => {
+            const t = new TestInterp(F, FD);
+            for (let i = 0; i < F.length; ++i) {
+                expectClose(t.evaluate(i), F[i], 1e-12, 1e-12);
+                expectClose(t.evaluate(1, i), FD[i], 1e-11, 1e-11);
+            }
+        });
+    });
+
+    it('reports the first derivative consistently with a central difference', () => {
+        const h = 1e-5;
+        check(fc.tuple(fc.array(wellScaled(-5, 5), { minLength: 5, maxLength: 5 }),
+            fc.array(wellScaled(-3, 3), { minLength: 5, maxLength: 5 }),
+            scaled(0.05, 3.95)), ([F, FD, x]) => {
+            const t = new TestInterp(F, FD);
+            const fd = (t.evaluate(0, x + h) - t.evaluate(0, x - h)) / (2 * h);
+            // Central differences are exact for cubics up to the h^2/6 * P'''
+            // term (P''' <= ~160 here) plus roundoff O(eps * |P| / h) ~ 1e-10.
+            // scaled() draws x from a 4096-point lattice whose step is 9.5e-4,
+            // so x is never within h = 1e-5 of a knot and both offsets lie in
+            // the same cell.
+            expectClose(t.evaluate(1, x), fd, 1e-4, 1e-6);
+        });
+    });
+
+    it('polynomial evaluate(order, x) differentiates the cubic exactly', () => {
+        check(fc.tuple(fc.array(finite(-5, 5), { minLength: 4, maxLength: 4 }),
+            scaled(-2, 2)), ([c, x]) => {
+            const p = new IntpAkima1Polynomial();
+            for (let i = 0; i < 4; ++i) { p.setCoeff(i, c[i]); }
+            expect(p.evaluate(0, x)).toBe(p.evaluate(x));
+            expectClose(p.evaluate(1, x), c[1] + 2 * c[2] * x + 3 * c[3] * x * x,
+                1e-12, 1e-13);
+            expectClose(p.evaluate(2, x), 2 * c[2] + 6 * c[3] * x, 1e-12, 1e-13);
+            expect(p.evaluate(3, x)).toBe(6 * c[3]);
+            expect(p.evaluate(4, x)).toBe(0);
+        });
+    });
+
+    it('rejects fewer than three samples', () => {
+        expect(() => new TestInterp([1, 2], [0, 0])).toThrow();
+        expect(() => new TestInterp([1], [0])).toThrow();
     });
 });
