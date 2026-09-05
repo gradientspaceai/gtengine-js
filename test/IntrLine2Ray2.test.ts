@@ -161,3 +161,145 @@ describe('IntrLine2Ray2', () => {
         }
     });
 });
+
+// ---------------------------------------------------------------------------
+// Verification (V31): property-based checks against the upstream header.
+// ---------------------------------------------------------------------------
+import {
+    check, fc, latticeVector, unitVector, wellScaledVector,
+    expectVectorClose
+} from './helpers/arbitraries.js';
+import { IntrLine2Line2FI } from '../src/IntrLine2Line2.js';
+import { dotPerp } from '../src/Vector2.js';
+
+const INT32_MAX_V = 2147483647;
+
+// A line and a ray whose directions are transverse with a comfortable margin,
+// so the line-line intersection parameter is well conditioned (|t| is bounded
+// by roughly |origin difference| / 0.1).
+const transverseLineRay = fc.tuple(wellScaledVector(2), unitVector(2),
+    wellScaledVector(2), unitVector(2))
+    .filter(([, d0, , d1]) => Math.abs(dotPerp(d0, d1)) > 0.1)
+    .map(([o0, d0, o1, d1]) => ({
+        line: Line.fromOriginDirection(o0, d0),
+        ray: Ray.fromOriginDirection(o1, d1)
+    }));
+
+describe('IntrLine2Ray2 verification', () => {
+    const tiq = new IntrLine2Ray2TI();
+    const fiq = new IntrLine2Ray2FI();
+    const llq = new IntrLine2Line2FI();
+
+    it('TI and FI agree on intersect and numIntersections', () => {
+        check(fc.tuple(wellScaledVector(2), unitVector(2),
+            wellScaledVector(2), unitVector(2)), ([o0, d0, o1, d1]) => {
+            const l = Line.fromOriginDirection(o0, d0);
+            const r = Ray.fromOriginDirection(o1, d1);
+            const t = tiq.test(l, r);
+            const f = fiq.find(l, r);
+            expect(t.intersect).toBe(f.intersect);
+            expect(t.numIntersections).toBe(f.numIntersections);
+        });
+    });
+
+    it('a single-point hit lies on the line and on the ray', () => {
+        check(transverseLineRay, ({ line: l, ray: r }) => {
+            const f = fiq.find(l, r);
+            if (f.numIntersections !== 1) {
+                return;
+            }
+            // Upstream duplicates the single parameter into both entries.
+            expect(f.lineParameter[0]).toBe(f.lineParameter[1]);
+            expect(f.rayParameter[0]).toBe(f.rayParameter[1]);
+            expect(f.rayParameter[0]).toBeGreaterThanOrEqual(0);
+            expectVectorClose(f.point,
+                add(l.origin, mul(f.lineParameter[0], l.direction)), 0, 0);
+            expectVectorClose(f.point,
+                add(r.origin, mul(f.rayParameter[0], r.direction)),
+                1e-9, 1e-12);
+            for (const x of f.point.values) {
+                expect(Number.isNaN(x)).toBe(false);
+            }
+        });
+    });
+
+    it('a ray hit is exactly a line-line hit with parameter >= 0', () => {
+        check(transverseLineRay, ({ line: l, ray: r }) => {
+            const f = fiq.find(l, r);
+            const ll = llq.find(l,
+                Line.fromOriginDirection(r.origin, r.direction));
+            expect(ll.numIntersections).toBe(1);
+            const onRay = ll.line1Parameter[0] >= 0;
+            expect(f.intersect).toBe(onRay);
+            if (onRay) {
+                expect(f.lineParameter[0]).toBe(ll.line0Parameter[0]);
+                expect(f.rayParameter[0]).toBe(ll.line1Parameter[0]);
+            } else {
+                // The "no intersection" result keeps the default fields.
+                expect(f.numIntersections).toBe(0);
+                expect(f.lineParameter).toEqual([0, 0]);
+                expect(f.rayParameter).toEqual([0, 0]);
+            }
+        });
+    });
+
+    it('a ray fired at a sampled line point always hits', () => {
+        check(fc.tuple(wellScaledVector(2), unitVector(2), unitVector(2),
+            fc.double({ min: -5, max: 5, noNaN: true }),
+            fc.double({ min: 0.5, max: 5, noNaN: true })),
+            ([o, d, u, t, s]) => {
+                const l = Line.fromOriginDirection(o, d);
+                const target = add(o, mul(t, d));
+                // The ray starts away from the target and points at it.
+                const r = Ray.fromOriginDirection(sub(target, mul(s, u)), u);
+                if (Math.abs(dotPerp(d, u)) <= 0.1) {
+                    return;   // near-parallel; the hit is ill conditioned
+                }
+                const f = fiq.find(l, r);
+                expect(f.intersect).toBe(true);
+                expect(f.numIntersections).toBe(1);
+                expect(f.rayParameter[0]).toBeGreaterThanOrEqual(0);
+                expectVectorClose(f.point, target, 1e-9, 1e-12);
+            });
+    });
+
+    it('a ray on the line is collinear with the documented parameters', () => {
+        // Integer coordinates keep 'o + t*d' exact, so the collinearity test
+        // DotPerp(Q, D) == 0 of IntrLine2Line2 is exact as well; with
+        // floating-point origins the shifted ray origin is only nearly on the
+        // line and upstream (correctly) classifies it as parallel-distinct.
+        check(fc.tuple(latticeVector(2), latticeVector(2),
+            fc.integer({ min: -5, max: 5 }), fc.boolean())
+            .filter(([, d]) => d.values[0] !== 0 || d.values[1] !== 0),
+            ([o, d, t, flip]) => {
+                const l = Line.fromOriginDirection(o, d);
+                const dir = flip ? mul(-1, d) : d;
+                const r = Ray.fromOriginDirection(add(o, mul(t, d)), dir);
+                const f = fiq.find(l, r);
+                const q = tiq.test(l, r);
+                expect(f.intersect).toBe(true);
+                expect(f.numIntersections).toBe(INT32_MAX_V);
+                expect(q.numIntersections).toBe(INT32_MAX_V);
+                expect(f.lineParameter).toEqual([-Number.MAX_VALUE,
+                    Number.MAX_VALUE]);
+                expect(f.rayParameter).toEqual([0, Number.MAX_VALUE]);
+                // point is not filled in the collinear case.
+                expect(f.point.values).toEqual([0, 0]);
+            });
+    });
+
+    it('a ray parallel to but off the line never intersects', () => {
+        check(fc.tuple(wellScaledVector(2), unitVector(2),
+            fc.double({ min: 0.5, max: 5, noNaN: true }), fc.boolean()),
+            ([o, d, offset, flip]) => {
+                const l = Line.fromOriginDirection(o, d);
+                const n = Vector.fromArray([-d.values[1], d.values[0]]);
+                const dir = flip ? mul(-1, d) : d;
+                const r = Ray.fromOriginDirection(add(o, mul(offset, n)), dir);
+                const f = fiq.find(l, r);
+                expect(f.intersect).toBe(false);
+                expect(f.numIntersections).toBe(0);
+                expect(tiq.test(l, r).intersect).toBe(false);
+            });
+    });
+});

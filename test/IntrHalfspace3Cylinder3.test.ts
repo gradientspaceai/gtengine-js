@@ -149,3 +149,132 @@ describe('IntrHalfspace3Cylinder3', () => {
             .toThrow();
     });
 });
+
+// ---------------------------------------------------------------------------
+// Verification (V31): property-based checks against the upstream header.
+// ---------------------------------------------------------------------------
+import {
+    check, fc, rotationFrame, unitVector, wellScaledVector, seededRandom
+} from './helpers/arbitraries.js';
+import { sub, length as vlength } from '../src/Vector.js';
+
+const halfspaceV31 = fc.tuple(unitVector(3),
+    fc.double({ min: -5, max: 5, noNaN: true }))
+    .map(([n, c]) => Halfspace.fromNormalConstant(n, c));
+
+const cylinderV31 = fc.tuple(wellScaledVector(3, -4, 4), unitVector(3),
+    fc.double({ min: 0.1, max: 2, noNaN: true }),
+    fc.double({ min: 0.2, max: 5, noNaN: true }))
+    .map(([o, w, r, h]) => Cylinder3.fromAxisRadiusHeight(
+        Line.fromOriginDirection(o, w), r, h));
+
+// The signed distance of the farthest cylinder point along the halfspace
+// normal, computed from the geometry rather than from the query's algebra.
+function supportSigned(h: Halfspace, c: Cylinder3): number {
+    const ndw = dot(h.normal, c.axis.direction);
+    const radial = Math.sqrt(Math.max(0, 1 - ndw * ndw));
+    return dot(h.normal, c.axis.origin) - h.constant
+        + c.radius * radial + 0.5 * c.height * Math.abs(ndw);
+}
+
+describe('IntrHalfspace3Cylinder3 verification', () => {
+    const tiq = new IntrHalfspace3Cylinder3TI();
+
+    it('equals the geometric support-point test', () => {
+        check(fc.tuple(halfspaceV31, cylinderV31), ([h, c]) => {
+            expect(tiq.test(h, c).intersect).toBe(supportSigned(h, c) >= 0);
+        });
+    });
+
+    it('agrees with a dense sampling of the cylinder', () => {
+        const rnd = seededRandom(0x30f7b1a2);
+        for (let trial = 0; trial < 150; ++trial) {
+            const n = Vector.fromArray([rnd() * 2 - 1, rnd() * 2 - 1,
+                rnd() * 2 - 1]);
+            if (vlength(n) < 0.3) {
+                continue;
+            }
+            normalize(n);
+            const h = Halfspace.fromNormalConstant(n, rnd() * 6 - 3);
+            const w = Vector.fromArray([rnd() * 2 - 1, rnd() * 2 - 1,
+                rnd() * 2 - 1]);
+            if (vlength(w) < 0.3) {
+                continue;
+            }
+            normalize(w);
+            const c = Cylinder3.fromAxisRadiusHeight(
+                Line.fromOriginDirection(Vector.fromArray([rnd() * 6 - 3,
+                    rnd() * 6 - 3, rnd() * 6 - 3]), w),
+                0.2 + rnd() * 1.2, 0.5 + rnd() * 3);
+            const basis = [w.clone(), new Vector(3), new Vector(3)];
+            computeOrthogonalComplement3(1, basis);
+            const half = 0.5 * c.height;
+            let maxSigned = -Infinity;
+            for (let i = 0; i <= 20; ++i) {
+                const z = -half + (2 * half * i) / 20;
+                for (let k = 0; k < 90; ++k) {
+                    const a = (2 * Math.PI * k) / 90;
+                    const p = add(c.axis.origin, add(mul(z, basis[0]),
+                        add(mul(c.radius * Math.cos(a), basis[1]),
+                            mul(c.radius * Math.sin(a), basis[2]))));
+                    maxSigned = Math.max(maxSigned,
+                        dot(h.normal, p) - h.constant);
+                }
+            }
+            const got = tiq.test(h, c).intersect;
+            if (maxSigned >= 0) {
+                expect(got).toBe(true);
+            }
+            if (maxSigned < -0.2) {
+                expect(got).toBe(false);
+            }
+        }
+    }, 30000);
+
+    it('the fixed clamp matters: an axis-aligned normal uses radial 0', () => {
+        // Regression for the upstream 'std::max((T)1, 1 - absNdW^2)' typo.
+        // With N == W the true radial term is sqrt(1 - 1) = 0, so the support
+        // point is at distance h/2 above the axis origin. Placing the plane
+        // between h/2 and h/2 + r separates them; the upstream expression
+        // (which always yields root = 1) would report an intersection.
+        const w = Vector.fromArray([0, 0, 1]);
+        const c = Cylinder3.fromAxisRadiusHeight(
+            Line.fromOriginDirection(Vector.fromArray([0, 0, 0]), w), 3, 2);
+        // Support along +z is z = 1; the upstream typo would give 1 + 3 = 4.
+        const h = Halfspace.fromNormalConstant(w, 2.5);
+        expect(supportSigned(h, c)).toBeLessThan(0);
+        expect(tiq.test(h, c).intersect).toBe(false);
+        // Just below the true support the query must report an intersection.
+        expect(tiq.test(Halfspace.fromNormalConstant(w, 0.9), c).intersect)
+            .toBe(true);
+    });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(halfspaceV31, cylinderV31, rotationFrame(3),
+            wellScaledVector(3, -4, 4)), ([h, c, R, tr]) => {
+            const rot = (p: Vector): Vector => add(mul(p.values[0], R[0]),
+                add(mul(p.values[1], R[1]), mul(p.values[2], R[2])));
+            const n2 = rot(h.normal);
+            const h2 = Halfspace.fromNormalConstant(n2,
+                h.constant + dot(n2, tr));
+            const c2 = Cylinder3.fromAxisRadiusHeight(
+                Line.fromOriginDirection(add(tr, rot(c.axis.origin)),
+                    rot(c.axis.direction)), c.radius, c.height);
+            if (Math.abs(supportSigned(h, c)) < 1e-9) {
+                return;   // exactly tangent
+            }
+            expect(tiq.test(h, c).intersect).toBe(tiq.test(h2, c2).intersect);
+        });
+    });
+
+    it('a zero-radius zero-height cylinder is the axis origin', () => {
+        check(fc.tuple(halfspaceV31, wellScaledVector(3, -4, 4),
+            unitVector(3)), ([h, o, w]) => {
+            const c = Cylinder3.fromAxisRadiusHeight(
+                Line.fromOriginDirection(o, w), 0, 0);
+            expect(tiq.test(h, c).intersect)
+                .toBe(dot(h.normal, o) - h.constant >= 0);
+            expect(sub(o, o).values).toEqual([0, 0, 0]);
+        });
+    });
+});

@@ -223,3 +223,177 @@ describe('IntrCylinder3Cylinder3', () => {
         expect(() => ti.test(c0, c1)).toThrow();
     });
 });
+
+// ---------------------------------------------------------------------------
+// Verification (V31): property-based checks against the upstream header.
+// ---------------------------------------------------------------------------
+import {
+    check, fc, rotationFrame, unitVector, wellScaledVector, seededRandom
+} from './helpers/arbitraries.js';
+import { add, mul } from '../src/Vector.js';
+import { computeOrthogonalComplement3 } from '../src/Vector3.js';
+
+const cylArb = fc.tuple(wellScaledVector(3, -4, 4), unitVector(3),
+    fc.double({ min: 0.2, max: 2, noNaN: true }),
+    fc.double({ min: 0.3, max: 4, noNaN: true }))
+    .map(([o, w, r, h]) => Cylinder3.fromAxisRadiusHeight(
+        Line.fromOriginDirection(o, w), r, h));
+
+// The upstream separation functional for a candidate direction D: the
+// cylinders are separated by D when this is negative.
+function separationTest(c0: Cylinder3, c1: Cylinder3, d: Vector): number {
+    const delta = sub(c1.axis.origin, c0.axis.origin);
+    return c0.radius * length(cross(c0.axis.direction, d))
+        + c1.radius * length(cross(c1.axis.direction, d))
+        + 0.5 * c0.height * Math.abs(dot(c0.axis.direction, d))
+        + 0.5 * c1.height * Math.abs(dot(c1.axis.direction, d))
+        - Math.abs(dot(delta, d));
+}
+
+// Sample the surface of a cylinder (which contains the extreme points along
+// any direction).
+function sampleCylinder(c: Cylinder3, nz: number, na: number): Vector[] {
+    const basis = [c.axis.direction.clone(), new Vector(3), new Vector(3)];
+    computeOrthogonalComplement3(1, basis);
+    const half = 0.5 * c.height;
+    const pts: Vector[] = [];
+    for (let i = 0; i <= nz; ++i) {
+        const z = -half + (2 * half * i) / nz;
+        for (let k = 0; k < na; ++k) {
+            const a = (2 * Math.PI * k) / na;
+            pts.push(add(c.axis.origin, add(mul(z, basis[0]),
+                add(mul(c.radius * Math.cos(a), basis[1]),
+                    mul(c.radius * Math.sin(a), basis[2])))));
+        }
+    }
+    return pts;
+}
+
+describe('IntrCylinder3Cylinder3 verification', () => {
+    const tiq = new IntrCylinder3Cylinder3TI(1, 16, 8);
+
+    it('a reported separating direction really separates', () => {
+        check(fc.tuple(cylArb, cylArb), ([c0, c1]) => {
+            const r = tiq.test(c0, c1);
+            if (!r.separated) {
+                return;
+            }
+            const d = r.separatingDirection;
+            expect(length(d)).toBeGreaterThan(0);
+            expect(separationTest(c0, c1, d)).toBeLessThan(0);
+            // The sampled point sets are on opposite sides of some plane
+            // with normal d.
+            const a = sampleCylinder(c0, 6, 24).map(p => dot(d, p));
+            const b = sampleCylinder(c1, 6, 24).map(p => dot(d, p));
+            const gap = Math.min(...b) - Math.max(...a);
+            const gap2 = Math.min(...a) - Math.max(...b);
+            expect(Math.max(gap, gap2)).toBeGreaterThan(0);
+        });
+    });
+
+    it('is symmetric under argument swap', () => {
+        check(fc.tuple(cylArb, cylArb), ([c0, c1]) => {
+            const a = tiq.test(c0, c1);
+            const b = tiq.test(c1, c0);
+            if (a.separated !== b.separated) {
+                // The hemisphere sampling is not swap invariant (the basis is
+                // built from Delta, which changes sign), so a direction found
+                // for one order may be missed in the other. Accept only when
+                // the functional is essentially zero for the found direction.
+                const found = a.separated ? a : b;
+                expect(Math.abs(separationTest(c0, c1,
+                    found.separatingDirection))).toBeLessThan(1e-6);
+                return;
+            }
+            expect(a.separated).toBe(b.separated);
+        });
+    });
+
+    it('coincident axis origins are never separated', () => {
+        check(fc.tuple(cylArb, unitVector(3),
+            fc.double({ min: 0.2, max: 2, noNaN: true }),
+            fc.double({ min: 0.3, max: 4, noNaN: true })),
+            ([c0, w, r, h]) => {
+                const c1 = Cylinder3.fromAxisRadiusHeight(
+                    Line.fromOriginDirection(c0.axis.origin, w), r, h);
+                const res = tiq.test(c0, c1);
+                expect(res.separated).toBe(false);
+                expect(res.separatingDirection.values).toEqual([0, 0, 0]);
+            });
+    });
+
+    it('cylinders moved far apart are separated', () => {
+        check(fc.tuple(cylArb, cylArb, unitVector(3)), ([c0, c1, d]) => {
+            const reach = c0.radius + c1.radius + 0.5 * c0.height
+                + 0.5 * c1.height + 1;
+            const moved = Cylinder3.fromAxisRadiusHeight(
+                Line.fromOriginDirection(
+                    add(c0.axis.origin, mul(2 * reach, d)),
+                    c1.axis.direction), c1.radius, c1.height);
+            const res = tiq.test(c0, moved);
+            expect(res.separated).toBe(true);
+            expect(separationTest(c0, moved, res.separatingDirection))
+                .toBeLessThan(0);
+        });
+    });
+
+    it('overlapping cylinders are never reported as separated', () => {
+        const rnd = seededRandom(0x2f9a13cb);
+        for (let trial = 0; trial < 120; ++trial) {
+            const mk = (o: Vector): Cylinder3 => {
+                const w = Vector.fromArray([rnd() * 2 - 1, rnd() * 2 - 1,
+                    rnd() * 2 - 1]);
+                normalize(w);
+                return Cylinder3.fromAxisRadiusHeight(
+                    Line.fromOriginDirection(o, w), 0.3 + rnd(),
+                    0.5 + rnd() * 2);
+            };
+            const o0 = Vector.fromArray([rnd() * 2 - 1, rnd() * 2 - 1,
+                rnd() * 2 - 1]);
+            const c0 = mk(o0);
+            // Place the second axis origin inside the first cylinder, so the
+            // solids certainly overlap.
+            const c1 = mk(o0);
+            const res = tiq.test(c0, c1);
+            expect(res.separated).toBe(false);
+        }
+    }, 30000);
+
+    it('is invariant under a common rigid motion', () => {
+        check(fc.tuple(cylArb, cylArb, rotationFrame(3),
+            wellScaledVector(3, -3, 3)), ([c0, c1, R, tr]) => {
+            const rot = (p: Vector): Vector => add(mul(p.values[0], R[0]),
+                add(mul(p.values[1], R[1]), mul(p.values[2], R[2])));
+            const xf = (c: Cylinder3): Cylinder3 =>
+                Cylinder3.fromAxisRadiusHeight(
+                    Line.fromOriginDirection(add(tr, rot(c.axis.origin)),
+                        rot(c.axis.direction)), c.radius, c.height);
+            const a = tiq.test(c0, c1);
+            const b = tiq.test(xf(c0), xf(c1));
+            if (a.separated !== b.separated) {
+                // The hemisphere sampling is defined in a frame built from
+                // Delta, which rotates with the configuration, but the sample
+                // directions are only approximately equivariant; accept a
+                // difference only for a marginal separation.
+                const found = a.separated ? a.separatingDirection
+                    : b.separatingDirection;
+                const t = a.separated ? separationTest(c0, c1, found)
+                    : separationTest(xf(c0), xf(c1), found);
+                expect(Math.abs(t)).toBeLessThan(1e-3);
+                return;
+            }
+            expect(a.separated).toBe(b.separated);
+        });
+    });
+
+    it('throws for infinite cylinders and invalid angle counts', () => {
+        const c = Cylinder3.fromAxisRadiusHeight(
+            Line.fromOriginDirection(Vector.fromArray([0, 0, 0]),
+                Vector.fromArray([0, 0, 1])), 1, 2);
+        const inf = c.clone();
+        inf.makeInfiniteCylinder();
+        expect(() => tiq.test(inf, c)).toThrow();
+        expect(() => new IntrCylinder3Cylinder3TI(1, 0, 4)).toThrow();
+        expect(() => new IntrCylinder3Cylinder3TI(1, 4, 0)).toThrow();
+    });
+});

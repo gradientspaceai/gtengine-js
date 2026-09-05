@@ -135,3 +135,150 @@ describe('IntrCircle2Arc2', () => {
         expect(fi.find(circle(0.5, 0, 0), arc(0, 90)).intersect).toBe(false);
     });
 });
+
+// ---------------------------------------------------------------------------
+// Verification (V31): property-based checks against the upstream header.
+// ---------------------------------------------------------------------------
+import {
+    check, fc, wellScaledVector, expectClose, expectVectorClose
+} from './helpers/arbitraries.js';
+import { IntrCircle2Circle2FI } from '../src/IntrCircle2Circle2.js';
+
+const INT32_MAX_V = 2147483647;
+
+function v2v(x: number, y: number): Vector {
+    return Vector.fromArray([x, y]);
+}
+
+function arcAtV31(center: Vector, radius: number, a0: number,
+    a1: number): Arc2 {
+    const on = (a: number): Vector => v2v(center.values[0]
+        + radius * Math.cos(a), center.values[1] + radius * Math.sin(a));
+    return Arc2.fromCenterRadiusEnds(center, radius, on(a0), on(a1));
+}
+
+const circleArc = fc.tuple(wellScaledVector(2, -3, 3),
+    fc.double({ min: 0.5, max: 3, noNaN: true }),
+    wellScaledVector(2, -3, 3),
+    fc.double({ min: 0.5, max: 3, noNaN: true }),
+    fc.double({ min: -Math.PI, max: Math.PI, noNaN: true }),
+    fc.double({ min: 0.2, max: 6, noNaN: true }))
+    .map(([cc, cr, ac, ar, a0, span]) => ({
+        circle: Hypersphere.fromCenterRadius(cc, cr),
+        arc: arcAtV31(ac, ar, a0, a0 + span)
+    }));
+
+describe('IntrCircle2Arc2 verification', () => {
+    const fiq = new IntrCircle2Arc2FI();
+    const ccq = new IntrCircle2Circle2FI();
+
+    it('reports exactly the circle-circle points that are on the arc', () => {
+        check(circleArc, ({ circle, arc }) => {
+            const cc = ccq.find(circle,
+                Hypersphere.fromCenterRadius(arc.center, arc.radius));
+            const f = fiq.find(circle, arc);
+            if (!cc.intersect) {
+                expect(f.intersect).toBe(false);
+                expect(f.numIntersections).toBe(0);
+                return;
+            }
+            if (cc.numIntersections === INT32_MAX_V) {
+                // The arc is on the circle.
+                expect(f.intersect).toBe(true);
+                expect(f.numIntersections).toBe(INT32_MAX_V);
+                expect(f.arc.equals(arc)).toBe(true);
+                return;
+            }
+            let expected = 0;
+            for (let i = 0; i < cc.numIntersections; ++i) {
+                if (arc.containsOnCircle(cc.point[i])) {
+                    ++expected;
+                }
+            }
+            expect(f.numIntersections).toBe(expected);
+            expect(f.intersect).toBe(expected > 0);
+        });
+    });
+
+    it('the reported points lie on the circle and on the arc', () => {
+        check(circleArc, ({ circle, arc }) => {
+            const f = fiq.find(circle, arc);
+            if (!f.intersect || f.numIntersections === INT32_MAX_V) {
+                return;
+            }
+            for (let i = 0; i < f.numIntersections; ++i) {
+                const p = f.point[i];
+                expectClose(length(sub(p, circle.center)), circle.radius,
+                    1e-7, 1e-9);
+                expectClose(length(sub(p, arc.center)), arc.radius,
+                    1e-7, 1e-9);
+                expect(arc.containsOnCircle(p)).toBe(true);
+                for (const x of p.values) {
+                    expect(Number.isNaN(x)).toBe(false);
+                }
+            }
+        });
+    });
+
+    it('an arc on the circle returns a copy of the arc', () => {
+        check(fc.tuple(wellScaledVector(2, -3, 3),
+            fc.double({ min: 0.5, max: 3, noNaN: true }),
+            fc.double({ min: -Math.PI, max: Math.PI, noNaN: true }),
+            fc.double({ min: 0.2, max: 6, noNaN: true })),
+            ([c, r, a0, span]) => {
+                const arc = arcAtV31(c, r, a0, a0 + span);
+                const circle = Hypersphere.fromCenterRadius(c, r);
+                const f = fiq.find(circle, arc);
+                expect(f.intersect).toBe(true);
+                expect(f.numIntersections).toBe(INT32_MAX_V);
+                expect(f.arc.equals(arc)).toBe(true);
+                // A copy, not an alias.
+                f.arc.center.set(0, f.arc.center.get(0) + 1);
+                expect(arc.center.get(0)).not.toBe(f.arc.center.get(0));
+            });
+    });
+
+    it('a disjoint circle reports no intersection', () => {
+        check(fc.tuple(wellScaledVector(2, -3, 3),
+            fc.double({ min: 0.5, max: 2, noNaN: true }),
+            fc.double({ min: 0.5, max: 2, noNaN: true }),
+            fc.double({ min: -Math.PI, max: Math.PI, noNaN: true }),
+            fc.double({ min: 0.2, max: 6, noNaN: true }),
+            fc.double({ min: -Math.PI, max: Math.PI, noNaN: true })),
+            ([c0, r0, r1, a0, span, dirAngle]) => {
+                const gap = r0 + r1 + 1;
+                const c1 = v2v(c0.values[0] + gap * Math.cos(dirAngle),
+                    c0.values[1] + gap * Math.sin(dirAngle));
+                const f = fiq.find(Hypersphere.fromCenterRadius(c0, r0),
+                    arcAtV31(c1, r1, a0, a0 + span));
+                expect(f.intersect).toBe(false);
+                expect(f.numIntersections).toBe(0);
+                expectVectorClose(f.point[0], v2v(0, 0), 0, 0);
+            });
+    });
+
+    it('a circle through a sampled arc point hits that point', () => {
+        check(fc.tuple(wellScaledVector(2, -3, 3),
+            fc.double({ min: 0.5, max: 3, noNaN: true }),
+            fc.double({ min: -Math.PI, max: Math.PI, noNaN: true }),
+            fc.double({ min: 0.3, max: 3, noNaN: true }),
+            fc.double({ min: 0.15, max: 0.85, noNaN: true }),
+            fc.double({ min: 0.3, max: 2, noNaN: true })),
+            ([c, r, a0, span, frac, cr]) => {
+                const arc = arcAtV31(c, r, a0, a0 + span);
+                const target = v2v(c.values[0] + r * Math.cos(a0 + frac * span),
+                    c.values[1] + r * Math.sin(a0 + frac * span));
+                // A circle of radius cr centred so that 'target' is on it.
+                const dir = a0 + frac * span;
+                const cc = v2v(target.values[0] + cr * Math.cos(dir + 1),
+                    target.values[1] + cr * Math.sin(dir + 1));
+                const f = fiq.find(Hypersphere.fromCenterRadius(cc, cr), arc);
+                expect(f.intersect).toBe(true);
+                let best = Infinity;
+                for (let i = 0; i < f.numIntersections; ++i) {
+                    best = Math.min(best, length(sub(f.point[i], target)));
+                }
+                expect(best).toBeLessThan(1e-7);
+            });
+    });
+});

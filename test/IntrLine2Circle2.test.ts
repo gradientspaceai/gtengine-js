@@ -182,3 +182,171 @@ describe('intrLine2Circle2FIDoQuery', () => {
         expect(result.numIntersections).toBe(0);
     });
 });
+
+// ---------------------------------------------------------------------------
+// Verification (V31): property-based checks against the upstream header.
+// ---------------------------------------------------------------------------
+import {
+    check, fc, rotationFrame, unitVector, wellScaledVector, expectClose,
+    expectVectorClose, seededRandom
+} from './helpers/arbitraries.js';
+
+// A line and a circle in general position. The line direction is unit length
+// (required by the algorithm) and the radius is bounded away from zero.
+const lineCircle = fc.tuple(wellScaledVector(2, -5, 5), unitVector(2),
+    wellScaledVector(2, -5, 5), fc.double({ min: 0.1, max: 5, noNaN: true }))
+    .map(([o, d, c, r]) => ({
+        line: Line.fromOriginDirection(o, d),
+        circle: Hypersphere.fromCenterRadius(c, r)
+    }));
+
+// The signed "transversality" of the configuration: discr = a1^2 - a0. The
+// two-point branch takes one square root of it, so a configuration with
+// |discr| near zero is a near-tangency where the classification legitimately
+// flips under rounding. Properties that compare two different computations
+// skip those.
+function discriminant(line: Line, circle: Hypersphere): number {
+    const diff = sub(line.origin, circle.center);
+    const a0 = dot(diff, diff) - circle.radius * circle.radius;
+    const a1 = dot(line.direction, diff);
+    return a1 * a1 - a0;
+}
+
+describe('IntrLine2Circle2 verification', () => {
+    const tiq = new IntrLine2Circle2TI();
+    const fiq = new IntrLine2Circle2FI();
+
+    it('TI and FI agree away from tangency', () => {
+        check(lineCircle, ({ line: l, circle: c }) => {
+            if (Math.abs(discriminant(l, c)) < 1e-6) {
+                return;   // near-tangent; the two formulations may disagree
+            }
+            expect(tiq.test(l, c).intersect).toBe(fiq.find(l, c).intersect);
+        });
+    });
+
+    it('the reported points lie on the line and on the circle', () => {
+        check(lineCircle, ({ line: l, circle: c }) => {
+            const f = fiq.find(l, c);
+            if (!f.intersect) {
+                return;
+            }
+            for (let i = 0; i < f.numIntersections; ++i) {
+                const p = add(l.origin, mul(f.parameter[i], l.direction));
+                expectVectorClose(f.point[i], p, 0, 0);
+                // |P - C| = r. The parameter carries a square root, so the
+                // residual scales with the square root of the discriminant.
+                expectClose(length(sub(f.point[i], c.center)), c.radius,
+                    1e-8, 1e-9);
+            }
+        });
+    });
+
+    it('the roots satisfy the quadratic identities', () => {
+        check(lineCircle, ({ line: l, circle: c }) => {
+            const f = fiq.find(l, c);
+            if (f.numIntersections !== 2) {
+                return;
+            }
+            const diff = sub(l.origin, c.center);
+            const a0 = dot(diff, diff) - c.radius * c.radius;
+            const a1 = dot(l.direction, diff);
+            expect(f.parameter[0]).toBeLessThan(f.parameter[1]);
+            expectClose(f.parameter[0] + f.parameter[1], -2 * a1, 1e-9, 1e-9);
+            expectClose(f.parameter[0] * f.parameter[1], a0, 1e-8, 1e-8);
+        });
+    });
+
+    it('a fine sweep of the line agrees with the reported interval', () => {
+        const rnd = seededRandom(0x5eed1234);
+        for (let trial = 0; trial < 200; ++trial) {
+            const c = Hypersphere.fromCenterRadius(
+                Vector.fromArray([rnd() * 4 - 2, rnd() * 4 - 2]),
+                0.5 + rnd() * 2);
+            const a = rnd() * 2 * Math.PI;
+            const d = Vector.fromArray([Math.cos(a), Math.sin(a)]);
+            const l = Line.fromOriginDirection(
+                Vector.fromArray([rnd() * 4 - 2, rnd() * 4 - 2]), d);
+            const f = fiq.find(l, c);
+            let anyInside = false;
+            for (let k = 0; k <= 800; ++k) {
+                const t = -8 + (16 * k) / 800;
+                const p = add(l.origin, mul(t, d));
+                const inside = length(sub(p, c.center)) <= c.radius - 1e-6;
+                if (inside) {
+                    anyInside = true;
+                    expect(f.intersect).toBe(true);
+                    expect(t).toBeGreaterThanOrEqual(f.parameter[0] - 1e-9);
+                    expect(t).toBeLessThanOrEqual(f.parameter[1] + 1e-9);
+                }
+            }
+            if (anyInside) {
+                expect(f.numIntersections).toBe(2);
+            }
+        }
+    }, 30000);
+
+    it('a line through the center meets the circle at +-r', () => {
+        check(fc.tuple(wellScaledVector(2, -5, 5), unitVector(2),
+            fc.double({ min: 0.1, max: 5, noNaN: true })), ([c, d, r]) => {
+            const circle = Hypersphere.fromCenterRadius(c, r);
+            const l = Line.fromOriginDirection(c, d);
+            const f = fiq.find(l, circle);
+            expect(f.intersect).toBe(true);
+            expect(f.numIntersections).toBe(2);
+            expectClose(f.parameter[0], -r, 1e-12, 1e-12);
+            expectClose(f.parameter[1], r, 1e-12, 1e-12);
+        });
+    });
+
+    it('a zero-radius circle is a point on the line or a miss', () => {
+        check(fc.tuple(wellScaledVector(2, -5, 5), unitVector(2),
+            fc.double({ min: -3, max: 3, noNaN: true }),
+            fc.double({ min: 0.5, max: 3, noNaN: true }), fc.boolean()),
+            ([o, d, t, off, onLine]) => {
+                const n = Vector.fromArray([-d.values[1], d.values[0]]);
+                const base = add(o, mul(t, d));
+                const c = Hypersphere.fromCenterRadius(
+                    onLine ? base : add(base, mul(off, n)), 0);
+                const l = Line.fromOriginDirection(o, d);
+                const f = fiq.find(l, c);
+                if (onLine) {
+                    // discr = a1^2 - a0 is exactly zero only when the center
+                    // is exactly on the line, which rounding rarely achieves,
+                    // so the branch taken (miss, tangent, or two nearly equal
+                    // roots) is not predictable. What must hold is that every
+                    // reported point is the center itself.
+                    for (let i = 0; i < f.numIntersections; ++i) {
+                        expect(length(sub(f.point[i], c.center)))
+                            .toBeLessThan(1e-6);
+                        expectClose(f.parameter[i], t, 1e-6, 1e-9);
+                    }
+                } else {
+                    expect(f.intersect).toBe(false);
+                }
+            });
+    });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(lineCircle, rotationFrame(2),
+            wellScaledVector(2, -5, 5)), ([{ line: l, circle: c }, R, tr]) => {
+            if (Math.abs(discriminant(l, c)) < 1e-6) {
+                return;
+            }
+            const xf = (p: Vector): Vector => add(tr,
+                add(mul(p.values[0], R[0]), mul(p.values[1], R[1])));
+            const xfDir = (p: Vector): Vector =>
+                add(mul(p.values[0], R[0]), mul(p.values[1], R[1]));
+            const l2 = Line.fromOriginDirection(xf(l.origin), xfDir(l.direction));
+            const c2 = Hypersphere.fromCenterRadius(xf(c.center), c.radius);
+            const f1 = fiq.find(l, c);
+            const f2 = fiq.find(l2, c2);
+            expect(f1.intersect).toBe(f2.intersect);
+            expect(f1.numIntersections).toBe(f2.numIntersections);
+            for (let i = 0; i < f1.numIntersections; ++i) {
+                expectClose(f1.parameter[i], f2.parameter[i], 1e-8, 1e-9);
+                expectVectorClose(xf(f1.point[i]), f2.point[i], 1e-8, 1e-9);
+            }
+        });
+    });
+});

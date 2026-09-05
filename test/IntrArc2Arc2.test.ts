@@ -207,3 +207,173 @@ describe('IntrArc2Arc2', () => {
         expect(numIntersect).toBeGreaterThan(0);
     });
 });
+
+// ---------------------------------------------------------------------------
+// Verification (V31): property-based checks against the upstream header.
+// ---------------------------------------------------------------------------
+import {
+    check, fc, wellScaledVector, expectClose, expectVectorClose
+} from './helpers/arbitraries.js';
+import { Hypersphere } from '../src/Hypersphere.js';
+import { IntrCircle2Circle2FI } from '../src/IntrCircle2Circle2.js';
+
+const INT32_MAX_V = 2147483647;
+
+// An arc of the circle with the given center and radius, from angle a0
+// counterclockwise to angle a1.
+function arcAt(center: Vector, radius: number, a0: number, a1: number): Arc2 {
+    const on = (a: number): Vector => v2(center.values[0]
+        + radius * Math.cos(a), center.values[1] + radius * Math.sin(a));
+    return Arc2.fromCenterRadiusEnds(center, radius, on(a0), on(a1));
+}
+
+// Two arcs on distinct, intersecting circles.
+const transverseArcs = fc.tuple(wellScaledVector(2, -3, 3),
+    fc.double({ min: 0.5, max: 3, noNaN: true }),
+    fc.double({ min: -Math.PI, max: Math.PI, noNaN: true }),
+    fc.double({ min: 0.2, max: 6, noNaN: true }),
+    fc.double({ min: 0.5, max: 3, noNaN: true }),
+    fc.double({ min: -Math.PI, max: Math.PI, noNaN: true }),
+    fc.double({ min: 0.2, max: 6, noNaN: true }),
+    fc.double({ min: -Math.PI, max: Math.PI, noNaN: true }),
+    fc.double({ min: 0.2, max: 6, noNaN: true }))
+    .map(([c0, r0, a0, s0, r1, b0, s1, shiftAngle, shiftLen]) => {
+        const c1 = v2(c0.values[0] + shiftLen * Math.cos(shiftAngle),
+            c0.values[1] + shiftLen * Math.sin(shiftAngle));
+        return {
+            arc0: arcAt(c0, r0, a0, a0 + s0),
+            arc1: arcAt(c1, r1, b0, b0 + s1)
+        };
+    });
+
+describe('IntrArc2Arc2 verification', () => {
+    const fiq = new IntrArc2Arc2FI();
+
+    it('noncocircular hits lie on both circles and inside both arcs', () => {
+        check(transverseArcs, ({ arc0, arc1 }) => {
+            const f = fiq.find(arc0, arc1);
+            if (f.configuration !== Cfg.NONCOCIRCULAR_ONE_POINT
+                && f.configuration !== Cfg.NONCOCIRCULAR_TWO_POINTS) {
+                return;
+            }
+            const n = f.configuration === Cfg.NONCOCIRCULAR_TWO_POINTS ? 2 : 1;
+            for (let i = 0; i < n; ++i) {
+                const p = f.point[i];
+                // On both circles; the circle-circle query takes one square
+                // root, so the residual grows near tangency.
+                expectClose(length(sub(p, arc0.center)), arc0.radius,
+                    1e-7, 1e-9);
+                expectClose(length(sub(p, arc1.center)), arc1.radius,
+                    1e-7, 1e-9);
+                // Inside the angular range of both arcs.
+                expect(arc0.containsOnCircle(p)).toBe(true);
+                expect(arc1.containsOnCircle(p)).toBe(true);
+                for (const x of p.values) {
+                    expect(Number.isNaN(x)).toBe(false);
+                }
+            }
+        });
+    });
+
+    it('reports exactly the circle-circle points that are on both arcs', () => {
+        const ccq = new IntrCircle2Circle2FI();
+        check(transverseArcs, ({ arc0, arc1 }) => {
+            const cc = ccq.find(
+                Hypersphere.fromCenterRadius(arc0.center, arc0.radius),
+                Hypersphere.fromCenterRadius(arc1.center, arc1.radius));
+            if (!cc.intersect || cc.numIntersections === INT32_MAX_V) {
+                return;
+            }
+            let expected = 0;
+            for (let i = 0; i < cc.numIntersections; ++i) {
+                if (arc0.containsOnCircle(cc.point[i])
+                    && arc1.containsOnCircle(cc.point[i])) {
+                    ++expected;
+                }
+            }
+            const f = fiq.find(arc0, arc1);
+            const reported = f.configuration === Cfg.NONCOCIRCULAR_TWO_POINTS
+                ? 2 : (f.configuration === Cfg.NONCOCIRCULAR_ONE_POINT ? 1 : 0);
+            expect(reported).toBe(expected);
+            expect(f.intersect).toBe(expected > 0);
+        });
+    });
+
+    it('the intersection is symmetric under argument swap', () => {
+        check(transverseArcs, ({ arc0, arc1 }) => {
+            const a = fiq.find(arc0, arc1);
+            const b = fiq.find(arc1, arc0);
+            expect(a.intersect).toBe(b.intersect);
+            if (a.configuration === Cfg.NONCOCIRCULAR_TWO_POINTS
+                || a.configuration === Cfg.NONCOCIRCULAR_ONE_POINT) {
+                expect(b.configuration).toBe(a.configuration);
+                const n = a.configuration === Cfg.NONCOCIRCULAR_TWO_POINTS
+                    ? 2 : 1;
+                // The circle-circle query orders its two points by the sign
+                // of Perp(C1-C0), so swapping reverses them.
+                for (let i = 0; i < n; ++i) {
+                    expectVectorClose(a.point[i], b.point[n - 1 - i],
+                        1e-9, 1e-9);
+                }
+            }
+        });
+    });
+
+    it('coincident arcs report COCIRCULAR_ONE_ARC equal to the input', () => {
+        check(fc.tuple(wellScaledVector(2, -3, 3),
+            fc.double({ min: 0.5, max: 3, noNaN: true }),
+            fc.double({ min: -Math.PI, max: Math.PI, noNaN: true }),
+            fc.double({ min: 0.2, max: 6, noNaN: true })),
+            ([c, r, a0, span]) => {
+                const arc = arcAt(c, r, a0, a0 + span);
+                const f = fiq.find(arc, arc.clone());
+                expect(f.intersect).toBe(true);
+                expect(f.configuration).toBe(Cfg.COCIRCULAR_ONE_ARC);
+                expect(f.arc[0].equals(arc)).toBe(true);
+                // The result must be a copy, not an alias of the input.
+                f.arc[0].center.set(0, f.arc[0].center.get(0) + 1);
+                expect(arc.center.get(0)).not.toBe(f.arc[0].center.get(0));
+            });
+    });
+
+    it('an arc contained in another reports the contained arc', () => {
+        check(fc.tuple(wellScaledVector(2, -3, 3),
+            fc.double({ min: 0.5, max: 3, noNaN: true }),
+            fc.double({ min: -Math.PI, max: Math.PI, noNaN: true }),
+            fc.double({ min: 0.1, max: 0.9, noNaN: true }),
+            fc.double({ min: 0.05, max: 0.4, noNaN: true })),
+            ([c, r, a0, lo, width]) => {
+                if (lo + width > 0.95) {
+                    return;
+                }
+                // arc0 spans a half turn; arc1 is strictly inside it.
+                const outer = arcAt(c, r, a0, a0 + Math.PI);
+                const inner = arcAt(c, r, a0 + lo * Math.PI,
+                    a0 + (lo + width) * Math.PI);
+                const f = fiq.find(outer, inner);
+                expect(f.intersect).toBe(true);
+                expect(f.configuration).toBe(Cfg.COCIRCULAR_ONE_ARC);
+                expectVectorClose(f.arc[0].end[0], inner.end[0], 1e-9, 1e-9);
+                expectVectorClose(f.arc[0].end[1], inner.end[1], 1e-9, 1e-9);
+            });
+    });
+
+    it('arcs on disjoint circles never intersect', () => {
+        check(fc.tuple(wellScaledVector(2, -3, 3),
+            fc.double({ min: 0.5, max: 2, noNaN: true }),
+            fc.double({ min: 0.5, max: 2, noNaN: true }),
+            fc.double({ min: -Math.PI, max: Math.PI, noNaN: true }),
+            fc.double({ min: 0.2, max: 6, noNaN: true }),
+            fc.double({ min: 0.2, max: 6, noNaN: true }),
+            fc.double({ min: -Math.PI, max: Math.PI, noNaN: true })),
+            ([c0, r0, r1, a0, s0, s1, dirAngle]) => {
+                const gap = r0 + r1 + 1;
+                const c1 = v2(c0.values[0] + gap * Math.cos(dirAngle),
+                    c0.values[1] + gap * Math.sin(dirAngle));
+                const f = fiq.find(arcAt(c0, r0, a0, a0 + s0),
+                    arcAt(c1, r1, a0, a0 + s1));
+                expect(f.intersect).toBe(false);
+                expect(f.configuration).toBe(Cfg.NO_INTERSECTION);
+            });
+    });
+});
