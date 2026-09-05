@@ -6,6 +6,8 @@ import {
     IntrHalfspace3Triangle3TI,
     IntrHalfspace3Triangle3FI
 } from '../src/IntrHalfspace3Triangle3.js';
+import { length, sub } from '../src/Vector.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 function halfspace(nx: number, ny: number, nz: number, c: number): Halfspace {
     const n = Vector.fromArray([nx, ny, nz]);
@@ -173,5 +175,145 @@ describe('IntrHalfspace3Triangle3', () => {
         // Whole triangles, clipped triangles and quadrilaterals all occur.
         expect(counts.get(3) ?? 0).toBeGreaterThan(0);
         expect(counts.get(4) ?? 0).toBeGreaterThan(0);
+    });
+});
+
+describe('IntrHalfspace3Triangle3 verification', () => {
+    const ti = new IntrHalfspace3Triangle3TI();
+    const fi = new IntrHalfspace3Triangle3FI();
+
+    // Integer normals, constants and vertices. The query uses only the signs
+    // of dot(N,V) - c and ratios s_i/(s_i - s_j), all invariant under a
+    // positive scaling of (N,c), so an unnormalized integer normal drives
+    // exactly the same branches while making every sign test exact. That is
+    // what makes the on-plane cases of the (n,p,z) table common draws.
+    const latticeHs = fc.tuple(fc.integer({ min: -3, max: 3 }),
+        fc.integer({ min: -3, max: 3 }), fc.integer({ min: -3, max: 3 }),
+        fc.integer({ min: -4, max: 4 }))
+        .filter(([a, b, c]) => a !== 0 || b !== 0 || c !== 0)
+        .map(([a, b, c, d]) =>
+            Halfspace.fromNormalConstant(Vector.fromArray([a, b, c]), d));
+    const latticeTri = fc.array(
+        fc.array(fc.integer({ min: -4, max: 4 }), { minLength: 3, maxLength: 3 }),
+        { minLength: 3, maxLength: 3 })
+        .map(vs => triangle(vs[0], vs[1], vs[2]));
+
+    // An independent Sutherland-Hodgman clip of the triangle by dot(N,X) >= c.
+    function clipOracle(t: Triangle, h: Halfspace): Vector[] {
+        const f = (p: Vector): number => dot(h.normal, p) - h.constant;
+        const out: Vector[] = [];
+        for (let i = 0; i < 3; ++i) {
+            const p = t.v[i], q = t.v[(i + 1) % 3];
+            const fp = f(p), fq = f(q);
+            if (fp >= 0) {
+                out.push(p);
+            }
+            if ((fp > 0 && fq < 0) || (fp < 0 && fq > 0)) {
+                const s = fp / (fp - fq);
+                out.push(Vector.fromArray([
+                    p.values[0] + s * (q.values[0] - p.values[0]),
+                    p.values[1] + s * (q.values[1] - p.values[1]),
+                    p.values[2] + s * (q.values[2] - p.values[2])]));
+            }
+        }
+        return out;
+    }
+
+    function dedupe(points: readonly Vector[], tol: number): Vector[] {
+        const out: Vector[] = [];
+        for (const p of points) {
+            if (!out.some(q => length(sub(p, q)) <= tol)) {
+                out.push(p);
+            }
+        }
+        return out;
+    }
+
+    it('TI and FI agree and the clipped polygon equals the exact clip', () => {
+        check(fc.tuple(latticeHs, latticeTri), ([h, t]) => {
+            const r = fi.find(h, t);
+            const s = t.v.map(v => dot(h.normal, v) - h.constant);
+            const numNeg = s.filter(x => x < 0).length;
+            expect(ti.test(h, t).intersect).toBe(Math.max(...s) >= 0);
+            expect(r.intersect).toBe(numNeg < 3);
+
+            const oracle = dedupe(clipOracle(t, h), 1e-12);
+            const got = dedupe(r.point.slice(0, r.numPoints), 1e-12);
+            expect(got.length).toBe(oracle.length);
+            // Both polygons are built from the same exact integer data by one
+            // division per clipped edge, so matching to 1e-12 is exact up to
+            // the final rounding.
+            for (const p of got) {
+                expect(oracle.some(q => length(sub(p, q)) <= 1e-12)).toBe(true);
+            }
+            for (const q of oracle) {
+                expect(got.some(p => length(sub(p, q)) <= 1e-12)).toBe(true);
+            }
+        });
+    });
+
+    it('reported points lie in the triangle and in the closed halfspace', () => {
+        check(fc.tuple(latticeHs, latticeTri), ([h, t]) => {
+            const r = fi.find(h, t);
+            const e1 = sub(t.v[1], t.v[0]);
+            const e2 = sub(t.v[2], t.v[0]);
+            const d11 = dot(e1, e1), d12 = dot(e1, e2), d22 = dot(e2, e2);
+            const det = d11 * d22 - d12 * d12;
+            for (let k = 0; k < r.numPoints; ++k) {
+                const p = r.point[k];
+                for (let i = 0; i < 3; ++i) {
+                    expect(Number.isFinite(p.values[i])).toBe(true);
+                }
+                expect(dot(h.normal, p) - h.constant)
+                    .toBeGreaterThanOrEqual(-1e-11 * (1 + Math.abs(h.constant)));
+                if (det <= 1e-9) {
+                    continue;    // degenerate triangle: no barycentrics
+                }
+                const w = sub(p, t.v[0]);
+                const dw1 = dot(w, e1), dw2 = dot(w, e2);
+                const b1 = (d22 * dw1 - d12 * dw2) / det;
+                const b2 = (d11 * dw2 - d12 * dw1) / det;
+                expect(b1).toBeGreaterThanOrEqual(-1e-9);
+                expect(b2).toBeGreaterThanOrEqual(-1e-9);
+                expect(b1 + b2).toBeLessThanOrEqual(1 + 1e-9);
+            }
+        });
+    });
+
+    it('the clipped area never exceeds the triangle area', () => {
+        check(fc.tuple(latticeHs, latticeTri), ([h, t]) => {
+            const r = fi.find(h, t);
+            const full = polygonArea(t.v, 3);
+            const clipped = r.numPoints >= 3
+                ? polygonArea(r.point.slice(0, r.numPoints), r.numPoints) : 0;
+            expect(clipped).toBeLessThanOrEqual(full + 1e-9);
+            if (r.numPoints === 3 && r.point.length >= 3) {
+                // A fully-inside triangle is returned unchanged.
+                const s = t.v.map(v => dot(h.normal, v) - h.constant);
+                if (s.every(x => x >= 0)) {
+                    expect(clipped).toBeCloseTo(full, 9);
+                }
+            }
+        });
+    });
+
+    it('reported vertices are copies, not aliases of the triangle', () => {
+        const t = triangle([0, 0, 1], [1, 0, 1], [0, 1, 1]);
+        const r = fi.find(halfspace(0, 0, 1, 0), t);
+        expect(r.numPoints).toBe(3);
+        for (let k = 0; k < 3; ++k) {
+            expect(r.point[k]).not.toBe(t.v[k]);
+        }
+        r.point[0].set(0, 99);
+        expect(t.v[0].values[0]).toBe(0);
+    });
+
+    it('the (1,0,2) edge case reports exactly the two on-plane vertices', () => {
+        const t = triangle([0, 0, 0], [1, 0, 0], [0, 0, -1]);
+        const r = fi.find(halfspace(0, 0, 1, 0), t);
+        expect(r.intersect).toBe(true);
+        expect(r.numPoints).toBe(2);
+        expect(r.point[0].values).toEqual([0, 0, 0]);
+        expect(r.point[1].values).toEqual([1, 0, 0]);
     });
 });
