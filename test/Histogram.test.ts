@@ -163,7 +163,11 @@ describe('Histogram verification', () => {
     const numBuckets = fc.integer({ min: 1, max: 24 });
     const intSamples = fc.array(fc.integer({ min: -30, max: 60 }),
         { minLength: 1, maxLength: 60 });
-    const realSamples = fc.array(finite(-50, 50), { minLength: 1, maxLength: 60 });
+    // scaled() draws from a uniform grid so the sample range is never a
+    // subnormal: for a subnormal (max - min) the upstream multiplier
+    // (numBuckets - 1) / (max - min) overflows to infinity and the rescaled
+    // index leaves the bucket array (see the PR notes).
+    const realSamples = fc.array(scaled(-50, 50), { minLength: 1, maxLength: 60 });
 
     const sum = (a: readonly number[]) => a.reduce((p, q) => p + q, 0);
 
@@ -242,6 +246,18 @@ describe('Histogram verification', () => {
             }
             expect([...buckets]).toEqual(brute);
         });
+    });
+
+    it('a subnormal sample range overflows the upstream multiplier', () => {
+        // Upstream computes mult = (numBuckets - 1) / (max - min) and then
+        // ++mBuckets[(int32_t)(mult * (s - min))] with no bounds check. When
+        // (max - min) is subnormal the multiplier is infinite and the index
+        // leaves the bucket array, which is undefined behavior in C++ and a
+        // silently dropped count here. Pinned as a preserved upstream quirk.
+        const histogram = Histogram.fromRealSamples(2, [0, Number.MIN_VALUE]);
+        const buckets = histogram.getBuckets();
+        expect(buckets.length).toBe(2);
+        expect(buckets[0] + buckets[1]).toBeLessThan(2);
     });
 
     it('rescaling assigns nondecreasing bin indices to sorted samples', () => {
