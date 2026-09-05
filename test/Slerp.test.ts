@@ -335,12 +335,18 @@ describe('Slerp verification', () => {
 
     it('moves along the arc at constant angular speed', () => {
         // The defining property of slerp: the angle from q0 grows linearly.
+        // The angle is read off with atan2 in the plane's own orthonormal
+        // basis rather than with acos(dot(q0,r)); acos has an infinite
+        // derivative at 1, so it turns the 1e-16 of the dot product into an
+        // error of 1e-16/(t*A) radians and says nothing near t = 0.
         check(fc.tuple(pairArb, tArb), ([[q0, q1], t]) => {
-            const angle = Math.acos(Math.min(1, Math.max(-1, dot(q0, q1))));
+            const c = dot(q0, q1);
+            const angle = Math.atan2(Math.sqrt(Math.max(0, 1 - c * c)), c);
+            const e1 = q1.map((v, i) => v - c * q0[i]);
+            const u1 = e1.map(v => v / Math.sqrt(dot(e1, e1)));
             const r = slerp(t, q0, q1);
-            const measured = Math.acos(
-                Math.min(1, Math.max(-1, dot(q0, r))));
-            return Math.abs(measured - t * angle) <= 1e-8;
+            const measured = Math.atan2(dot(r, u1), dot(r, q0));
+            return Math.abs(measured - t * angle) <= 1e-12;
         });
     });
 
