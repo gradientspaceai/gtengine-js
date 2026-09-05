@@ -895,27 +895,61 @@ describe('AdaptiveSkeletonClimbing3 verification', () => {
             }, 20);
     });
 
-    it('orientTriangles is an involution on the triangle vertex sets', () => {
+    it('orientTriangles aligns every normal with the image gradient', () => {
         check(twoSphereArb, (voxels) => {
             const asc = new AdaptiveSkeletonClimbing3(N, voxels);
             const result = asc.extract(0.5, N);
             asc.makeUnique(result.vertices, result.triangles);
             const before = result.triangles.map((t) =>
                 [...t.V].sort((a, b) => a - b).join(','));
+            const gradient = (p: Vertex) => (asc as unknown as {
+                getGradient(q: Vertex): Vertex;
+            }).getGradient(p);
+
+            // The dot product of the triangle normal with the average image
+            // gradient at its vertices, the quantity orientTriangles tests.
+            const dotWithGradient = (t: TriangleKey) => {
+                const v = [result.vertices[t.V[0]], result.vertices[t.V[1]],
+                    result.vertices[t.V[2]]];
+                const e1 = [0, 1, 2].map((k) => v[1][k] - v[0][k]);
+                const e2 = [0, 1, 2].map((k) => v[2][k] - v[0][k]);
+                const n = [e1[1] * e2[2] - e1[2] * e2[1],
+                    e1[2] * e2[0] - e1[0] * e2[2],
+                    e1[0] * e2[1] - e1[1] * e2[0]];
+                const g = v.map(gradient);
+                const avr = [0, 1, 2].map((k) =>
+                    (g[0][k] + g[1][k] + g[2][k]) / 3);
+                return avr[0] * n[0] + avr[1] * n[1] + avr[2] * n[2];
+            };
 
             asc.orientTriangles(result.vertices, result.triangles, true);
             const same = result.triangles.map((t) => t.V.join(','));
-            asc.orientTriangles(result.vertices, result.triangles, true);
+            for (const t of result.triangles) {
+                expect(dotWithGradient(t)).toBeGreaterThanOrEqual(0);
+            }
             // Reorienting an already oriented mesh is a no-op.
+            asc.orientTriangles(result.vertices, result.triangles, true);
             expect(result.triangles.map((t) => t.V.join(','))).toEqual(same);
 
             asc.orientTriangles(result.vertices, result.triangles, false);
+            for (const t of result.triangles) {
+                expect(dotWithGradient(t)).toBeLessThanOrEqual(0);
+            }
             const opposite = result.triangles.map((t) => t.V.join(','));
+            asc.orientTriangles(result.vertices, result.triangles, false);
+            expect(result.triangles.map((t) => t.V.join(','))).toEqual(
+                opposite);
+
             for (let i = 0; i < same.length; ++i) {
                 const a = same[i].split(',');
-                // The opposite orientation swaps the last two indices.
-                expect(opposite[i]).toBe([a[0], a[2], a[1]].join(','));
+                // Each triangle either keeps its winding, when the dot
+                // product is exactly zero and neither branch swaps, or has
+                // its last two indices exchanged.
+                expect([same[i], [a[0], a[2], a[1]].join(',')])
+                    .toContain(opposite[i]);
             }
+            // The winding changes but the vertex set of each triangle does
+            // not.
             expect(result.triangles.map((t) =>
                 [...t.V].sort((a, b) => a - b).join(','))).toEqual(before);
         }, 20);
