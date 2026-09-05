@@ -3,6 +3,7 @@ import {
     sqrtEstimate, sqrtEstimateRR, getSqrtEstimateMaxError
 } from '../src/SqrtEstimate.js';
 import { GTE_C_SQRT_2 } from '../src/Constants.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 const DEGREES = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 
@@ -135,5 +136,133 @@ describe('getSqrtEstimateMaxError', () => {
     it('throws for invalid degrees', () => {
         expect(() => getSqrtEstimateMaxError(0)).toThrow('Invalid degree.');
         expect(() => getSqrtEstimateMaxError(9)).toThrow('Invalid degree.');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V23): independent review against upstream SqrtEstimate.h.
+// ---------------------------------------------------------------------------
+
+/** std::frexp by repeated halving; every step is exact. */
+function frexpByLoop(x: number): { f: number; p: number } {
+    if (x === 0 || !Number.isFinite(x)) { return { f: x, p: 0 }; }
+    let f = x;
+    let p = 0;
+    while (Math.abs(f) >= 1) { f /= 2; ++p; }
+    while (Math.abs(f) < 0.5) { f *= 2; --p; }
+    return { f, p };
+}
+
+describe('SqrtEstimate verification', () => {
+    // Positive doubles across the binades the reference below can rescale
+    // without overflowing (the port itself has no such restriction).
+    const anyPositive = fc.tuple(
+        fc.double({ min: 1, max: 2, noNaN: true, noDefaultInfinity: true }),
+        fc.integer({ min: -1020, max: 1020 })
+    ).map(([m, e]) => m * Math.pow(2, e)).filter(x => x > 0 && Number.isFinite(x));
+
+    it('is within the documented bound on fast-check samples of [1,2]', () => {
+        const inDomain = fc.double({ min: 1, max: 2, noNaN: true });
+        for (const degree of DEGREES) {
+            check(inDomain, x =>
+                Math.abs(sqrtEstimate(x, degree) - Math.sqrt(x))
+                    <= MAX_ERROR[degree - 1]);
+        }
+    });
+
+    it('has a max error over [1,2] that decreases with the degree', () => {
+        // Measured independently of the published table.
+        const samples = 40000;
+        let previous = Number.POSITIVE_INFINITY;
+        for (const degree of DEGREES) {
+            let observed = 0;
+            for (let i = 0; i <= samples; ++i) {
+                const x = 1 + i / samples;
+                observed = Math.max(observed,
+                    Math.abs(sqrtEstimate(x, degree) - Math.sqrt(x)));
+            }
+            expect(observed).toBeLessThanOrEqual(MAX_ERROR[degree - 1]);
+            expect(observed).toBeGreaterThan(0.9 * MAX_ERROR[degree - 1]);
+            expect(observed).toBeLessThan(previous);
+            previous = observed;
+        }
+    }, 30000);
+
+    it('is strictly increasing on [1,2] for every degree', () => {
+        const samples = 5000;
+        for (const degree of DEGREES) {
+            let previous = Number.NEGATIVE_INFINITY;
+            for (let i = 0; i <= samples; ++i) {
+                const v = sqrtEstimate(1 + i / samples, degree);
+                expect(v).toBeGreaterThan(previous);
+                previous = v;
+            }
+        }
+    }, 30000);
+
+    it('splits the exponent with the odd/even adjustment upstream uses', () => {
+        // Upstream: y = 2*frexp(x,&p), --p, adj = (1&p)*sqrt(2) + (1&~p),
+        // p >>= 1, result = adj*ldexp(poly(y), p). The reference restates the
+        // integer bit tricks as arithmetic on the exponent: `1 & p` is the
+        // parity of p (including for negative p) and `p >> 1` is the floor of
+        // p/2, not truncation toward zero.
+        for (const degree of DEGREES) {
+            check(anyPositive, x => {
+                const { f, p: pf } = frexpByLoop(x);
+                const y = 2 * f;
+                const p = pf - 1;
+                const adj = Math.abs(p % 2) === 1 ? GTE_C_SQRT_2 : 1;
+                const half = Math.floor(p / 2);
+                const expected = adj
+                    * (sqrtEstimate(y, degree) * Math.pow(2, half));
+                return sqrtEstimateRR(x, degree) === expected;
+            });
+        }
+    });
+
+    it('bounds the relative error of the range-reduced form everywhere', () => {
+        // sqrt(x) = adj*2^(p/2)*sqrt(y) with sqrt(y) >= 1, so the reduction
+        // carries the absolute bound on [1,2] over as a relative bound.
+        for (const degree of DEGREES) {
+            check(anyPositive, x => {
+                const exact = Math.sqrt(x);
+                return Math.abs(sqrtEstimateRR(x, degree) - exact) / exact
+                    <= MAX_ERROR[degree - 1] * (1 + 1e-12);
+            });
+        }
+    });
+
+    it('squares back to the input to twice the relative accuracy', () => {
+        // An identity the implementation never uses: r^2 = x to within
+        // 2*maxError relative, since (1+e)^2 = 1 + 2e + O(e^2).
+        for (const degree of [4, 8]) {
+            check(anyPositive, x => {
+                const r = sqrtEstimateRR(x, degree);
+                const sqr = r * r;
+                if (!Number.isFinite(sqr) || sqr === 0) { return true; }
+                return Math.abs(sqr - x) / x
+                    <= 2.1 * MAX_ERROR[degree - 1] + 1e-15;
+            });
+        }
+    });
+
+    it('preserves the scaling law sqrt(4x) = 2*sqrt(x) exactly', () => {
+        // Multiplying by four shifts p by two, which leaves the polynomial
+        // argument and the parity adjustment untouched.
+        for (const degree of DEGREES) {
+            check(anyPositive.filter(x => x > 1e-280 && x < 1e280), x =>
+                sqrtEstimateRR(4 * x, degree) === 2 * sqrtEstimateRR(x, degree));
+        }
+    });
+
+    it('preserves the documented x = 0 quirk (upstream issue)', () => {
+        // Upstream's frexp(0) yields p = 0, so the reduction evaluates the
+        // polynomial at t = -1 and scales by sqrt(2)/2 - a meaningless
+        // nonzero value, despite the documented x >= 0 constraint. Preserved.
+        for (const degree of DEGREES) {
+            const v = sqrtEstimateRR(0, degree);
+            expect(Number.isFinite(v)).toBe(true);
+            expect(v).not.toBe(0);
+        }
     });
 });

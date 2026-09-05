@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
     log2Estimate, log2EstimateRR, getLog2EstimateMaxError
 } from '../src/Log2Estimate.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 const DEGREES = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 
@@ -132,4 +133,118 @@ describe('getLog2EstimateMaxError', () => {
         expect(() => getLog2EstimateMaxError(0)).toThrow('Invalid degree.');
         expect(() => getLog2EstimateMaxError(9)).toThrow('Invalid degree.');
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V23): independent review against upstream Log2Estimate.h.
+// ---------------------------------------------------------------------------
+
+/**
+ * std::frexp by repeated halving: x = f * 2^p with f in [1/2,1). Scaling by
+ * two is always exact, subnormals included, so this is an independent
+ * reference for the exponent-field extraction inside the port.
+ */
+function frexpByLoop(x: number): { f: number; p: number } {
+    if (x === 0 || !Number.isFinite(x)) { return { f: x, p: 0 }; }
+    let f = x;
+    let p = 0;
+    while (Math.abs(f) >= 1) { f /= 2; ++p; }
+    while (Math.abs(f) < 0.5) { f *= 2; --p; }
+    return { f, p };
+}
+
+describe('Log2Estimate verification', () => {
+    // Positive doubles spread over every binade, subnormals included.
+    const anyPositive = fc.tuple(
+        fc.double({ min: 1, max: 2, noNaN: true, noDefaultInfinity: true }),
+        fc.integer({ min: -1080, max: 1020 })
+    ).map(([m, e]) => m * Math.pow(2, e)).filter(x => x > 0 && Number.isFinite(x));
+
+    it('is within the documented bound on fast-check samples of [1,2]', () => {
+        const inDomain = fc.double({ min: 1, max: 2, noNaN: true });
+        for (const degree of DEGREES) {
+            check(inDomain, x =>
+                Math.abs(log2Estimate(x, degree) - Math.log2(x))
+                    <= MAX_ERROR[degree - 1]);
+        }
+    });
+
+    it('has a max error over [1,2] that decreases with the degree', () => {
+        // Measured independently of the published table.
+        const samples = 40000;
+        let previous = Number.POSITIVE_INFINITY;
+        for (const degree of DEGREES) {
+            let observed = 0;
+            for (let i = 0; i <= samples; ++i) {
+                const x = 1 + i / samples;
+                observed = Math.max(observed,
+                    Math.abs(log2Estimate(x, degree) - Math.log2(x)));
+            }
+            expect(observed).toBeLessThanOrEqual(MAX_ERROR[degree - 1]);
+            expect(observed).toBeGreaterThan(0.9 * MAX_ERROR[degree - 1]);
+            expect(observed).toBeLessThan(previous);
+            previous = observed;
+        }
+    }, 30000);
+
+    it('is strictly increasing on [1,2] for every degree', () => {
+        const samples = 5000;
+        for (const degree of DEGREES) {
+            let previous = Number.NEGATIVE_INFINITY;
+            for (let i = 0; i <= samples; ++i) {
+                const v = log2Estimate(1 + i / samples, degree);
+                expect(v).toBeGreaterThan(previous);
+                previous = v;
+            }
+        }
+    }, 30000);
+
+    it('reduces with frexp exactly, as upstream does', () => {
+        // Upstream: y = 2*frexp(x, &p), --p, result = poly(y) + p. The
+        // reference frexp here halves in a loop instead of reading the
+        // exponent field.
+        for (const degree of DEGREES) {
+            check(anyPositive, x => {
+                const { f, p } = frexpByLoop(x);
+                const y = 2 * f;
+                return log2EstimateRR(x, degree)
+                    === log2Estimate(y, degree) + (p - 1);
+            });
+        }
+    });
+
+    it('bounds the absolute error of the range-reduced form everywhere', () => {
+        // The reduction contributes an exact integer, so the absolute error
+        // of log2EstimateRR is the absolute error of the polynomial on [1,2].
+        for (const degree of DEGREES) {
+            check(anyPositive, x =>
+                Math.abs(log2EstimateRR(x, degree) - Math.log2(x))
+                    <= MAX_ERROR[degree - 1] * (1 + 1e-12));
+        }
+    });
+
+    it('turns products into sums to the accuracy of the estimate', () => {
+        // log2(a*b) = log2(a) + log2(b): an identity the implementation does
+        // not encode anywhere, so it cross-checks the reduction and the
+        // polynomial together.
+        const moderate = fc.double({ min: 1e-30, max: 1e30, noNaN: true })
+            .filter(x => x > 0);
+        for (const degree of [3, 8]) {
+            check(fc.tuple(moderate, moderate), ([a, b]) => {
+                const product = a * b;
+                if (!Number.isFinite(product) || product === 0) { return true; }
+                const lhs = log2EstimateRR(product, degree);
+                const rhs = log2EstimateRR(a, degree) + log2EstimateRR(b, degree);
+                return Math.abs(lhs - rhs) <= 3 * MAX_ERROR[degree - 1] + 1e-9;
+            });
+        }
+    });
+
+    it('is exact at every power of two, subnormals included', () => {
+        for (const degree of DEGREES) {
+            for (let p = -1074; p <= 1023; p += 3) {
+                expect(log2EstimateRR(Math.pow(2, p), degree)).toBe(p);
+            }
+        }
+    }, 30000);
 });

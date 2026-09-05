@@ -3,7 +3,10 @@ import {
     slerpEstimate, slerpEstimateUsingCosAngle, slerpEstimateUsingMidpoint
 } from '../src/SlerpEstimate.js';
 import { slerp, slerpUsingCosAngle, slerpUsingMidpoint } from '../src/Slerp.js';
-import { getChebyshevRatioEstimateMaxError } from '../src/ChebyshevRatioEstimate.js';
+import {
+    chebyshevRatioEstimate, getChebyshevRatioEstimateMaxError
+} from '../src/ChebyshevRatioEstimate.js';
+import { check, fc, scaled, unitVector } from './helpers/arbitraries.js';
 
 const DEGREES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16] as const;
 
@@ -282,5 +285,148 @@ describe('slerpEstimateUsingMidpoint', () => {
             .toThrow(/Mismatched dimensions/);
         expect(() => slerpEstimateUsingMidpoint(0.5, [1, 0], [0, 1], [1, 0], 0.9, 0))
             .toThrow(/Invalid degree/);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V23): independent review against upstream SlerpEstimate.h.
+// ---------------------------------------------------------------------------
+
+describe('SlerpEstimate verification', () => {
+    const unitArray = (n: number): fc.Arbitrary<number[]> =>
+        unitVector(n).map(v => [...v.values]);
+    // The first two estimates require an angle in [0,pi/2], i.e. a
+    // non-negative dot product; upstream's documented preprocessing flips the
+    // sign of q1 to guarantee it.
+    const pairArb = fc.tuple(unitArray(4), unitArray(4))
+        .map(([a, b]) => (dot(a, b) < 0 ? [a, b.map(v => -v)] : [a, b]))
+        .filter(([a, b]) => dot(a, b) < 0.999);
+    const tArb = scaled(0, 1);
+
+    it('is exactly the Chebyshev estimate weighting of the two inputs', () => {
+        // Pins the port's accumulation loop against the file it delegates to,
+        // including the choice of q0/q1 order in each branch.
+        for (const degree of [1, 5, 16]) {
+            check(fc.tuple(pairArb, tArb), ([[q0, q1], t]) => {
+                const f = chebyshevRatioEstimate(t, dot(q0, q1), degree);
+                const r = slerpEstimate(t, q0, q1, degree);
+                for (let i = 0; i < 4; ++i) {
+                    if (r[i] + 0 !== f[0] * q0[i] + f[1] * q1[i] + 0) {
+                        return false;
+                    }
+                }
+                return true;
+            });
+        }
+    });
+
+    it('tracks exact slerp within twice the documented ratio error', () => {
+        // Each component is f[0]*q0[i] + f[1]*q1[i] with |q| <= 1, so the two
+        // ratio errors simply add.
+        for (const degree of [1, 2, 4, 8, 12, 16]) {
+            check(fc.tuple(pairArb, tArb), ([[q0, q1], t]) => {
+                const exact = slerp(t, q0, q1);
+                const est = slerpEstimate(t, q0, q1, degree);
+                return maxAbsDiff(exact, est) <= componentBound(degree);
+            });
+        }
+    });
+
+    it('improves monotonically with the degree', () => {
+        // Averaged over a deterministic sample: a swapped u-table or an
+        // off-by-one degree index would break the ordering.
+        const rand = makeRandom(20230423);
+        const samples: { q0: number[]; q1: number[]; t: number }[] = [];
+        for (let i = 0; i < 400; ++i) {
+            const { q0, q1 } = randomPair(rand);
+            samples.push({ q0, q1, t: rand() });
+        }
+        let previous = Number.POSITIVE_INFINITY;
+        for (let degree = 1; degree <= 16; ++degree) {
+            let worst = 0;
+            for (const s of samples) {
+                worst = Math.max(worst, maxAbsDiff(slerp(s.t, s.q0, s.q1),
+                    slerpEstimate(s.t, s.q0, s.q1, degree)));
+            }
+            expect(worst).toBeLessThanOrEqual(componentBound(degree));
+            expect(worst).toBeLessThan(previous);
+            previous = worst;
+        }
+    }, 30000);
+
+    it('stays close to the unit hypersphere', () => {
+        // The exact slerp is unit length, so the estimate cannot deviate by
+        // more than the componentwise bound times sqrt(N).
+        for (const degree of [4, 10, 16]) {
+            check(fc.tuple(pairArb, tArb), ([[q0, q1], t]) => {
+                const r = slerpEstimate(t, q0, q1, degree);
+                return Math.abs(Math.sqrt(dot(r, r)) - 1)
+                    <= 2 * componentBound(degree);
+            });
+        }
+    });
+
+    it('is exactly the precomputed-cosine overload for the exact dot', () => {
+        for (const degree of [3, 16]) {
+            check(fc.tuple(pairArb, tArb), ([[q0, q1], t]) => {
+                const a = slerpEstimate(t, q0, q1, degree);
+                const b = slerpEstimateUsingCosAngle(t, q0, q1,
+                    dot(q0, q1), degree);
+                for (let i = 0; i < 4; ++i) {
+                    if (a[i] + 0 !== b[i] + 0) { return false; }
+                }
+                return true;
+            });
+        }
+    });
+
+    it('handles angles beyond pi/2 through the midpoint overload', () => {
+        // The plain estimate is only documented for [0,pi/2]; the midpoint
+        // form halves the angle, so it covers [0,pi). This checks the branch
+        // switch at t = 1/2 uses q0/qh below and qh/q1 above.
+        const widePair = fc.tuple(unitArray(4), unitArray(4))
+            .filter(([a, b]) => {
+                const c = dot(a, b);
+                return c > -0.98 && c < 0.999;
+            });
+        for (const degree of [8, 16]) {
+            check(fc.tuple(widePair, tArb), ([[q0, q1], t]) => {
+                const cosA = dot(q0, q1);
+                const cosAH = Math.sqrt((1 + cosA) / 2);
+                const qh = q0.map((v, i) => (v + q1[i]) / (2 * cosAH));
+                const est = slerpEstimateUsingMidpoint(t, q0, q1, qh,
+                    cosAH, degree);
+                const exact = slerp(t, q0, q1);
+                return maxAbsDiff(exact, est) <= componentBound(degree) + 1e-9;
+            });
+        }
+    });
+
+    it('reproduces the endpoints to the accuracy of the ratio estimate', () => {
+        // The zero weight is exact (t = 0 kills term1 identically), while the
+        // other weight is the estimate of f(1,x) = 1.
+        for (const degree of [1, 8, 16]) {
+            check(pairArb, ([q0, q1]) => {
+                const at0 = slerpEstimate(0, q0, q1, degree);
+                const at1 = slerpEstimate(1, q0, q1, degree);
+                return maxAbsDiff(at0, q0) <= componentBound(degree)
+                    && maxAbsDiff(at1, q1) <= componentBound(degree);
+            });
+        }
+    });
+
+    it('rejects mismatched dimensions and invalid degrees', () => {
+        expect(() => slerpEstimate(0.5, [1], [1], 4))
+            .toThrow('Invalid dimension.');
+        expect(() => slerpEstimate(0.5, [1, 0], [1, 0, 0], 4))
+            .toThrow('Mismatched dimensions.');
+        expect(() => slerpEstimate(0.5, [1, 0], [0, 1], 0))
+            .toThrow('Invalid degree.');
+        expect(() => slerpEstimate(0.5, [1, 0], [0, 1], 17))
+            .toThrow('Invalid degree.');
+        expect(() => slerpEstimate(0.5, [1, 0], [0, 1], 2.5))
+            .toThrow('Invalid degree.');
+        expect(() => slerpEstimateUsingMidpoint(0.5, [1, 0], [0, 1],
+            [1, 0, 0], 1, 4)).toThrow('Mismatched dimensions.');
     });
 });

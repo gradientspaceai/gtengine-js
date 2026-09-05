@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
     exp2Estimate, exp2EstimateRR, getExp2EstimateMaxError
 } from '../src/Exp2Estimate.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 const DEGREES = [1, 2, 3, 4, 5, 6, 7] as const;
 
@@ -146,5 +147,120 @@ describe('getExp2EstimateMaxError', () => {
     it('throws for invalid degrees', () => {
         expect(() => getExp2EstimateMaxError(0)).toThrow('Invalid degree.');
         expect(() => getExp2EstimateMaxError(8)).toThrow('Invalid degree.');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V23): independent review against upstream Exp2Estimate.h.
+// ---------------------------------------------------------------------------
+
+/**
+ * std::frexp by repeated halving: x = f * 2^p with f in [1/2,1). Every step
+ * is exact (scaling by two never rounds, subnormals included), so this is an
+ * independent reference for the bit-twiddling reduction inside the port.
+ */
+function frexpByLoop(x: number): { f: number; p: number } {
+    if (x === 0 || !Number.isFinite(x)) { return { f: x, p: 0 }; }
+    let f = x;
+    let p = 0;
+    while (Math.abs(f) >= 1) { f /= 2; ++p; }
+    while (Math.abs(f) < 0.5) { f *= 2; --p; }
+    return { f, p };
+}
+
+describe('Exp2Estimate verification', () => {
+    const inDomain = fc.double({ min: 0, max: 1, noNaN: true });
+
+    it('is within the documented bound on fast-check samples of [0,1]', () => {
+        for (const degree of DEGREES) {
+            check(inDomain, x =>
+                Math.abs(exp2Estimate(x, degree) - Math.pow(2, x))
+                    <= MAX_ERROR[degree - 1]);
+        }
+    });
+
+    it('has a max error over [0,1] that decreases with the degree', () => {
+        // Measured here rather than read from the table: the RotationEstimate
+        // tables were found to understate the real error for high degrees.
+        const samples = 40000;
+        let previous = Number.POSITIVE_INFINITY;
+        for (const degree of DEGREES) {
+            let observed = 0;
+            for (let i = 0; i <= samples; ++i) {
+                const x = i / samples;
+                observed = Math.max(observed,
+                    Math.abs(exp2Estimate(x, degree) - Math.pow(2, x)));
+            }
+            expect(observed).toBeLessThanOrEqual(MAX_ERROR[degree - 1]);
+            expect(observed).toBeGreaterThan(0.9 * MAX_ERROR[degree - 1]);
+            expect(observed).toBeLessThan(previous);
+            previous = observed;
+        }
+    }, 30000);
+
+    it('is strictly increasing on [0,1] for every degree', () => {
+        // 2^x is increasing and the minimax error is far below the increment
+        // over one grid step, so a coefficient transposition would show up.
+        const samples = 5000;
+        for (const degree of DEGREES) {
+            let previous = Number.NEGATIVE_INFINITY;
+            for (let i = 0; i <= samples; ++i) {
+                const v = exp2Estimate(i / samples, degree);
+                expect(v).toBeGreaterThan(previous);
+                previous = v;
+            }
+        }
+    }, 30000);
+
+    it('splits the range reduction into floor and fraction, as upstream does', () => {
+        // Upstream: p = floor(x), y = x - p, result = ldexp(poly(y), p). The
+        // reference multiplies by an exactly computed power of two instead of
+        // the port's two-step scaling.
+        const wide = fc.double({ min: -900, max: 900, noNaN: true });
+        for (const degree of [1, 4, 7]) {
+            check(wide, x => {
+                const p = Math.floor(x);
+                const poly = exp2Estimate(x - p, degree);
+                const expected = poly * Math.pow(2, p);
+                return exp2EstimateRR(x, degree) === expected;
+            });
+        }
+    });
+
+    it('has a relative error bounded by the absolute error of the polynomial', () => {
+        // 2^x = 2^p * 2^y with 2^y >= 1, so the reduction cannot amplify the
+        // relative error beyond the tabulated absolute bound.
+        const wide = fc.double({ min: -300, max: 300, noNaN: true });
+        for (const degree of DEGREES) {
+            check(wide, x => {
+                const exact = Math.pow(2, x);
+                const relative = Math.abs(exp2EstimateRR(x, degree) - exact)
+                    / exact;
+                return relative <= MAX_ERROR[degree - 1] * (1 + 1e-12);
+            });
+        }
+    });
+
+    it('reproduces powers of two exactly, including subnormal ones', () => {
+        // y = 0 makes the polynomial exactly its constant term 1.
+        for (const degree of DEGREES) {
+            for (let p = -1074; p <= 1023; p += 7) {
+                expect(exp2EstimateRR(p, degree)).toBe(Math.pow(2, p));
+            }
+        }
+    }, 30000);
+
+    it('agrees with an independent frexp on the exponent it produces', () => {
+        // The estimate of 2^x lies in the binade selected by floor(x), which
+        // is the property the ldexp step has to preserve.
+        const wide = fc.double({ min: -500, max: 500, noNaN: true });
+        for (const degree of [3, 7]) {
+            check(wide, x => {
+                const value = exp2EstimateRR(x, degree);
+                const { p } = frexpByLoop(value);
+                const expected = frexpByLoop(Math.pow(2, x)).p;
+                return Math.abs(p - expected) <= 1;
+            });
+        }
     });
 });

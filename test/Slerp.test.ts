@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { slerp, slerpUsingCosAngle, slerpUsingMidpoint } from '../src/Slerp.js';
+import { chebyshevRatiosUsingCosAngle } from '../src/ChebyshevRatio.js';
+import { check, fc, scaled, unitVector } from './helpers/arbitraries.js';
 
 // Closed-form geodesic reference:
 //   slerp(t,q0,q1) = [sin((1-t)*A)*q0 + sin(t*A)*q1]/sin(A), cos(A)=dot(q0,q1)
@@ -288,5 +290,160 @@ describe('slerpUsingMidpoint', () => {
             .toThrow(/Invalid dimension/);
         expect(() => slerpUsingMidpoint(0.5, [1, 0], [0, 1], [1, 0, 0], 0.9))
             .toThrow(/Mismatched dimensions/);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V23): independent review against upstream Slerp.h.
+// ---------------------------------------------------------------------------
+
+describe('Slerp verification', () => {
+    // Unit vectors whose components are well scaled, so no coordinate is
+    // subnormal and the dot product carries full precision.
+    const unitArray = (n: number): fc.Arbitrary<number[]> =>
+        unitVector(n).map(v => [...v.values]);
+    const quatArb = unitArray(4);
+    // Pairs separated by an angle bounded away from 0 and pi, where the
+    // 1/sin(A) in the weights is well conditioned.
+    const pairArb = fc.tuple(quatArb, quatArb).filter(([a, b]) => {
+        const c = dot(a, b);
+        return c > -0.99 && c < 0.99;
+    });
+    const tArb = scaled(0, 1);
+
+    it('reproduces the endpoints exactly, not just closely', () => {
+        // f = {sin(A)/sin(A), 0} at t = 0 and {0, sin(A)/sin(A)} at t = 1, so
+        // the same double is divided by itself and the weights are exactly
+        // 1 and 0.
+        check(pairArb, ([q0, q1]) => {
+            const at0 = slerp(0, q0, q1);
+            const at1 = slerp(1, q0, q1);
+            for (let i = 0; i < 4; ++i) {
+                if (at0[i] + 0 !== q0[i] + 0) { return false; }
+                if (at1[i] + 0 !== q1[i] + 0) { return false; }
+            }
+            return true;
+        });
+    });
+
+    it('stays on the unit hypersphere', () => {
+        check(fc.tuple(pairArb, tArb), ([[q0, q1], t]) => {
+            const r = slerp(t, q0, q1);
+            return Math.abs(Math.sqrt(dot(r, r)) - 1) <= 1e-12;
+        });
+    });
+
+    it('moves along the arc at constant angular speed', () => {
+        // The defining property of slerp: the angle from q0 grows linearly.
+        // The angle is read off with atan2 in the plane's own orthonormal
+        // basis rather than with acos(dot(q0,r)); acos has an infinite
+        // derivative at 1, so it turns the 1e-16 of the dot product into an
+        // error of 1e-16/(t*A) radians and says nothing near t = 0.
+        check(fc.tuple(pairArb, tArb), ([[q0, q1], t]) => {
+            const c = dot(q0, q1);
+            const angle = Math.atan2(Math.sqrt(Math.max(0, 1 - c * c)), c);
+            const e1 = q1.map((v, i) => v - c * q0[i]);
+            const u1 = e1.map(v => v / Math.sqrt(dot(e1, e1)));
+            const r = slerp(t, q0, q1);
+            const measured = Math.atan2(dot(r, u1), dot(r, q0));
+            return Math.abs(measured - t * angle) <= 1e-12;
+        });
+    });
+
+    it('stays in the plane spanned by the two inputs', () => {
+        // Any component orthogonal to span{q0,q1} would mean the weights were
+        // applied to the wrong vectors.
+        check(fc.tuple(pairArb, tArb), ([[q0, q1], t]) => {
+            const r = slerp(t, q0, q1);
+            // Gram-Schmidt the plane, then project the residual out.
+            const c = dot(q0, q1);
+            const e1 = q1.map((v, i) => v - c * q0[i]);
+            const n1 = Math.sqrt(dot(e1, e1));
+            const u1 = e1.map(v => v / n1);
+            const residual = r.map((v, i) => v - dot(r, q0) * q0[i]
+                - dot(r, u1) * u1[i]);
+            return Math.sqrt(dot(residual, residual)) <= 1e-12;
+        });
+    });
+
+    it('is symmetric under reversing the arc', () => {
+        // slerp(t, q0, q1) traverses the same arc as slerp(1-t, q1, q0).
+        check(fc.tuple(pairArb, tArb), ([[q0, q1], t]) => {
+            const a = slerp(t, q0, q1);
+            const b = slerp(1 - t, q1, q0);
+            for (let i = 0; i < 4; ++i) {
+                if (Math.abs(a[i] - b[i]) > 1e-12) { return false; }
+            }
+            return true;
+        });
+    });
+
+    it('is exactly the precomputed-cosine overload for the exact dot', () => {
+        // The two overloads differ only in whether they compute the dot
+        // product; feeding it back must reproduce the result bit for bit.
+        check(fc.tuple(pairArb, tArb), ([[q0, q1], t]) => {
+            const a = slerp(t, q0, q1);
+            const b = slerpUsingCosAngle(t, q0, q1, dot(q0, q1));
+            for (let i = 0; i < 4; ++i) {
+                if (a[i] + 0 !== b[i] + 0) { return false; }
+            }
+            return true;
+        });
+    });
+
+    it('agrees with the midpoint overload over the whole arc', () => {
+        // The midpoint form halves the angle each side of t = 1/2, which is
+        // what lets it handle angles up to pi; on the shared domain the two
+        // must agree.
+        check(fc.tuple(pairArb, tArb), ([[q0, q1], t]) => {
+            const cosA = dot(q0, q1);
+            const cosAH = Math.sqrt((1 + cosA) / 2);
+            const qh = q0.map((v, i) => (v + q1[i]) / (2 * cosAH));
+            const a = slerp(t, q0, q1);
+            const b = slerpUsingMidpoint(t, q0, q1, qh, cosAH);
+            for (let i = 0; i < 4; ++i) {
+                if (Math.abs(a[i] - b[i]) > 1e-10) { return false; }
+            }
+            return true;
+        });
+    });
+
+    it('reduces to the Chebyshev weights of the two inputs', () => {
+        // The result is exactly f[0]*q0 + f[1]*q1 with f from ChebyshevRatio;
+        // this pins the port's loop against the file it delegates to.
+        check(fc.tuple(pairArb, tArb), ([[q0, q1], t]) => {
+            const f = chebyshevRatiosUsingCosAngle(t, dot(q0, q1));
+            const r = slerp(t, q0, q1);
+            for (let i = 0; i < 4; ++i) {
+                if (r[i] + 0 !== f[0] * q0[i] + f[1] * q1[i] + 0) {
+                    return false;
+                }
+            }
+            return true;
+        });
+    });
+
+    it('works in every dimension from 2 up', () => {
+        for (const n of [2, 3, 5, 7]) {
+            check(fc.tuple(unitArray(n), unitArray(n), tArb),
+                ([q0, q1, t]) => {
+                    if (!(dot(q0, q1) > -0.99 && dot(q0, q1) < 0.99)) {
+                        return true;
+                    }
+                    const r = slerp(t, q0, q1);
+                    return r.length === n
+                        && Math.abs(Math.sqrt(dot(r, r)) - 1) <= 1e-12;
+                });
+        }
+    });
+
+    it('rejects mismatched and degenerate dimensions', () => {
+        expect(() => slerp(0.5, [1], [1])).toThrow('Invalid dimension.');
+        expect(() => slerp(0.5, [1, 0], [1, 0, 0]))
+            .toThrow('Mismatched dimensions.');
+        expect(() => slerpUsingCosAngle(0.5, [1, 0], [1, 0, 0], 1))
+            .toThrow('Mismatched dimensions.');
+        expect(() => slerpUsingMidpoint(0.5, [1, 0], [0, 1], [1, 0, 0], 1))
+            .toThrow('Mismatched dimensions.');
     });
 });

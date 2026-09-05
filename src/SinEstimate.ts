@@ -66,16 +66,64 @@ function validateDegree(degree: number): void {
 
 // Port of std::remainder(x, y): x - n*y where n is the integer nearest to
 // x/y, with ties rounded to the nearest even integer. JavaScript has no
-// equivalent (% truncates), so it is computed explicitly.
+// equivalent (% truncates), and the obvious x - Math.round(x/y)*y is not a
+// substitute: std::remainder is computed as if in infinite precision, while
+// the quotient x/y and the product n*y each round. That approximation is
+// already wrong by 1e-6 at |x| = 1e10 and returns values outside
+// [-|y|/2, |y|/2] beyond |x| = 1e14 (for example remainder(-9.77e15, 2*pi)
+// evaluates to 4 instead of -3.141005...), which drives the range-reduced
+// estimates below far outside the domain their polynomials approximate.
+//
+// The reduction here is exact: the loop is binary long division of |x| by
+// |y| in which every d is |y| scaled by a power of two (exact) and every
+// subtraction satisfies d <= r < 2*d, hence is exact by Sterbenz's lemma.
+// The remaining r is |x| mod |y| in [0,|y|), and quotientOdd is the low bit
+// of the quotient, which decides the halfway case.
 function ieeeRemainder(x: number, y: number): number {
-    const q = x / y;
-    // Math.round rounds halfway cases toward +infinity; adjust ties to the
-    // even neighbor as IEEE remainder requires.
-    let n = Math.round(q);
-    if (n - q === 0.5 && n % 2 !== 0) {
-        n -= 1;
+    if (!Number.isFinite(x) || Number.isNaN(y) || y === 0) {
+        // std::remainder(+-inf, y), remainder(NaN, y) and remainder(x, 0)
+        // are all NaN.
+        return Number.NaN;
     }
-    return x - n * y;
+    if (!Number.isFinite(y)) {
+        // std::remainder(x, +-inf) is x for finite x.
+        return x;
+    }
+
+    const ay = Math.abs(y);
+    let r = Math.abs(x);
+    let quotientOdd = false;
+    if (r >= ay) {
+        let d = ay;
+        while (r >= 2 * d) {
+            d *= 2;
+        }
+        for (; d >= ay; d *= 0.5) {
+            if (r >= d) {
+                r -= d;
+                quotientOdd = (d === ay);
+            }
+        }
+    }
+
+    // Round the quotient to nearest with ties to even: subtract one more |y|
+    // when the fractional part exceeds 1/2, or equals 1/2 with an odd
+    // quotient. Doubling r is exact because r < |y|; in the one case where
+    // 2*r would overflow, |y| is normal and halving it is exact instead.
+    if (r <= Number.MAX_VALUE * 0.5) {
+        const twiceR = 2 * r;
+        if (twiceR > ay || (twiceR === ay && quotientOdd)) {
+            r -= ay;
+        }
+    } else {
+        const half = ay * 0.5;
+        if (r > half || (r === half && quotientOdd)) {
+            r -= ay;
+        }
+    }
+
+    // std::remainder(-x, y) = -remainder(x, y), including the sign of zero.
+    return (x < 0 || Object.is(x, -0)) ? -r : r;
 }
 
 // The input constraint is x in [-pi/2,pi/2]. The degree must be odd in

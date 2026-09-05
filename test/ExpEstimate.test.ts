@@ -4,6 +4,7 @@ import {
 } from '../src/ExpEstimate.js';
 import { exp2Estimate, exp2EstimateRR } from '../src/Exp2Estimate.js';
 import { GTE_C_INV_LN_2 } from '../src/Constants.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 const DEGREES = [1, 2, 3, 4, 5, 6, 7] as const;
 
@@ -128,5 +129,90 @@ describe('getExpEstimateMaxError', () => {
     it('throws for invalid degrees', () => {
         expect(() => getExpEstimateMaxError(0)).toThrow('Invalid degree.');
         expect(() => getExpEstimateMaxError(8)).toThrow('Invalid degree.');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V23): independent review against upstream ExpEstimate.h.
+// ---------------------------------------------------------------------------
+
+describe('ExpEstimate verification', () => {
+    it('is exactly the exp2 estimate of x/log(2), for every input', () => {
+        // Upstream is a one-line forward; a stray extra rounding would show.
+        const wide = fc.double({ min: -600, max: 600, noNaN: true });
+        for (const degree of DEGREES) {
+            check(wide, x =>
+                expEstimate(x, degree) === exp2Estimate(x * GTE_C_INV_LN_2, degree)
+                && expEstimateRR(x, degree)
+                    === exp2EstimateRR(x * GTE_C_INV_LN_2, degree));
+        }
+    });
+
+    it('is within the documented bound on fast-check samples of [0,log(2)]', () => {
+        const inDomain = fc.double({ min: 0, max: LN_2, noNaN: true });
+        for (const degree of DEGREES) {
+            check(inDomain, x =>
+                Math.abs(expEstimate(x, degree) - Math.exp(x))
+                    <= MAX_ERROR[degree - 1]);
+        }
+    });
+
+    it('has a max error over [0,log(2)] that decreases with the degree', () => {
+        // Measured independently of the published table.
+        const samples = 40000;
+        let previous = Number.POSITIVE_INFINITY;
+        for (const degree of DEGREES) {
+            let observed = 0;
+            for (let i = 0; i <= samples; ++i) {
+                const x = (i * LN_2) / samples;
+                observed = Math.max(observed,
+                    Math.abs(expEstimate(x, degree) - Math.exp(x)));
+            }
+            expect(observed).toBeLessThanOrEqual(MAX_ERROR[degree - 1]);
+            expect(observed).toBeGreaterThan(0.9 * MAX_ERROR[degree - 1]);
+            expect(observed).toBeLessThan(previous);
+            previous = observed;
+        }
+    }, 30000);
+
+    it('bounds the relative error of the range-reduced form', () => {
+        // exp(x) = 2^(x/ln 2) and the exp2 reduction keeps the relative error
+        // at the tabulated absolute bound of the polynomial on [0,1]. The
+        // extra rounding of x*(1/ln 2) contributes |x|*eps to the exponent,
+        // hence a relative term of |x|*ln(2)*eps.
+        const wide = fc.double({ min: -200, max: 200, noNaN: true });
+        for (const degree of DEGREES) {
+            check(wide, x => {
+                const exact = Math.exp(x);
+                const relative = Math.abs(expEstimateRR(x, degree) - exact)
+                    / exact;
+                const cushion = Math.abs(x) * Number.EPSILON;
+                return relative <= MAX_ERROR[degree - 1] + cushion + 1e-15;
+            });
+        }
+    });
+
+    it('is strictly increasing over a wide range for every degree', () => {
+        const samples = 4000;
+        for (const degree of DEGREES) {
+            let previous = Number.NEGATIVE_INFINITY;
+            for (let i = 0; i <= samples; ++i) {
+                const v = expEstimateRR(-50 + (100 * i) / samples, degree);
+                expect(v).toBeGreaterThan(previous);
+                previous = v;
+            }
+        }
+    }, 30000);
+
+    it('keeps exp(a)*exp(b) close to exp(a+b) at the top degree', () => {
+        // A cross-check that does not restate the implementation: the
+        // multiplicative law holds to the relative accuracy of the estimate.
+        const small = fc.double({ min: -5, max: 5, noNaN: true });
+        check(fc.tuple(small, small), ([a, b]) => {
+            const lhs = expEstimateRR(a, 7) * expEstimateRR(b, 7);
+            const rhs = expEstimateRR(a + b, 7);
+            return Math.abs(lhs - rhs) <= 3 * MAX_ERROR[6] * Math.abs(rhs)
+                + 1e-13 * Math.abs(rhs);
+        });
     });
 });

@@ -132,3 +132,39 @@ export function twiceSignedAreaExact(poly: readonly (readonly bigint[])[]): bigi
     }
     return area;
 }
+
+/**
+ * The IEEE 754 remainder of x and y, computed exactly: x - n*y where n is the
+ * integer nearest to the exact quotient x/y, ties to even. This is what C++
+ * `std::remainder` returns (it is specified to compute the exact value), and
+ * it is the reference for the argument reduction inside the range-reduced
+ * trigonometric estimates. The quotient is formed on the common dyadic scale
+ * with bigint arithmetic, so no rounding enters before the final result,
+ * which is representable because |result| <= |y|/2.
+ */
+export function exactRemainder(x: number, y: number): number {
+    if (!Number.isFinite(x) || Number.isNaN(y) || y === 0) {
+        return Number.NaN;
+    }
+    if (!Number.isFinite(y)) {
+        return x;
+    }
+
+    const [X, Y] = exactDyadic([x, y]);
+    // exactDyadic scales by the smallest exponent among the nonzero inputs.
+    const scale = x === 0 ? decompose(y).e
+        : Math.min(decompose(x).e, decompose(y).e);
+    const absX = X < 0n ? -X : X;
+    const absY = Y < 0n ? -Y : Y;
+    let q = absX / absY;
+    const rest = absX - q * absY;
+    if (rest * 2n > absY || (rest * 2n === absY && (q & 1n) === 1n)) {
+        q += 1n;
+    }
+    const negative = (X < 0n) !== (Y < 0n);
+    const R = X - (negative ? -q : q) * Y;
+    const magnitude = Number(R < 0n ? -R : R) * Math.pow(2, scale);
+    // std::remainder(-x, y) = -remainder(x, y), sign of zero included.
+    const negateResult = R < 0n || (R === 0n && (x < 0 || Object.is(x, -0)));
+    return negateResult ? -magnitude : magnitude;
+}

@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
     sinEstimate, sinEstimateRR, getSinEstimateMaxError
 } from '../src/SinEstimate.js';
-import { GTE_C_HALF_PI } from '../src/Constants.js';
+import { GTE_C_HALF_PI, GTE_C_PI, GTE_C_TWO_PI } from '../src/Constants.js';
+import { check, fc } from './helpers/arbitraries.js';
+import { exactRemainder } from './helpers/exact.js';
 
 const DEGREES = [3, 5, 7, 9, 11] as const;
 
@@ -128,5 +130,118 @@ describe('getSinEstimateMaxError', () => {
     it('throws for invalid degrees', () => {
         expect(() => getSinEstimateMaxError(1)).toThrow('Invalid degree.');
         expect(() => getSinEstimateMaxError(13)).toThrow('Invalid degree.');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V23): independent review against upstream SinEstimate.h.
+// ---------------------------------------------------------------------------
+
+describe('SinEstimate verification', () => {
+    // A generator that covers every binade rather than a bounded interval:
+    // the range reduction is where the port's arithmetic differs most from
+    // the C++ std::remainder it stands in for, and the difference only shows
+    // up once |x| is large enough for the quotient x/(2*pi) to lose bits.
+    const anyMagnitude = fc.tuple(
+        fc.double({ min: 1, max: 2, noNaN: true, noDefaultInfinity: true }),
+        fc.integer({ min: -40, max: 62 }),
+        fc.boolean()
+    ).map(([m, e, neg]) => (neg ? -m : m) * Math.pow(2, e));
+
+    it('reduces the argument exactly, as std::remainder does', () => {
+        // sinEstimateRR(x) must equal sinEstimate applied to the reduction of
+        // x by the *double* 2*pi computed in infinite precision. Computing
+        // the quotient in binary64 (x - Math.round(x/y)*y) is not the same
+        // function: it is off by 1e-6 near |x| = 1e10 and leaves [-pi,pi]
+        // entirely near |x| = 1e14, which pushes the polynomial outside the
+        // interval it approximates.
+        const reduce = (x: number): number => {
+            const r = exactRemainder(x, GTE_C_TWO_PI);
+            if (r > GTE_C_HALF_PI) { return GTE_C_PI - r; }
+            if (r < -GTE_C_HALF_PI) { return -GTE_C_PI - r; }
+            return r;
+        };
+        for (const degree of DEGREES) {
+            check(anyMagnitude, x =>
+                sinEstimateRR(x, degree) === sinEstimate(reduce(x), degree));
+        }
+        // Values that break the rounded-quotient reduction outright.
+        for (const x of [1e10, 1e12, 1e14, 1e16, -9769346117865922,
+            -26789498295071.3, 123456789012345, 4.5e15]) {
+            for (const degree of DEGREES) {
+                expect(sinEstimateRR(x, degree))
+                    .toBe(sinEstimate(reduce(x), degree));
+            }
+        }
+    });
+
+    it('never leaves the range of a sine, whatever the magnitude of x', () => {
+        // The reduced argument stays in [-pi/2,pi/2], where every estimate is
+        // bounded by 1 + maxError. A reduction that overshoots the period
+        // evaluates the polynomial outside its interval and overshoots 1.
+        for (const degree of DEGREES) {
+            check(anyMagnitude, x => {
+                const v = sinEstimateRR(x, degree);
+                return Math.abs(v) <= 1 + MAX_ERROR[degree];
+            });
+        }
+    });
+
+    it('is within the documented bound on fast-check samples of [-pi/2,pi/2]', () => {
+        const inDomain = fc.double(
+            { min: -GTE_C_HALF_PI, max: GTE_C_HALF_PI, noNaN: true });
+        for (const degree of DEGREES) {
+            check(inDomain, x =>
+                Math.abs(sinEstimate(x, degree) - Math.sin(x))
+                    <= MAX_ERROR[degree]);
+        }
+    });
+
+    it('has a max error over the domain that decreases with the degree', () => {
+        // Independently measured, not read from the table: the RotationEstimate
+        // tables were found to understate the true error, so this checks the
+        // published numbers rather than trusting them.
+        const samples = 20000;
+        let previous = Number.POSITIVE_INFINITY;
+        for (const degree of DEGREES) {
+            let observed = 0;
+            for (let i = 0; i <= samples; ++i) {
+                const x = -GTE_C_HALF_PI + (2 * GTE_C_HALF_PI * i) / samples;
+                observed = Math.max(observed,
+                    Math.abs(sinEstimate(x, degree) - Math.sin(x)));
+            }
+            expect(observed).toBeLessThanOrEqual(MAX_ERROR[degree]);
+            expect(observed).toBeGreaterThan(0.9 * MAX_ERROR[degree]);
+            expect(observed).toBeLessThan(previous);
+            previous = observed;
+        }
+    }, 30000);
+
+    it('is exactly odd, for every input and degree', () => {
+        for (const degree of DEGREES) {
+            check(fc.double({ min: -1e3, max: 1e3, noNaN: true }), x =>
+                Object.is(sinEstimate(-x, degree) + 0,
+                    -sinEstimate(x, degree) + 0));
+        }
+    });
+
+    it('matches the shape of the upstream Horner loop', () => {
+        // p(x) = x * (c0 + c1*x^2 + ... + cn*x^{2n}) with c0 = 1, so the
+        // derivative at 0 is exactly 1 and p(x)/x -> 1.
+        for (const degree of DEGREES) {
+            expect(sinEstimate(1e-8, degree) / 1e-8).toBeCloseTo(1, 12);
+        }
+    });
+
+    it('agrees with the exact-reduction reference on the RR periodicity', () => {
+        // sinEstimateRR is periodic with period equal to the double 2*pi, up
+        // to the rounding of the shift itself.
+        for (const degree of DEGREES) {
+            check(fc.double({ min: -50, max: 50, noNaN: true }), x => {
+                const a = sinEstimateRR(x, degree);
+                const b = sinEstimateRR(x + 10 * GTE_C_TWO_PI, degree);
+                return Math.abs(a - b) <= 1e-13;
+            });
+        }
     });
 });

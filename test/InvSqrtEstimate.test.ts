@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
     invSqrtEstimate, invSqrtEstimateRR, getInvSqrtEstimateMaxError
 } from '../src/InvSqrtEstimate.js';
-import { GTE_C_INV_SQRT_2 } from '../src/Constants.js';
+import { GTE_C_INV_SQRT_2, GTE_C_SQRT_2 } from '../src/Constants.js';
+import { sqrtEstimateRR } from '../src/SqrtEstimate.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 const DEGREES = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 
@@ -141,5 +143,117 @@ describe('getInvSqrtEstimateMaxError', () => {
     it('throws for invalid degrees', () => {
         expect(() => getInvSqrtEstimateMaxError(0)).toThrow('Invalid degree.');
         expect(() => getInvSqrtEstimateMaxError(9)).toThrow('Invalid degree.');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V23): independent review against upstream InvSqrtEstimate.h.
+// ---------------------------------------------------------------------------
+
+/** std::frexp by repeated halving; every step is exact. */
+function frexpByLoop(x: number): { f: number; p: number } {
+    if (x === 0 || !Number.isFinite(x)) { return { f: x, p: 0 }; }
+    let f = x;
+    let p = 0;
+    while (Math.abs(f) >= 1) { f /= 2; ++p; }
+    while (Math.abs(f) < 0.5) { f *= 2; --p; }
+    return { f, p };
+}
+
+describe('InvSqrtEstimate verification', () => {
+    const anyPositive = fc.tuple(
+        fc.double({ min: 1, max: 2, noNaN: true, noDefaultInfinity: true }),
+        fc.integer({ min: -1020, max: 1020 })
+    ).map(([m, e]) => m * Math.pow(2, e)).filter(x => x > 0 && Number.isFinite(x));
+
+    it('is within the documented bound on fast-check samples of [1,2]', () => {
+        const inDomain = fc.double({ min: 1, max: 2, noNaN: true });
+        for (const degree of DEGREES) {
+            check(inDomain, x =>
+                Math.abs(invSqrtEstimate(x, degree) - 1 / Math.sqrt(x))
+                    <= MAX_ERROR[degree - 1]);
+        }
+    });
+
+    it('has a max error over [1,2] that decreases with the degree', () => {
+        // Measured independently of the published table.
+        const samples = 40000;
+        let previous = Number.POSITIVE_INFINITY;
+        for (const degree of DEGREES) {
+            let observed = 0;
+            for (let i = 0; i <= samples; ++i) {
+                const x = 1 + i / samples;
+                observed = Math.max(observed,
+                    Math.abs(invSqrtEstimate(x, degree) - 1 / Math.sqrt(x)));
+            }
+            expect(observed).toBeLessThanOrEqual(MAX_ERROR[degree - 1]);
+            expect(observed).toBeGreaterThan(0.9 * MAX_ERROR[degree - 1]);
+            expect(observed).toBeLessThan(previous);
+            previous = observed;
+        }
+    }, 30000);
+
+    it('is strictly decreasing on [1,2] for every degree', () => {
+        const samples = 5000;
+        for (const degree of DEGREES) {
+            let previous = Number.POSITIVE_INFINITY;
+            for (let i = 0; i <= samples; ++i) {
+                const v = invSqrtEstimate(1 + i / samples, degree);
+                expect(v).toBeLessThan(previous);
+                previous = v;
+            }
+        }
+    }, 30000);
+
+    it('splits the exponent with the odd/even adjustment upstream uses', () => {
+        // Upstream: y = 2*frexp(x,&p), --p, adj = (1&p)/sqrt(2) + (1&~p),
+        // p = -(p >> 1), result = adj*ldexp(poly(y), p). Note the negation of
+        // the *shifted* exponent: `p >> 1` floors, so odd negative exponents
+        // do not behave like a truncating division.
+        for (const degree of DEGREES) {
+            check(anyPositive, x => {
+                const { f, p: pf } = frexpByLoop(x);
+                const y = 2 * f;
+                const p = pf - 1;
+                const adj = Math.abs(p % 2) === 1 ? GTE_C_INV_SQRT_2 : 1;
+                const half = -Math.floor(p / 2);
+                const expected = adj
+                    * (invSqrtEstimate(y, degree) * Math.pow(2, half));
+                return invSqrtEstimateRR(x, degree) === expected;
+            });
+        }
+    });
+
+    it('bounds the relative error of the range-reduced form everywhere', () => {
+        // 1/sqrt(x) = adj*2^(-p/2)/sqrt(y) with 1/sqrt(y) >= 1/sqrt(2), so
+        // the relative error is at most sqrt(2) times the tabulated bound.
+        for (const degree of DEGREES) {
+            check(anyPositive, x => {
+                const exact = 1 / Math.sqrt(x);
+                return Math.abs(invSqrtEstimateRR(x, degree) - exact) / exact
+                    <= GTE_C_SQRT_2 * MAX_ERROR[degree - 1] * (1 + 1e-12);
+            });
+        }
+    });
+
+    it('is the reciprocal of sqrtEstimateRR to the combined accuracy', () => {
+        // Cross-check between two files of this group: the product of the two
+        // estimates approximates 1.
+        for (const degree of [4, 8]) {
+            check(anyPositive.filter(x => x > 1e-150 && x < 1e150), x => {
+                const product = sqrtEstimateRR(x, degree)
+                    * invSqrtEstimateRR(x, degree);
+                return Math.abs(product - 1)
+                    <= 3 * MAX_ERROR[degree - 1] + 1e-15;
+            });
+        }
+    });
+
+    it('preserves the scaling law invsqrt(4x) = invsqrt(x)/2 exactly', () => {
+        for (const degree of DEGREES) {
+            check(anyPositive.filter(x => x > 1e-280 && x < 1e280), x =>
+                invSqrtEstimateRR(4 * x, degree)
+                    === 0.5 * invSqrtEstimateRR(x, degree));
+        }
     });
 });

@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { logEstimate, logEstimateRR, getLogEstimateMaxError } from '../src/LogEstimate.js';
 import { log2Estimate, log2EstimateRR, getLog2EstimateMaxError } from '../src/Log2Estimate.js';
 import { GTE_C_LN_2 } from '../src/Constants.js';
+import { expEstimateRR } from '../src/ExpEstimate.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 const DEGREES = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 
@@ -148,5 +150,97 @@ describe('getLogEstimateMaxError', () => {
         expect(() => getLogEstimateMaxError(3.5)).toThrow(/Invalid degree/);
         expect(() => logEstimate(1.5, 0)).toThrow(/Invalid degree/);
         expect(() => logEstimateRR(1.5, 9)).toThrow(/Invalid degree/);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V23): independent review against upstream LogEstimate.h.
+// ---------------------------------------------------------------------------
+
+describe('LogEstimate verification', () => {
+    const anyPositive = fc.tuple(
+        fc.double({ min: 1, max: 2, noNaN: true, noDefaultInfinity: true }),
+        fc.integer({ min: -1080, max: 1020 })
+    ).map(([m, e]) => m * Math.pow(2, e)).filter(x => x > 0 && Number.isFinite(x));
+
+    it('is exactly the log2 estimate scaled by log(2), for every input', () => {
+        // Upstream is a one-line forward in both variants.
+        for (const degree of DEGREES) {
+            check(anyPositive, x =>
+                logEstimate(x, degree) === log2Estimate(x, degree) * GTE_C_LN_2
+                && logEstimateRR(x, degree)
+                    === log2EstimateRR(x, degree) * GTE_C_LN_2);
+        }
+    });
+
+    it('has an error of exactly log(2) times the log2 error', () => {
+        // log(x) - logEstimate(x) = log(2) * (log2(x) - log2Estimate(x)), so
+        // the reported (log2) bound is loose by the factor log(2). This pins
+        // the upstream choice of forwarding GetLogEstimateMaxError.
+        const inDomain = fc.double({ min: 1, max: 2, noNaN: true });
+        for (const degree of DEGREES) {
+            check(inDomain, x => {
+                const bound = LOG2_MAX_ERROR[degree - 1];
+                const error = Math.abs(logEstimate(x, degree) - Math.log(x));
+                return error <= GTE_C_LN_2 * bound * (1 + 1e-9) + 1e-16
+                    && error <= bound;
+            });
+        }
+    });
+
+    it('has a max error over [1,2] that decreases with the degree', () => {
+        const samples = 40000;
+        let previous = Number.POSITIVE_INFINITY;
+        for (const degree of DEGREES) {
+            let observed = 0;
+            for (let i = 0; i <= samples; ++i) {
+                const x = 1 + i / samples;
+                observed = Math.max(observed,
+                    Math.abs(logEstimate(x, degree) - Math.log(x)));
+            }
+            const tight = GTE_C_LN_2 * LOG2_MAX_ERROR[degree - 1];
+            expect(observed).toBeLessThanOrEqual(tight * (1 + 1e-9));
+            expect(observed).toBeGreaterThan(0.9 * tight);
+            expect(observed).toBeLessThan(previous);
+            previous = observed;
+        }
+    }, 30000);
+
+    it('bounds the absolute error of the range-reduced form everywhere', () => {
+        for (const degree of DEGREES) {
+            check(anyPositive, x =>
+                Math.abs(logEstimateRR(x, degree) - Math.log(x))
+                    <= LOG2_MAX_ERROR[degree - 1] * (1 + 1e-9));
+        }
+    });
+
+    it('inverts expEstimateRR to the accuracy of the two estimates', () => {
+        // A cross-check against the other direction of the same identity:
+        // log(exp(x)) = x, computed through two independent estimate files.
+        const moderate = fc.double({ min: -20, max: 20, noNaN: true });
+        check(moderate, x => {
+            const e = expEstimateRR(x, 7);
+            if (!(e > 0) || !Number.isFinite(e)) { return true; }
+            const back = logEstimateRR(e, 8);
+            // Relative error r of exp maps to an absolute error log(1+r) in
+            // the logarithm, plus the logarithm's own absolute bound.
+            return Math.abs(back - x)
+                <= LOG2_MAX_ERROR[7] + 6.8e-11 + 1e-12;
+        });
+    });
+
+    it('turns products into sums to the accuracy of the estimate', () => {
+        const moderate = fc.double({ min: 1e-30, max: 1e30, noNaN: true })
+            .filter(x => x > 0);
+        for (const degree of [3, 8]) {
+            check(fc.tuple(moderate, moderate), ([a, b]) => {
+                const product = a * b;
+                if (!Number.isFinite(product) || product === 0) { return true; }
+                const lhs = logEstimateRR(product, degree);
+                const rhs = logEstimateRR(a, degree) + logEstimateRR(b, degree);
+                return Math.abs(lhs - rhs)
+                    <= 3 * LOG2_MAX_ERROR[degree - 1] + 1e-9;
+            });
+        }
     });
 });
