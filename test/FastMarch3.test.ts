@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { FastMarch3 } from '../src/FastMarch3.js';
+import { FastMarch2 } from '../src/FastMarch2.js';
+import { check, expectClose, fc } from './helpers/arbitraries.js';
+
+// Run a 2D march to completion, for the slab cross-check below.
+function marchFM2(filter: FastMarch2): void {
+    for (let i = 0; i < filter.getQuantity(); ++i) {
+        filter.iterate();
+    }
+}
 
 function idx(x: number, y: number, z: number, xBound: number, yBound: number): number {
     return x + xBound * (y + yBound * z);
@@ -254,5 +263,230 @@ describe('FastMarch3', () => {
         const before = filter.getInterior();
         filter.iterate();
         expect(filter.getInterior()).toEqual(before);
+    });
+});
+
+describe('FastMarch3 verification', () => {
+    const MAXREAL = Number.MAX_VALUE;
+
+    // Bounds of at least 3 (so there is an interior) with an interior seed
+    // derived from the bounds, which avoids a filtered generator.
+    const grid = fc.tuple(
+        fc.integer({ min: 3, max: 6 }),
+        fc.integer({ min: 3, max: 6 }),
+        fc.integer({ min: 3, max: 6 }),
+        fc.nat({ max: 1000 }), fc.nat({ max: 1000 }), fc.nat({ max: 1000 }),
+        fc.constantFrom(0.5, 1, 2, 4))
+        .map(([xB, yB, zB, rx, ry, rz, speed]) => ({
+            xB, yB, zB, speed,
+            sx: 1 + rx % (xB - 2),
+            sy: 1 + ry % (yB - 2),
+            sz: 1 + rz % (zB - 2)
+        }));
+
+    it('marks all six boundary faces zero speed and keeps seeds at time zero', () => {
+        // Upstream marks only the box vertices and edges, which lets a face
+        // voxel join the front and then index off the grid; the port marks
+        // the faces (upstream issue #121).
+        check(grid, ({ xB, yB, zB, sx, sy, sz, speed }) => {
+            const seed = idx(sx, sy, sz, xB, yB);
+            const filter = new FastMarch3(xB, yB, zB, 1, 1, 1, [seed], speed);
+            for (let z = 0; z < zB; ++z) {
+                for (let y = 0; y < yB; ++y) {
+                    for (let x = 0; x < xB; ++x) {
+                        const i = idx(x, y, z, xB, yB);
+                        const onFace = (x === 0 || x === xB - 1
+                            || y === 0 || y === yB - 1
+                            || z === 0 || z === zB - 1);
+                        expect(filter.isZeroSpeed(i)).toBe(onFace);
+                        if (onFace) {
+                            expect(filter.isValid(i)).toBe(false);
+                            expect(filter.isFar(i)).toBe(false);
+                        }
+                    }
+                }
+            }
+            expect(filter.getTime(seed)).toBe(0);
+        });
+    });
+
+    it('accepts the trial voxels in nondecreasing time order', () => {
+        check(grid, ({ xB, yB, zB, sx, sy, sz, speed }) => {
+            const seed = idx(sx, sy, sz, xB, yB);
+            const filter = new FastMarch3(xB, yB, zB, 1, 1, 1, [seed], speed);
+            let previous = 0;
+            for (let n = 0; n < filter.getQuantity(); ++n) {
+                const trialsBefore: number[] = [];
+                for (let i = 0; i < filter.getQuantity(); ++i) {
+                    if (filter.isTrial(i)) {
+                        trialsBefore.push(i);
+                    }
+                }
+                if (trialsBefore.length === 0) {
+                    break;
+                }
+                filter.iterate();
+                const accepted = trialsBefore.filter(i => !filter.isTrial(i));
+                expect(accepted.length).toBe(1);
+                const t = filter.getTime(accepted[0]);
+                expect(t).toBeGreaterThanOrEqual(previous - 1e-12);
+                previous = t;
+            }
+        });
+    });
+
+    it('leaves every interior voxel known and the faces untouched', () => {
+        check(grid, ({ xB, yB, zB, sx, sy, sz, speed }) => {
+            const seed = idx(sx, sy, sz, xB, yB);
+            const filter = new FastMarch3(xB, yB, zB, 1, 1, 1, [seed], speed);
+            march(filter);
+            for (let z = 0; z < zB; ++z) {
+                for (let y = 0; y < yB; ++y) {
+                    for (let x = 0; x < xB; ++x) {
+                        const i = idx(x, y, z, xB, yB);
+                        const interior = (0 < x && x < xB - 1 && 0 < y && y < yB - 1
+                            && 0 < z && z < zB - 1);
+                        if (interior) {
+                            expect(filter.isInterior(i)).toBe(true);
+                            expect(Number.isFinite(filter.getTime(i))).toBe(true);
+                            expect(filter.getTime(i)).toBeGreaterThanOrEqual(0);
+                        } else {
+                            expect(filter.getTime(i)).toBe(-MAXREAL);
+                        }
+                    }
+                }
+            }
+            expect(filter.getBoundary()).toEqual([]);
+            expect(filter.getInterior().length)
+                .toBe((xB - 2) * (yB - 2) * (zB - 2));
+        });
+    });
+
+    it('scales the crossing times by the reciprocal of the speed', () => {
+        check(grid, ({ xB, yB, zB, sx, sy, sz, speed }) => {
+            const seed = idx(sx, sy, sz, xB, yB);
+            const unit = new FastMarch3(xB, yB, zB, 1, 1, 1, [seed], 1);
+            const scaled = new FastMarch3(xB, yB, zB, 1, 1, 1, [seed], speed);
+            march(unit);
+            march(scaled);
+            for (let z = 1; z + 1 < zB; ++z) {
+                for (let y = 1; y + 1 < yB; ++y) {
+                    for (let x = 1; x + 1 < xB; ++x) {
+                        const i = idx(x, y, z, xB, yB);
+                        expectClose(scaled.getTime(i), unit.getTime(i) / speed,
+                            1e-9, 1e-9);
+                    }
+                }
+            }
+        });
+    });
+
+    it('is equivariant under reflecting an axis and under permuting axes', () => {
+        check(grid, ({ xB, yB, zB, sx, sy, sz, speed }) => {
+            const base = new FastMarch3(xB, yB, zB, 1, 1, 1,
+                [idx(sx, sy, sz, xB, yB)], speed);
+            march(base);
+
+            const mirrored = new FastMarch3(xB, yB, zB, 1, 1, 1,
+                [idx(xB - 1 - sx, sy, sz, xB, yB)], speed);
+            march(mirrored);
+
+            // Relabel (x,y,z) as (y,z,x).
+            const permuted = new FastMarch3(yB, zB, xB, 1, 1, 1,
+                [idx(sy, sz, sx, yB, zB)], speed);
+            march(permuted);
+
+            for (let z = 1; z + 1 < zB; ++z) {
+                for (let y = 1; y + 1 < yB; ++y) {
+                    for (let x = 1; x + 1 < xB; ++x) {
+                        const t = base.getTime(idx(x, y, z, xB, yB));
+                        expectClose(mirrored.getTime(
+                            idx(xB - 1 - x, y, z, xB, yB)), t, 1e-9, 1e-9);
+                        expectClose(permuted.getTime(idx(y, z, x, yB, zB)), t,
+                            1e-9, 1e-9);
+                    }
+                }
+            }
+        });
+    });
+
+    it('brackets the arrival time between the Euclidean and L1 distances', () => {
+        // For a single interior seed on a unit grid the first-order upwind
+        // scheme overestimates the Euclidean distance and never exceeds the
+        // grid (L1) distance. (With several fronts meeting, the upstream
+        // negative-discriminant fallback can break the upper bound; see the
+        // FastMarch2 quirk test.)
+        check(grid, ({ xB, yB, zB, sx, sy, sz, speed }) => {
+            const filter = new FastMarch3(xB, yB, zB, 1, 1, 1,
+                [idx(sx, sy, sz, xB, yB)], speed);
+            march(filter);
+            for (let z = 1; z + 1 < zB; ++z) {
+                for (let y = 1; y + 1 < yB; ++y) {
+                    for (let x = 1; x + 1 < xB; ++x) {
+                        const dx = Math.abs(x - sx);
+                        const dy = Math.abs(y - sy);
+                        const dz = Math.abs(z - sz);
+                        const t = filter.getTime(idx(x, y, z, xB, yB));
+                        expect(t).toBeGreaterThanOrEqual(
+                            Math.sqrt(dx * dx + dy * dy + dz * dz) / speed - 1e-9);
+                        expect(t).toBeLessThanOrEqual((dx + dy + dz) / speed + 1e-9);
+                    }
+                }
+            }
+        });
+    });
+
+    it('satisfies the local upwind bounds against its 6-neighbors', () => {
+        check(grid, ({ xB, yB, zB, sx, sy, sz, speed }) => {
+            const seed = idx(sx, sy, sz, xB, yB);
+            const filter = new FastMarch3(xB, yB, zB, 1, 1, 1, [seed], speed);
+            march(filter);
+            const xy = xB * yB;
+            for (let z = 1; z + 1 < zB; ++z) {
+                for (let y = 1; y + 1 < yB; ++y) {
+                    for (let x = 1; x + 1 < xB; ++x) {
+                        const i = idx(x, y, z, xB, yB);
+                        if (i === seed) {
+                            continue;
+                        }
+                        const neighbors = [i - 1, i + 1, i - xB, i + xB, i - xy, i + xy]
+                            .filter(j => filter.isValid(j))
+                            .map(j => filter.getTime(j));
+                        expect(neighbors.length).toBeGreaterThan(0);
+                        const smallest = Math.min(...neighbors);
+                        const t = filter.getTime(i);
+                        expect(t).toBeGreaterThanOrEqual(smallest - 1e-9);
+                        expect(t).toBeLessThanOrEqual(smallest + 1 / speed + 1e-9);
+                    }
+                }
+            }
+        });
+    });
+
+    it('agrees with the 2D march on a slab that is one voxel deep inside', () => {
+        // A 3-deep grid has exactly one interior z layer, so the z-neighbors
+        // of every interior voxel are zero-speed faces: no z-term is ever
+        // active and the update reduces to the 2D one.
+        const slab = fc.tuple(
+            fc.integer({ min: 3, max: 7 }),
+            fc.integer({ min: 3, max: 7 }),
+            fc.nat({ max: 1000 }), fc.nat({ max: 1000 }),
+            fc.constantFrom(0.5, 1, 2))
+            .map(([xB, yB, rx, ry, speed]) => ({
+                xB, yB, speed, sx: 1 + rx % (xB - 2), sy: 1 + ry % (yB - 2)
+            }));
+        check(slab, ({ xB, yB, sx, sy, speed }) => {
+            const three = new FastMarch3(xB, yB, 3, 1, 1, 1,
+                [idx(sx, sy, 1, xB, yB)], speed);
+            const two = new FastMarch2(xB, yB, 1, 1, [sx + xB * sy], speed);
+            march(three);
+            marchFM2(two);
+            for (let y = 1; y + 1 < yB; ++y) {
+                for (let x = 1; x + 1 < xB; ++x) {
+                    expectClose(three.getTime(idx(x, y, 1, xB, yB)),
+                        two.getTime(x + xB * y), 1e-9, 1e-9);
+                }
+            }
+        });
     });
 });

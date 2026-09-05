@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { PdeFilterScaleType } from '../src/PdeFilter.js';
 import { PdeFilter2 } from '../src/PdeFilter2.js';
+import { check, expectClose, fc } from './helpers/arbitraries.js';
 
 // Concrete subclass solving the linear heat equation u_t = u_xx + u_yy with
 // an explicit Euler step, the canonical use of the PdeFilter2 plumbing.
@@ -389,5 +390,200 @@ describe('PdeFilter2', () => {
         expect([filter.src(), filter.dst()]).toEqual([1, 0]);
         filter.update();
         expect([filter.src(), filter.dst()]).toEqual([0, 1]);
+    });
+});
+
+describe('PdeFilter2 verification', () => {
+    const scaleTypes = [
+        PdeFilterScaleType.NONE,
+        PdeFilterScaleType.UNIT,
+        PdeFilterScaleType.SYMMETRIC,
+        PdeFilterScaleType.PRESERVE_ZERO
+    ];
+
+    // An independent implementation of the documented PdeFilter scaling; the
+    // NONE branch still subtracts the minimum, as upstream does.
+    function referenceScale(data: readonly number[],
+        scaleType: PdeFilterScaleType): number[] {
+        const min = Math.min(...data);
+        const max = Math.max(...data);
+        if (min === max) {
+            return data.map(() => 0);
+        }
+        switch (scaleType) {
+            case PdeFilterScaleType.UNIT:
+                return data.map(d => (d - min) / (max - min));
+            case PdeFilterScaleType.SYMMETRIC:
+                return data.map(d => -1 + (2 / (max - min)) * (d - min));
+            case PdeFilterScaleType.PRESERVE_ZERO: {
+                const scale = (max >= -min ? 1 / max : -1 / min);
+                return data.map(d => d * scale);
+            }
+            default:
+                return data.map(d => d - min);
+        }
+    }
+
+    // The padded (xB+2)-by-(yB+2) buffer the constructor builds, indexed
+    // p[px + (xB + 2) * py]. Dirichlet fills the ring with the border value;
+    // Neumann duplicates the nearest interior sample (the diagonal neighbor
+    // at each corner).
+    function referencePadded(xB: number, yB: number, data: readonly number[],
+        borderValue: number, scaleType: PdeFilterScaleType): number[] {
+        const scaled = referenceScale(data, scaleType);
+        const w = xB + 2;
+        const p = new Array<number>(w * (yB + 2)).fill(0);
+        const at = (px: number, py: number) => px + w * py;
+        for (let y = 0; y < yB; ++y) {
+            for (let x = 0; x < xB; ++x) {
+                p[at(x + 1, y + 1)] = scaled[x + xB * y];
+            }
+        }
+        const dirichlet = (borderValue !== NEUMANN);
+        const ghost = (px: number, py: number) => {
+            if (dirichlet) {
+                return borderValue;
+            }
+            const sx = Math.min(Math.max(px, 1), xB);
+            const sy = Math.min(Math.max(py, 1), yB);
+            return p[at(sx, sy)];
+        };
+        for (let px = 0; px < w; ++px) {
+            p[at(px, 0)] = ghost(px, 0);
+            p[at(px, yB + 1)] = ghost(px, yB + 1);
+        }
+        for (let py = 0; py < yB + 2; ++py) {
+            p[at(0, py)] = ghost(0, py);
+            p[at(xB + 1, py)] = ghost(xB + 1, py);
+        }
+        return p;
+    }
+
+    const config = fc.tuple(
+        fc.integer({ min: 3, max: 6 }),
+        fc.integer({ min: 3, max: 6 }),
+        fc.constantFrom(0.5, 1, 2),
+        fc.constantFrom(0.5, 1, 2),
+        fc.constantFrom(...scaleTypes),
+        fc.constantFrom(NEUMANN, 0, -3, 5),
+        fc.array(fc.integer({ min: -6, max: 6 }), { minLength: 36, maxLength: 36 }))
+        .map(([xB, yB, hx, hy, scaleType, borderValue, pool]) => ({
+            xB, yB, hx, hy, scaleType, borderValue,
+            data: pool.slice(0, xB * yB)
+        }));
+
+    it('builds the padded buffer the border conditions prescribe', () => {
+        check(config, ({ xB, yB, hx, hy, scaleType, borderValue, data }) => {
+            const filter = new HeatFilter2(xB, yB, hx, hy, data, null,
+                borderValue, scaleType);
+            const expected = referencePadded(xB, yB, data, borderValue, scaleType);
+            const actual = filter.padded();
+            expect(actual.length).toBe(expected.length);
+            for (let i = 0; i < expected.length; ++i) {
+                expectClose(actual[i], expected[i], 1e-12, 1e-12);
+            }
+        });
+    });
+
+    it('every derivative accessor is exact for a bivariate quadratic', () => {
+        // The 3x3 central-difference stencils reproduce all first and second
+        // derivatives of a quadratic exactly, so a wrong coefficient, a wrong
+        // padding offset or a swapped x/y index is caught here. The mixed
+        // derivative uxy is the interesting one: it must be
+        // (f(+1,+1) - f(-1,+1) - f(+1,-1) + f(-1,-1)) / (4 dx dy).
+        const quadratic = fc.tuple(
+            fc.integer({ min: 4, max: 7 }),
+            fc.integer({ min: 4, max: 7 }),
+            fc.constantFrom(0.5, 1, 2),
+            fc.constantFrom(0.5, 1, 2),
+            fc.array(fc.integer({ min: -4, max: 4 }), { minLength: 6, maxLength: 6 }));
+        check(quadratic, ([xB, yB, hx, hy, k]) => {
+            const [a, b, c, d, e, f] = k;
+            const F = (X: number, Y: number) =>
+                a + b * X + c * Y + d * X * X + e * X * Y + f * Y * Y;
+            const data = makeImage(xB, yB, (x, y) => F(x * hx, y * hy));
+            const filter = new HeatFilter2(xB, yB, hx, hy, data, null, NEUMANN,
+                PdeFilterScaleType.NONE);
+            const mag = k.reduce((s, v) => s + Math.abs(v), 1)
+                * (1 + xB * hx) * (1 + yB * hy);
+            for (let y = 1; y + 1 < yB; ++y) {
+                for (let x = 1; x + 1 < xB; ++x) {
+                    const X = x * hx, Y = y * hy;
+                    expectClose(filter.getU(x, y), F(X, Y) - Math.min(...data),
+                        1e-9 * mag, 1e-9);
+                    expectClose(filter.getUx(x, y), b + 2 * d * X + e * Y,
+                        1e-9 * mag / hx, 1e-9);
+                    expectClose(filter.getUy(x, y), c + e * X + 2 * f * Y,
+                        1e-9 * mag / hy, 1e-9);
+                    expectClose(filter.getUxx(x, y), 2 * d,
+                        1e-9 * mag / (hx * hx), 1e-9);
+                    expectClose(filter.getUyy(x, y), 2 * f,
+                        1e-9 * mag / (hy * hy), 1e-9);
+                    expectClose(filter.getUxy(x, y), e,
+                        1e-9 * mag / (hx * hy), 1e-9);
+                }
+            }
+        });
+    });
+
+    it('one update step agrees with an independent explicit heat solver', () => {
+        check(fc.tuple(config, fc.constantFrom(0.05, 0.1, 0.2)),
+            ([{ xB, yB, hx, hy, scaleType, borderValue, data }, dtFactor]) => {
+                const filter = new HeatFilter2(xB, yB, hx, hy, data, null,
+                    borderValue, scaleType);
+                const dt = dtFactor / (1 / (hx * hx) + 1 / (hy * hy));
+                filter.setTimeStep(dt);
+
+                const p = referencePadded(xB, yB, data, borderValue, scaleType);
+                const w = xB + 2;
+                const at = (px: number, py: number) => px + w * py;
+                const expected: number[] = [];
+                for (let y = 1; y <= yB; ++y) {
+                    for (let x = 1; x <= xB; ++x) {
+                        const uxx = (p[at(x + 1, y)] - 2 * p[at(x, y)]
+                            + p[at(x - 1, y)]) / (hx * hx);
+                        const uyy = (p[at(x, y + 1)] - 2 * p[at(x, y)]
+                            + p[at(x, y - 1)]) / (hy * hy);
+                        expected.push(p[at(x, y)] + dt * (uxx + uyy));
+                    }
+                }
+
+                filter.update();
+                const actual = filter.values();
+                for (let i = 0; i < expected.length; ++i) {
+                    expectClose(actual[i], expected[i], 1e-10, 1e-10);
+                }
+            });
+    });
+
+    it('getMask reports the caller mask and onUpdate skips masked pixels', () => {
+        const masked = fc.tuple(
+            fc.integer({ min: 3, max: 6 }),
+            fc.integer({ min: 3, max: 6 }),
+            fc.array(fc.integer({ min: -5, max: 5 }), { minLength: 36, maxLength: 36 }),
+            fc.array(fc.integer({ min: 0, max: 1 }), { minLength: 36, maxLength: 36 }));
+        check(masked, ([xB, yB, pool, maskPool]) => {
+            const data = pool.slice(0, xB * yB);
+            const mask = maskPool.slice(0, xB * yB);
+            const filter = new RecordingFilter2(xB, yB, data, mask, NEUMANN);
+            for (let y = 0; y < yB; ++y) {
+                for (let x = 0; x < xB; ++x) {
+                    expect(filter.getMask(x, y)).toBe(mask[x + xB * y]);
+                }
+            }
+
+            filter.update();
+            // Visited pixels are exactly the unmasked ones, in row-major
+            // padded order.
+            const expected: [number, number][] = [];
+            for (let y = 1; y <= yB; ++y) {
+                for (let x = 1; x <= xB; ++x) {
+                    if (mask[(x - 1) + xB * (y - 1)] !== 0) {
+                        expected.push([x, y]);
+                    }
+                }
+            }
+            expect(filter.visited).toEqual(expected);
+        });
     });
 });

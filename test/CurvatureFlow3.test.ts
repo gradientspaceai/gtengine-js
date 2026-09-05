@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { CurvatureFlow3 } from '../src/CurvatureFlow3.js';
 import { PdeFilterScaleType } from '../src/PdeFilter.js';
+import { check, expectClose, fc } from './helpers/arbitraries.js';
 
 const NEUMANN = Number.MAX_VALUE;
 
@@ -150,5 +151,187 @@ describe('CurvatureFlow3', () => {
                 }
             }
         }
+    });
+});
+
+describe('CurvatureFlow3 verification', () => {
+    // The padded image the constructor holds under Neumann conditions and the
+    // NONE scale type (which still subtracts the data minimum).
+    function neumannPadded(xB: number, yB: number, zB: number,
+        data: readonly number[]): number[] {
+        const min = Math.min(...data);
+        const max = Math.max(...data);
+        const shift = (min === max ? () => 0 : (d: number) => d - min);
+        const w = xB + 2, h = yB + 2;
+        const p = new Array<number>(w * h * (zB + 2)).fill(0);
+        const at = (px: number, py: number, pz: number) => px + w * (py + h * pz);
+        for (let z = 0; z < zB; ++z) {
+            for (let y = 0; y < yB; ++y) {
+                for (let x = 0; x < xB; ++x) {
+                    p[at(x + 1, y + 1, z + 1)] = shift(data[x + xB * (y + yB * z)]);
+                }
+            }
+        }
+        for (let pz = 0; pz < zB + 2; ++pz) {
+            for (let py = 0; py < h; ++py) {
+                for (let px = 0; px < w; ++px) {
+                    if (px === 0 || px === xB + 1 || py === 0 || py === yB + 1
+                        || pz === 0 || pz === zB + 1) {
+                        p[at(px, py, pz)] = p[at(
+                            Math.min(Math.max(px, 1), xB),
+                            Math.min(Math.max(py, 1), yB),
+                            Math.min(Math.max(pz, 1), zB))];
+                    }
+                }
+            }
+        }
+        return p;
+    }
+
+    function values(filter: CurvatureFlow3, xB: number, yB: number, zB: number): number[] {
+        const u: number[] = [];
+        for (let z = 0; z < zB; ++z) {
+            for (let y = 0; y < yB; ++y) {
+                for (let x = 0; x < xB; ++x) {
+                    u.push(filter.getU(x, y, z));
+                }
+            }
+        }
+        return u;
+    }
+
+    const config = fc.tuple(
+        fc.integer({ min: 3, max: 5 }),
+        fc.integer({ min: 3, max: 5 }),
+        fc.integer({ min: 3, max: 5 }),
+        fc.constantFrom(0.5, 1, 2),
+        fc.constantFrom(0.5, 1, 2),
+        fc.constantFrom(0.5, 1, 2),
+        fc.array(fc.integer({ min: -6, max: 6 }), { minLength: 125, maxLength: 125 }))
+        .map(([xB, yB, zB, hx, hy, hz, pool]) => ({
+            xB, yB, zB, hx, hy, hz, data: pool.slice(0, xB * yB * zB)
+        }));
+
+    it('one step reproduces the upstream update from the padded image', () => {
+        check(fc.tuple(config, fc.constantFrom(0.05, 0.1, 0.25)),
+            ([{ xB, yB, zB, hx, hy, hz, data }, dt]) => {
+                const filter = new CurvatureFlow3(xB, yB, zB, hx, hy, hz, data,
+                    null, NEUMANN, PdeFilterScaleType.NONE);
+                filter.setTimeStep(dt);
+
+                const p = neumannPadded(xB, yB, zB, data);
+                const w = xB + 2, h = yB + 2;
+                const at = (px: number, py: number, pz: number) =>
+                    px + w * (py + h * pz);
+                const expected: number[] = [];
+                for (let z = 1; z <= zB; ++z) {
+                    for (let y = 1; y <= yB; ++y) {
+                        for (let x = 1; x <= xB; ++x) {
+                            const c = p[at(x, y, z)];
+                            const ux = (p[at(x + 1, y, z)] - p[at(x - 1, y, z)])
+                                / (2 * hx);
+                            const uy = (p[at(x, y + 1, z)] - p[at(x, y - 1, z)])
+                                / (2 * hy);
+                            const uz = (p[at(x, y, z + 1)] - p[at(x, y, z - 1)])
+                                / (2 * hz);
+                            const uxx = (p[at(x + 1, y, z)] - 2 * c
+                                + p[at(x - 1, y, z)]) / (hx * hx);
+                            const uyy = (p[at(x, y + 1, z)] - 2 * c
+                                + p[at(x, y - 1, z)]) / (hy * hy);
+                            const uzz = (p[at(x, y, z + 1)] - 2 * c
+                                + p[at(x, y, z - 1)]) / (hz * hz);
+                            const uxy = (p[at(x - 1, y - 1, z)]
+                                + p[at(x + 1, y + 1, z)] - p[at(x + 1, y - 1, z)]
+                                - p[at(x - 1, y + 1, z)]) / (4 * hx * hy);
+                            const uxz = (p[at(x - 1, y, z - 1)]
+                                + p[at(x + 1, y, z + 1)] - p[at(x + 1, y, z - 1)]
+                                - p[at(x - 1, y, z + 1)]) / (4 * hx * hz);
+                            const uyz = (p[at(x, y - 1, z - 1)]
+                                + p[at(x, y + 1, z + 1)] - p[at(x, y + 1, z - 1)]
+                                - p[at(x, y - 1, z + 1)]) / (4 * hy * hz);
+                            const denom = ux * ux + uy * uy + uz * uz;
+                            if (denom > 0) {
+                                const numer0 = uy * (uxx * uy - uxy * ux)
+                                    + ux * (uyy * ux - uxy * uy);
+                                const numer1 = uz * (uxx * uz - uxz * ux)
+                                    + ux * (uzz * ux - uxz * uz);
+                                const numer2 = uz * (uyy * uz - uyz * uy)
+                                    + uy * (uzz * uy - uyz * uz);
+                                expected.push(c
+                                    + dt * (numer0 + numer1 + numer2) / denom);
+                            } else {
+                                expected.push(c);
+                            }
+                        }
+                    }
+                }
+
+                filter.update();
+                const actual = values(filter, xB, yB, zB);
+                for (let i = 0; i < expected.length; ++i) {
+                    expectClose(actual[i], expected[i], 1e-9, 1e-9);
+                }
+            });
+    });
+
+    it('is equivariant under permuting the coordinate axes', () => {
+        // The numerator is the sum of the three coordinate-plane numerators,
+        // so relabelling (x,y,z) as (y,z,x) together with the spacings must
+        // relabel the result the same way.
+        check(config, ({ xB, yB, zB, hx, hy, hz, data }) => {
+            const filter = new CurvatureFlow3(xB, yB, zB, hx, hy, hz, data, null,
+                NEUMANN, PdeFilterScaleType.NONE);
+            filter.setTimeStep(0.1);
+            filter.update();
+
+            const permuted = new Array<number>(xB * yB * zB).fill(0);
+            for (let z = 0; z < zB; ++z) {
+                for (let y = 0; y < yB; ++y) {
+                    for (let x = 0; x < xB; ++x) {
+                        permuted[y + yB * (z + zB * x)] = data[x + xB * (y + yB * z)];
+                    }
+                }
+            }
+            const other = new CurvatureFlow3(yB, zB, xB, hy, hz, hx, permuted,
+                null, NEUMANN, PdeFilterScaleType.NONE);
+            other.setTimeStep(0.1);
+            other.update();
+
+            for (let z = 0; z < zB; ++z) {
+                for (let y = 0; y < yB; ++y) {
+                    for (let x = 0; x < xB; ++x) {
+                        expectClose(other.getU(y, z, x), filter.getU(x, y, z),
+                            1e-9, 1e-9);
+                    }
+                }
+            }
+        });
+    });
+
+    it('leaves an affine image unchanged away from the border', () => {
+        // The level surfaces of an affine image are planes with zero mean
+        // curvature, so the numerator vanishes on the interior.
+        const affine = fc.tuple(
+            fc.integer({ min: 4, max: 6 }),
+            fc.constantFrom(0.5, 1, 2),
+            fc.array(fc.integer({ min: -5, max: 5 }), { minLength: 4, maxLength: 4 }));
+        check(affine, ([bound, hh, k]) => {
+            const [a, b, c, d] = k;
+            const filter = new CurvatureFlow3(bound, bound, bound, hh, hh, hh,
+                build(bound, (x, y, z) => a + b * x + c * y + d * z), null,
+                NEUMANN, PdeFilterScaleType.NONE);
+            const before = values(filter, bound, bound, bound);
+            filter.setTimeStep(0.25);
+            filter.update();
+            const after = values(filter, bound, bound, bound);
+            for (let z = 1; z + 1 < bound; ++z) {
+                for (let y = 1; y + 1 < bound; ++y) {
+                    for (let x = 1; x + 1 < bound; ++x) {
+                        const i = x + bound * (y + bound * z);
+                        expectClose(after[i], before[i], 1e-9, 1e-9);
+                    }
+                }
+            }
+        });
     });
 });

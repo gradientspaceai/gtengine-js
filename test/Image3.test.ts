@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { Image } from '../src/Image.js';
 import { Image3 } from '../src/Image3.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 // Lexicographical index for an image with dimensions (d0,d1,d2).
 function linear(d0: number, d1: number, x: number, y: number, z: number): number {
@@ -246,5 +247,171 @@ describe('Image3', () => {
             expect(image.get(coords[i][0], coords[i][1], coords[i][2]))
                 .toBe(10 * linear(d0, d1, coords[i][0], coords[i][1], coords[i][2]));
         }
+    });
+});
+
+describe('Image3 verification', () => {
+    // Random dimensions plus an in-range voxel derived from them, so no
+    // filtering is needed and shrinking stays deterministic.
+    const dimsAndVoxel = fc.tuple(
+        fc.integer({ min: 1, max: 9 }),
+        fc.integer({ min: 1, max: 9 }),
+        fc.integer({ min: 1, max: 9 }),
+        fc.nat({ max: 1000 }), fc.nat({ max: 1000 }), fc.nat({ max: 1000 }))
+        .map(([d0, d1, d2, rx, ry, rz]) => ({
+            d0, d1, d2, x: rx % d0, y: ry % d1, z: rz % d2
+        }));
+
+    it('getIndex and getCoordinates are mutual inverses', () => {
+        check(dimsAndVoxel, ({ d0, d1, d2, x, y, z }) => {
+            const image = new Image3<number>(d0, d1, d2);
+
+            // (x,y,z) -> index -> (x,y,z)
+            const i = image.getIndex(x, y, z);
+            expect(i).toBe(linear(d0, d1, x, y, z));
+            expect(image.getCoordinates(i)).toEqual([x, y, z]);
+            // The array overload agrees with the three-argument overload.
+            expect(image.getIndex([x, y, z])).toBe(i);
+
+            // index -> (x,y,z) -> index, over every voxel of the image.
+            for (let k = 0; k < d0 * d1 * d2; ++k) {
+                const c = image.getCoordinates(k);
+                expect(c[0] >= 0 && c[0] < d0).toBe(true);
+                expect(c[1] >= 0 && c[1] < d1).toBe(true);
+                expect(c[2] >= 0 && c[2] < d2).toBe(true);
+                expect(image.getIndex(c)).toBe(k);
+            }
+        });
+    });
+
+    it('the relative 1-dimensional offsets linearize the relative 3-tuples', () => {
+        check(dimsAndVoxel, ({ d0, d1, d2 }) => {
+            const image = new Image3<number>(d0, d1, d2);
+            const cases: [number[], [number, number, number][]][] = [
+                [image.getNeighborhood6(), image.getNeighborhood6Coords()],
+                [image.getNeighborhood18(), image.getNeighborhood18Coords()],
+                [image.getNeighborhood26(), image.getNeighborhood26Coords()],
+                [image.getCorners8(), image.getCorners8Coords()],
+                [image.getFull27(), image.getFull27Coords()]
+            ];
+            for (const [offsets, coords] of cases) {
+                expect(offsets.length).toBe(coords.length);
+                for (let k = 0; k < offsets.length; ++k) {
+                    // The offset must be the linearization of the 3-tuple,
+                    // which is what makes the two families interchangeable.
+                    expect(offsets[k]).toBe(
+                        coords[k][0] + d0 * (coords[k][1] + d1 * coords[k][2]));
+                }
+            }
+        });
+    });
+
+    it('the relative 3-tuple sets are the documented neighborhoods', () => {
+        check(dimsAndVoxel, ({ d0, d1, d2 }) => {
+            const image = new Image3<number>(d0, d1, d2);
+            const key = (c: readonly number[]) => c[0] + ',' + c[1] + ',' + c[2];
+            const setOf = (cs: [number, number, number][]) => new Set(cs.map(key));
+
+            // Brute-force the 3x3x3 stencil and classify by the number of
+            // nonzero offsets, which is the upstream definition.
+            const all: [number, number, number][] = [];
+            for (let w = -1; w <= 1; ++w) {
+                for (let v = -1; v <= 1; ++v) {
+                    for (let u = -1; u <= 1; ++u) {
+                        all.push([u, v, w]);
+                    }
+                }
+            }
+            const nnz = (c: readonly number[]) =>
+                Math.abs(c[0]) + Math.abs(c[1]) + Math.abs(c[2]);
+
+            const n6 = setOf(image.getNeighborhood6Coords());
+            const n18 = setOf(image.getNeighborhood18Coords());
+            const n26 = setOf(image.getNeighborhood26Coords());
+            const full = setOf(image.getFull27Coords());
+            expect(n6.size).toBe(6);
+            expect(n18.size).toBe(18);
+            expect(n26.size).toBe(26);
+            expect(full.size).toBe(27);
+            for (const c of all) {
+                expect(n6.has(key(c))).toBe(nnz(c) === 1);
+                expect(n18.has(key(c))).toBe(nnz(c) === 1 || nnz(c) === 2);
+                expect(n26.has(key(c))).toBe(nnz(c) >= 1);
+                expect(full.has(key(c))).toBe(true);
+            }
+
+            // The corners are the 2x2x2 cube of nonnegative offsets.
+            const corners = setOf(image.getCorners8Coords());
+            expect(corners.size).toBe(8);
+            for (const c of all) {
+                const isCorner = c[0] >= 0 && c[1] >= 0 && c[2] >= 0;
+                expect(corners.has(key(c))).toBe(isCorner);
+            }
+        });
+    });
+
+    it('absolute neighborhoods translate the relative ones without clamping', () => {
+        check(dimsAndVoxel, ({ d0, d1, d2, x, y, z }) => {
+            const image = new Image3<number>(d0, d1, d2);
+            const relative: [number[], [number, number, number][]][] = [
+                [image.getNeighborhood6(x, y, z), image.getNeighborhood6Coords()],
+                [image.getNeighborhood18(x, y, z), image.getNeighborhood18Coords()],
+                [image.getNeighborhood26(x, y, z), image.getNeighborhood26Coords()],
+                [image.getCorners8(x, y, z), image.getCorners8Coords()],
+                [image.getFull27(x, y, z), image.getFull27Coords()]
+            ];
+            const absoluteCoords: [number, number, number][][] = [
+                image.getNeighborhood6Coords(x, y, z),
+                image.getNeighborhood18Coords(x, y, z),
+                image.getNeighborhood26Coords(x, y, z),
+                image.getCorners8Coords(x, y, z),
+                image.getFull27Coords(x, y, z)
+            ];
+            const base = linear(d0, d1, x, y, z);
+            for (let s = 0; s < relative.length; ++s) {
+                const [absolute, relCoords] = relative[s];
+                for (let k = 0; k < absolute.length; ++k) {
+                    // 1-D indices are the base index plus the relative offset.
+                    expect(absolute[k]).toBe(base
+                        + relCoords[k][0] + d0 * (relCoords[k][1] + d1 * relCoords[k][2]));
+                    // 3-tuples are plain translations: an out-of-range neighbor
+                    // stays negative (or beyond the bound) instead of wrapping
+                    // around as the upstream size_t arithmetic does.
+                    expect(absoluteCoords[s][k]).toEqual([
+                        x + relCoords[k][0], y + relCoords[k][1], z + relCoords[k][2]]);
+                }
+            }
+        });
+    });
+
+    it('getClamped and setClamped agree with an explicit clamp', () => {
+        const offset = fc.integer({ min: -2, max: 11 });
+        check(fc.tuple(dimsAndVoxel, offset, offset, offset),
+            ([{ d0, d1, d2 }, x, y, z]) => {
+                const image = makeImage(d0, d1, d2);
+                const cx = Math.min(Math.max(x, 0), d0 - 1);
+                const cy = Math.min(Math.max(y, 0), d1 - 1);
+                const cz = Math.min(Math.max(z, 0), d2 - 1);
+                const expected = 10 * linear(d0, d1, cx, cy, cz);
+                expect(image.getClamped(x, y, z)).toBe(expected);
+                expect(image.getClamped([x, y, z])).toBe(expected);
+
+                image.setClamped(x, y, z, -7);
+                expect(image.get(cx, cy, cz)).toBe(-7);
+                image.setClamped([x, y, z], -9);
+                expect(image.get(linear(d0, d1, cx, cy, cz))).toBe(-9);
+            });
+    });
+
+    it('each neighborhood call returns a fresh array', () => {
+        check(dimsAndVoxel, ({ d0, d1, d2, x, y, z }) => {
+            const image = new Image3<number>(d0, d1, d2);
+            const a = image.getFull27(x, y, z);
+            a[0] = 12345;
+            expect(image.getFull27(x, y, z)[0]).not.toBe(12345);
+            const c = image.getNeighborhood26Coords(x, y, z);
+            c[0][0] = 12345;
+            expect(image.getNeighborhood26Coords(x, y, z)[0][0]).not.toBe(12345);
+        });
     });
 });

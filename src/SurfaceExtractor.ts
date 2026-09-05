@@ -241,15 +241,19 @@ export abstract class SurfaceExtractor {
                 triangle.v[i] = newIndex;
             }
 
-            // Keep only unique triangles. The Triangle constructor
-            // recomputes the canonical cyclic permutation for the remapped
-            // indices, matching the upstream comparison semantics.
-            const canonical = new SurfaceExtractorTriangle(
-                triangle.v[0], triangle.v[1], triangle.v[2]);
-            const key = `${canonical.v[0]},${canonical.v[1]},${canonical.v[2]}`;
+            // Keep only unique triangles. Upstream compares the remapped
+            // index triple as it stands (Triangle::operator< is
+            // lexicographic on v[]); it does not re-establish the
+            // min-first cyclic permutation that the Triangle constructor
+            // produced for the original indices. Two triangles whose
+            // remapped triples are cyclic rotations of one another are
+            // therefore kept as distinct, and the stored triple keeps the
+            // rotation that the remapping produced. The port matches that
+            // exactly (see the upstream note in the PR).
+            const key = `${triangle.v[0]},${triangle.v[1]},${triangle.v[2]}`;
             if (!tmap.has(key)) {
                 tmap.set(key, nextTriangle);
-                uniqueTriangles.push(canonical);
+                uniqueTriangles.push(triangle);
                 ++nextTriangle;
             }
         }

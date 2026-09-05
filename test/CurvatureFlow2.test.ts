@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { CurvatureFlow2 } from '../src/CurvatureFlow2.js';
 import { PdeFilterScaleType } from '../src/PdeFilter.js';
+import { check, expectClose, fc } from './helpers/arbitraries.js';
 
 const NEUMANN = Number.MAX_VALUE;
 
@@ -167,5 +168,184 @@ describe('CurvatureFlow2', () => {
         expect(filter.getMask(3, 2)).toBe(0);
         expect(filter.getU(3, 2)).not.toBe(before + 1);
         expect(Number.isFinite(filter.getU(3, 2))).toBe(true);
+    });
+});
+
+describe('CurvatureFlow2 verification', () => {
+    // The padded image the constructor holds under Neumann conditions and the
+    // NONE scale type (which still subtracts the data minimum).
+    function neumannPadded(xB: number, yB: number, data: readonly number[]): number[] {
+        const min = Math.min(...data);
+        const max = Math.max(...data);
+        const shift = (min === max ? () => 0 : (d: number) => d - min);
+        const w = xB + 2;
+        const p = new Array<number>(w * (yB + 2)).fill(0);
+        const at = (px: number, py: number) => px + w * py;
+        for (let y = 0; y < yB; ++y) {
+            for (let x = 0; x < xB; ++x) {
+                p[at(x + 1, y + 1)] = shift(data[x + xB * y]);
+            }
+        }
+        for (let py = 0; py < yB + 2; ++py) {
+            for (let px = 0; px < w; ++px) {
+                if (px === 0 || px === xB + 1 || py === 0 || py === yB + 1) {
+                    p[at(px, py)] = p[at(
+                        Math.min(Math.max(px, 1), xB),
+                        Math.min(Math.max(py, 1), yB))];
+                }
+            }
+        }
+        return p;
+    }
+
+    function values(filter: CurvatureFlow2, xB: number, yB: number): number[] {
+        const u: number[] = [];
+        for (let y = 0; y < yB; ++y) {
+            for (let x = 0; x < xB; ++x) {
+                u.push(filter.getU(x, y));
+            }
+        }
+        return u;
+    }
+
+    const config = fc.tuple(
+        fc.integer({ min: 3, max: 6 }),
+        fc.integer({ min: 3, max: 6 }),
+        fc.constantFrom(0.5, 1, 2),
+        fc.constantFrom(0.5, 1, 2),
+        fc.array(fc.integer({ min: -6, max: 6 }), { minLength: 36, maxLength: 36 }))
+        .map(([xB, yB, hx, hy, pool]) => ({
+            xB, yB, hx, hy, data: pool.slice(0, xB * yB)
+        }));
+
+    it('one step reproduces the upstream update from the padded image', () => {
+        // The reference recomputes every stencil from the padded buffer,
+        // including the upstream mixed-derivative coefficient of -1/2 (the
+        // mean-curvature numerator has -2 there; the quirk is preserved, see
+        // upstream issue #123).
+        check(fc.tuple(config, fc.constantFrom(0.05, 0.1, 0.25)),
+            ([{ xB, yB, hx, hy, data }, dt]) => {
+                const filter = new CurvatureFlow2(xB, yB, hx, hy, data, null,
+                    NEUMANN, PdeFilterScaleType.NONE);
+                filter.setTimeStep(dt);
+
+                const p = neumannPadded(xB, yB, data);
+                const w = xB + 2;
+                const at = (px: number, py: number) => px + w * py;
+                const expected: number[] = [];
+                for (let y = 1; y <= yB; ++y) {
+                    for (let x = 1; x <= xB; ++x) {
+                        const uzz = p[at(x, y)];
+                        const ux = (p[at(x + 1, y)] - p[at(x - 1, y)]) / (2 * hx);
+                        const uy = (p[at(x, y + 1)] - p[at(x, y - 1)]) / (2 * hy);
+                        const uxx = (p[at(x + 1, y)] - 2 * uzz + p[at(x - 1, y)])
+                            / (hx * hx);
+                        const uyy = (p[at(x, y + 1)] - 2 * uzz + p[at(x, y - 1)])
+                            / (hy * hy);
+                        const uxy = (p[at(x - 1, y - 1)] + p[at(x + 1, y + 1)]
+                            - p[at(x - 1, y + 1)] - p[at(x + 1, y - 1)])
+                            / (4 * hx * hy);
+                        const denom = ux * ux + uy * uy;
+                        if (denom > 0) {
+                            const numer = uxx * uy * uy + uyy * ux * ux
+                                - 0.5 * uxy * ux * uy;
+                            expected.push(uzz + dt * numer / denom);
+                        } else {
+                            expected.push(uzz);
+                        }
+                    }
+                }
+
+                filter.update();
+                const actual = values(filter, xB, yB);
+                for (let i = 0; i < expected.length; ++i) {
+                    expectClose(actual[i], expected[i], 1e-9, 1e-9);
+                }
+            });
+    });
+
+    it('is equivariant under reflecting the x axis', () => {
+        // Under x -> -x the first x-derivative and the mixed derivative both
+        // change sign, so every term of the numerator is invariant; the flow
+        // must therefore commute with the reflection.
+        check(config, ({ xB, yB, hx, hy, data }) => {
+            const filter = new CurvatureFlow2(xB, yB, hx, hy, data, null,
+                NEUMANN, PdeFilterScaleType.NONE);
+            filter.setTimeStep(0.1);
+            filter.update();
+
+            const mirrored = new Array<number>(xB * yB).fill(0);
+            for (let y = 0; y < yB; ++y) {
+                for (let x = 0; x < xB; ++x) {
+                    mirrored[(xB - 1 - x) + xB * y] = data[x + xB * y];
+                }
+            }
+            const other = new CurvatureFlow2(xB, yB, hx, hy, mirrored, null,
+                NEUMANN, PdeFilterScaleType.NONE);
+            other.setTimeStep(0.1);
+            other.update();
+
+            for (let y = 0; y < yB; ++y) {
+                for (let x = 0; x < xB; ++x) {
+                    expectClose(other.getU(xB - 1 - x, y), filter.getU(x, y),
+                        1e-9, 1e-9);
+                }
+            }
+        });
+    });
+
+    it('is equivariant under transposing the image and the spacings', () => {
+        check(config, ({ xB, yB, hx, hy, data }) => {
+            const filter = new CurvatureFlow2(xB, yB, hx, hy, data, null,
+                NEUMANN, PdeFilterScaleType.NONE);
+            filter.setTimeStep(0.1);
+            filter.update();
+
+            const transposed: number[] = [];
+            for (let x = 0; x < xB; ++x) {
+                for (let y = 0; y < yB; ++y) {
+                    transposed.push(data[x + xB * y]);
+                }
+            }
+            const other = new CurvatureFlow2(yB, xB, hy, hx, transposed, null,
+                NEUMANN, PdeFilterScaleType.NONE);
+            other.setTimeStep(0.1);
+            other.update();
+
+            for (let y = 0; y < yB; ++y) {
+                for (let x = 0; x < xB; ++x) {
+                    expectClose(other.getU(y, x), filter.getU(x, y), 1e-9, 1e-9);
+                }
+            }
+        });
+    });
+
+    it('leaves an affine image unchanged away from the border', () => {
+        // The level curves of an affine image are straight lines with zero
+        // curvature, so the numerator vanishes wherever the stencil sees only
+        // interior samples.
+        const affine = fc.tuple(
+            fc.integer({ min: 4, max: 7 }),
+            fc.integer({ min: 4, max: 7 }),
+            fc.constantFrom(0.5, 1, 2),
+            fc.constantFrom(0.5, 1, 2),
+            fc.integer({ min: -5, max: 5 }),
+            fc.integer({ min: -5, max: 5 }),
+            fc.integer({ min: -5, max: 5 }));
+        check(affine, ([xB, yB, hx, hy, a, b, c]) => {
+            const filter = new CurvatureFlow2(xB, yB, hx, hy,
+                build(xB, yB, (x, y) => a + b * x + c * y), null, NEUMANN,
+                PdeFilterScaleType.NONE);
+            const before = values(filter, xB, yB);
+            filter.setTimeStep(0.25);
+            filter.update();
+            const after = values(filter, xB, yB);
+            for (let y = 1; y + 1 < yB; ++y) {
+                for (let x = 1; x + 1 < xB; ++x) {
+                    const i = x + xB * y;
+                    expectClose(after[i], before[i], 1e-9, 1e-9);
+                }
+            }
+        });
     });
 });

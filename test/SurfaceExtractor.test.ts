@@ -5,6 +5,7 @@ import {
     SurfaceExtractorVertex
 } from '../src/SurfaceExtractor.js';
 import { MarchingCubes } from '../src/MarchingCubes.js';
+import { check, expectClose, fc } from './helpers/arbitraries.js';
 
 // Concrete extractor built on the ported MarchingCubes tables, mirroring the
 // structure of the upstream derived classes. Voxel corner k of the cube with
@@ -230,9 +231,9 @@ describe('SurfaceExtractor', () => {
         const C = new SurfaceExtractorVertex(0, 1, 1, 1, 1, 2);
         const vertices = [A, B, A2, C];
         const triangles = [
-            new SurfaceExtractorTriangle(0, 1, 3),
-            new SurfaceExtractorTriangle(2, 1, 3),  // same as (0,1,3) after remap
-            new SurfaceExtractorTriangle(3, 1, 0)   // opposite winding: distinct
+            new SurfaceExtractorTriangle(0, 1, 3),  // stored [0,1,3] -> [0,1,2]
+            new SurfaceExtractorTriangle(2, 1, 3),  // stored [1,3,2] -> [1,2,0]
+            new SurfaceExtractorTriangle(3, 1, 0)   // stored [0,3,1] -> [0,2,1]
         ];
         ex.makeUnique(vertices, triangles);
 
@@ -240,9 +241,15 @@ describe('SurfaceExtractor', () => {
         expect(vertices[0]).toBe(A);
         expect(vertices[1]).toBe(B);
         expect(vertices[2]).toBe(C);
-        expect(triangles.length).toBe(2);
+        // Upstream dedups on the remapped triple as it stands and does not
+        // rebuild the min-first rotation, so the second triangle -- a
+        // rotation of the first, hence the same oriented triangle -- is kept
+        // as distinct. The third has the opposite winding and is distinct
+        // under any convention.
+        expect(triangles.length).toBe(3);
         expect(triangles[0].v).toEqual([0, 1, 2]);
-        expect(triangles[1].v).toEqual([0, 2, 1]);
+        expect(triangles[1].v).toEqual([1, 2, 0]);
+        expect(triangles[2].v).toEqual([0, 2, 1]);
     });
 
     it('convert produces floating-point triples', () => {
@@ -411,4 +418,259 @@ describe('SurfaceExtractor', () => {
             }
         });
     });
+});
+
+describe('SurfaceExtractor verification', () => {
+    // Small nonnegative rationals, so duplicates of the same value written
+    // with different numerators and denominators occur often.
+    const rational = fc.tuple(fc.integer({ min: 0, max: 3 }),
+        fc.integer({ min: 1, max: 3 }));
+    const vertexArb = fc.tuple(rational, rational, rational).map(
+        ([[xn, xd], [yn, yd], [zn, zd]]) =>
+            new SurfaceExtractorVertex(xn, xd, yn, yd, zn, zd));
+
+    const valueOf = (v: SurfaceExtractorVertex): [number, number, number] =>
+        [v.xNumer / v.xDenom, v.yNumer / v.yDenom, v.zNumer / v.zDenom];
+
+    it('Vertex comparisons agree with the rational values they encode', () => {
+        check(fc.tuple(vertexArb, vertexArb), ([a, b]) => {
+            const va = valueOf(a), vb = valueOf(b);
+            const lexLess = (va[0] !== vb[0] ? va[0] < vb[0]
+                : va[1] !== vb[1] ? va[1] < vb[1]
+                    : va[2] < vb[2]);
+            expect(a.lessThan(b)).toBe(lexLess);
+            expect(a.equals(b)).toBe(va[0] === vb[0] && va[1] === vb[1]
+                && va[2] === vb[2]);
+            // Trichotomy: exactly one of <, ==, > holds.
+            const count = Number(a.lessThan(b)) + Number(a.equals(b))
+                + Number(b.lessThan(a));
+            expect(count).toBe(1);
+        });
+    });
+
+    it('Vertex lessThan is a strict weak ordering', () => {
+        check(fc.tuple(vertexArb, vertexArb, vertexArb), ([a, b, c]) => {
+            expect(a.lessThan(a)).toBe(false);
+            if (a.lessThan(b) && b.lessThan(c)) {
+                expect(a.lessThan(c)).toBe(true);
+            }
+            // Incomparability is transitive because it coincides with equals.
+            const incomparable = (p: SurfaceExtractorVertex,
+                q: SurfaceExtractorVertex) => !p.lessThan(q) && !q.lessThan(p);
+            if (incomparable(a, b) && incomparable(b, c)) {
+                expect(incomparable(a, c)).toBe(true);
+            }
+        });
+    });
+
+    it('Triangle stores the min-first rotation and preserves the winding', () => {
+        check(fc.tuple(fc.integer({ min: -5, max: 5 }),
+            fc.integer({ min: -5, max: 5 }),
+            fc.integer({ min: -5, max: 5 })), ([v0, v1, v2]) => {
+                const t = new SurfaceExtractorTriangle(v0, v1, v2);
+                const rotations = [[v0, v1, v2], [v1, v2, v0], [v2, v0, v1]];
+                // The stored triple is one of the three cyclic rotations, so
+                // the winding is unchanged.
+                expect(rotations.some(r => r[0] === t.v[0] && r[1] === t.v[1]
+                    && r[2] === t.v[2])).toBe(true);
+                // With distinct indices the first entry is the minimum.
+                if (v0 !== v1 && v1 !== v2 && v0 !== v2) {
+                    expect(t.v[0]).toBe(Math.min(v0, v1, v2));
+                }
+            });
+    });
+
+    // An independent reimplementation of upstream MakeUnique: unique vertices
+    // in first-occurrence order, triangle indices remapped, and duplicate
+    // remapped triples dropped WITHOUT re-canonicalizing the rotation (which
+    // is what upstream's std::map<Triangle,int32_t> does, since
+    // Triangle::operator< is lexicographic on the stored triple).
+    function referenceMakeUnique(vertices: SurfaceExtractorVertex[],
+        triangles: SurfaceExtractorTriangle[]): {
+            vertices: SurfaceExtractorVertex[];
+            triangles: number[][];
+        } {
+        if (vertices.length === 0 || triangles.length === 0) {
+            return {
+                vertices: vertices.slice(),
+                triangles: triangles.map(t => [t.v[0], t.v[1], t.v[2]])
+            };
+        }
+        const unique: SurfaceExtractorVertex[] = [];
+        const remap: number[] = [];
+        for (const v of vertices) {
+            let found = unique.findIndex(u => u.equals(v));
+            if (found < 0) {
+                found = unique.length;
+                unique.push(v);
+            }
+            remap.push(found);
+        }
+        const seen = new Set<string>();
+        const outTriangles: number[][] = [];
+        for (const t of triangles) {
+            const v = [remap[t.v[0]], remap[t.v[1]], remap[t.v[2]]];
+            const key = v.join(',');
+            if (!seen.has(key)) {
+                seen.add(key);
+                outTriangles.push(v);
+            }
+        }
+        return { vertices: unique, triangles: outTriangles };
+    }
+
+    it('makeUnique matches an independent implementation', () => {
+        const mesh = fc.tuple(
+            fc.array(vertexArb, { minLength: 1, maxLength: 8 }),
+            fc.array(fc.tuple(fc.nat({ max: 100 }), fc.nat({ max: 100 }),
+                fc.nat({ max: 100 })), { minLength: 1, maxLength: 6 }))
+            .map(([vs, raw]) => ({
+                vertices: vs,
+                triples: raw.map(([a, b, c]) =>
+                    [a % vs.length, b % vs.length, c % vs.length] as
+                    [number, number, number])
+            }));
+        check(mesh, ({ vertices, triples }) => {
+            const makeTriangles = () => triples.map(([a, b, c]) =>
+                new SurfaceExtractorTriangle(a, b, c));
+            const actualVertices = vertices.slice();
+            const actualTriangles = makeTriangles();
+            const extractor = new StubExtractor(2, 2, 2, new Array<number>(8).fill(0));
+            extractor.makeUnique(actualVertices, actualTriangles);
+
+            const expected = referenceMakeUnique(vertices.slice(), makeTriangles());
+            expect(actualVertices.length).toBe(expected.vertices.length);
+            for (let i = 0; i < expected.vertices.length; ++i) {
+                expect(actualVertices[i].equals(expected.vertices[i])).toBe(true);
+            }
+            expect(actualTriangles.map(t => [t.v[0], t.v[1], t.v[2]]))
+                .toEqual(expected.triangles);
+
+            // Post-conditions: the surviving vertices are pairwise distinct
+            // and every triangle index is in range.
+            for (let i = 0; i < actualVertices.length; ++i) {
+                for (let j = i + 1; j < actualVertices.length; ++j) {
+                    expect(actualVertices[i].equals(actualVertices[j])).toBe(false);
+                }
+            }
+            for (const t of actualTriangles) {
+                for (const v of t.v) {
+                    expect(v >= 0 && v < actualVertices.length).toBe(true);
+                }
+            }
+        });
+    });
+
+    it('makeUnique keeps the remapped rotation upstream produces', () => {
+        // Upstream remaps triangle.v[] in place and then dedups on the
+        // remapped triple as it stands; it does not rebuild the min-first
+        // rotation. Two triangles whose remapped triples are rotations of one
+        // another therefore both survive, and each keeps its own rotation.
+        const A = new SurfaceExtractorVertex(0, 1, 0, 1, 0, 1);
+        const B = new SurfaceExtractorVertex(1, 2, 0, 1, 0, 1);
+        const C = new SurfaceExtractorVertex(0, 1, 1, 2, 0, 1);
+        // The same three points written with different numerators and
+        // denominators, which the rational comparison must see as equal.
+        const A2 = new SurfaceExtractorVertex(0, 3, 0, 5, 0, 7);
+        const B2 = new SurfaceExtractorVertex(2, 4, 0, 1, 0, 1);
+        const C2 = new SurfaceExtractorVertex(0, 1, 3, 6, 0, 1);
+        const vertices = [A, B, C, A2, B2, C2];
+        // (0,1,2) is stored as [0,1,2]; (3,1,5) is stored as [1,5,3] and
+        // remaps to [1,2,0], the rotation of [0,1,2] starting at 1.
+        const triangles = [
+            new SurfaceExtractorTriangle(0, 1, 2),
+            new SurfaceExtractorTriangle(3, 1, 5)
+        ];
+        const extractor = new StubExtractor(2, 2, 2, new Array<number>(8).fill(0));
+        extractor.makeUnique(vertices, triangles);
+
+        expect(vertices.length).toBe(3);
+        expect(triangles.length).toBe(2);
+        expect(triangles[0].v).toEqual([0, 1, 2]);
+        expect(triangles[1].v).toEqual([1, 2, 0]);
+    });
+
+    it('convert divides each rational component exactly', () => {
+        check(fc.array(vertexArb, { minLength: 1, maxLength: 6 }), (vs) => {
+            const extractor = new StubExtractor(2, 2, 2, new Array<number>(8).fill(0));
+            const out = extractor.convert(vs);
+            expect(out.length).toBe(vs.length);
+            for (let i = 0; i < vs.length; ++i) {
+                expect(out[i]).toEqual(valueOf(vs[i]));
+            }
+        });
+    });
+
+    it('extracts a closed orientable sphere for several radii and centers', () => {
+        // A level surface of a sphere is a closed manifold, so every edge is
+        // shared by exactly two triangles and V - E + F = 2. The extraction
+        // itself uses no topology, so this checks the vertex identification
+        // in makeUnique together with the marching-cubes triangulation.
+        const bound = 9;
+        for (const c of [4, 4.5]) {
+            for (const r2x4 of [17, 25, 41, 61]) {
+                const data = new Array<number>(bound * bound * bound);
+                let i = 0;
+                for (let z = 0; z < bound; ++z) {
+                    for (let y = 0; y < bound; ++y) {
+                        for (let x = 0; x < bound; ++x, ++i) {
+                            data[i] = 4 * ((x - c) * (x - c) + (y - c) * (y - c)
+                                + (z - c) * (z - c)) - r2x4;
+                        }
+                    }
+                }
+                // The tables exclude zero samples, and a sphere that pokes
+                // out of the grid is clipped into an open surface.
+                if (data.some(v => v === 0)
+                    || c + Math.sqrt(r2x4 / 4) > bound - 1.05) {
+                    continue;
+                }
+                const extractor = new MCExtractor(bound, bound, bound, data);
+                const { vertices, triangles } = extractor.extract(0, true);
+                expect(triangles.length).toBeGreaterThan(0);
+
+                const edges = new Map<string, number>();
+                for (const t of triangles) {
+                    for (let k = 0; k < 3; ++k) {
+                        const a = t.v[k], b = t.v[(k + 1) % 3];
+                        const key = (a < b ? a + ':' + b : b + ':' + a);
+                        edges.set(key, (edges.get(key) ?? 0) + 1);
+                    }
+                }
+                for (const count of edges.values()) {
+                    expect(count).toBe(2);
+                }
+                expect(vertices.length - edges.size + triangles.length).toBe(2);
+
+                // Every vertex lies on the extracted level surface: the
+                // trilinear field along the lattice edge vanishes there, so
+                // the point is within half a voxel of the true sphere.
+                const radius = Math.sqrt(r2x4 / 4);
+                for (const v of vertices) {
+                    const d = Math.hypot(v[0] - c, v[1] - c, v[2] - c);
+                    expect(Math.abs(d - radius)).toBeLessThan(0.5);
+                }
+
+                // orientTriangles(sameDir = true) makes every triangle normal
+                // agree with the average image gradient, which points outward
+                // for this field.
+                extractor.orientTriangles(vertices, triangles, true);
+                for (const t of triangles) {
+                    const n = triangleNormal(vertices[t.v[0]], vertices[t.v[1]],
+                        vertices[t.v[2]]);
+                    const centroid = [0, 1, 2].map(k =>
+                        (vertices[t.v[0]][k] + vertices[t.v[1]][k]
+                            + vertices[t.v[2]][k]) / 3);
+                    const outward = [centroid[0] - c, centroid[1] - c, centroid[2] - c];
+                    expect(n[0] * outward[0] + n[1] * outward[1] + n[2] * outward[2])
+                        .toBeGreaterThanOrEqual(0);
+                }
+
+                const normals = extractor.computeNormals(vertices, triangles);
+                for (const n of normals) {
+                    expectClose(Math.hypot(n[0], n[1], n[2]), 1, 1e-12, 1e-12);
+                }
+            }
+        }
+    }, 30000);
 });
