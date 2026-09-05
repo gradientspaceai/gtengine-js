@@ -3,6 +3,8 @@ import { Image3 } from '../src/Image3.js';
 import { MarchingCubes } from '../src/MarchingCubes.js';
 import { SurfaceExtractorMC } from '../src/SurfaceExtractorMC.js';
 import type { Vector } from '../src/Vector.js';
+import { SurfaceExtractorCubes } from '../src/SurfaceExtractorCubes.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 // Build an Image3<number> of the given dimensions from an analytic function
 // evaluated at the voxel coordinates.
@@ -457,5 +459,278 @@ describe('SurfaceExtractorMC: gradient', () => {
         expect(getGradient([3, 0.5, 0.5])).toEqual([0, 0, 0]);
         expect(getGradient([0.5, 3, 0.5])).toEqual([0, 0, 0]);
         expect(getGradient([0.5, 0.5, 3])).toEqual([0, 0, 0]);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V26): property-based cross-checks against the upstream
+// header SurfaceExtractorMC.h.
+// ---------------------------------------------------------------------------
+
+describe('SurfaceExtractorMC verification', () => {
+    const B = 5;
+
+    // A lexicographically ordered integer image of B^3 voxels.
+    const voxelArb = fc.array(fc.integer({ min: -3, max: 3 }),
+        { minLength: B * B * B, maxLength: B * B * B });
+
+    // Build an Image3 from a flat lexicographic array.
+    const toImage = (values: readonly number[]): Image3<number> => {
+        const image = new Image3<number>(B, B, B, () => 0);
+        const pixels = image.getPixels();
+        for (let i = 0; i < values.length; ++i) {
+            pixels[i] = values[i];
+        }
+        return image;
+    };
+
+    // The voxel edge a vertex lies on, as "x,y,z|d" where (x,y,z) is the
+    // lattice endpoint with the smaller coordinate along the edge direction
+    // d. Returns null when the vertex is not in the interior of an edge.
+    const edgeKey = (v: readonly number[]): string | null => {
+        let d = -1;
+        for (let i = 0; i < 3; ++i) {
+            if (v[i] !== Math.floor(v[i])) {
+                if (d >= 0) {
+                    return null;
+                }
+                d = i;
+            }
+        }
+        if (d < 0) {
+            return null;
+        }
+        return Math.floor(v[0]) + ',' + Math.floor(v[1]) + ','
+            + Math.floor(v[2]) + '|' + d;
+    };
+
+    it('places every vertex at the linear zero crossing of F - level', () => {
+        check(fc.tuple(voxelArb, fc.integer({ min: -3, max: 2 })),
+            ([values, base]) => {
+                const level = base + 0.5;
+                const image = toImage(values);
+                const { vertices } = new SurfaceExtractorMC(image)
+                    .extract(level, 0);
+                for (const vertex of vertices) {
+                    const v = vertex.values;
+                    const key = edgeKey(v);
+                    // Every marching-cubes vertex is on a cut voxel edge.
+                    expect(key).not.toBeNull();
+                    const d = Number((key as string).split('|')[1]);
+                    const c = [Math.floor(v[0]), Math.floor(v[1]),
+                        Math.floor(v[2])];
+                    const f0 = image.get(c[0], c[1], c[2]);
+                    const c1 = c.slice();
+                    c1[d] += 1;
+                    const f1 = image.get(c1[0], c1[1], c1[2]);
+                    // The endpoints straddle the level.
+                    expect((f0 - level) * (f1 - level)).toBeLessThan(0);
+                    // and the vertex is at the interpolated crossing.
+                    const t = (f0 - level) / (f0 - f1);
+                    expect(v[d] - c[d]).toBeCloseTo(t, 12);
+                }
+            }, 60);
+    });
+
+    it('agrees with SurfaceExtractorCubes on the cut edges and crossings',
+        () => {
+            // The cubes extractor solves 2*V - (2*L + 1) = 0, so it extracts
+            // the same level surface as this class at level L + 1/2. Before
+            // the level-offset fix the two disagreed for every L != -1/2.
+            check(fc.tuple(voxelArb, fc.integer({ min: -3, max: 2 })),
+                ([values, L]) => {
+                    const level = L + 0.5;
+                    const mc = new SurfaceExtractorMC(toImage(values))
+                        .extract(level, 0);
+                    const cubes = new SurfaceExtractorCubes(B, B, B, values)
+                        .extract(L, true);
+
+                    const mcEdges = new Map<string, number>();
+                    for (const vertex of mc.vertices) {
+                        const key = edgeKey(vertex.values);
+                        if (key !== null) {
+                            const d = Number(key.split('|')[1]);
+                            mcEdges.set(key, vertex.values[d]);
+                        }
+                    }
+                    const cubeEdges = new Map<string, number>();
+                    for (const vertex of cubes.vertices) {
+                        const key = edgeKey(vertex);
+                        if (key !== null) {
+                            const d = Number(key.split('|')[1]);
+                            cubeEdges.set(key, vertex[d]);
+                        }
+                    }
+
+                    // The cubes extractor also emits face branch points, but
+                    // every edge vertex it produces must be an edge vertex of
+                    // the marching-cubes extraction and vice versa.
+                    expect([...mcEdges.keys()].sort())
+                        .toEqual([...cubeEdges.keys()].sort());
+                    for (const [key, value] of mcEdges) {
+                        // The two compute the same rational number by
+                        // different sequences of operations, so they may
+                        // differ by a rounding step.
+                        expect(value).toBeCloseTo(
+                            cubeEdges.get(key) as number, 12);
+                    }
+                }, 40);
+        });
+
+    // The undirected edge use counts of a triangle-index array.
+    const edgeUseCounts = (indices: readonly number[]): Map<string, number> => {
+        const counts = new Map<string, number>();
+        for (let t = 0; t < indices.length; t += 3) {
+            for (let i = 0; i < 3; ++i) {
+                const a = indices[t + i];
+                const b = indices[t + (i + 1) % 3];
+                const key = (a < b ? a + '-' + b : b + '-' + a);
+                counts.set(key, (counts.get(key) ?? 0) + 1);
+            }
+        }
+        return counts;
+    };
+
+    it('produces a mesh whose edges are used at most twice', () => {
+        // The marching-cubes table is not face-consistent: two voxels that
+        // share an ambiguous face may pair the four face intersections
+        // differently, which leaves the shared face open (see the pinned
+        // test below). So the extracted mesh is not always closed, but it is
+        // always non-self-overlapping: an edge is never used more than twice.
+        check(fc.tuple(voxelArb, fc.integer({ min: -3, max: 2 })),
+            ([values, base]) => {
+                const extractor = new SurfaceExtractorMC(toImage(values));
+                const raw = extractor.extract(base + 0.5, 0);
+                if (raw.vertices.length === 0) {
+                    // makeUnique has the upstream precondition that the
+                    // input is nonempty; see the test below.
+                    return;
+                }
+                const { indices } = extractor.makeUnique(raw.vertices,
+                    raw.indices);
+                for (const count of edgeUseCounts(indices).values()) {
+                    expect(count).toBeLessThanOrEqual(2);
+                }
+            }, 40);
+    });
+
+    it('upstream: an ambiguous shared face leaves a hole in the mesh', () => {
+        // Two voxels share the face x = 1, on which the four corner signs
+        // alternate around the face (the classic marching-cubes ambiguity).
+        // Each voxel resolves the face independently, so the four face
+        // intersections are joined by one pairing on the left and by the
+        // other pairing on the right: the shared face is left open. The
+        // cubes and tetrahedra extractors do not have this problem (the
+        // former disambiguates with the bilinear determinant, the latter has
+        // no ambiguous faces at all).
+        const image = new Image3<number>(3, 2, 2, () => 0);
+        for (let z = 0; z < 2; ++z) {
+            for (let y = 0; y < 2; ++y) {
+                for (let x = 0; x < 3; ++x) {
+                    const value = (x === 1
+                        ? (y === z ? 1 : -1)
+                        : (x === 0 ? 1 : -1));
+                    image.set(x, y, z, value);
+                }
+            }
+        }
+        const extractor = new SurfaceExtractorMC(image);
+        const raw = extractor.extract(0.5, 0);
+        const { indices } = extractor.makeUnique(raw.vertices, raw.indices);
+        expect(indices.length / 3).toBe(6);
+        const boundary = [...edgeUseCounts(indices).values()]
+            .filter((count) => count === 1).length;
+        expect(boundary).toBe(8);
+    });
+
+    it('is stateless: repeated extraction gives identical output', () => {
+        check(fc.tuple(voxelArb, fc.integer({ min: -3, max: 2 })),
+            ([values, base]) => {
+                const extractor = new SurfaceExtractorMC(toImage(values));
+                const first = extractor.extract(base + 0.5, 0);
+                const second = extractor.extract(base + 0.5, 0);
+                expect(second.indices).toEqual(first.indices);
+                expect(second.vertices.map((v) => v.values))
+                    .toEqual(first.vertices.map((v) => v.values));
+            }, 40);
+    });
+
+    it('negating the image and the level gives the same vertex positions',
+        () => {
+            check(fc.tuple(voxelArb, fc.integer({ min: -3, max: 2 })),
+                ([values, base]) => {
+                    const level = base + 0.5;
+                    const positive = new SurfaceExtractorMC(toImage(values))
+                        .extract(level, 0);
+                    const negated = new SurfaceExtractorMC(
+                        toImage(values.map((v) => -v))).extract(-level, 0);
+                    const keys = (vs: readonly Vector[]) =>
+                        [...new Set(vs.map((v) => v.values.join(',')))].sort();
+                    // The table entries of an image and its negation are
+                    // complementary, so the cut edges and the crossings on
+                    // them are the same; only the winding differs.
+                    expect(keys(negated.vertices)).toEqual(
+                        keys(positive.vertices));
+                }, 40);
+        });
+
+    it('computeNormals returns unit normals or zero, never NaN', () => {
+        check(fc.tuple(voxelArb, fc.integer({ min: -3, max: 2 })),
+            ([values, base]) => {
+                const extractor = new SurfaceExtractorMC(toImage(values));
+                const raw = extractor.extract(base + 0.5, 0);
+                if (raw.vertices.length === 0) {
+                    return;
+                }
+                const { vertices, indices } = extractor.makeUnique(
+                    raw.vertices, raw.indices);
+                const normals = extractor.computeNormals(vertices, indices);
+                expect(normals.length).toBe(vertices.length);
+                for (const n of normals) {
+                    const len = Math.sqrt(n.values[0] * n.values[0]
+                        + n.values[1] * n.values[1]
+                        + n.values[2] * n.values[2]);
+                    expect(Number.isFinite(len)).toBe(true);
+                    expect(len === 0 || Math.abs(len - 1) < 1e-12).toBe(true);
+                }
+            }, 30);
+    });
+
+    it('makeUnique keeps the upstream nonempty precondition', () => {
+        // UniqueVerticesSimplices::RemoveDuplicateVertices asserts that the
+        // vertex and index arrays are nonempty, so an empty extraction must
+        // not be passed to makeUnique.
+        const image = new Image3<number>(2, 2, 2, () => 1);
+        const extractor = new SurfaceExtractorMC(image);
+        const empty = extractor.extract(0, 0);
+        expect(empty.vertices.length).toBe(0);
+        expect(() => extractor.makeUnique(empty.vertices, empty.indices))
+            .toThrow('Invalid number of vertices.');
+    });
+
+    it('regression: a nonzero level shifts the vertex along the edge', () => {
+        // F is the x-ramp 0, 4, 8. The surface F = 2 crosses the first voxel
+        // edge at x = 0.5. Upstream computes F[j0] / (F[j0] - F[j1]) =
+        // 0 / (0 - 4) = 0 and puts the vertex on the corner instead.
+        const image = new Image3<number>(3, 2, 2, () => 0);
+        for (let z = 0; z < 2; ++z) {
+            for (let y = 0; y < 2; ++y) {
+                for (let x = 0; x < 3; ++x) {
+                    image.set(x, y, z, 4 * x);
+                }
+            }
+        }
+        const { vertices } = new SurfaceExtractorMC(image).extract(2, 0);
+        expect(vertices.length).toBe(4);
+        for (const v of vertices) {
+            expect(v.values[0]).toBeCloseTo(0.5, 12);
+        }
+
+        // The same image at level 6 crosses the second edge at x = 1.5.
+        const other = new SurfaceExtractorMC(image).extract(6, 0);
+        expect(other.vertices.length).toBe(4);
+        for (const v of other.vertices) {
+            expect(v.values[0]).toBeCloseTo(1.5, 12);
+        }
     });
 });

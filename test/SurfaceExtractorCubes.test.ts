@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { SurfaceExtractorCubes } from '../src/SurfaceExtractorCubes.js';
 import { SurfaceExtractorTetrahedra } from '../src/SurfaceExtractorTetrahedra.js';
 import type { SurfaceExtractorTriangle } from '../src/SurfaceExtractor.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 // Sample an integer-valued function on a lexicographically ordered grid.
 function makeVoxels(xBound: number, yBound: number, zBound: number,
@@ -439,5 +440,286 @@ describe('SurfaceExtractorCubes vs SurfaceExtractorTetrahedra', () => {
         for (const key of cubeKeys) {
             expect(tetraKeys.has(key)).toBe(true);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V26): property-based cross-checks against the upstream
+// header SurfaceExtractorCubes.h.
+// ---------------------------------------------------------------------------
+
+describe('SurfaceExtractorCubes verification', () => {
+    const B = 5;
+
+    const voxelArb = fc.array(fc.integer({ min: -3, max: 3 }),
+        { minLength: B * B * B, maxLength: B * B * B });
+
+    const at = (values: readonly number[], x: number, y: number, z: number) =>
+        values[x + B * (y + B * z)];
+
+    // The voxel edge a vertex lies on, as "x,y,z|d" with (x,y,z) the lattice
+    // endpoint of smaller coordinate along the direction d; null when the
+    // vertex is not in the interior of a voxel edge (a face branch point).
+    const edgeKey = (v: readonly number[]): string | null => {
+        let d = -1;
+        for (let i = 0; i < 3; ++i) {
+            if (v[i] !== Math.floor(v[i])) {
+                if (d >= 0) {
+                    return null;
+                }
+                d = i;
+            }
+        }
+        if (d < 0) {
+            return null;
+        }
+        return Math.floor(v[0]) + ',' + Math.floor(v[1]) + ','
+            + Math.floor(v[2]) + '|' + d;
+    };
+
+    it('every vertex is inside the image and has a positive denominator',
+        () => {
+            check(fc.tuple(voxelArb, fc.integer({ min: -3, max: 2 })),
+                ([values, level]) => {
+                    const extractor = new SurfaceExtractorCubes(B, B, B,
+                        values);
+                    const rational = extractor.extractRational(level);
+                    for (const v of rational.vertices) {
+                        // The Vertex constructor normalizes the signs.
+                        expect(v.xDenom).toBeGreaterThan(0);
+                        expect(v.yDenom).toBeGreaterThan(0);
+                        expect(v.zDenom).toBeGreaterThan(0);
+                    }
+                    for (const p of extractor.convert(rational.vertices)) {
+                        for (let i = 0; i < 3; ++i) {
+                            expect(p[i]).toBeGreaterThanOrEqual(0);
+                            expect(p[i]).toBeLessThanOrEqual(B - 1);
+                        }
+                    }
+                }, 60);
+        });
+
+    it('every edge vertex is the exact crossing of 2*F - (2*level+1)', () => {
+        // The extractor doubles the voxel values and subtracts the odd
+        // integer 2*level+1, so the level surface is F = level + 1/2.
+        check(fc.tuple(voxelArb, fc.integer({ min: -3, max: 2 })),
+            ([values, level]) => {
+                const target = level + 0.5;
+                const { vertices } = new SurfaceExtractorCubes(B, B, B, values)
+                    .extract(level, true);
+                for (const v of vertices) {
+                    const key = edgeKey(v);
+                    if (key === null) {
+                        // A face branch point; it lies on a face of a voxel.
+                        expect(v.filter((t) => t === Math.floor(t)).length)
+                            .toBeGreaterThanOrEqual(1);
+                        continue;
+                    }
+                    const d = Number(key.split('|')[1]);
+                    const c = [Math.floor(v[0]), Math.floor(v[1]),
+                        Math.floor(v[2])];
+                    const c1 = c.slice();
+                    c1[d] += 1;
+                    const f0 = at(values, c[0], c[1], c[2]);
+                    const f1 = at(values, c1[0], c1[1], c1[2]);
+                    expect((f0 - target) * (f1 - target)).toBeLessThan(0);
+                    expect(v[d] - c[d]).toBeCloseTo(
+                        (f0 - target) / (f0 - f1), 12);
+                }
+            }, 60);
+    });
+
+    it('cuts exactly the sign-changing voxel edges', () => {
+        check(fc.tuple(voxelArb, fc.integer({ min: -3, max: 2 })),
+            ([values, level]) => {
+                const target = level + 0.5;
+                const { vertices } = new SurfaceExtractorCubes(B, B, B, values)
+                    .extract(level, true);
+
+                // The edges cut by the extraction.
+                const actual = new Set<string>();
+                for (const v of vertices) {
+                    const key = edgeKey(v);
+                    if (key !== null) {
+                        actual.add(key);
+                    }
+                }
+
+                // The edges on which the sampled field changes sign, but only
+                // those that bound at least one image cube (the extraction
+                // loops over cubes, so the edges of the last row/column are
+                // still visited as cube edges).
+                const expected = new Set<string>();
+                for (let z = 0; z < B; ++z) {
+                    for (let y = 0; y < B; ++y) {
+                        for (let x = 0; x < B; ++x) {
+                            for (let d = 0; d < 3; ++d) {
+                                const c1 = [x, y, z];
+                                c1[d] += 1;
+                                if (c1[d] >= B) {
+                                    continue;
+                                }
+                                const f0 = at(values, x, y, z);
+                                const f1 = at(values, c1[0], c1[1], c1[2]);
+                                if ((f0 - target) * (f1 - target) < 0) {
+                                    expected.add(x + ',' + y + ',' + z
+                                        + '|' + d);
+                                }
+                            }
+                        }
+                    }
+                }
+                expect([...actual].sort()).toEqual([...expected].sort());
+            }, 60);
+    });
+
+    // The same image but with the outer shell forced above every level used
+    // by these properties, so the level surface never reaches the image
+    // boundary and is therefore closed.
+    const enclosedArb = voxelArb.map((values) => {
+        const copy = values.slice();
+        for (let z = 0; z < B; ++z) {
+            for (let y = 0; y < B; ++y) {
+                for (let x = 0; x < B; ++x) {
+                    if (x === 0 || x === B - 1 || y === 0 || y === B - 1
+                        || z === 0 || z === B - 1) {
+                        copy[x + B * (y + B * z)] = 9;
+                    }
+                }
+            }
+        }
+        return copy;
+    });
+
+    it('extracts a closed manifold sphere of Euler characteristic 2', () => {
+        // A randomized sphere well inside a 9^3 image: the level surface
+        // has radius sqrt(r2 - 1/2) <= 2.74 about a center 4 +/- 1, so it
+        // never reaches the image boundary where it would be clipped. Arbitrary integer
+        // noise is not used here: two opposite corners of a voxel face on
+        // one side of the level and the other two on the other side pinch
+        // two sheets of the surface together along a face segment, which
+        // makes the mesh non-manifold there (an upstream property of the
+        // face-by-face wireframe, not a porting question).
+        const bound = 9;
+        check(fc.tuple(fc.integer({ min: -1, max: 1 }),
+            fc.integer({ min: -1, max: 1 }),
+            fc.integer({ min: -1, max: 1 }),
+            fc.integer({ min: 3, max: 8 })),
+        ([dx, dy, dz, r2]) => {
+            const cx = 4 + dx, cy = 4 + dy, cz = 4 + dz;
+            const voxels = makeVoxels(bound, bound, bound, (x, y, z) =>
+                r2 - ((x - cx) * (x - cx) + (y - cy) * (y - cy)
+                    + (z - cz) * (z - cz)));
+            const { vertices, triangles } =
+                new SurfaceExtractorCubes(bound, bound, bound, voxels)
+                    .extract(0, true);
+            expect(vertices.length).toBeGreaterThan(0);
+
+            const counts = edgeCounts(triangles);
+            for (const count of counts.values()) {
+                expect(count).toBe(2);
+            }
+            // A closed sphere: V - E + F = 2.
+            expect(vertices.length - counts.size + triangles.length).toBe(2);
+        }, 40);
+    });
+
+    it('has no edge shared by more than four triangles', () => {
+        // For arbitrary integer images the surface can pinch, but the
+        // per-voxel wireframes are still assembled into loops, so no edge is
+        // used more than twice from either side of a voxel face.
+        check(fc.tuple(enclosedArb, fc.integer({ min: -3, max: 2 })),
+            ([values, level]) => {
+                const { triangles } =
+                    new SurfaceExtractorCubes(B, B, B, values)
+                        .extract(level, true);
+                for (const count of edgeCounts(triangles).values()) {
+                    expect(count).toBeLessThanOrEqual(4);
+                }
+            }, 60);
+    });
+
+    it('agrees with SurfaceExtractorTetrahedra on the cut voxel edges', () => {
+        check(fc.tuple(voxelArb, fc.integer({ min: -3, max: 2 })),
+            ([values, level]) => {
+                const doubled = values.map((v) => 2 * v);
+                const cubes = new SurfaceExtractorCubes(B, B, B, values)
+                    .extract(level, true);
+                const tetra = new SurfaceExtractorTetrahedra(B, B, B, doubled)
+                    .extract(2 * level + 1, true);
+
+                const edgeVertices = (vs: [number, number, number][]) => {
+                    const map = new Map<string, number>();
+                    for (const v of vs) {
+                        const key = edgeKey(v);
+                        if (key !== null) {
+                            map.set(key, v[Number(key.split('|')[1])]);
+                        }
+                    }
+                    return map;
+                };
+                const a = edgeVertices(cubes.vertices);
+                const b = edgeVertices(tetra.vertices);
+                expect([...a.keys()].sort()).toEqual([...b.keys()].sort());
+                for (const [key, value] of a) {
+                    // Both reduce to the same rational (f0*x1 - f1*x0)/(f0-f1)
+                    // of exactly representable integers, so the doubles agree
+                    // bit for bit.
+                    expect(value).toBe(b.get(key));
+                }
+            }, 40);
+    });
+
+    it('extraction is stateless across repeated calls', () => {
+        check(fc.tuple(voxelArb, fc.integer({ min: -3, max: 2 })),
+            ([values, level]) => {
+                const extractor = new SurfaceExtractorCubes(B, B, B, values);
+                const first = extractor.extract(level, true);
+                const second = extractor.extract(level, true);
+                expect(second.vertices).toEqual(first.vertices);
+                expect(second.triangles.map((t) => t.v))
+                    .toEqual(first.triangles.map((t) => t.v));
+            }, 40);
+    });
+
+    it('without makeUnique there are three fresh vertices per triangle', () => {
+        check(fc.tuple(voxelArb, fc.integer({ min: -3, max: 2 })),
+            ([values, level]) => {
+                const raw = new SurfaceExtractorCubes(B, B, B, values)
+                    .extract(level, false);
+                expect(raw.vertices.length).toBe(3 * raw.triangles.length);
+                for (let t = 0; t < raw.triangles.length; ++t) {
+                    expect(raw.triangles[t].v).toEqual([3 * t, 3 * t + 1,
+                        3 * t + 2]);
+                }
+            }, 40);
+    });
+
+    it('makeUnique welds duplicates without adding geometry', () => {
+        check(fc.tuple(voxelArb, fc.integer({ min: -3, max: 2 })),
+            ([values, level]) => {
+                const extractor = new SurfaceExtractorCubes(B, B, B, values);
+                const raw = extractor.extract(level, false);
+                const unique = extractor.extract(level, true);
+                // makeUnique only merges: it drops duplicate vertices and
+                // duplicate triangles and never creates new ones.
+                expect(unique.vertices.length)
+                    .toBeLessThanOrEqual(raw.vertices.length);
+                expect(unique.triangles.length)
+                    .toBeLessThanOrEqual(raw.triangles.length);
+                // The welded vertex positions are exactly the distinct raw
+                // positions, and every triangle indexes them.
+                const rawKeys = new Set(raw.vertices.map((v) => v.join(',')));
+                const uniqueKeys = new Set(
+                    unique.vertices.map((v) => v.join(',')));
+                expect(uniqueKeys.size).toBe(unique.vertices.length);
+                expect([...uniqueKeys].sort()).toEqual([...rawKeys].sort());
+                for (const triangle of unique.triangles) {
+                    for (const index of triangle.v) {
+                        expect(index).toBeGreaterThanOrEqual(0);
+                        expect(index).toBeLessThan(unique.vertices.length);
+                    }
+                }
+            }, 40);
     });
 });

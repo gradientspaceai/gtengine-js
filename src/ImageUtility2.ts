@@ -48,6 +48,13 @@
 //     requiring a preallocated one from the caller, and rounds the stored
 //     distances to float precision with Math.fround to match the upstream
 //     Image2<float> transform.
+//
+// Upstream bug suspect (FIXED here; see the PR description): DrawEllipse with
+// xExtent == yExtent == 0 never terminates. Other upstream quirks are
+// preserved: DrawLine never updates maxValue in its 'if (dy > maxValue)'
+// branch (harmless with a single comparison), and the GetComponents,
+// ExtractBoundary and GetSkeleton helpers read neighbors with no range test,
+// relying on the documented zero-boundary precondition.
 
 import { Image2 } from './Image2.js';
 import { logAssert } from './Logger.js';
@@ -963,6 +970,18 @@ export class ImageUtility2 {
     // is yc, xExtent is a, and yExtent is b.
     static drawEllipse(xCenter: number, yCenter: number, xExtent: number, yExtent: number,
         callback: ImageUtility2Callback): void {
+        if (xExtent === 0 && yExtent === 0) {
+            // Upstream bug (fixed here; see the PR description). With both
+            // extents zero the first loop condition is
+            // yExtSqr * x <= xExtSqr * y, that is 0 <= 0, for every x, and
+            // the decision variable never breaks the loop: upstream visits
+            // the center forever while y decreases without bound. The
+            // degenerate ellipse is the single point (xCenter, yCenter), so
+            // the port visits it once and returns.
+            callback(xCenter, yCenter);
+            return;
+        }
+
         const xExtSqr = xExtent * xExtent;
         const yExtSqr = yExtent * yExtent;
         let x = 0;
