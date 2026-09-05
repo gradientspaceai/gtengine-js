@@ -203,3 +203,210 @@ describe('intrLine3Capsule3FIDoQuery', () => {
         expect(result.numIntersections).toBe(0);
     });
 });
+
+// ---------------------------------------------------------------------------
+// Verification (V31): property-based checks against the upstream header.
+// ---------------------------------------------------------------------------
+import {
+    check, fc, rotationFrame, unitVector, wellScaledVector, expectClose,
+    expectVectorClose, seededRandom
+} from './helpers/arbitraries.js';
+
+// A capsule with a nondegenerate medial segment (the find query builds a
+// coordinate frame from the segment direction) and a line with a unit-length
+// direction.
+const lineCapsule = fc.tuple(wellScaledVector(3, -6, 6), unitVector(3),
+    wellScaledVector(3, -4, 4), unitVector(3),
+    fc.double({ min: 0.5, max: 5, noNaN: true }),
+    fc.double({ min: 0.2, max: 3, noNaN: true }))
+    .map(([o, d, p0, u, len, radius]) => ({
+        line: Line.fromOriginDirection(o, d),
+        capsule: Capsule.fromSegmentRadius(
+            Segment.fromEndpoints(p0, add(p0, mul(len, u))), radius)
+    }));
+
+// Distance from a point to the capsule medial segment.
+function distToSegment(seg: Segment, p: Vector): number {
+    const e = sub(seg.p[1], seg.p[0]);
+    const den = dot(e, e);
+    let t = den > 0 ? dot(sub(p, seg.p[0]), e) / den : 0;
+    t = Math.min(1, Math.max(0, t));
+    return length(sub(p, add(seg.p[0], mul(t, e))));
+}
+
+describe('IntrLine3Capsule3 verification', () => {
+    const tiq = new IntrLine3Capsule3TI();
+    const fiq = new IntrLine3Capsule3FI();
+
+    it('TI and FI agree away from tangency', () => {
+        check(lineCapsule, ({ line: l, capsule: c }) => {
+            const f = fiq.find(l, c);
+            const t = tiq.test(l, c);
+            if (f.intersect && f.parameter[1] - f.parameter[0] < 1e-6) {
+                return;   // grazing; the two formulations may disagree
+            }
+            if (t.intersect !== f.intersect) {
+                // Only accept a disagreement in the near-tangent band.
+                const mid = f.intersect
+                    ? 0.5 * (f.parameter[0] + f.parameter[1]) : 0;
+                const p = add(l.origin, mul(mid, l.direction));
+                expect(Math.abs(distToSegment(c.segment, p) - c.radius))
+                    .toBeLessThan(1e-6);
+                return;
+            }
+            expect(t.intersect).toBe(f.intersect);
+        });
+    });
+
+    it('the reported points are on the line and on the capsule', () => {
+        check(lineCapsule, ({ line: l, capsule: c }) => {
+            const f = fiq.find(l, c);
+            if (!f.intersect) {
+                return;
+            }
+            expect(f.parameter[0]).toBeLessThanOrEqual(f.parameter[1]);
+            // Upstream fills both entries whenever intersect is true.
+            for (let i = 0; i < 2; ++i) {
+                expectVectorClose(f.point[i],
+                    add(l.origin, mul(f.parameter[i], l.direction)), 0, 0);
+                // A boundary point is at distance exactly radius from the
+                // medial segment. The parameters carry a square root, so the
+                // residual grows near tangency; 1e-7 covers the sampled band.
+                expectClose(distToSegment(c.segment, f.point[i]), c.radius,
+                    1e-7, 1e-9);
+                expect(Number.isNaN(f.parameter[i])).toBe(false);
+            }
+        });
+    });
+
+    it('a fine sweep of the line agrees with the reported interval', () => {
+        const rnd = seededRandom(0x6ad3f21b);
+        for (let trial = 0; trial < 150; ++trial) {
+            const p0 = Vector.fromArray([rnd() * 4 - 2, rnd() * 4 - 2,
+                rnd() * 4 - 2]);
+            const u = Vector.fromArray([rnd() * 2 - 1, rnd() * 2 - 1,
+                rnd() * 2 - 1]);
+            if (length(u) < 0.3) {
+                continue;
+            }
+            normalize(u);
+            const seg = Segment.fromEndpoints(p0,
+                add(p0, mul(0.5 + rnd() * 3, u)));
+            const c = Capsule.fromSegmentRadius(seg, 0.3 + rnd() * 1.5);
+            const d = Vector.fromArray([rnd() * 2 - 1, rnd() * 2 - 1,
+                rnd() * 2 - 1]);
+            if (length(d) < 0.3) {
+                continue;
+            }
+            normalize(d);
+            const l = Line.fromOriginDirection(
+                Vector.fromArray([rnd() * 8 - 4, rnd() * 8 - 4,
+                    rnd() * 8 - 4]), d);
+            const f = fiq.find(l, c);
+            for (let k = 0; k <= 600; ++k) {
+                const t = -12 + (24 * k) / 600;
+                const p = add(l.origin, mul(t, d));
+                if (distToSegment(seg, p) < c.radius - 1e-5) {
+                    expect(f.intersect).toBe(true);
+                    expect(t).toBeGreaterThanOrEqual(f.parameter[0] - 1e-6);
+                    expect(t).toBeLessThanOrEqual(f.parameter[1] + 1e-6);
+                }
+            }
+        }
+    }, 30000);
+
+    it('a line along the capsule axis spans the whole capsule', () => {
+        check(fc.tuple(wellScaledVector(3, -4, 4), unitVector(3),
+            fc.double({ min: 0.5, max: 5, noNaN: true }),
+            fc.double({ min: 0.2, max: 3, noNaN: true }), fc.boolean()),
+            ([p0, u, len, radius, flip]) => {
+                const seg = Segment.fromEndpoints(p0, add(p0, mul(len, u)));
+                const c = Capsule.fromSegmentRadius(seg, radius);
+                const center = mul(0.5, add(seg.p[0], seg.p[1]));
+                const dir = flip ? mul(-1, u) : u;
+                const l = Line.fromOriginDirection(center, dir);
+                const f = fiq.find(l, c);
+                expect(f.intersect).toBe(true);
+                expect(f.numIntersections).toBe(2);
+                // The hemispherical-cap branch: |t| = extent + radius.
+                const half = 0.5 * length(sub(seg.p[1], seg.p[0]));
+                expectClose(f.parameter[0], -(half + radius), 1e-9, 1e-9);
+                expectClose(f.parameter[1], half + radius, 1e-9, 1e-9);
+            });
+    });
+
+    it('a line parallel to the axis but outside the wall misses', () => {
+        check(fc.tuple(wellScaledVector(3, -4, 4), rotationFrame(3),
+            fc.double({ min: 0.5, max: 5, noNaN: true }),
+            fc.double({ min: 0.2, max: 3, noNaN: true }),
+            fc.double({ min: 1.05, max: 3, noNaN: true })),
+            ([p0, R, len, radius, scale]) => {
+                const seg = Segment.fromEndpoints(p0, add(p0, mul(len, R[0])));
+                const c = Capsule.fromSegmentRadius(seg, radius);
+                const off = add(p0, mul(scale * radius, R[1]));
+                const l = Line.fromOriginDirection(off, R[0]);
+                expect(fiq.find(l, c).intersect).toBe(false);
+                expect(tiq.test(l, c).intersect).toBe(false);
+            });
+    });
+
+    it('a line through a sampled interior point always hits', () => {
+        check(fc.tuple(wellScaledVector(3, -4, 4), unitVector(3),
+            fc.double({ min: 0.5, max: 5, noNaN: true }),
+            fc.double({ min: 0.2, max: 3, noNaN: true }),
+            fc.double({ min: 0, max: 1, noNaN: true }), unitVector(3),
+            fc.double({ min: 0, max: 0.8, noNaN: true }), unitVector(3)),
+            ([p0, u, len, radius, s, off, frac, d]) => {
+                const seg = Segment.fromEndpoints(p0, add(p0, mul(len, u)));
+                const c = Capsule.fromSegmentRadius(seg, radius);
+                const base = add(seg.p[0], mul(s, sub(seg.p[1], seg.p[0])));
+                const target = add(base, mul(frac * radius, off));
+                const l = Line.fromOriginDirection(target, d);
+                const f = fiq.find(l, c);
+                expect(tiq.test(l, c).intersect).toBe(true);
+                expect(f.intersect).toBe(true);
+                expect(f.parameter[0]).toBeLessThanOrEqual(1e-9);
+                expect(f.parameter[1]).toBeGreaterThanOrEqual(-1e-9);
+            });
+    });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(lineCapsule, rotationFrame(3), wellScaledVector(3,
+            -4, 4)), ([{ line: l, capsule: c }, R, tr]) => {
+            const rot = (p: Vector): Vector => add(mul(p.values[0], R[0]),
+                add(mul(p.values[1], R[1]), mul(p.values[2], R[2])));
+            const xf = (p: Vector): Vector => add(tr, rot(p));
+            const l2 = Line.fromOriginDirection(xf(l.origin), rot(l.direction));
+            const c2 = Capsule.fromSegmentRadius(
+                Segment.fromEndpoints(xf(c.segment.p[0]), xf(c.segment.p[1])),
+                c.radius);
+            const f1 = fiq.find(l, c);
+            const f2 = fiq.find(l2, c2);
+            const graze = (f: typeof f1): boolean => f.intersect
+                && f.parameter[1] - f.parameter[0] < 1e-4;
+            if (graze(f1) || graze(f2)) {
+                return;
+            }
+            expect(f1.intersect).toBe(f2.intersect);
+            if (!f1.intersect) {
+                return;
+            }
+            expectClose(f1.parameter[0], f2.parameter[0], 1e-7, 1e-8);
+            expectClose(f1.parameter[1], f2.parameter[1], 1e-7, 1e-8);
+        });
+    });
+
+    it('the exported DoQuery reproduces the class result', () => {
+        check(lineCapsule, ({ line: l, capsule: c }) => {
+            const res = defaultIntrLine3Capsule3FIResult();
+            intrLine3Capsule3FIDoQuery(l.origin, l.direction, c, res);
+            const f = fiq.find(l, c);
+            expect(res.intersect).toBe(f.intersect);
+            expect(res.numIntersections).toBe(f.numIntersections);
+            expect(res.parameter[0]).toBe(f.parameter[0]);
+            expect(res.parameter[1]).toBe(f.parameter[1]);
+            // The helper leaves point[] untouched; the class fills it.
+            expect(res.point[0].values).toEqual([0, 0, 0]);
+        });
+    });
+});

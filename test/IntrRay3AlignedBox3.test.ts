@@ -211,3 +211,162 @@ describe('intrRay3AlignedBox3 DoQuery helpers', () => {
         expect(result.intersect).toBe(false);
     });
 });
+
+// ---------------------------------------------------------------------------
+// Verification (V31): property-based checks against the upstream header.
+// ---------------------------------------------------------------------------
+import {
+    check, fc, unitVector, wellScaledVector, expectClose, expectVectorClose,
+    seededRandom
+} from './helpers/arbitraries.js';
+import { sub } from '../src/Vector.js';
+
+// A well-scaled aligned box: the shared 'alignedBox' generator draws its
+// corners from fc.double, which emits subnormal coordinates whose centered
+// form has no significant digits left.
+const box3Arb = fc.tuple(wellScaledVector(3, -4, 4),
+    fc.double({ min: 0.2, max: 4, noNaN: true }),
+    fc.double({ min: 0.2, max: 4, noNaN: true }),
+    fc.double({ min: 0.2, max: 4, noNaN: true }))
+    .map(([lo, w, h, d]) => AlignedBox.fromMinMax(lo,
+        Vector.fromArray([lo.values[0] + w, lo.values[1] + h,
+            lo.values[2] + d])));
+
+const rayBox3 = fc.tuple(wellScaledVector(3, -8, 8), unitVector(3), box3Arb)
+    .map(([o, d, b]) => ({ ray: Ray.fromOriginDirection(o, d), box: b }));
+
+function insideBox3(box: AlignedBox, p: Vector, tol: number): boolean {
+    for (let i = 0; i < 3; ++i) {
+        if (p.values[i] < box.min.values[i] - tol
+            || p.values[i] > box.max.values[i] + tol) {
+            return false;
+        }
+    }
+    return true;
+}
+
+describe('IntrRay3AlignedBox3 verification', () => {
+    const tiq = new IntrRay3AlignedBox3TI();
+    const fiq = new IntrRay3AlignedBox3FI();
+
+    it('TI and FI agree on intersect', () => {
+        check(rayBox3, ({ ray: r, box: b }) => {
+            expect(tiq.test(r, b).intersect).toBe(fiq.find(r, b).intersect);
+        });
+    });
+
+    it('a ray hit is the line hit clipped to nonnegative parameters', () => {
+        const lfi = new IntrLine3AlignedBox3FI();
+        check(rayBox3, ({ ray: r, box: b }) => {
+            const l = Line.fromOriginDirection(r.origin, r.direction);
+            const lf = lfi.find(l, b);
+            const f = fiq.find(r, b);
+            if (!lf.intersect) {
+                expect(f.intersect).toBe(false);
+                return;
+            }
+            // Upstream clips against the semi-infinite interval [0,+inf).
+            expect(f.intersect).toBe(lf.parameter[1] >= 0);
+            if (!f.intersect) {
+                // The 'result = Result{}' reset restores every field.
+                expect(f.numIntersections).toBe(0);
+                expect(f.parameter).toEqual([0, 0]);
+                expect(f.point[0].values).toEqual([0, 0, 0]);
+                expect(f.point[1].values).toEqual([0, 0, 0]);
+                return;
+            }
+            expectClose(f.parameter[0], Math.max(lf.parameter[0], 0), 0, 0);
+            expectClose(f.parameter[1], lf.parameter[1], 0, 0);
+        });
+    });
+
+    it('the reported points are on the ray and inside the box', () => {
+        check(rayBox3, ({ ray: r, box: b }) => {
+            const f = fiq.find(r, b);
+            if (!f.intersect) {
+                return;
+            }
+            expect(f.parameter[0]).toBeGreaterThanOrEqual(0);
+            expect(f.parameter[0]).toBeLessThanOrEqual(f.parameter[1]);
+            // Upstream fills both point entries whenever intersect is true.
+            for (let i = 0; i < 2; ++i) {
+                expectVectorClose(f.point[i],
+                    add(r.origin, mul(f.parameter[i], r.direction)), 0, 0);
+                expect(insideBox3(b, f.point[i], 1e-9)).toBe(true);
+            }
+        });
+    });
+
+    it('a fine sweep of the ray agrees with the reported interval', () => {
+        const rnd = seededRandom(0x2b7d54e9);
+        for (let trial = 0; trial < 120; ++trial) {
+            const lo = Vector.fromArray([rnd() * 4 - 4, rnd() * 4 - 4,
+                rnd() * 4 - 4]);
+            const b = AlignedBox.fromMinMax(lo, Vector.fromArray([
+                lo.values[0] + 0.5 + rnd() * 3,
+                lo.values[1] + 0.5 + rnd() * 3,
+                lo.values[2] + 0.5 + rnd() * 3]));
+            const dir = Vector.fromArray([rnd() * 2 - 1, rnd() * 2 - 1,
+                rnd() * 2 - 1]);
+            const n = Math.hypot(dir.values[0], dir.values[1], dir.values[2]);
+            if (n < 0.3) {
+                continue;
+            }
+            normalize(dir);
+            const r = Ray.fromOriginDirection(
+                Vector.fromArray([rnd() * 10 - 5, rnd() * 10 - 5,
+                    rnd() * 10 - 5]), dir);
+            const f = fiq.find(r, b);
+            for (let k = 0; k <= 500; ++k) {
+                const t = (16 * k) / 500;
+                if (insideBox3(b, add(r.origin, mul(t, dir)), -1e-6)) {
+                    expect(f.intersect).toBe(true);
+                    expect(t).toBeGreaterThanOrEqual(f.parameter[0] - 1e-9);
+                    expect(t).toBeLessThanOrEqual(f.parameter[1] + 1e-9);
+                }
+            }
+        }
+    }, 30000);
+
+    it('a ray whose origin is inside the box hits at parameter 0', () => {
+        check(fc.tuple(box3Arb, unitVector(3),
+            fc.double({ min: 0.05, max: 0.95, noNaN: true }),
+            fc.double({ min: 0.05, max: 0.95, noNaN: true }),
+            fc.double({ min: 0.05, max: 0.95, noNaN: true })),
+            ([b, d, s0, s1, s2]) => {
+                const s = [s0, s1, s2];
+                const o = Vector.fromArray([0, 1, 2].map(i =>
+                    b.min.values[i]
+                        + s[i] * (b.max.values[i] - b.min.values[i])));
+                const r = Ray.fromOriginDirection(o, d);
+                expect(tiq.test(r, b).intersect).toBe(true);
+                const f = fiq.find(r, b);
+                expect(f.intersect).toBe(true);
+                expectClose(f.parameter[0], 0, 1e-12, 0);
+            });
+    });
+
+    it('the exported DoQuery helpers reproduce the class results', () => {
+        check(rayBox3, ({ ray: r, box: b }) => {
+            const cf = b.getCenteredForm();
+            const localOrigin = sub(r.origin, cf.center);
+            const tres = defaultIntrLine3AlignedBox3TIResult();
+            intrRay3AlignedBox3TIDoQuery(localOrigin, r.direction, cf.extent,
+                tres);
+            expect(tres.intersect).toBe(tiq.test(r, b).intersect);
+
+            const fres = defaultIntrLine3AlignedBox3FIResult();
+            intrRay3AlignedBox3FIDoQuery(localOrigin, r.direction, cf.extent,
+                fres);
+            const f = fiq.find(r, b);
+            expect(fres.intersect).toBe(f.intersect);
+            expect(fres.numIntersections).toBe(f.numIntersections);
+            if (fres.intersect) {
+                expect(fres.parameter[0]).toBe(f.parameter[0]);
+                expect(fres.parameter[1]).toBe(f.parameter[1]);
+            }
+            // The helper leaves point[] untouched; the class fills it.
+            expect(fres.point[0].values).toEqual([0, 0, 0]);
+        });
+    });
+});

@@ -150,3 +150,158 @@ describe('IntrRay3Rectangle3', () => {
         expect(hits).toBeGreaterThan(5);
     });
 });
+
+// ---------------------------------------------------------------------------
+// Verification (V31): property-based checks against the upstream header.
+// ---------------------------------------------------------------------------
+import {
+    check, fc, rotationFrame, unitVector, wellScaledVector, expectClose,
+    expectVectorClose
+} from './helpers/arbitraries.js';
+import { length as vlength } from '../src/Vector.js';
+
+const rayRect3 = fc.tuple(wellScaledVector(3, -6, 6), unitVector(3),
+    wellScaledVector(3, -4, 4), rotationFrame(3),
+    fc.double({ min: 0.2, max: 4, noNaN: true }),
+    fc.double({ min: 0.2, max: 4, noNaN: true }))
+    .map(([o, d, c, R, e0, e1]) => ({
+        ray: Ray.fromOriginDirection(o, d),
+        rectangle: Rectangle.fromCenterAxisExtent(c, [R[0], R[1]],
+            Vector.fromArray([e0, e1]))
+    }));
+
+describe('IntrRay3Rectangle3 verification', () => {
+    const tiq = new IntrRay3Rectangle3TI();
+    const fiq = new IntrRay3Rectangle3FI();
+    const lfi = new IntrLine3Rectangle3FI();
+
+    it('TI and FI agree on intersect', () => {
+        check(rayRect3, ({ ray: r, rectangle: q }) => {
+            expect(tiq.test(r, q).intersect).toBe(fiq.find(r, q).intersect);
+        });
+    });
+
+    it('a ray hit is the line hit with a nonnegative parameter', () => {
+        check(rayRect3, ({ ray: r, rectangle: q }) => {
+            const l = Line.fromOriginDirection(r.origin, r.direction);
+            const lf = lfi.find(l, q);
+            const f = fiq.find(r, q);
+            const hit = lf.intersect && lf.parameter >= 0;
+            expect(f.intersect).toBe(hit);
+            if (!hit) {
+                // The default (unset) fields are kept on a miss.
+                expect(f.parameter).toBe(0);
+                expect(f.rectCoord).toEqual([0, 0, 0]);
+                expect(f.point.values).toEqual([0, 0, 0]);
+                return;
+            }
+            expect(f.parameter).toBe(lf.parameter);
+            expectVectorClose(f.point, lf.point, 0, 0);
+            expect(f.rectCoord[0]).toBe(lf.rectCoord[0]);
+            expect(f.rectCoord[1]).toBe(lf.rectCoord[1]);
+            // Upstream #141(2), preserved: rectCoord is a 3-array whose last
+            // entry is always zero.
+            expect(f.rectCoord[2]).toBe(0);
+        });
+    });
+
+    it('the hit point lies on the ray and inside the rectangle', () => {
+        check(rayRect3, ({ ray: r, rectangle: q }) => {
+            const f = fiq.find(r, q);
+            if (!f.intersect) {
+                return;
+            }
+            expect(f.parameter).toBeGreaterThanOrEqual(0);
+            expectVectorClose(f.point,
+                add(r.origin, mul(f.parameter, r.direction)), 1e-12, 1e-12);
+            expect(Math.abs(f.rectCoord[0]))
+                .toBeLessThanOrEqual(q.extent.values[0] + 1e-9);
+            expect(Math.abs(f.rectCoord[1]))
+                .toBeLessThanOrEqual(q.extent.values[1] + 1e-9);
+            // The rectangle coordinates reconstruct the point.
+            expectVectorClose(f.point,
+                add(q.center, add(mul(f.rectCoord[0], q.axis[0]),
+                    mul(f.rectCoord[1], q.axis[1]))), 1e-8, 1e-9);
+            for (const x of f.point.values) {
+                expect(Number.isNaN(x)).toBe(false);
+            }
+        });
+    });
+
+    it('a ray fired at a sampled rectangle point always hits', () => {
+        check(fc.tuple(wellScaledVector(3, -4, 4), rotationFrame(3),
+            fc.double({ min: 0.2, max: 4, noNaN: true }),
+            fc.double({ min: 0.2, max: 4, noNaN: true }),
+            fc.double({ min: -0.9, max: 0.9, noNaN: true }),
+            fc.double({ min: -0.9, max: 0.9, noNaN: true }), unitVector(3),
+            fc.double({ min: 0.5, max: 5, noNaN: true })),
+            ([c, R, e0, e1, s0, s1, d, back]) => {
+                const q = Rectangle.fromCenterAxisExtent(c, [R[0], R[1]],
+                    Vector.fromArray([e0, e1]));
+                const target = add(c, add(mul(s0 * e0, R[0]),
+                    mul(s1 * e1, R[1])));
+                const r = Ray.fromOriginDirection(sub(target, mul(back, d)), d);
+                // Skip rays nearly parallel to the rectangle plane; upstream
+                // reports no intersection for a coplanar ray.
+                const normal = R[2];
+                if (Math.abs(dot(normal, d)) < 0.05) {
+                    return;
+                }
+                const f = fiq.find(r, q);
+                expect(f.intersect).toBe(true);
+                expect(tiq.test(r, q).intersect).toBe(true);
+                expectVectorClose(f.point, target, 1e-8, 1e-9);
+                expectClose(f.rectCoord[0], s0 * e0, 1e-8, 1e-9);
+                expectClose(f.rectCoord[1], s1 * e1, 1e-8, 1e-9);
+                // The reversed ray points away from the rectangle.
+                const rev = Ray.fromOriginDirection(r.origin, mul(-1, d));
+                expect(fiq.find(rev, q).intersect).toBe(false);
+            });
+    });
+
+    it('a ray in the plane of the rectangle reports no intersection', () => {
+        // Upstream returns "no intersection" only when Dot(D,N) is exactly
+        // zero, so the configuration is built with an axis-aligned rectangle
+        // in the z = 0 plane and a direction whose z component is exactly 0.
+        // (A direction merely *near* the plane does intersect: the line still
+        // crosses the plane, just at a large parameter.)
+        check(fc.tuple(wellScaledVector(3, -4, 4),
+            fc.double({ min: 0.2, max: 4, noNaN: true }),
+            fc.double({ min: 0.2, max: 4, noNaN: true }),
+            fc.double({ min: -1, max: 1, noNaN: true }),
+            fc.double({ min: -1, max: 1, noNaN: true }),
+            fc.double({ min: -5, max: 5, noNaN: true })),
+            ([c, e0, e1, a, b, shift]) => {
+                if (Math.hypot(a, b) < 0.1) {
+                    return;
+                }
+                const q = Rectangle.fromCenterAxisExtent(c,
+                    [Vector.fromArray([1, 0, 0]), Vector.fromArray([0, 1, 0])],
+                    Vector.fromArray([e0, e1]));
+                const dir = Vector.fromArray([a, b, 0]);
+                normalize(dir);
+                expect(dir.values[2]).toBe(0);
+                const origin = add(c, mul(shift, dir));
+                const r = Ray.fromOriginDirection(origin, dir);
+                expect(fiq.find(r, q).intersect).toBe(false);
+                expect(tiq.test(r, q).intersect).toBe(false);
+            });
+    });
+
+    it('a zero-extent rectangle is a single point', () => {
+        check(fc.tuple(wellScaledVector(3, -4, 4), rotationFrame(3),
+            unitVector(3), fc.double({ min: 0.5, max: 5, noNaN: true })),
+            ([c, R, d, back]) => {
+                const q = Rectangle.fromCenterAxisExtent(c, [R[0], R[1]],
+                    Vector.fromArray([0, 0]));
+                const r = Ray.fromOriginDirection(sub(c, mul(back, d)), d);
+                if (Math.abs(dot(R[2], d)) < 0.05) {
+                    return;
+                }
+                const f = fiq.find(r, q);
+                if (f.intersect) {
+                    expect(vlength(sub(f.point, c))).toBeLessThan(1e-6);
+                }
+            });
+    });
+});
