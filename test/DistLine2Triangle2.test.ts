@@ -247,6 +247,27 @@ const triangle2 = fc.tuple(wellScaledVector(2, -8, 8),
     .map(([a, b, c]) => Triangle.fromVertices(a, b, c));
 
 describe('DistLine2Triangle2 verification', () => {
+    it('does not return NaN when the crossed edge is numerically parallel to the line', () => {
+        // Upstream's s = DotPerp(D, P - V0) / DotPerp(D, V1 - V0) rounds the
+        // denominator to exactly 0 here although the vertex signs differ
+        // (found by the rigid-motion property). Pre-fix: distance NaN.
+        const line = Line.fromOriginDirection(
+            Vector.fromArray([-1.7086881202421092e-14, 1.9960937490641202]),
+            Vector.fromArray([-2.5613545596609416e-14, 2.9921808228827933]));
+        const triangle = Triangle.fromVertexArray([
+            Vector.fromArray([-6.848127733652727e-14, 7.999999999999985]),
+            Vector.fromArray([0, 0]),
+            Vector.fromArray([0.49999999999995026, 5.820550528229657])]);
+        const result = new DistLine2Triangle2().compute(line, triangle);
+        expect(Number.isFinite(result.distance)).toBe(true);
+        expect(result.distance).toBe(0);
+        expect(Number.isFinite(result.parameter)).toBe(true);
+        for (const b of result.barycentric) {
+            expect(b).toBeGreaterThanOrEqual(-1e-12);
+            expect(b).toBeLessThanOrEqual(1 + 1e-12);
+        }
+    });
+
     const query = new DistLine2Triangle2();
 
     it('result is self consistent with valid barycentrics', () => {

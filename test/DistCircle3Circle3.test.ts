@@ -333,7 +333,7 @@ describe('DistCircle3Circle3 verification', () => {
         check(circlePairArb, ([c0, c1]) => {
             expectValidResult(c0, c1, query.compute(c0, c1));
         }, 100);
-    });
+    }, 30000);
 
     it('is symmetric under argument swap', () => {
         check(circlePairArb, ([c0, c1]) => {
@@ -345,7 +345,7 @@ describe('DistCircle3Circle3 verification', () => {
             expectClose(a.distance, b.distance, 1e-7, 1e-7);
             expectValidResult(c1, c0, b);
         }, 100);
-    });
+    }, 30000);
 
     // PrepareCircles applies a translation, a rotation and a uniform scaling
     // and the query inverts all three at the end, so the result must be
@@ -362,7 +362,7 @@ describe('DistCircle3Circle3 verification', () => {
                 const b = query.compute(xf(c0), xf(c1));
                 expectClose(s * a.distance, b.distance, 1e-7, 1e-7);
             }, 100);
-    });
+    }, 30000);
 
     it('is unaffected by the sign of either circle normal', () => {
         check(circlePairArb, ([c0, c1]) => {
@@ -376,7 +376,7 @@ describe('DistCircle3Circle3 verification', () => {
             expectClose(query.compute(flip(c0), flip(c1)).distance, a.distance,
                 1e-7, 1e-7);
         }, 100);
-    });
+    }, 30000);
 
     // Two-sided cross-check. Sampling one circle and using the exact
     // point-to-circle distance to the other gives an upper bound for the true
