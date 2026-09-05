@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { GaussianBlur3 } from '../src/GaussianBlur3.js';
 import { PdeFilterScaleType } from '../src/PdeFilter.js';
+import { check, expectClose, fc } from './helpers/arbitraries.js';
 
 const NEUMANN = Number.MAX_VALUE;
 
@@ -136,5 +137,183 @@ describe('GaussianBlur3', () => {
         // d' = -1 + 2*(d - min)/(max - min) in [-1,1].
         expect(filter.getU(1, 1, 1)).toBeCloseTo(1, 15);
         expect(filter.getU(0, 0, 0)).toBeCloseTo(-1, 15);
+    });
+});
+
+describe('GaussianBlur3 verification', () => {
+    // The padded image the constructor holds: interior samples shifted by the
+    // data minimum (the NONE scale type still subtracts it) surrounded by the
+    // Neumann ghost shell, which duplicates the nearest interior sample.
+    function neumannPadded(xB: number, yB: number, zB: number,
+        data: readonly number[]): number[] {
+        const min = Math.min(...data);
+        const max = Math.max(...data);
+        const shift = (min === max ? (d: number) => 0 * d : (d: number) => d - min);
+        const w = xB + 2, h = yB + 2;
+        const p = new Array<number>(w * h * (zB + 2)).fill(0);
+        const at = (px: number, py: number, pz: number) => px + w * (py + h * pz);
+        for (let z = 0; z < zB; ++z) {
+            for (let y = 0; y < yB; ++y) {
+                for (let x = 0; x < xB; ++x) {
+                    p[at(x + 1, y + 1, z + 1)] = shift(data[x + xB * (y + yB * z)]);
+                }
+            }
+        }
+        for (let pz = 0; pz < zB + 2; ++pz) {
+            for (let py = 0; py < h; ++py) {
+                for (let px = 0; px < w; ++px) {
+                    if (px === 0 || px === xB + 1 || py === 0 || py === yB + 1
+                        || pz === 0 || pz === zB + 1) {
+                        p[at(px, py, pz)] = p[at(
+                            Math.min(Math.max(px, 1), xB),
+                            Math.min(Math.max(py, 1), yB),
+                            Math.min(Math.max(pz, 1), zB))];
+                    }
+                }
+            }
+        }
+        return p;
+    }
+
+    const config = fc.tuple(
+        fc.integer({ min: 3, max: 5 }),
+        fc.integer({ min: 3, max: 5 }),
+        fc.integer({ min: 3, max: 5 }),
+        fc.constantFrom(0.5, 1, 2),
+        fc.constantFrom(0.5, 1, 2),
+        fc.constantFrom(0.5, 1, 2),
+        fc.array(fc.integer({ min: -6, max: 6 }), { minLength: 125, maxLength: 125 }))
+        .map(([xB, yB, zB, hx, hy, hz, pool]) => ({
+            xB, yB, zB, hx, hy, hz, data: pool.slice(0, xB * yB * zB)
+        }));
+
+    function values(filter: GaussianBlur3, xB: number, yB: number, zB: number): number[] {
+        const u: number[] = [];
+        for (let z = 0; z < zB; ++z) {
+            for (let y = 0; y < yB; ++y) {
+                for (let x = 0; x < xB; ++x) {
+                    u.push(filter.getU(x, y, z));
+                }
+            }
+        }
+        return u;
+    }
+
+    it('one step is the explicit heat step with the Neumann ghost shell', () => {
+        check(fc.tuple(config, fc.constantFrom(0, 0.25, 0.5, 1)),
+            ([{ xB, yB, zB, hx, hy, hz, data }, dtFraction]) => {
+                const filter = new GaussianBlur3(xB, yB, zB, hx, hy, hz, data,
+                    null, NEUMANN, PdeFilterScaleType.NONE);
+                expectClose(filter.getMaximumTimeStep(),
+                    0.5 / (1 / (hx * hx) + 1 / (hy * hy) + 1 / (hz * hz)),
+                    1e-15, 1e-15);
+                const dt = dtFraction * filter.getMaximumTimeStep();
+                filter.setTimeStep(dt);
+
+                const p = neumannPadded(xB, yB, zB, data);
+                const w = xB + 2, h = yB + 2;
+                const at = (px: number, py: number, pz: number) =>
+                    px + w * (py + h * pz);
+                const expected: number[] = [];
+                for (let z = 1; z <= zB; ++z) {
+                    for (let y = 1; y <= yB; ++y) {
+                        for (let x = 1; x <= xB; ++x) {
+                            const uxx = (p[at(x + 1, y, z)] - 2 * p[at(x, y, z)]
+                                + p[at(x - 1, y, z)]) / (hx * hx);
+                            const uyy = (p[at(x, y + 1, z)] - 2 * p[at(x, y, z)]
+                                + p[at(x, y - 1, z)]) / (hy * hy);
+                            const uzz = (p[at(x, y, z + 1)] - 2 * p[at(x, y, z)]
+                                + p[at(x, y, z - 1)]) / (hz * hz);
+                            expected.push(p[at(x, y, z)] + dt * (uxx + uyy + uzz));
+                        }
+                    }
+                }
+
+                filter.update();
+                const actual = values(filter, xB, yB, zB);
+                for (let i = 0; i < expected.length; ++i) {
+                    expectClose(actual[i], expected[i], 1e-10, 1e-10);
+                }
+            });
+    });
+
+    it('preserves the total mass under Neumann conditions', () => {
+        check(config, ({ xB, yB, zB, hx, hy, hz, data }) => {
+            const filter = new GaussianBlur3(xB, yB, zB, hx, hy, hz, data, null,
+                NEUMANN, PdeFilterScaleType.NONE);
+            filter.setTimeStep(filter.getMaximumTimeStep());
+            const before = values(filter, xB, yB, zB).reduce((a, b) => a + b, 0);
+            filter.update();
+            const after = values(filter, xB, yB, zB).reduce((a, b) => a + b, 0);
+            expectClose(after, before, 1e-9, 1e-9);
+        });
+    });
+
+    it('leaves an affine image unchanged away from the border', () => {
+        const affine = fc.tuple(
+            fc.integer({ min: 4, max: 6 }),
+            fc.constantFrom(0.5, 1, 2),
+            fc.array(fc.integer({ min: -5, max: 5 }), { minLength: 4, maxLength: 4 }));
+        check(affine, ([bound, h, k]) => {
+            const [a, b, c, d] = k;
+            const data: number[] = [];
+            for (let z = 0; z < bound; ++z) {
+                for (let y = 0; y < bound; ++y) {
+                    for (let x = 0; x < bound; ++x) {
+                        data.push(a + b * x + c * y + d * z);
+                    }
+                }
+            }
+            const filter = new GaussianBlur3(bound, bound, bound, h, h, h, data,
+                null, NEUMANN, PdeFilterScaleType.NONE);
+            const before = values(filter, bound, bound, bound);
+            filter.setTimeStep(filter.getMaximumTimeStep());
+            filter.update();
+            const after = values(filter, bound, bound, bound);
+            for (let z = 1; z + 1 < bound; ++z) {
+                for (let y = 1; y + 1 < bound; ++y) {
+                    for (let x = 1; x + 1 < bound; ++x) {
+                        const i = x + bound * (y + bound * z);
+                        expectClose(after[i], before[i], 1e-9, 1e-9);
+                    }
+                }
+            }
+        });
+    });
+
+    it('is equivariant under permuting the coordinate axes', () => {
+        // Relabel (x,y,z) as (y,z,x) together with the spacings; the result
+        // must be relabelled the same way. A swapped axis in lookUp7 or in
+        // the stencil breaks this.
+        check(config, ({ xB, yB, zB, hx, hy, hz, data }) => {
+            const filter = new GaussianBlur3(xB, yB, zB, hx, hy, hz, data, null,
+                NEUMANN, PdeFilterScaleType.NONE);
+            filter.setTimeStep(0.5 * filter.getMaximumTimeStep());
+            filter.update();
+
+            // The permuted image has bounds (yB, zB, xB) and holds
+            // permuted[y + yB*(z + zB*x)] = data[x + xB*(y + yB*z)].
+            const permuted = new Array<number>(xB * yB * zB).fill(0);
+            for (let z = 0; z < zB; ++z) {
+                for (let y = 0; y < yB; ++y) {
+                    for (let x = 0; x < xB; ++x) {
+                        permuted[y + yB * (z + zB * x)] = data[x + xB * (y + yB * z)];
+                    }
+                }
+            }
+            const other = new GaussianBlur3(yB, zB, xB, hy, hz, hx, permuted,
+                null, NEUMANN, PdeFilterScaleType.NONE);
+            other.setTimeStep(0.5 * other.getMaximumTimeStep());
+            other.update();
+
+            for (let z = 0; z < zB; ++z) {
+                for (let y = 0; y < yB; ++y) {
+                    for (let x = 0; x < xB; ++x) {
+                        expectClose(other.getU(y, z, x), filter.getU(x, y, z),
+                            1e-10, 1e-10);
+                    }
+                }
+            }
+        });
     });
 });

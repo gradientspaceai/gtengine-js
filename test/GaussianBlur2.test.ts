@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { GaussianBlur2 } from '../src/GaussianBlur2.js';
 import { PdeFilterScaleType } from '../src/PdeFilter.js';
+import { check, expectClose, fc } from './helpers/arbitraries.js';
 
 const NEUMANN = Number.MAX_VALUE;
 
@@ -164,5 +165,153 @@ describe('GaussianBlur2', () => {
         // Dirichlet mask-border value assigned in the constructor.
         expect(filter.getU(1, 2)).toBeCloseTo(0, 15);
         expect(filter.getU(3, 2)).toBeCloseTo(0.25, 15);
+    });
+});
+
+describe('GaussianBlur2 verification', () => {
+    // The padded image the constructor holds: interior samples shifted by the
+    // data minimum (the NONE scale type still subtracts it) surrounded by the
+    // Neumann ghost ring, which duplicates the nearest interior sample.
+    function neumannPadded(xB: number, yB: number, data: readonly number[]): number[] {
+        const min = Math.min(...data);
+        const max = Math.max(...data);
+        const shift = (min === max ? (d: number) => 0 * d : (d: number) => d - min);
+        const w = xB + 2;
+        const p = new Array<number>(w * (yB + 2)).fill(0);
+        const at = (px: number, py: number) => px + w * py;
+        for (let y = 0; y < yB; ++y) {
+            for (let x = 0; x < xB; ++x) {
+                p[at(x + 1, y + 1)] = shift(data[x + xB * y]);
+            }
+        }
+        for (let py = 0; py < yB + 2; ++py) {
+            for (let px = 0; px < w; ++px) {
+                if (px === 0 || px === xB + 1 || py === 0 || py === yB + 1) {
+                    p[at(px, py)] = p[at(
+                        Math.min(Math.max(px, 1), xB),
+                        Math.min(Math.max(py, 1), yB))];
+                }
+            }
+        }
+        return p;
+    }
+
+    const config = fc.tuple(
+        fc.integer({ min: 3, max: 6 }),
+        fc.integer({ min: 3, max: 6 }),
+        fc.constantFrom(0.5, 1, 2),
+        fc.constantFrom(0.5, 1, 2),
+        fc.array(fc.integer({ min: -6, max: 6 }), { minLength: 36, maxLength: 36 }))
+        .map(([xB, yB, hx, hy, pool]) => ({
+            xB, yB, hx, hy, data: pool.slice(0, xB * yB)
+        }));
+
+    it('one step is the explicit heat step with the Neumann ghost ring', () => {
+        check(fc.tuple(config, fc.constantFrom(0, 0.25, 0.5, 1)),
+            ([{ xB, yB, hx, hy, data }, dtFraction]) => {
+                const filter = new GaussianBlur2(xB, yB, hx, hy, data, null,
+                    NEUMANN, PdeFilterScaleType.NONE);
+                // The maximum stable step is 0.5 / (1/dx^2 + 1/dy^2).
+                expectClose(filter.getMaximumTimeStep(),
+                    0.5 / (1 / (hx * hx) + 1 / (hy * hy)), 1e-15, 1e-15);
+                const dt = dtFraction * filter.getMaximumTimeStep();
+                filter.setTimeStep(dt);
+
+                const p = neumannPadded(xB, yB, data);
+                const w = xB + 2;
+                const at = (px: number, py: number) => px + w * py;
+                const expected: number[] = [];
+                for (let y = 1; y <= yB; ++y) {
+                    for (let x = 1; x <= xB; ++x) {
+                        const uxx = (p[at(x + 1, y)] - 2 * p[at(x, y)]
+                            + p[at(x - 1, y)]) / (hx * hx);
+                        const uyy = (p[at(x, y + 1)] - 2 * p[at(x, y)]
+                            + p[at(x, y - 1)]) / (hy * hy);
+                        expected.push(p[at(x, y)] + dt * (uxx + uyy));
+                    }
+                }
+
+                filter.update();
+                const actual = image(filter, xB, yB);
+                for (let i = 0; i < expected.length; ++i) {
+                    expectClose(actual[i], expected[i], 1e-10, 1e-10);
+                }
+            });
+    });
+
+    it('preserves the total mass under Neumann conditions', () => {
+        // Summing the discrete Laplacian over the image telescopes to the
+        // one-sided differences at the border, and the Neumann ghost ring
+        // makes each of those zero, so the total is invariant.
+        check(config, ({ xB, yB, hx, hy, data }) => {
+            const filter = new GaussianBlur2(xB, yB, hx, hy, data, null,
+                NEUMANN, PdeFilterScaleType.NONE);
+            filter.setTimeStep(filter.getMaximumTimeStep());
+            const before = total(image(filter, xB, yB));
+            filter.update();
+            const after = total(image(filter, xB, yB));
+            expectClose(after, before, 1e-9, 1e-9);
+        });
+    });
+
+    it('leaves an affine image unchanged away from the border', () => {
+        // u = a + b*x + c*y is harmonic, so the discrete Laplacian vanishes
+        // wherever the stencil sees only interior samples.
+        const affine = fc.tuple(
+            fc.integer({ min: 4, max: 7 }),
+            fc.integer({ min: 4, max: 7 }),
+            fc.constantFrom(0.5, 1, 2),
+            fc.constantFrom(0.5, 1, 2),
+            fc.integer({ min: -5, max: 5 }),
+            fc.integer({ min: -5, max: 5 }),
+            fc.integer({ min: -5, max: 5 }));
+        check(affine, ([xB, yB, hx, hy, a, b, c]) => {
+            const data: number[] = [];
+            for (let y = 0; y < yB; ++y) {
+                for (let x = 0; x < xB; ++x) {
+                    data.push(a + b * x + c * y);
+                }
+            }
+            const filter = new GaussianBlur2(xB, yB, hx, hy, data, null,
+                NEUMANN, PdeFilterScaleType.NONE);
+            const before = image(filter, xB, yB);
+            filter.setTimeStep(filter.getMaximumTimeStep());
+            filter.update();
+            const after = image(filter, xB, yB);
+            for (let y = 1; y + 1 < yB; ++y) {
+                for (let x = 1; x + 1 < xB; ++x) {
+                    const i = x + xB * y;
+                    expectClose(after[i], before[i], 1e-9, 1e-9);
+                }
+            }
+        });
+    });
+
+    it('is equivariant under transposing the image and the spacings', () => {
+        // Transposing the image and swapping dx with dy must transpose the
+        // result; a swapped x/y index anywhere in the stencil breaks this.
+        check(config, ({ xB, yB, hx, hy, data }) => {
+            const filter = new GaussianBlur2(xB, yB, hx, hy, data, null,
+                NEUMANN, PdeFilterScaleType.NONE);
+            filter.setTimeStep(0.5 * filter.getMaximumTimeStep());
+            filter.update();
+
+            const transposed: number[] = [];
+            for (let x = 0; x < xB; ++x) {
+                for (let y = 0; y < yB; ++y) {
+                    transposed.push(data[x + xB * y]);
+                }
+            }
+            const other = new GaussianBlur2(yB, xB, hy, hx, transposed, null,
+                NEUMANN, PdeFilterScaleType.NONE);
+            other.setTimeStep(0.5 * other.getMaximumTimeStep());
+            other.update();
+
+            for (let y = 0; y < yB; ++y) {
+                for (let x = 0; x < xB; ++x) {
+                    expectClose(other.getU(y, x), filter.getU(x, y), 1e-10, 1e-10);
+                }
+            }
+        });
     });
 });
