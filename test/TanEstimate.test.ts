@@ -2,7 +2,21 @@ import { describe, it, expect } from 'vitest';
 import {
     tanEstimate, tanEstimateRR, getTanEstimateMaxError
 } from '../src/TanEstimate.js';
-import { GTE_C_QUARTER_PI } from '../src/Constants.js';
+import { GTE_C_HALF_PI, GTE_C_PI, GTE_C_QUARTER_PI } from '../src/Constants.js';
+import { sinEstimate } from '../src/SinEstimate.js';
+import { cosEstimate } from '../src/CosEstimate.js';
+import { check, fc } from './helpers/arbitraries.js';
+import { exactRemainder } from './helpers/exact.js';
+
+// Upstream-documented maximum errors of SinEstimate and CosEstimate,
+// used by the tan = sin/cos cross-check below.
+const SIN_MAX_ERROR: Record<number, number> = {
+    9: 5.2010783457846e-9,
+    11: 1.9323431743601e-11
+};
+const COS_MAX_ERROR: Record<number, number> = {
+    10: 2.7008567604626e-10
+};
 
 const DEGREES = [3, 5, 7, 9, 11, 13] as const;
 
@@ -142,5 +156,123 @@ describe('getTanEstimateMaxError', () => {
     it('throws for invalid degrees', () => {
         expect(() => getTanEstimateMaxError(1)).toThrow('Invalid degree.');
         expect(() => getTanEstimateMaxError(15)).toThrow('Invalid degree.');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V23): independent review against upstream TanEstimate.h.
+// ---------------------------------------------------------------------------
+
+describe('TanEstimate verification', () => {
+    const anyMagnitude = fc.tuple(
+        fc.double({ min: 1, max: 2, noNaN: true, noDefaultInfinity: true }),
+        fc.integer({ min: -40, max: 62 }),
+        fc.boolean()
+    ).map(([m, e, neg]) => (neg ? -m : m) * Math.pow(2, e));
+
+    // The upstream reduction, with the argument reduction done exactly.
+    const referenceRR = (x: number, degree: number): number => {
+        const r = exactRemainder(x, GTE_C_PI);
+        let y: number;
+        if (r > GTE_C_HALF_PI) { y = r - GTE_C_PI; }
+        else if (r < -GTE_C_HALF_PI) { y = r + GTE_C_PI; }
+        else { y = r; }
+        if (Math.abs(y) <= GTE_C_QUARTER_PI) { return tanEstimate(y, degree); }
+        if (y > GTE_C_QUARTER_PI) {
+            const poly = tanEstimate(y - GTE_C_QUARTER_PI, degree);
+            return (1 + poly) / (1 - poly);
+        }
+        const poly = tanEstimate(y + GTE_C_QUARTER_PI, degree);
+        return (-1 + poly) / (1 + poly);
+    };
+
+    it('reduces the argument exactly, as std::remainder does', () => {
+        // std::remainder is computed as if in infinite precision; the rounded
+        // quotient x - Math.round(x/pi)*pi is not the same function and is
+        // already wrong by 1e-6 near |x| = 1e10.
+        for (const degree of DEGREES) {
+            check(anyMagnitude, x =>
+                tanEstimateRR(x, degree) + 0 === referenceRR(x, degree) + 0);
+        }
+        for (const x of [1e10, 1e12, 1e14, 1e16, -9769346117865922,
+            -26789498295071.3, 123456789012345, 4.5e15]) {
+            for (const degree of DEGREES) {
+                expect(tanEstimateRR(x, degree) + 0)
+                    .toBe(referenceRR(x, degree) + 0);
+            }
+        }
+    });
+
+    it('never returns NaN, whatever the magnitude of x', () => {
+        // remainder(x, pi) lands in [-pi/2,pi/2]; the identity branches then
+        // divide by 1 -+ tan(z) with |z| <= pi/4, which is bounded away from
+        // zero. A reduction that overshoots can drive the divisor to zero.
+        for (const degree of DEGREES) {
+            check(anyMagnitude, x => Number.isFinite(tanEstimateRR(x, degree)));
+        }
+    });
+
+    it('is within the documented bound on fast-check samples of [-pi/4,pi/4]', () => {
+        const inDomain = fc.double(
+            { min: -GTE_C_QUARTER_PI, max: GTE_C_QUARTER_PI, noNaN: true });
+        for (const degree of DEGREES) {
+            check(inDomain, x =>
+                Math.abs(tanEstimate(x, degree) - Math.tan(x))
+                    <= MAX_ERROR[degree]);
+        }
+    });
+
+    it('has a max error over the domain that decreases with the degree', () => {
+        const samples = 20000;
+        let previous = Number.POSITIVE_INFINITY;
+        for (const degree of DEGREES) {
+            let observed = 0;
+            for (let i = 0; i <= samples; ++i) {
+                const x = -GTE_C_QUARTER_PI
+                    + (2 * GTE_C_QUARTER_PI * i) / samples;
+                observed = Math.max(observed,
+                    Math.abs(tanEstimate(x, degree) - Math.tan(x)));
+            }
+            expect(observed).toBeLessThanOrEqual(MAX_ERROR[degree]);
+            expect(observed).toBeGreaterThan(0.9 * MAX_ERROR[degree]);
+            expect(observed).toBeLessThan(previous);
+            previous = observed;
+        }
+    }, 30000);
+
+    it('is exactly odd, for every input and degree', () => {
+        for (const degree of DEGREES) {
+            check(fc.double({ min: -1e3, max: 1e3, noNaN: true }), x =>
+                Object.is(tanEstimate(-x, degree) + 0,
+                    -tanEstimate(x, degree) + 0));
+        }
+    });
+
+    it('satisfies tan = sin/cos on the reduced domain', () => {
+        // Cross-check against two independent estimates from this group. On
+        // [-pi/4,pi/4] the cosine is at least sqrt(2)/2, so the quotient's
+        // error is bounded by (errSin + |tan| * errCos) / cos.
+        const inDomain = fc.double(
+            { min: -GTE_C_QUARTER_PI, max: GTE_C_QUARTER_PI, noNaN: true });
+        for (const [td, sd, cd] of [[9, 9, 10], [13, 11, 10]] as const) {
+            check(inDomain, x => {
+                const s = sinEstimate(x, sd);
+                const c = cosEstimate(x, cd);
+                const bound = (SIN_MAX_ERROR[sd] + Math.abs(s / c)
+                    * COS_MAX_ERROR[cd]) / Math.abs(c) + MAX_ERROR[td];
+                return Math.abs(tanEstimate(x, td) - s / c) <= bound;
+            });
+        }
+    });
+
+    it('matches the pi-periodicity of the tangent', () => {
+        for (const degree of DEGREES) {
+            check(fc.double({ min: -1.5, max: 1.5, noNaN: true }), x => {
+                if (Math.abs(Math.tan(x)) > 20) { return true; }
+                const a = tanEstimateRR(x, degree);
+                const b = tanEstimateRR(x + 8 * GTE_C_PI, degree);
+                return Math.abs(a - b) <= 1e-11 * (1 + Math.abs(a));
+            });
+        }
     });
 });
