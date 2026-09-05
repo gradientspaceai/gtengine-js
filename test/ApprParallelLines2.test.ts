@@ -325,11 +325,12 @@ describe('ApprParallelLines2 verification', () => {
         check(configArb, ([angle, c, r, ss]) => {
             const result = new ApprParallelLines2()
                 .fit(twoLines(angle, c, r, ss), 1024);
-            // Observed |V|^2 - 1 up to ~2.2e-6 on well-conditioned samples
-            // (the bisection stops at 1024 iterations or the root tolerance),
-            // so the bound is 1e-5: still far below the O(1) errors of #380.
+            // Upstream never renormalizes V (#380 item 3): |V|^2 - 1 is the
+            // root error of the bisected degree-16 polynomial, observed up to
+            // ~2.5e-5 on well-conditioned samples. The bound is 1e-3, still
+            // orders of magnitude below the O(1)..1e169 errors of #380.
             expectClose(dot(result.direction, result.direction), 1,
-                1e-5, 1e-5);
+                1e-3, 1e-3);
             // Center V-component: same root-accuracy bound (observed 1.1e-5).
             expectClose(dot(result.center, result.direction), 0, 1e-4, 1e-4);
             expect(result.radius).toBeGreaterThan(0);
