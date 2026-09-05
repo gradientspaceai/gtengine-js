@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { PdeFilterScaleType } from '../src/PdeFilter.js';
 import { PdeFilter1 } from '../src/PdeFilter1.js';
+import { check, expectClose, fc } from './helpers/arbitraries.js';
 
 // A concrete 1D filter solving the heat equation u_t = u_xx with an explicit
 // Euler step, which is the 1D analogue of the upstream GaussianBlur2 filter.
@@ -200,5 +201,167 @@ describe('PdeFilter1', () => {
             filter.update();
         }
         closeTo(filter.values(), u.slice(1, data.length + 1));
+    });
+});
+
+describe('PdeFilter1 verification', () => {
+    const scaleTypes = [
+        PdeFilterScaleType.NONE,
+        PdeFilterScaleType.UNIT,
+        PdeFilterScaleType.SYMMETRIC,
+        PdeFilterScaleType.PRESERVE_ZERO
+    ];
+
+    // An independent implementation of the documented PdeFilter scaling
+    // (upstream PdeFilter.h comments), written from the definitions rather
+    // than from the ported code. Note the NONE branch: upstream still
+    // subtracts the minimum, so "as is" actually shifts the data.
+    function referenceScale(data: readonly number[],
+        scaleType: PdeFilterScaleType): number[] {
+        const min = Math.min(...data);
+        const max = Math.max(...data);
+        if (min === max) {
+            return data.map(() => 0);
+        }
+        switch (scaleType) {
+            case PdeFilterScaleType.UNIT:
+                return data.map(d => (d - min) / (max - min));
+            case PdeFilterScaleType.SYMMETRIC:
+                return data.map(d => -1 + (2 / (max - min)) * (d - min));
+            case PdeFilterScaleType.PRESERVE_ZERO: {
+                const scale = (max >= -min ? 1 / max : -1 / min);
+                return data.map(d => d * scale);
+            }
+            default:
+                return data.map(d => d - min);
+        }
+    }
+
+    // The padded (xBound+2)-element buffer that the constructor builds.
+    function referencePadded(data: readonly number[], borderValue: number,
+        scaleType: PdeFilterScaleType): number[] {
+        const scaled = referenceScale(data, scaleType);
+        const n = data.length;
+        const p = new Array<number>(n + 2).fill(0);
+        for (let x = 0; x < n; ++x) {
+            p[x + 1] = scaled[x];
+        }
+        if (borderValue !== NEUMANN) {
+            p[0] = borderValue;
+            p[n + 1] = borderValue;
+        } else {
+            p[0] = p[1];
+            p[n + 1] = p[n];
+        }
+        return p;
+    }
+
+    const config = fc.tuple(
+        fc.integer({ min: 3, max: 8 }),
+        fc.constantFrom(0.25, 0.5, 1, 2),
+        fc.constantFrom(...scaleTypes),
+        fc.constantFrom(NEUMANN, 0, -3, 7),
+        fc.array(fc.integer({ min: -6, max: 6 }), { minLength: 8, maxLength: 8 }))
+        .map(([xBound, h, scaleType, borderValue, pool]) => ({
+            xBound, h, scaleType, borderValue,
+            data: pool.slice(0, xBound)
+        }));
+
+    it('builds the padded buffer the border conditions prescribe', () => {
+        check(config, ({ xBound, h, scaleType, borderValue, data }) => {
+            const filter = new HeatFilter1(xBound, h, data, null, borderValue,
+                scaleType);
+            const expected = referencePadded(data, borderValue, scaleType);
+            const actual = filter.padded();
+            expect(actual.length).toBe(expected.length);
+            for (let i = 0; i < expected.length; ++i) {
+                expectClose(actual[i], expected[i], 1e-12, 1e-12);
+            }
+        });
+    });
+
+    it('getUx and getUxx are exact for a quadratic sample function', () => {
+        // Central differences reproduce the first and second derivatives of a
+        // quadratic exactly, so any wrong stencil coefficient or padding
+        // offset shows up immediately. Only interior samples are used; the
+        // border samples see the padded ghost values instead of the
+        // quadratic.
+        const quadratic = fc.tuple(
+            fc.integer({ min: 4, max: 9 }),
+            fc.constantFrom(0.25, 0.5, 1, 2),
+            fc.integer({ min: -5, max: 5 }),
+            fc.integer({ min: -5, max: 5 }),
+            fc.integer({ min: -5, max: 5 }));
+        check(quadratic, ([xBound, h, a, b, c]) => {
+            const f = (x: number) => a + b * (x * h) + c * (x * h) * (x * h);
+            const data: number[] = [];
+            for (let x = 0; x < xBound; ++x) {
+                data.push(f(x));
+            }
+            // PRESERVE_ZERO keeps derivatives up to the known scale factor;
+            // NONE only shifts by a constant, so derivatives are unchanged.
+            const filter = new HeatFilter1(xBound, h, data, null, NEUMANN,
+                PdeFilterScaleType.NONE);
+            for (let x = 1; x + 1 < xBound; ++x) {
+                const scale = Math.abs(a) + Math.abs(b) + Math.abs(c) + 1;
+                expectClose(filter.getUx(x), b + 2 * c * (x * h),
+                    1e-9 * scale / h, 1e-9);
+                expectClose(filter.getUxx(x), 2 * c, 1e-9 * scale / (h * h), 1e-9);
+            }
+        });
+    });
+
+    it('one update step agrees with an independent explicit solver', () => {
+        check(fc.tuple(config, fc.constantFrom(0.05, 0.1, 0.2)),
+            ([{ xBound, h, scaleType, borderValue, data }, dtFactor]) => {
+                const filter = new HeatFilter1(xBound, h, data, null, borderValue,
+                    scaleType);
+                const dt = dtFactor * h * h;
+                filter.setTimeStep(dt);
+
+                const p = referencePadded(data, borderValue, scaleType);
+                const expected: number[] = [];
+                for (let x = 1; x <= xBound; ++x) {
+                    expected.push(p[x] + (dt / (h * h))
+                        * (p[x + 1] - 2 * p[x] + p[x - 1]));
+                }
+
+                filter.update();
+                const actual = filter.values();
+                for (let x = 0; x < xBound; ++x) {
+                    expectClose(actual[x], expected[x], 1e-10, 1e-10);
+                }
+            });
+    });
+
+    it('a mask leaves masked samples out of the update', () => {
+        const masked = fc.tuple(
+            fc.integer({ min: 4, max: 8 }),
+            fc.array(fc.integer({ min: -5, max: 5 }), { minLength: 8, maxLength: 8 }),
+            fc.array(fc.integer({ min: 0, max: 1 }), { minLength: 8, maxLength: 8 }));
+        check(masked, ([xBound, pool, maskPool]) => {
+            const data = pool.slice(0, xBound);
+            const mask = maskPool.slice(0, xBound);
+            const filter = new HeatFilter1(xBound, 1, data, mask, NEUMANN,
+                PdeFilterScaleType.NONE);
+            // getMask must report exactly the caller's mask on the unpadded
+            // samples; the padded border is zeroed but is not visible here.
+            for (let x = 0; x < xBound; ++x) {
+                expect(filter.getMask(x)).toBe(mask[x]);
+            }
+
+            // A masked-out sample is never handed to onUpdateSingle, so the
+            // destination buffer keeps whatever the constructor left there.
+            const before = filter.values();
+            filter.setTimeStep(0);
+            filter.update();
+            const after = filter.values();
+            for (let x = 0; x < xBound; ++x) {
+                if (mask[x] !== 0) {
+                    // A zero time step makes the update the identity.
+                    expectClose(after[x], before[x], 1e-12, 1e-12);
+                }
+            }
+        });
     });
 });

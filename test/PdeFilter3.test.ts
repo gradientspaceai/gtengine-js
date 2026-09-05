@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { PdeFilter3 } from '../src/PdeFilter3.js';
 import { PdeFilterScaleType } from '../src/PdeFilter.js';
+import { check, expectClose, fc } from './helpers/arbitraries.js';
 
 // Concrete subclass solving the linear heat equation
 //   u_t = u_xx + u_yy + u_zz
@@ -320,5 +321,256 @@ describe('PdeFilter3', () => {
             }
         }
         expect(hood).toEqual(expected);
+    });
+});
+
+describe('PdeFilter3 verification', () => {
+    const scaleTypes = [
+        PdeFilterScaleType.NONE,
+        PdeFilterScaleType.UNIT,
+        PdeFilterScaleType.SYMMETRIC,
+        PdeFilterScaleType.PRESERVE_ZERO
+    ];
+
+    // An independent implementation of the documented PdeFilter scaling; the
+    // NONE branch still subtracts the minimum, as upstream does.
+    function referenceScale(data: readonly number[],
+        scaleType: PdeFilterScaleType): number[] {
+        const min = Math.min(...data);
+        const max = Math.max(...data);
+        if (min === max) {
+            return data.map(() => 0);
+        }
+        switch (scaleType) {
+            case PdeFilterScaleType.UNIT:
+                return data.map(d => (d - min) / (max - min));
+            case PdeFilterScaleType.SYMMETRIC:
+                return data.map(d => -1 + (2 / (max - min)) * (d - min));
+            case PdeFilterScaleType.PRESERVE_ZERO: {
+                const scale = (max >= -min ? 1 / max : -1 / min);
+                return data.map(d => d * scale);
+            }
+            default:
+                return data.map(d => d - min);
+        }
+    }
+
+    // The padded (xB+2)-by-(yB+2)-by-(zB+2) buffer the constructor builds.
+    // Dirichlet fills the shell with the border value; Neumann duplicates the
+    // nearest interior voxel, which is the clamp of the padded coordinate to
+    // [1, bound].
+    function referencePadded(xB: number, yB: number, zB: number,
+        data: readonly number[], borderValue: number,
+        scaleType: PdeFilterScaleType): number[] {
+        const scaled = referenceScale(data, scaleType);
+        const w = xB + 2, h = yB + 2;
+        const p = new Array<number>(w * h * (zB + 2)).fill(0);
+        const at = (px: number, py: number, pz: number) => px + w * (py + h * pz);
+        for (let z = 0; z < zB; ++z) {
+            for (let y = 0; y < yB; ++y) {
+                for (let x = 0; x < xB; ++x) {
+                    p[at(x + 1, y + 1, z + 1)] =
+                        scaled[x + xB * (y + yB * z)];
+                }
+            }
+        }
+        const dirichlet = (borderValue !== NEUMANN);
+        for (let pz = 0; pz < zB + 2; ++pz) {
+            for (let py = 0; py < h; ++py) {
+                for (let px = 0; px < w; ++px) {
+                    const onShell = (px === 0 || px === xB + 1
+                        || py === 0 || py === yB + 1
+                        || pz === 0 || pz === zB + 1);
+                    if (!onShell) {
+                        continue;
+                    }
+                    if (dirichlet) {
+                        p[at(px, py, pz)] = borderValue;
+                    } else {
+                        p[at(px, py, pz)] = p[at(
+                            Math.min(Math.max(px, 1), xB),
+                            Math.min(Math.max(py, 1), yB),
+                            Math.min(Math.max(pz, 1), zB))];
+                    }
+                }
+            }
+        }
+        return p;
+    }
+
+    const config = fc.tuple(
+        fc.integer({ min: 3, max: 5 }),
+        fc.integer({ min: 3, max: 5 }),
+        fc.integer({ min: 3, max: 5 }),
+        fc.constantFrom(0.5, 1, 2),
+        fc.constantFrom(0.5, 1, 2),
+        fc.constantFrom(0.5, 1, 2),
+        fc.constantFrom(...scaleTypes),
+        fc.constantFrom(NEUMANN, 0, -3, 5),
+        fc.array(fc.integer({ min: -6, max: 6 }), { minLength: 125, maxLength: 125 }))
+        .map(([xB, yB, zB, hx, hy, hz, scaleType, borderValue, pool]) => ({
+            xB, yB, zB, hx, hy, hz, scaleType, borderValue,
+            data: pool.slice(0, xB * yB * zB)
+        }));
+
+    it('getU and the derivative accessors read the prescribed padded buffer', () => {
+        check(config, ({ xB, yB, zB, hx, hy, hz, scaleType, borderValue, data }) => {
+            const filter = new HeatFilter3(xB, yB, zB, hx, hy, hz, data, null,
+                borderValue, scaleType);
+            const p = referencePadded(xB, yB, zB, data, borderValue, scaleType);
+            const w = xB + 2, h = yB + 2;
+            const at = (px: number, py: number, pz: number) => px + w * (py + h * pz);
+            // Every unpadded voxel, including the ones on the image boundary
+            // whose derivatives use the ghost shell.
+            for (let z = 0; z < zB; ++z) {
+                for (let y = 0; y < yB; ++y) {
+                    for (let x = 0; x < xB; ++x) {
+                        expectClose(filter.getU(x, y, z),
+                            p[at(x + 1, y + 1, z + 1)], 1e-12, 1e-12);
+                        expectClose(filter.getUx(x, y, z),
+                            (p[at(x + 2, y + 1, z + 1)] - p[at(x, y + 1, z + 1)])
+                            / (2 * hx), 1e-10, 1e-10);
+                        expectClose(filter.getUy(x, y, z),
+                            (p[at(x + 1, y + 2, z + 1)] - p[at(x + 1, y, z + 1)])
+                            / (2 * hy), 1e-10, 1e-10);
+                        expectClose(filter.getUz(x, y, z),
+                            (p[at(x + 1, y + 1, z + 2)] - p[at(x + 1, y + 1, z)])
+                            / (2 * hz), 1e-10, 1e-10);
+                    }
+                }
+            }
+        });
+    });
+
+    it('every derivative accessor is exact for a trivariate quadratic', () => {
+        // Central differences reproduce all first, second and mixed second
+        // derivatives of a quadratic exactly, so a wrong stencil coefficient
+        // or a swapped axis in getUxy/getUxz/getUyz is caught here.
+        const quadratic = fc.tuple(
+            fc.integer({ min: 4, max: 6 }),
+            fc.integer({ min: 4, max: 6 }),
+            fc.integer({ min: 4, max: 6 }),
+            fc.constantFrom(0.5, 1, 2),
+            fc.constantFrom(0.5, 1, 2),
+            fc.constantFrom(0.5, 1, 2),
+            fc.array(fc.integer({ min: -4, max: 4 }), { minLength: 10, maxLength: 10 }));
+        check(quadratic, ([xB, yB, zB, hx, hy, hz, k]) => {
+            const [a, bx, by, bz, cxx, cyy, czz, cxy, cxz, cyz] = k;
+            const F = (X: number, Y: number, Z: number) =>
+                a + bx * X + by * Y + bz * Z
+                + cxx * X * X + cyy * Y * Y + czz * Z * Z
+                + cxy * X * Y + cxz * X * Z + cyz * Y * Z;
+            const data = makeImage(xB, yB, zB,
+                (x, y, z) => F(x * hx, y * hy, z * hz));
+            const filter = new HeatFilter3(xB, yB, zB, hx, hy, hz, data, null,
+                NEUMANN, PdeFilterScaleType.NONE);
+            const mag = k.reduce((s, v) => s + Math.abs(v), 1)
+                * (1 + xB * hx) * (1 + yB * hy) * (1 + zB * hz);
+            for (let z = 1; z + 1 < zB; ++z) {
+                for (let y = 1; y + 1 < yB; ++y) {
+                    for (let x = 1; x + 1 < xB; ++x) {
+                        const X = x * hx, Y = y * hy, Z = z * hz;
+                        expectClose(filter.getUx(x, y, z),
+                            bx + 2 * cxx * X + cxy * Y + cxz * Z,
+                            1e-9 * mag / hx, 1e-9);
+                        expectClose(filter.getUy(x, y, z),
+                            by + 2 * cyy * Y + cxy * X + cyz * Z,
+                            1e-9 * mag / hy, 1e-9);
+                        expectClose(filter.getUz(x, y, z),
+                            bz + 2 * czz * Z + cxz * X + cyz * Y,
+                            1e-9 * mag / hz, 1e-9);
+                        expectClose(filter.getUxx(x, y, z), 2 * cxx,
+                            1e-9 * mag / (hx * hx), 1e-9);
+                        expectClose(filter.getUyy(x, y, z), 2 * cyy,
+                            1e-9 * mag / (hy * hy), 1e-9);
+                        expectClose(filter.getUzz(x, y, z), 2 * czz,
+                            1e-9 * mag / (hz * hz), 1e-9);
+                        expectClose(filter.getUxy(x, y, z), cxy,
+                            1e-9 * mag / (hx * hy), 1e-9);
+                        expectClose(filter.getUxz(x, y, z), cxz,
+                            1e-9 * mag / (hx * hz), 1e-9);
+                        expectClose(filter.getUyz(x, y, z), cyz,
+                            1e-9 * mag / (hy * hz), 1e-9);
+                    }
+                }
+            }
+        });
+    });
+
+    it('one update step agrees with an independent explicit heat solver', () => {
+        check(fc.tuple(config, fc.constantFrom(0.05, 0.1, 0.2)),
+            ([{ xB, yB, zB, hx, hy, hz, scaleType, borderValue, data }, dtFactor]) => {
+                const filter = new HeatFilter3(xB, yB, zB, hx, hy, hz, data,
+                    null, borderValue, scaleType);
+                const dt = dtFactor
+                    / (1 / (hx * hx) + 1 / (hy * hy) + 1 / (hz * hz));
+                filter.setTimeStep(dt);
+
+                const p = referencePadded(xB, yB, zB, data, borderValue, scaleType);
+                const w = xB + 2, h = yB + 2;
+                const at = (px: number, py: number, pz: number) =>
+                    px + w * (py + h * pz);
+                const expected: number[] = [];
+                for (let z = 1; z <= zB; ++z) {
+                    for (let y = 1; y <= yB; ++y) {
+                        for (let x = 1; x <= xB; ++x) {
+                            const uxx = (p[at(x + 1, y, z)] - 2 * p[at(x, y, z)]
+                                + p[at(x - 1, y, z)]) / (hx * hx);
+                            const uyy = (p[at(x, y + 1, z)] - 2 * p[at(x, y, z)]
+                                + p[at(x, y - 1, z)]) / (hy * hy);
+                            const uzz = (p[at(x, y, z + 1)] - 2 * p[at(x, y, z)]
+                                + p[at(x, y, z - 1)]) / (hz * hz);
+                            expected.push(p[at(x, y, z)] + dt * (uxx + uyy + uzz));
+                        }
+                    }
+                }
+
+                filter.update();
+                let i = 0;
+                for (let z = 0; z < zB; ++z) {
+                    for (let y = 0; y < yB; ++y) {
+                        for (let x = 0; x < xB; ++x, ++i) {
+                            expectClose(filter.getU(x, y, z), expected[i],
+                                1e-10, 1e-10);
+                        }
+                    }
+                }
+            });
+    });
+
+    it('getMask reports the caller mask and onUpdate skips masked voxels', () => {
+        const masked = fc.tuple(
+            fc.integer({ min: 3, max: 5 }),
+            fc.integer({ min: 3, max: 5 }),
+            fc.integer({ min: 3, max: 5 }),
+            fc.array(fc.integer({ min: -5, max: 5 }), { minLength: 125, maxLength: 125 }),
+            fc.array(fc.integer({ min: 0, max: 1 }), { minLength: 125, maxLength: 125 }));
+        check(masked, ([xB, yB, zB, pool, maskPool]) => {
+            const n = xB * yB * zB;
+            const data = pool.slice(0, n);
+            const mask = maskPool.slice(0, n);
+            const filter = new RecordingFilter3(xB, yB, zB, data, mask, NEUMANN);
+            for (let z = 0; z < zB; ++z) {
+                for (let y = 0; y < yB; ++y) {
+                    for (let x = 0; x < xB; ++x) {
+                        expect(filter.getMask(x, y, z))
+                            .toBe(mask[x + xB * (y + yB * z)]);
+                    }
+                }
+            }
+
+            filter.update();
+            const expected: [number, number, number][] = [];
+            for (let z = 1; z <= zB; ++z) {
+                for (let y = 1; y <= yB; ++y) {
+                    for (let x = 1; x <= xB; ++x) {
+                        if (mask[(x - 1) + xB * ((y - 1) + yB * (z - 1))] !== 0) {
+                            expected.push([x, y, z]);
+                        }
+                    }
+                }
+            }
+            expect(filter.visited).toEqual(expected);
+        });
     });
 });
