@@ -53,8 +53,17 @@ export function defaultIntrSegment2Segment2TIResult(): IntrSegment2Segment2TIRes
 //   point[i]
 //   = segment0.origin + segment0Parameter[i] * segment0.direction
 //   = segment1.origin + segment1Parameter[i] * segment1.direction
-// with segment0Parameter[0] <= segment0Parameter[1] and
-// segment1Parameter[0] <= segment1Parameter[1].
+// with segment0Parameter[0] <= segment0Parameter[1].
+//
+// Upstream also claims segment1Parameter[0] <= segment1Parameter[1], but that
+// ordering and the point identity above cannot both hold when the two
+// collinear segments point in opposite directions. The two queries resolve
+// the conflict differently:
+//   'find' (centered form) keeps the point identity, so segment1Parameter is
+//     descending for antiparallel collinear segments;
+//   'findExact' (endpoint form) keeps the upstream ordering, so for
+//     antiparallel collinear segments segment1Parameter[0] belongs to
+//     point[1] and segment1Parameter[1] belongs to point[0].
 export interface IntrSegment2Segment2FIResult {
     intersect: boolean;
     numIntersections: number;
@@ -222,7 +231,7 @@ export class IntrSegment2Segment2FI implements
                 result.segment1Parameter[0] = llResult.line1Parameter[0];
                 result.segment1Parameter[1] = result.segment1Parameter[0];
                 result.point[0] = llResult.point;
-                result.point[1] = result.point[0];
+                result.point[1] = result.point[0].clone();
             }
             else {
                 result.intersect = false;
@@ -246,16 +255,34 @@ export class IntrSegment2Segment2FI implements
             if (iiResult.intersect) {
                 result.intersect = true;
                 result.numIntersections = iiResult.numIntersections;
+                // Upstream bug (FIXED here): upstream reports
+                // segment1Parameter[i] = overlap[i] - t, which is the
+                // parameter of the point along seg0Direction measured from
+                // seg1Origin. That is the correct segment1 parameter only when
+                // the two centered directions agree. The lines are the same
+                // here, so seg1Direction is +-seg0Direction; when they are
+                // opposite the upstream value has the wrong sign and
+                // C1 + segment1Parameter[i] * D1 is not an intersection point
+                // (for segment0 = <(0,0),(4,0)> and segment1 = <(6,0),(1,0)>
+                // upstream reports -2.5 and 0.5, which name (6,0) and (3,0)).
+                // Negating in the antiparallel case restores the documented
+                // identity point[i] = C1 + segment1Parameter[i] * D1 and
+                // leaves the common case bit-for-bit as upstream computes it.
+                // Note that segment1Parameter is then descending for
+                // antiparallel segments; the two documented orderings and the
+                // point identity cannot all hold at once.
+                const sign1 = (dot(seg0Direction, seg1Direction) < 0 ? -1 : 1);
                 for (let i = 0; i < iiResult.numIntersections; ++i) {
                     result.segment0Parameter[i] = iiResult.overlap[i];
-                    result.segment1Parameter[i] = iiResult.overlap[i] - t;
+                    result.segment1Parameter[i] =
+                        sign1 * (iiResult.overlap[i] - t);
                     result.point[i] = add(seg0Origin,
                         mul(result.segment0Parameter[i], seg0Direction));
                 }
                 if (iiResult.numIntersections === 1) {
                     result.segment0Parameter[1] = result.segment0Parameter[0];
                     result.segment1Parameter[1] = result.segment1Parameter[0];
-                    result.point[1] = result.point[0];
+                    result.point[1] = result.point[0].clone();
                 }
             }
             else {
@@ -297,7 +324,7 @@ export class IntrSegment2Segment2FI implements
                 result.segment1Parameter[0] = llResult.line1Parameter[0];
                 result.segment1Parameter[1] = result.segment1Parameter[0];
                 result.point[0] = llResult.point;
-                result.point[1] = result.point[0];
+                result.point[1] = result.point[0].clone();
             }
             else {
                 result.intersect = false;
@@ -346,7 +373,7 @@ export class IntrSegment2Segment2FI implements
                 if (iiResult.numIntersections === 1) {
                     result.segment0Parameter[1] = result.segment0Parameter[0];
                     result.segment1Parameter[1] = result.segment1Parameter[0];
-                    result.point[1] = result.point[0];
+                    result.point[1] = result.point[0].clone();
                 }
                 else {
                     if (t1 < t0) {

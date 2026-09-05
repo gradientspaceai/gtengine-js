@@ -6,6 +6,10 @@ import {
     IntrSegment2Segment2TI,
     IntrSegment2Segment2FI
 } from '../src/IntrSegment2Segment2.js';
+import {
+    check, expectClose, expectVectorClose, fc, latticeVector, wellScaledVector
+} from './helpers/arbitraries.js';
+import { orient2 } from './helpers/exact.js';
 
 function vec(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -263,5 +267,250 @@ describe('IntrSegment2Segment2', () => {
         expect(hits).toBeGreaterThan(20);
         expect([tiFiMismatch, exactAgreementMismatch, sampleMismatch,
             pointMismatch]).toEqual([0, 0, 0, 0]);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V32): properties cross-checking the port against upstream
+// IntrSegment2Segment2.h.
+// ---------------------------------------------------------------------------
+
+describe('IntrSegment2Segment2 verification', () => {
+    const ti = new IntrSegment2Segment2TI();
+    const fi = new IntrSegment2Segment2FI();
+
+    // Integer-lattice segments: small integers are exact in binary64, so the
+    // DotPerp parallelism tests of the 'Exact' queries and the bigint
+    // reference predicate below agree bit for bit.
+    const arbLatticeSegment = fc.tuple(latticeVector(2, -6, 6),
+        latticeVector(2, -6, 6))
+        .filter(([a, b]) => !a.equals(b))
+        .map(([a, b]) => Segment.fromEndpoints(a, b));
+    const arbLatticePair = fc.tuple(arbLatticeSegment, arbLatticeSegment);
+
+    function big(s: Segment, i: number, d: number): bigint {
+        return BigInt(s.p[i].get(d));
+    }
+
+    // r is on the closed segment pq, given that (p,q,r) are collinear.
+    function onSegment(px: bigint, py: bigint, qx: bigint, qy: bigint,
+        rx: bigint, ry: bigint): boolean {
+        return orient2(px, py, qx, qy, rx, ry) === 0
+            && rx >= (px < qx ? px : qx) && rx <= (px > qx ? px : qx)
+            && ry >= (py < qy ? py : qy) && ry <= (py > qy ? py : qy);
+    }
+
+    // The exact closed-segment intersection predicate on integer coordinates.
+    function exactIntersect(s0: Segment, s1: Segment): boolean {
+        const ax = big(s0, 0, 0), ay = big(s0, 0, 1);
+        const bx = big(s0, 1, 0), by = big(s0, 1, 1);
+        const cx = big(s1, 0, 0), cy = big(s1, 0, 1);
+        const dx = big(s1, 1, 0), dy = big(s1, 1, 1);
+        const o1 = orient2(ax, ay, bx, by, cx, cy);
+        const o2 = orient2(ax, ay, bx, by, dx, dy);
+        const o3 = orient2(cx, cy, dx, dy, ax, ay);
+        const o4 = orient2(cx, cy, dx, dy, bx, by);
+        if (o1 !== 0 && o2 !== 0 && o3 !== 0 && o4 !== 0) {
+            return o1 !== o2 && o3 !== o4;
+        }
+        return onSegment(ax, ay, bx, by, cx, cy)
+            || onSegment(ax, ay, bx, by, dx, dy)
+            || onSegment(cx, cy, dx, dy, ax, ay)
+            || onSegment(cx, cy, dx, dy, bx, by);
+    }
+
+    it('testExact matches the exact bigint segment-intersection predicate',
+        () => {
+            check(arbLatticePair, ([s0, s1]) => {
+                expect(ti.testExact(s0, s1).intersect)
+                    .toBe(exactIntersect(s0, s1));
+            });
+        });
+
+    it('findExact agrees with testExact and matches the exact predicate', () => {
+        check(arbLatticePair, ([s0, s1]) => {
+            const res = fi.findExact(s0, s1);
+            const tiRes = ti.testExact(s0, s1);
+            expect(res.intersect).toBe(exactIntersect(s0, s1));
+            expect(res.intersect).toBe(tiRes.intersect);
+            expect(res.numIntersections).toBe(tiRes.numIntersections);
+        });
+    });
+
+    it('findExact points lie on both segments with parameters in [0,1]', () => {
+        check(arbLatticePair, ([s0, s1]) => {
+            const res = fi.findExact(s0, s1);
+            if (!res.intersect) {
+                return;
+            }
+            const d0 = sub(s0.p[1], s0.p[0]);
+            const d1 = sub(s1.p[1], s1.p[0]);
+            for (let i = 0; i < res.numIntersections; ++i) {
+                const t0 = res.segment0Parameter[i];
+                const t1 = res.segment1Parameter[i];
+                expect(t0).toBeGreaterThanOrEqual(-1e-12);
+                expect(t0).toBeLessThanOrEqual(1 + 1e-12);
+                expect(t1).toBeGreaterThanOrEqual(-1e-12);
+                expect(t1).toBeLessThanOrEqual(1 + 1e-12);
+                expectVectorClose(res.point[i], add(s0.p[0], mul(t0, d0)),
+                    1e-9, 1e-9);
+                // Upstream's 'Exact' query swaps segment1Parameter[0] and
+                // [1] when the collinear segments point in opposite
+                // directions, in order to keep segment1Parameter ascending.
+                // The parameter therefore names one of the two reported
+                // points, not necessarily point[i].
+                const q = add(s1.p[0], mul(t1, d1));
+                const other = res.point[res.numIntersections - 1 - i];
+                const matches = (a: Vector, b: Vector): boolean => {
+                    const e = sub(a, b);
+                    return Math.sqrt(dot(e, e)) <= 1e-9 * (1 + Math.sqrt(
+                        dot(a, a)));
+                };
+                expect(matches(q, res.point[i]) || matches(q, other))
+                    .toBe(true);
+            }
+            if (res.numIntersections === 2) {
+                expect(res.segment0Parameter[0])
+                    .toBeLessThanOrEqual(res.segment0Parameter[1]);
+                expect(res.segment1Parameter[0])
+                    .toBeLessThanOrEqual(res.segment1Parameter[1]);
+            }
+        });
+    });
+
+    it('the centered-form find keeps point[i] = C1 + segment1Parameter[i]*D1'
+        + ' for antiparallel collinear segments', () => {
+        // Upstream computes segment1Parameter[i] = overlap[i] - t, which has
+        // the wrong sign when the two centered directions are opposite: for
+        // these inputs it reports -2.5 and 0.5, naming (6,0) and (3,0),
+        // neither of which is an intersection point. The port negates in the
+        // antiparallel case.
+        const s0 = segment([0, 0], [4, 0]);
+        const s1 = segment([6, 0], [1, 0]);
+        const res = fi.find(s0, s1);
+        expect(res.numIntersections).toBe(2);
+        expectVectorClose(res.point[0], vec(1, 0));
+        expectVectorClose(res.point[1], vec(4, 0));
+        expect(res.segment1Parameter[0]).toBe(2.5);
+        expect(res.segment1Parameter[1]).toBe(-0.5);
+        const c1 = s1.getCenteredForm();
+        for (let i = 0; i < 2; ++i) {
+            expectVectorClose(
+                add(c1.center, mul(res.segment1Parameter[i], c1.direction)),
+                res.point[i]);
+        }
+    });
+
+    it('the centered-form find matches upstream for parallel collinear'
+        + ' segments with the same direction', () => {
+        const s0 = segment([0, 0], [4, 0]);
+        const s1 = segment([1, 0], [6, 0]);
+        const res = fi.find(s0, s1);
+        expect(res.numIntersections).toBe(2);
+        const c0 = s0.getCenteredForm(), c1 = s1.getCenteredForm();
+        const t = dot(c0.direction, sub(c1.center, c0.center));
+        // The unmodified upstream expression.
+        expect(res.segment1Parameter[0])
+            .toBe(res.segment0Parameter[0] - t);
+        expect(res.segment1Parameter[1])
+            .toBe(res.segment0Parameter[1] - t);
+    });
+
+    it('the queries are symmetric under swapping the two segments', () => {
+        check(arbLatticePair, ([s0, s1]) => {
+            const a = ti.testExact(s0, s1), b = ti.testExact(s1, s0);
+            expect(b.intersect).toBe(a.intersect);
+            expect(b.numIntersections).toBe(a.numIntersections);
+            const c = fi.findExact(s0, s1), d = fi.findExact(s1, s0);
+            expect(d.intersect).toBe(c.intersect);
+            expect(d.numIntersections).toBe(c.numIntersections);
+            const e = ti.test(s0, s1), f = ti.test(s1, s0);
+            expect(f.intersect).toBe(e.intersect);
+            expect(f.numIntersections).toBe(e.numIntersections);
+        });
+    });
+
+    it('the centered-form find reports points on both segments', () => {
+        const arbWellScaled = fc.tuple(wellScaledVector(2, -8, 8),
+            wellScaledVector(2, -8, 8))
+            .filter(([a, b]) => {
+                const d = sub(b, a);
+                return dot(d, d) > 1e-2;
+            })
+            .map(([a, b]) => Segment.fromEndpoints(a, b));
+        check(fc.tuple(arbWellScaled, arbWellScaled), ([s0, s1]) => {
+            const res = fi.find(s0, s1);
+            expect(res.intersect).toBe(ti.test(s0, s1).intersect);
+            if (!res.intersect) {
+                return;
+            }
+            const c0 = s0.getCenteredForm(), c1 = s1.getCenteredForm();
+            for (let i = 0; i < res.numIntersections; ++i) {
+                const t0 = res.segment0Parameter[i];
+                const t1 = res.segment1Parameter[i];
+                expect(Math.abs(t0)).toBeLessThanOrEqual(
+                    c0.extent * (1 + 1e-9) + 1e-9);
+                expect(Math.abs(t1)).toBeLessThanOrEqual(
+                    c1.extent * (1 + 1e-9) + 1e-9);
+                // The reported point uses the centered form of segment0.
+                expectVectorClose(res.point[i],
+                    add(c0.center, mul(t0, c0.direction)), 1e-9, 1e-9);
+                expect(Number.isNaN(res.point[i].get(0))).toBe(false);
+                expect(Number.isNaN(res.point[i].get(1))).toBe(false);
+            }
+        });
+    });
+
+    it('point[1] is a copy of point[0], not an alias', () => {
+        // Upstream copies the Vector2 into point[1]; a plain TS assignment
+        // aliases, so a caller mutating point[0] would silently change
+        // point[1].
+        const s0 = segment([-1, 0], [1, 0]);
+        const s1 = segment([0, -1], [0, 1]);
+        const res = fi.find(s0, s1);
+        expect(res.numIntersections).toBe(1);
+        res.point[0].set(0, 42);
+        expect(res.point[1].get(0)).toBe(0);
+
+        // Collinear single-point overlap: [0,4] and [4,8] share only x = 4.
+        const e0 = segment([0, 0], [4, 0]);
+        const e1 = segment([4, 0], [8, 0]);
+        const resE = fi.findExact(e0, e1);
+        expect(resE.numIntersections).toBe(1);
+        resE.point[0].set(0, 42);
+        expect(resE.point[1].get(0)).toBe(4);
+    });
+
+    it('reports the overlapping sub-segment for collinear segments', () => {
+        const s0 = segment([0, 0], [4, 0]);
+        const s1 = segment([1, 0], [6, 0]);
+        const res = fi.findExact(s0, s1);
+        expect(res.intersect).toBe(true);
+        expect(res.numIntersections).toBe(2);
+        expectVectorClose(res.point[0], vec(1, 0));
+        expectVectorClose(res.point[1], vec(4, 0));
+        expectClose(res.segment0Parameter[0], 0.25);
+        expectClose(res.segment0Parameter[1], 1);
+        expectClose(res.segment1Parameter[0], 0);
+        expectClose(res.segment1Parameter[1], 0.6);
+    });
+
+    it('orders segment1Parameter ascending for an oppositely directed'
+        + ' collinear overlap', () => {
+        const s0 = segment([0, 0], [4, 0]);
+        const s1 = segment([6, 0], [1, 0]);   // reversed direction
+        const res = fi.findExact(s0, s1);
+        expect(res.intersect).toBe(true);
+        expect(res.numIntersections).toBe(2);
+        expect(res.segment1Parameter[0])
+            .toBeLessThanOrEqual(res.segment1Parameter[1]);
+        // Both parameters evaluate to points on segment1.
+        const d1 = sub(s1.p[1], s1.p[0]);
+        for (let i = 0; i < 2; ++i) {
+            const p = add(s1.p[0], mul(res.segment1Parameter[i], d1));
+            expect(p.get(1)).toBe(0);
+            expect(p.get(0)).toBeGreaterThanOrEqual(1 - 1e-12);
+            expect(p.get(0)).toBeLessThanOrEqual(4 + 1e-12);
+        }
     });
 });

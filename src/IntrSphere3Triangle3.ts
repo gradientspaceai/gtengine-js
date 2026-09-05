@@ -25,7 +25,7 @@
 
 import type { Hypersphere } from './Hypersphere.js';
 import type { Triangle } from './Triangle.js';
-import { Vector, add, dot, mul, sub } from './Vector.js';
+import { Vector, add, div, dot, mul, sub } from './Vector.js';
 import { cross, unitCross } from './Vector3.js';
 import { DistPointTriangle } from './DistPointTriangle.js';
 
@@ -205,10 +205,17 @@ export class IntrSphere3Triangle3FI {
         }
 
         for (let i = 2, ip1 = 0; ip1 < 3; i = ip1++) {
-            const hatV = sub(V, mul(nu[i] / sqrLenE[i], E[i]));
+            // Upstream computes E[i] * nu[i] / sqrLenE[i] with the Vector
+            // operator/, which multiplies by the reciprocal of a nonzero
+            // divisor and produces the ZERO vector when the divisor is zero
+            // (Vector.h). Dividing the scalar first would give NaN for a
+            // triangle with a zero-length edge and rounds differently, so the
+            // port uses div() to match upstream exactly.
+            const hatV = sub(V, div(mul(E[i], nu[i]), sqrLenE[i]));
             const sqrLenHatV = dot(hatV, hatV);
             if (sqrLenHatV > 0) {
-                const hatDelta = sub(Delta[i], mul(del[i] / sqrLenE[i], E[i]));
+                const hatDelta =
+                    sub(Delta[i], div(mul(E[i], del[i]), sqrLenE[i]));
                 const alpha = -dot(hatV, hatDelta);
                 if (alpha >= 0) {
                     const sqrLenHatDelta = dot(hatDelta, hatDelta);

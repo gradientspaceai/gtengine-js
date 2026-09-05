@@ -38,7 +38,10 @@ import { AlignedBox } from './AlignedBox.js';
 import { fma, robustDOP, robustSOP } from './Functions.js';
 import type { Hyperellipsoid } from './Hyperellipsoid.js';
 import { logAssert } from './Logger.js';
-import { Matrix, multiplyAB, multiplyATB, mulMatrix, outerProduct } from './Matrix.js';
+import {
+    Matrix, addMatrix, divMatrix, multiplyAB, multiplyATB, mulMatrix,
+    outerProduct
+} from './Matrix.js';
 import { trace2x2 } from './Matrix2x2.js';
 import { Polynomial1 } from './Polynomial1.js';
 import { RootsBisection } from './RootsBisection.js';
@@ -378,13 +381,12 @@ export class IntrEllipse2Ellipse2FI {
         const aSqr = ellipse.extent.values[0] * ellipse.extent.values[0];
         const bSqr = ellipse.extent.values[1] * ellipse.extent.values[1];
         const C = ellipse.center.clone();
-        const M = Matrix.zero(2, 2);
-        for (let r = 0; r < 2; ++r) {
-            for (let c = 0; c < 2; ++c) {
-                M.set(r, c,
-                    (UUTrn.get(r, c) / aSqr + VVTrn.get(r, c) / bSqr) / USqrLen);
-            }
-        }
+        // M = (UUTrn / aSqr + VVTrn / bSqr) / USqrLen, using the Matrix
+        // operator/ semantics of upstream (multiplication by the reciprocal
+        // of a nonzero divisor, the zero matrix when the divisor is zero).
+        const M = divMatrix(
+            addMatrix(divMatrix(UUTrn, aSqr), divMatrix(VVTrn, bSqr)),
+            USqrLen);
         return { C, M };
     }
 
