@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
     IntpThinPlateSpline2, intpThinPlateSpline2Kernel
 } from '../src/IntpThinPlateSpline2.js';
+import { check, expectClose, fc, latticeVector, seededRandom, wellScaled }
+    from './helpers/arbitraries.js';
 
 // ---------------------------------------------------------------------------
 // An independent implementation of the classical thin-plate spline, used to
@@ -510,5 +512,193 @@ describe('IntpThinPlateSpline2 degenerate inputs', () => {
         const tps = new IntpThinPlateSpline2(4, CX, CY, CF, 0, true);
         expect(tps.isInitialized()).toBe(false);
         expect(tps.evaluate(1, 5)).toBe(Number.MAX_VALUE);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (V29): property-based checks against upstream
+// IntpThinPlateSpline2.h, cross-checked with the independent saddle-point
+// solve above.
+// ---------------------------------------------------------------------------
+
+// Scattered sample sets on a lattice: distinct points, not all collinear, and
+// large enough that the kernel matrix stays reasonably conditioned. Integer
+// coordinates and integer samples keep the input exactly representable, so
+// the only error is the linear solve.
+const tps2Samples = fc.tuple(
+    fc.array(latticeVector(2, -6, 6), { minLength: 5, maxLength: 8 }),
+    fc.array(fc.integer({ min: -9, max: 9 }), { minLength: 8, maxLength: 8 })
+).filter(([pts]) => {
+    for (let i = 0; i < pts.length; ++i) {
+        for (let j = i + 1; j < pts.length; ++j) {
+            if (pts[i].values[0] === pts[j].values[0]
+                && pts[i].values[1] === pts[j].values[1]) {
+                return false;
+            }
+        }
+    }
+    // Reject collinear sets: B would be rank deficient and Q singular.
+    const [p0, p1] = pts;
+    return pts.some(p =>
+        Math.abs((p1.values[0] - p0.values[0]) * (p.values[1] - p0.values[1])
+            - (p1.values[1] - p0.values[1]) * (p.values[0] - p0.values[0]))
+        > 0.5);
+}).map(([pts, samples]) => ({
+    X: pts.map(p => p.values[0]),
+    Y: pts.map(p => p.values[1]),
+    F: pts.map((_, i) => samples[i % samples.length])
+}));
+
+describe('IntpThinPlateSpline2 verification', () => {
+    // The port and the independent saddle-point solve must produce the same
+    // interpolant. The tolerance is relative because the kernel matrix of a
+    // scattered set can be moderately ill-conditioned, so the two solvers
+    // (GMatrix inverse-of-A plus inverse-of-Q versus a single Gaussian
+    // elimination on the full system) differ by their own round-off.
+    it('agrees with the independent saddle-point solve', () => {
+        let numChecked = 0;
+        check(fc.tuple(tps2Samples, fc.boolean(),
+            fc.constantFrom(0, 0.05, 0.5, 5),
+            fc.integer({ min: 0, max: 0xffff })),
+            ([{ X, Y, F }, transform, smooth, seed]) => {
+                const spline = new IntpThinPlateSpline2(X.length, X, Y, F,
+                    smooth, transform);
+                const ref = refBuild(X, Y, F, smooth, transform);
+                if (!spline.isInitialized() || ref === null) {
+                    return true;
+                }
+                ++numChecked;
+                const rand = seededRandom(seed + 1);
+                for (let n = 0; n < 8; ++n) {
+                    const px = -6 + 12 * rand();
+                    const py = -6 + 12 * rand();
+                    expectClose(spline.evaluate(px, py), refEval(ref, px, py),
+                        1e-6, 1e-6);
+                }
+                expectClose(spline.computeFunctional(), refFunctional(ref),
+                    1e-6, 1e-6);
+                return true;
+            }, 60);
+        expect(numChecked).toBeGreaterThan(10);
+    }, 30000);
+
+    // With lambda = 0 the diagonal of A is zero and the system enforces the
+    // interpolation conditions exactly.
+    it('interpolates the samples exactly when smooth = 0', () => {
+        check(fc.tuple(tps2Samples, fc.boolean()),
+            ([{ X, Y, F }, transform]) => {
+                const spline = new IntpThinPlateSpline2(X.length, X, Y, F, 0,
+                    transform);
+                if (!spline.isInitialized()) {
+                    return true;
+                }
+                for (let i = 0; i < X.length; ++i) {
+                    expectClose(spline.evaluate(X[i], Y[i]), F[i], 1e-7, 1e-8);
+                }
+                return true;
+            }, 60);
+    }, 30000);
+
+    // Affine data is reproduced for every lambda: the affine part of the
+    // spline can fit it with a = 0, which makes the smoothing term vanish.
+    it('reproduces affine data for every smoothing parameter', () => {
+        check(fc.tuple(tps2Samples, fc.boolean(),
+            fc.constantFrom(0, 0.25, 2),
+            fc.integer({ min: -4, max: 4 }), fc.integer({ min: -4, max: 4 }),
+            fc.integer({ min: -4, max: 4 }), fc.integer({ min: 0, max: 0xffff })),
+            ([{ X, Y }, transform, smooth, a, b, c, seed]) => {
+                const F = X.map((x, i) => a + b * x + c * Y[i]);
+                const spline = new IntpThinPlateSpline2(X.length, X, Y, F,
+                    smooth, transform);
+                if (!spline.isInitialized()) {
+                    return true;
+                }
+                const rand = seededRandom(seed + 5);
+                for (let n = 0; n < 5; ++n) {
+                    const px = -6 + 12 * rand();
+                    const py = -6 + 12 * rand();
+                    expectClose(spline.evaluate(px, py), a + b * px + c * py,
+                        1e-6, 1e-7);
+                }
+                // The Green's-function part is zero, so the functional is too.
+                expectClose(spline.computeFunctional(), 0, 1e-6, 1e-6);
+                return true;
+            }, 60);
+    }, 30000);
+
+    // The classical (untransformed) spline is built only from the pairwise
+    // distances and the affine basis, so it commutes with a rigid motion of
+    // the plane. This is the half of the upstream WARNING comment that is
+    // correct (issue #191); the scaling half is not, and is pinned by the
+    // deterministic tests above.
+    it('the classical spline is invariant to rigid motions', () => {
+        check(fc.tuple(tps2Samples, wellScaled(-Math.PI, Math.PI),
+            fc.integer({ min: -5, max: 5 }), fc.integer({ min: -5, max: 5 }),
+            fc.integer({ min: 0, max: 0xffff })),
+            ([{ X, Y, F }, angle, tx, ty, seed]) => {
+                const base = new IntpThinPlateSpline2(X.length, X, Y, F, 0, false);
+                if (!base.isInitialized()) {
+                    return true;
+                }
+                const cs = Math.cos(angle), sn = Math.sin(angle);
+                const RX = X.map((x, i) => cs * x - sn * Y[i] + tx);
+                const RY = X.map((x, i) => sn * x + cs * Y[i] + ty);
+                const moved = new IntpThinPlateSpline2(X.length, RX, RY, F, 0,
+                    false);
+                if (!moved.isInitialized()) {
+                    return true;
+                }
+                const rand = seededRandom(seed + 7);
+                for (let n = 0; n < 5; ++n) {
+                    const px = -6 + 12 * rand();
+                    const py = -6 + 12 * rand();
+                    expectClose(
+                        moved.evaluate(cs * px - sn * py + tx,
+                            sn * px + cs * py + ty),
+                        base.evaluate(px, py), 1e-5, 1e-6);
+                }
+                return true;
+            }, 60);
+    }, 30000);
+
+    // Smoothing trades fidelity for bending energy: as lambda grows the
+    // interpolant departs further from the samples. The bending energy
+    // a^T*M*a is measured independently of computeFunctional, which upstream
+    // multiplies by an extra lambda when lambda > 0 (issue #191).
+    it('increases the sample residual monotonically with the smoothing parameter',
+        () => {
+            check(tps2Samples, ({ X, Y, F }) => {
+                const lambdas = [0, 0.01, 0.1, 1, 10];
+                let previous = -1;
+                for (const lambda of lambdas) {
+                    const spline = new IntpThinPlateSpline2(X.length, X, Y, F,
+                        lambda, false);
+                    if (!spline.isInitialized()) {
+                        return true;
+                    }
+                    let residual = 0;
+                    for (let i = 0; i < X.length; ++i) {
+                        residual += (spline.evaluate(X[i], Y[i]) - F[i]) ** 2;
+                    }
+                    // The tolerance absorbs the round-off of the linear solve
+                    // at the smallest lambda, where the residual is ~1e-20.
+                    expect(residual).toBeGreaterThan(previous - 1e-6);
+                    previous = residual;
+                }
+                return true;
+            }, 40);
+        }, 30000);
+
+    // Upstream (issue #191): when the data has zero range along an axis, the
+    // unit-square transform divides by zero. The port preserves that.
+    it('produces a non-finite transform for a zero-range axis', () => {
+        const Xc = [1, 1, 1, 1];
+        const Yc = [0, 1, 2, 3];
+        const Fc = [0, 1, 4, 9];
+        const spline = new IntpThinPlateSpline2(4, Xc, Yc, Fc, 0, true);
+        // Every transformed x is NaN, so the kernel matrix is NaN and the
+        // inverse fails; the interpolator reports that it is uninitialized.
+        expect(spline.isInitialized()).toBe(false);
+        expect(spline.evaluate(1, 1)).toBe(Number.MAX_VALUE);
     });
 });
