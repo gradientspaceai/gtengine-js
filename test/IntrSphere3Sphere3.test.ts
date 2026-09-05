@@ -6,6 +6,12 @@ import {
     IntrSphere3Sphere3FI,
     IntrSphere3Sphere3FIResultType
 } from '../src/IntrSphere3Sphere3.js';
+import { length } from '../src/Vector.js';
+import { computeOrthogonalComplement3 } from '../src/Vector3.js';
+import {
+    check, expectClose, expectVectorClose, fc, latticeVector, positive,
+    rotationFrame, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function vec(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -244,5 +250,212 @@ describe('IntrSphere3Sphere3', () => {
 
         expect(circles).toBeGreaterThan(20);
         expect([tiFiMismatch, typeMismatch, circleMismatch]).toEqual([0, 0, 0]);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V32): properties cross-checking the port against upstream
+// IntrSphere3Sphere3.h.
+// ---------------------------------------------------------------------------
+
+describe('IntrSphere3Sphere3 verification', () => {
+    const ti = new IntrSphere3Sphere3TI();
+    const fi = new IntrSphere3Sphere3FI();
+    const T = IntrSphere3Sphere3FIResultType;
+
+    const arbSphere = fc.tuple(wellScaledVector(3, -5, 5), positive(4, 0.25))
+        .map(([c, r]) => Hypersphere.fromCenterRadius(c, r));
+    const arbPair = fc.tuple(arbSphere, arbSphere);
+
+    it('TI and FI agree on intersect', () => {
+        // Unlike IntrCircle2Circle2, this FI query reports the containment
+        // cases as intersections, so it agrees with the solid TI query for
+        // every configuration.
+        check(arbPair, ([s0, s1]) => {
+            expect(fi.find(s0, s1).intersect).toBe(ti.test(s0, s1).intersect);
+        });
+    });
+
+    it('the classification matches the squared-distance comparisons', () => {
+        check(arbPair, ([s0, s1]) => {
+            const diff = sub(s1.center, s0.center);
+            const sqrLen = dot(diff, diff);
+            const rSum = s0.radius + s1.radius;
+            const rDif = s0.radius - s1.radius;
+            const res = fi.find(s0, s1);
+            if (sqrLen > rSum * rSum) {
+                expect(res.type).toBe(T.separated);
+                expect(res.intersect).toBe(false);
+            }
+            else if (sqrLen === rSum * rSum) {
+                expect(res.type).toBe(T.touchingOutside);
+            }
+            else if (sqrLen < rDif * rDif) {
+                expect(res.type).toBe(rDif <= 0
+                    ? T.sphere0StrictlyInside : T.sphere1StrictlyInside);
+            }
+            else if (sqrLen === rDif * rDif) {
+                expect(res.type).toBe(rDif <= 0
+                    ? T.sphere0InsideTouching : T.sphere1InsideTouching);
+            }
+            else {
+                expect(res.type).toBe(T.circle);
+            }
+            expect(res.intersect).toBe(res.type !== T.separated);
+        });
+    });
+
+    it('the circle of intersection lies on both spheres', () => {
+        check(arbPair, ([s0, s1]) => {
+            const res = fi.find(s0, s1);
+            if (res.type !== T.circle) {
+                return;
+            }
+            expect(Number.isFinite(res.circle.radius)).toBe(true);
+            expect(res.circle.radius).toBeGreaterThanOrEqual(0);
+            // The normal is unit length and parallel to C1 - C0.
+            expectClose(length(res.circle.normal), 1, 1e-9, 1e-9);
+            const axis = sub(s1.center, s0.center);
+            const axisLen = length(axis);
+            expectClose(Math.abs(dot(res.circle.normal, axis)), axisLen,
+                1e-8, 1e-8);
+            // Build a frame in the plane of the circle and sample it. Every
+            // sampled point is on both spheres.
+            const basis = [res.circle.normal.clone(), Vector.zero(3),
+                Vector.zero(3)];
+            computeOrthogonalComplement3(1, basis);
+            const r0sqr = s0.radius * s0.radius;
+            const r1sqr = s1.radius * s1.radius;
+            for (let k = 0; k < 8; ++k) {
+                const a = (2 * Math.PI * k) / 8;
+                const p = add(res.circle.center,
+                    add(mul(res.circle.radius * Math.cos(a), basis[1]),
+                        mul(res.circle.radius * Math.sin(a), basis[2])));
+                const d0 = sub(p, s0.center), d1 = sub(p, s1.center);
+                expectClose(dot(d0, d0), r0sqr, 1e-7, 1e-7);
+                expectClose(dot(d1, d1), r1sqr, 1e-7, 1e-7);
+            }
+        });
+    });
+
+    it('is symmetric under swapping the spheres', () => {
+        check(arbPair, ([s0, s1]) => {
+            const a = fi.find(s0, s1), b = fi.find(s1, s0);
+            expect(b.intersect).toBe(a.intersect);
+            expect(ti.test(s1, s0).intersect).toBe(ti.test(s0, s1).intersect);
+            // The containment types exchange roles under the swap; the others
+            // are symmetric.
+            const swapType: Record<number, number> = {
+                [T.separated]: T.separated,
+                [T.touchingOutside]: T.touchingOutside,
+                [T.circle]: T.circle,
+                [T.sphere0StrictlyInside]: T.sphere1StrictlyInside,
+                [T.sphere1StrictlyInside]: T.sphere0StrictlyInside,
+                [T.sphere0InsideTouching]: T.sphere1InsideTouching,
+                [T.sphere1InsideTouching]: T.sphere0InsideTouching
+            };
+            // Equal radii make rDif zero, and upstream's 'rDif <= 0' test then
+            // picks the same branch for both argument orders, so the swapped
+            // type is the same rather than the exchanged one.
+            if (s0.radius !== s1.radius) {
+                expect(b.type).toBe(swapType[a.type]);
+            }
+            if (a.type === T.touchingOutside
+                || a.type === T.sphere0InsideTouching
+                || a.type === T.sphere1InsideTouching) {
+                expectVectorClose(b.point, a.point, 1e-8, 1e-8);
+            }
+            if (a.type === T.circle) {
+                expectVectorClose(b.circle.center, a.circle.center, 1e-7, 1e-7);
+                expectClose(b.circle.radius, a.circle.radius, 1e-7, 1e-7);
+            }
+        });
+    });
+
+    it('reports no NaN in any field', () => {
+        check(arbPair, ([s0, s1]) => {
+            const res = fi.find(s0, s1);
+            for (let i = 0; i < 3; ++i) {
+                expect(Number.isNaN(res.point.get(i))).toBe(false);
+                expect(Number.isNaN(res.circle.center.get(i))).toBe(false);
+                expect(Number.isNaN(res.circle.normal.get(i))).toBe(false);
+            }
+            expect(Number.isNaN(res.circle.radius)).toBe(false);
+        });
+    });
+
+    it('reports the true contact point for external tangency', () => {
+        // Exactly representable configurations so that sqrLen == rSumSqr.
+        check(fc.tuple(latticeVector(3, -5, 5), fc.integer({ min: 1, max: 4 }),
+            fc.integer({ min: 1, max: 4 })), ([c0, r0, r1]) => {
+            const s0 = Hypersphere.fromCenterRadius(c0, r0);
+            const s1 = Hypersphere.fromCenterRadius(
+                add(c0, vec(r0 + r1, 0, 0)), r1);
+            const res = fi.find(s0, s1);
+            expect(res.type).toBe(T.touchingOutside);
+            expect(res.intersect).toBe(true);
+            const expected = add(c0, vec(r0, 0, 0));
+            expectVectorClose(res.point, expected);
+            // The contact point is on both spheres.
+            const d0 = sub(res.point, s0.center), d1 = sub(res.point, s1.center);
+            expectClose(Math.sqrt(dot(d0, d0)), r0);
+            expectClose(Math.sqrt(dot(d1, d1)), r1);
+        });
+    });
+
+    it('reports the true contact point for internal tangency, not its'
+        + ' antipode (upstream-bug regression)', () => {
+        // Upstream computes C1 + r1 * normalize(C1 - C0) for the case
+        // "sphere0 inside sphere1", which is the antipode of the contact
+        // point. With sphere0 = ((2,0,0),1) inside sphere1 = ((0,0,0),3) the
+        // spheres touch at (3,0,0) but upstream reports (-3,0,0).
+        const s0 = sphere([2, 0, 0], 1);
+        const s1 = sphere([0, 0, 0], 3);
+        const res = fi.find(s0, s1);
+        expect(res.type).toBe(T.sphere0InsideTouching);
+        expectVectorClose(res.point, vec(3, 0, 0));
+
+        // The mirrored configuration exercises the 'sphere1 inside sphere0'
+        // branch, which upstream already computes correctly.
+        const res2 = fi.find(s1, s0);
+        expect(res2.type).toBe(T.sphere1InsideTouching);
+        expectVectorClose(res2.point, vec(3, 0, 0));
+    });
+
+    it('the internal-tangency contact point is on both spheres for random'
+        + ' lattice configurations', () => {
+        check(fc.tuple(latticeVector(3, -5, 5), fc.integer({ min: 1, max: 3 }),
+            fc.integer({ min: 4, max: 7 })), ([c0, r0, r1]) => {
+            // |C1 - C0| = r1 - r0 exactly, so sphere0 is inside sphere1 and
+            // they touch.
+            const s0 = Hypersphere.fromCenterRadius(c0, r0);
+            const s1 = Hypersphere.fromCenterRadius(
+                add(c0, vec(r1 - r0, 0, 0)), r1);
+            const res = fi.find(s0, s1);
+            expect(res.type).toBe(T.sphere0InsideTouching);
+            const d0 = sub(res.point, s0.center);
+            const d1 = sub(res.point, s1.center);
+            expectClose(Math.sqrt(dot(d0, d0)), r0, 1e-9, 1e-9);
+            expectClose(Math.sqrt(dot(d1, d1)), r1, 1e-9, 1e-9);
+        });
+    });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(arbPair, rotationFrame(3), wellScaledVector(3, -4, 4)),
+            ([[s0, s1], frame, shift]) => {
+                const rot = (v: Vector): Vector => Vector.fromArray([
+                    dot(frame[0], v), dot(frame[1], v), dot(frame[2], v)]);
+                const map = (v: Vector): Vector => add(rot(v), shift);
+                const a = fi.find(s0, s1);
+                const b = fi.find(
+                    Hypersphere.fromCenterRadius(map(s0.center), s0.radius),
+                    Hypersphere.fromCenterRadius(map(s1.center), s1.radius));
+                expect(b.intersect).toBe(a.intersect);
+                if (a.type === T.circle && b.type === T.circle) {
+                    expectVectorClose(b.circle.center, map(a.circle.center),
+                        1e-6, 1e-6);
+                    expectClose(b.circle.radius, a.circle.radius, 1e-6, 1e-6);
+                }
+            });
     });
 });
