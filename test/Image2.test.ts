@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Image2 } from '../src/Image2.js';
+import { check, fc } from './helpers/arbitraries.js';
 import { Image } from '../src/Image.js';
 
 describe('Image2', () => {
@@ -169,5 +170,167 @@ describe('Image2', () => {
             .toEqual([...nbr8].sort((a, b) => a - b));
         expect(image.getCornersCoords(x, y).map(toIndex)).toEqual(corners);
         expect(image.getFullCoords(x, y).map(toIndex)).toEqual(full);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V24): properties cross-checking the port against the
+// upstream Image2.h semantics.
+// ---------------------------------------------------------------------------
+
+describe('Image2 verification', () => {
+    const bounds = fc.tuple(fc.integer({ min: 1, max: 9 }), fc.integer({ min: 1, max: 9 }));
+
+    function filled(dim0: number, dim1: number): Image2<number> {
+        const image = new Image2<number>(dim0, dim1);
+        for (let i = 0; i < image.getNumPixels(); ++i) {
+            image.set(i, 1000 + i);
+        }
+        return image;
+    }
+
+    it('round trips every (x, y) through getIndex/getCoordinates', () => {
+        check(bounds, ([dim0, dim1]) => {
+            const image = new Image2<number>(dim0, dim1);
+            for (let y = 0; y < dim1; ++y) {
+                for (let x = 0; x < dim0; ++x) {
+                    const index = image.getIndex(x, y);
+                    expect(index).toBe(x + dim0 * y);
+                    expect(image.getCoordinates(index)).toEqual([x, y]);
+                    // The array overload and the inherited base-class
+                    // linearization must agree with the (x, y) overload.
+                    expect(image.getIndex([x, y])).toBe(index);
+                }
+            }
+            for (let i = 0; i < image.getNumPixels(); ++i) {
+                const [x, y] = image.getCoordinates(i);
+                expect(image.getIndex(x, y)).toBe(i);
+            }
+        });
+    });
+
+    it('the three get/set overloads address the same pixel', () => {
+        check(bounds, ([dim0, dim1]) => {
+            const image = filled(dim0, dim1);
+            for (let y = 0; y < dim1; ++y) {
+                for (let x = 0; x < dim0; ++x) {
+                    const i = x + dim0 * y;
+                    expect(image.get(x, y)).toBe(image.get(i));
+                    expect(image.get([x, y])).toBe(image.get(i));
+                    image.set(x, y, -i);
+                    expect(image.get(i)).toBe(-i);
+                    image.set([x, y], i);
+                    expect(image.get(i)).toBe(i);
+                    image.set(i, 2 * i);
+                    expect(image.get(x, y)).toBe(2 * i);
+                }
+            }
+        });
+    });
+
+    it('clamped (x, y) accessors clamp each coordinate independently', () => {
+        check(fc.tuple(bounds, fc.integer({ min: -4, max: 12 }), fc.integer({ min: -4, max: 12 })),
+            ([[dim0, dim1], x, y]) => {
+                const image = filled(dim0, dim1);
+                const cx = Math.min(Math.max(x, 0), dim0 - 1);
+                const cy = Math.min(Math.max(y, 0), dim1 - 1);
+                const expected = 1000 + cx + dim0 * cy;
+                expect(image.getClamped(x, y)).toBe(expected);
+                expect(image.getClamped([x, y])).toBe(expected);
+
+                image.setClamped(x, y, -1);
+                expect(image.get(cx, cy)).toBe(-1);
+                image.setClamped([x, y], -2);
+                expect(image.get(cx, cy)).toBe(-2);
+            });
+    });
+
+    it('relative neighborhood offsets equal the 2-tuple offsets linearized', () => {
+        check(bounds, ([dim0]) => {
+            const image = new Image2<number>(dim0, 5);
+            const linearize = (c: [number, number]) => c[0] + dim0 * c[1];
+            // The 4-neighborhood, corners and full neighborhood use the same
+            // ordering in both forms; the 8-neighborhood does not (upstream
+            // orders the 1-dimensional form with the 4-connected neighbors
+            // first and the 2-tuple form in row-major order), so only the
+            // sets are compared there.
+            expect(image.getNeighborhood4Coords().map(linearize))
+                .toEqual(image.getNeighborhood4());
+            expect(image.getCornersCoords().map(linearize)).toEqual(image.getCorners());
+            expect(image.getFullCoords().map(linearize)).toEqual(image.getFull());
+
+            const sorted = (a: number[]) => [...a].sort((p, q) => p - q);
+            expect(sorted(image.getNeighborhood8Coords().map(linearize)))
+                .toEqual(sorted(image.getNeighborhood8()));
+        });
+    });
+
+    it('absolute neighborhoods are the relative offsets added to getIndex(x, y)', () => {
+        check(fc.tuple(bounds, fc.nat({ max: 8 }), fc.nat({ max: 8 })),
+            ([[dim0, dim1], rx, ry]) => {
+                const image = new Image2<number>(dim0, dim1);
+                const x = rx % dim0, y = ry % dim1;
+                const index = image.getIndex(x, y);
+                const shift = (a: number[]) => a.map(v => v + index);
+                expect(image.getNeighborhood4(x, y)).toEqual(shift(image.getNeighborhood4()));
+                expect(image.getNeighborhood8(x, y)).toEqual(shift(image.getNeighborhood8()));
+                expect(image.getCorners(x, y)).toEqual(shift(image.getCorners()));
+                expect(image.getFull(x, y)).toEqual(shift(image.getFull()));
+
+                const offset = (a: [number, number][]) =>
+                    a.map(c => [c[0] + x, c[1] + y]);
+                expect(image.getNeighborhood4Coords(x, y))
+                    .toEqual(offset(image.getNeighborhood4Coords()));
+                expect(image.getNeighborhood8Coords(x, y))
+                    .toEqual(offset(image.getNeighborhood8Coords()));
+                expect(image.getCornersCoords(x, y))
+                    .toEqual(offset(image.getCornersCoords()));
+                expect(image.getFullCoords(x, y))
+                    .toEqual(offset(image.getFullCoords()));
+            });
+    });
+
+    it('2-tuple neighborhoods stay signed on the boundary (upstream #64)', () => {
+        // Upstream computes size_t(x) + inbr[i][0], which wraps to SIZE_MAX
+        // for x == 0; the port keeps signed numbers so the documented
+        // no-clamping behavior yields negative coordinates instead.
+        check(bounds, ([dim0, dim1]) => {
+            const image = new Image2<number>(dim0, dim1);
+            expect(image.getFullCoords(0, 0)[0]).toEqual([-1, -1]);
+            expect(image.getNeighborhood4Coords(0, 0)[0]).toEqual([-1, 0]);
+            expect(image.getNeighborhood8Coords(0, 0)[0]).toEqual([-1, -1]);
+            expect(image.getNeighborhood4(0, 0)[0]).toBe(-1);
+            expect(image.getFull(0, 0)[0]).toBe(-1 - dim0);
+        });
+    });
+
+    it('the full neighborhood is the 8-neighborhood plus the center', () => {
+        check(bounds, ([dim0]) => {
+            const image = new Image2<number>(dim0, 4);
+            const sorted = (a: number[]) => [...a].sort((p, q) => p - q);
+            expect(sorted(image.getFull()))
+                .toEqual(sorted([...image.getNeighborhood8(), 0]));
+            // Every offset in the full neighborhood is a distinct member of
+            // the 3x3 block centered at the pixel, in row-major order.
+            const brute: number[] = [];
+            for (let dy = -1; dy <= 1; ++dy) {
+                for (let dx = -1; dx <= 1; ++dx) {
+                    brute.push(dx + dim0 * dy);
+                }
+            }
+            expect(image.getFull()).toEqual(brute);
+        });
+    });
+
+    it('reconstruct(dim0, dim1) and reconstruct([dim0, dim1]) agree', () => {
+        check(fc.tuple(bounds, bounds), ([[a0, a1], [b0, b1]]) => {
+            const first = new Image2<number>(a0, a1);
+            const second = new Image2<number>(a0, a1);
+            first.reconstruct(b0, b1);
+            second.reconstruct([b0, b1]);
+            expect([...first.getDimensions()]).toEqual([...second.getDimensions()]);
+            expect(first.getNumPixels()).toBe(second.getNumPixels());
+            expect([...first.getOffsets()]).toEqual([1, b0]);
+        });
     });
 });
