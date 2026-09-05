@@ -35,6 +35,12 @@ in GitHub: one `verify-batch` issue and one PR per group in
      rational/exact) ported, and is the choice recorded?
    - the previous porter's "Upstream bug suspects" claims: re-derive them; a
      wrong "fix" is worse than a preserved quirk.
+   - duck-typed interfaces (mesh accessors, callbacks): confirm the intended
+     implementation has a member with the SAME NAME AND ARITY. TypeScript
+     accepts a lower-arity method where a higher-arity one is declared, so
+     `getIndices(t)` silently bound to `Delaunay2Mesh.getIndices()` and every
+     query used the first simplex (V29). Exercise the interface with the real
+     implementation in a test.
 3. **Property-based tests.** Add a `describe('<Name> verification', ...)`
    block to `test/<Name>.test.ts` using `test/helpers/arbitraries.ts`
    (fast-check). Aim for properties that would catch a translation error,
