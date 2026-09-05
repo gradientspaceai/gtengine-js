@@ -175,7 +175,9 @@ describe('IntrLine3Capsule3', () => {
                 }
             }
         }
-    });
+        // 120 trials x 20001 samples: deterministic but slow enough to
+        // exceed the 5 s default when the suite runs in parallel.
+    }, 30000);
 });
 
 describe('intrLine3Capsule3FIDoQuery', () => {
