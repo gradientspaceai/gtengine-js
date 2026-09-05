@@ -12,6 +12,9 @@ import { Ray } from '../src/Ray.js';
 import { Triangle } from '../src/Triangle.js';
 import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
 import { cross } from '../src/Vector3.js';
+import { length } from '../src/Vector.js';
+import { dotCross } from '../src/Vector3.js';
+import { check, expectVectorClose, fc, unitVector } from './helpers/arbitraries.js';
 
 const ti = new IntrRay3Triangle3TI();
 const fi = new IntrRay3Triangle3FI();
@@ -198,5 +201,142 @@ describe('IntrRay3Triangle3 consistency', () => {
             }
         }
         expect(hits).toBeGreaterThan(10);
+    });
+});
+
+describe('IntrRay3Triangle3 verification', () => {
+    // Integer data keeps every DotCross an exact small determinant, so the
+    // sign tests the query branches on are decided without round-off.
+    const latticeTri = fc.array(
+        fc.array(fc.integer({ min: -4, max: 4 }), { minLength: 3, maxLength: 3 }),
+        { minLength: 3, maxLength: 3 })
+        .map(vs => Triangle.fromVertices(Vector.fromArray(vs[0]),
+            Vector.fromArray(vs[1]), Vector.fromArray(vs[2])));
+    const latticeRay = fc.tuple(
+        fc.array(fc.integer({ min: -4, max: 4 }), { minLength: 3, maxLength: 3 }),
+        fc.array(fc.integer({ min: -3, max: 3 }), { minLength: 3, maxLength: 3 }))
+        .filter(([, d]) => d[0] !== 0 || d[1] !== 0 || d[2] !== 0)
+        .map(([p, d]) => Ray.fromOriginDirection(Vector.fromArray(p),
+            Vector.fromArray(d)));
+
+    it('TI and FI agree and match the exact sign classification', () => {
+        check(fc.tuple(latticeRay, latticeTri), ([r, t]) => {
+            const diff = sub(r.origin, t.v[0]);
+            const e1 = sub(t.v[1], t.v[0]);
+            const e2 = sub(t.v[2], t.v[0]);
+            const normal = cross(e1, e2);
+            const DdN = dot(r.direction, normal);
+            const sign = DdN > 0 ? 1 : (DdN < 0 ? -1 : 0);
+            let expected: boolean;
+            if (sign === 0) {
+                expected = false;
+            } else {
+                const b1 = sign * dotCross(r.direction, diff, e2);
+                const b2 = sign * dotCross(r.direction, e1, diff);
+                expected = b1 >= 0 && b2 >= 0 && b1 + b2 <= sign * DdN
+                    && -sign * dot(diff, normal) >= 0;
+            }
+            expect(ti.test(r, t).intersect).toBe(expected);
+            expect(fi.find(r, t).intersect).toBe(expected);
+        });
+    });
+
+    it('a ray hit is a line hit with a nonnegative parameter', () => {
+        check(fc.tuple(latticeRay, latticeTri), ([r, t]) => {
+            const l = Line.fromOriginDirection(r.origin, r.direction);
+            const lr = lineFI.find(l, t);
+            const rr = fi.find(r, t);
+            expect(lineTI.test(l, t).intersect).toBe(lr.intersect);
+            if (rr.intersect) {
+                expect(lr.intersect).toBe(true);
+                expect(rr.parameter).toBeGreaterThanOrEqual(0);
+                // The two queries divide by the same exact Dot(D,N).
+                expect(rr.parameter).toBeCloseTo(lr.parameter, 9);
+                expectVectorClose(rr.point, lr.point, 1e-11, 1e-11);
+                for (let i = 0; i < 3; ++i) {
+                    expect(rr.triangleBary[i])
+                        .toBeCloseTo(lr.triangleBary[i], 9);
+                }
+            } else if (lr.intersect) {
+                expect(lr.parameter).toBeLessThan(0);
+            }
+        });
+    });
+
+    it('the barycentric coordinates reconstruct the reported point', () => {
+        check(fc.tuple(latticeRay, latticeTri), ([r, t]) => {
+            const res = fi.find(r, t);
+            if (!res.intersect) {
+                return;
+            }
+            const [b0, b1, b2] = res.triangleBary;
+            expect(Number.isFinite(res.parameter)).toBe(true);
+            expect(b0 + b1 + b2).toBeCloseTo(1, 12);
+            expect(b1).toBeGreaterThanOrEqual(0);
+            expect(b2).toBeGreaterThanOrEqual(0);
+            expect(b0).toBeGreaterThanOrEqual(-1e-12);
+            expectVectorClose(res.point,
+                add(r.origin, mul(res.parameter, r.direction)), 0, 0);
+            const fromBary = add(add(mul(b0, t.v[0]), mul(b1, t.v[1])),
+                mul(b2, t.v[2]));
+            const scale = 1 + length(t.v[0]) + length(t.v[1]) + length(t.v[2])
+                + Math.abs(res.parameter);
+            expect(length(sub(res.point, fromBary)))
+                .toBeLessThanOrEqual(1e-11 * scale);
+        });
+    });
+
+    it('a ray fired at a sampled interior point hits, and its reverse misses', () => {
+        const rnd = makeRandom(0x71ab04);
+        check(fc.tuple(latticeTri, unitVector(3)), ([t, d]) => {
+            const n = cross(sub(t.v[1], t.v[0]), sub(t.v[2], t.v[0]));
+            if (length(n) < 1) {
+                return;    // degenerate lattice triangle
+            }
+            normalize(n);
+            if (Math.abs(dot(d, n)) < 1e-2) {
+                return;
+            }
+            let a = rnd(), b = rnd();
+            if (a + b > 1) {
+                a = 1 - a; b = 1 - b;
+            }
+            a = 0.05 + 0.9 * a;
+            b = 0.05 + 0.9 * b;
+            if (a + b > 0.95) {
+                return;
+            }
+            const target = add(add(mul(1 - a - b, t.v[0]), mul(a, t.v[1])),
+                mul(b, t.v[2]));
+            const origin = sub(target, mul(4, d));
+            const hit = fi.find(Ray.fromOriginDirection(origin, d), t);
+            expect(hit.intersect).toBe(true);
+            expect(hit.parameter).toBeGreaterThan(0);
+            const scale = 1 + length(target);
+            expect(length(sub(hit.point, target)))
+                .toBeLessThanOrEqual(1e-9 * scale);
+            // Firing away from the triangle must miss.
+            expect(fi.find(Ray.fromOriginDirection(origin, mul(-1, d)), t)
+                .intersect).toBe(false);
+        });
+    });
+
+    it('a ray whose origin is on the triangle hits at parameter zero', () => {
+        const origin = v3(0.25, 0.25, 0);
+        for (const d of [v3(0, 0, 1), v3(0, 0, -1), v3(1, 1, 1)]) {
+            const r = fi.find(makeRay(origin, d), unitTriangle);
+            expect(r.intersect).toBe(true);
+            expect(r.parameter).toBeCloseTo(0, 12);
+            expectVectorClose(r.point, origin, 1e-12, 1e-12);
+        }
+    });
+
+    it('a ray in the plane of the triangle reports no intersection', () => {
+        const r = makeRay(v3(-5, 0.25, 0), v3(1, 0, 0));
+        expect(ti.test(r, unitTriangle).intersect).toBe(false);
+        const res = fi.find(r, unitTriangle);
+        expect(res.intersect).toBe(false);
+        expect(res.parameter).toBe(0);
+        expect(res.triangleBary).toEqual([0, 0, 0]);
     });
 });
