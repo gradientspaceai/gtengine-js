@@ -27,8 +27,12 @@ export class Array2<T> {
 
     // Construction. When 'objects' is provided, the flat array (of length
     // bound0 * bound1, in lexicographical order) is owned by the caller and
-    // aliased. Otherwise storage is allocated and left uninitialized as
-    // upstream does for native types; use fill() or set() before get().
+    // aliased. Otherwise storage is allocated as a sparse array (holes read
+    // as undefined). NOTE: upstream's owning constructor value-initializes a
+    // std::vector<T>, which zero-fills numeric T; the generic port cannot
+    // choose a zero for arbitrary T, so callers must fill() or set() before
+    // get() (accumulating with += on a fresh array yields NaN, see
+    // IntpAkimaUniform3).
     constructor(bound0: number = 0, bound1: number = 0, objects?: T[]) {
         this.mBound0 = bound0;
         this.mBound1 = bound1;
