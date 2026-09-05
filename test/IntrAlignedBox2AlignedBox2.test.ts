@@ -5,6 +5,7 @@ import {
     IntrAlignedBox2AlignedBox2TI,
     IntrAlignedBox2AlignedBox2FI
 } from '../src/IntrAlignedBox2AlignedBox2.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 function box(minX: number, minY: number, maxX: number, maxY: number): AlignedBox {
     return AlignedBox.fromMinMax(Vector.fromArray([minX, minY]),
@@ -128,5 +129,110 @@ describe('IntrAlignedBox2AlignedBox2', () => {
         }
         expect(numIntersect).toBeGreaterThan(0);
         expect(numSeparate).toBeGreaterThan(0);
+    });
+});
+
+describe('IntrAlignedBox2AlignedBox2 verification', () => {
+    // Integer-cornered boxes: every comparison in the query is exact, and the
+    // brute-force lattice sweep below sees the touching configurations that
+    // decide the closed-box convention.
+    const latticeBox2 = fc.tuple(fc.integer({ min: -4, max: 4 }),
+        fc.integer({ min: -4, max: 4 }), fc.integer({ min: 0, max: 5 }),
+        fc.integer({ min: 0, max: 5 }))
+        .map(([x, y, w, h]) => box(x, y, x + w, y + h));
+
+    const ti2 = new IntrAlignedBox2AlignedBox2TI();
+    const fi2 = new IntrAlignedBox2AlignedBox2FI();
+
+    it('TI agrees with FI and with the exact per-axis overlap test', () => {
+        check(fc.tuple(latticeBox2, latticeBox2), ([b0, b1]) => {
+            const t = ti2.test(b0, b1).intersect;
+            const f = fi2.find(b0, b1);
+            expect(f.intersect).toBe(t);
+
+            let expected = true;
+            for (let i = 0; i < 2; ++i) {
+                if (b0.max.get(i) < b1.min.get(i) ||
+                    b0.min.get(i) > b1.max.get(i)) {
+                    expected = false;
+                }
+            }
+            expect(t).toBe(expected);
+
+            if (f.intersect) {
+                for (let i = 0; i < 2; ++i) {
+                    expect(f.box.min.get(i))
+                        .toBe(Math.max(b0.min.get(i), b1.min.get(i)));
+                    expect(f.box.max.get(i))
+                        .toBe(Math.min(b0.max.get(i), b1.max.get(i)));
+                    expect(f.box.min.get(i))
+                        .toBeLessThanOrEqual(f.box.max.get(i));
+                }
+            }
+        });
+    });
+
+    it('is symmetric under argument swap', () => {
+        check(fc.tuple(latticeBox2, latticeBox2), ([b0, b1]) => {
+            expect(ti2.test(b1, b0).intersect).toBe(ti2.test(b0, b1).intersect);
+            const a = fi2.find(b0, b1);
+            const b = fi2.find(b1, b0);
+            expect(b.intersect).toBe(a.intersect);
+            if (a.intersect) {
+                for (let i = 0; i < 2; ++i) {
+                    expect(b.box.min.get(i)).toBe(a.box.min.get(i));
+                    expect(b.box.max.get(i)).toBe(a.box.max.get(i));
+                }
+            }
+        });
+    });
+
+    it('the FI box is exactly the set of lattice points common to both boxes', () => {
+        check(fc.tuple(latticeBox2, latticeBox2), ([b0, b1]) => {
+            const f = fi2.find(b0, b1);
+            const inside = (b: AlignedBox, p: number[]): boolean =>
+                p[0] >= b.min.get(0) && p[0] <= b.max.get(0) &&
+                p[1] >= b.min.get(1) && p[1] <= b.max.get(1);
+            let common = 0;
+            for (let x = -10; x <= 10; ++x) {
+                for (let y = -10; y <= 10; ++y) {
+                    const p = [x, y];
+                    const both = inside(b0, p) && inside(b1, p);
+                    if (both) {
+                        ++common;
+                        expect(f.intersect).toBe(true);
+                        expect(inside(f.box, p)).toBe(true);
+                    }
+                    if (f.intersect && inside(f.box, p)) {
+                        expect(both).toBe(true);
+                    }
+                }
+            }
+            // A common lattice point implies intersection, but the converse
+            // needs no lattice witness (boxes can share only a sliver), so
+            // 'common' is allowed to be zero here.
+            expect(common).toBeGreaterThanOrEqual(0);
+        }, 60);
+    });
+
+    it('degenerate (zero-extent) boxes follow the closed-solid convention', () => {
+        // A degenerate box is a point/segment; touching still counts.
+        const pt = box(1, 1, 1, 1);
+        expect(ti2.test(pt, box(0, 0, 2, 2)).intersect).toBe(true);
+        expect(ti2.test(pt, box(1, 1, 3, 3)).intersect).toBe(true);
+        expect(ti2.test(pt, box(2, 2, 3, 3)).intersect).toBe(false);
+        const f = fi2.find(pt, box(1, 1, 3, 3));
+        expect(f.intersect).toBe(true);
+        expect(f.box.min.values).toEqual([1, 1]);
+        expect(f.box.max.values).toEqual([1, 1]);
+    });
+
+    it('a separated FI result leaves the default box untouched', () => {
+        const f = fi2.find(box(0, 0, 1, 1), box(5, 5, 6, 6));
+        expect(f.intersect).toBe(false);
+        // The port mirrors the upstream value-initialized AlignedBox, whose
+        // default constructor is min = -1 and max = +1 in each dimension.
+        expect(f.box.min.values).toEqual([-1, -1]);
+        expect(f.box.max.values).toEqual([1, 1]);
     });
 });

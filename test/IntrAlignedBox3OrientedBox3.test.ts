@@ -3,6 +3,8 @@ import { AlignedBox } from '../src/AlignedBox.js';
 import { OrientedBox } from '../src/OrientedBox.js';
 import { Vector } from '../src/Vector.js';
 import { IntrAlignedBox3OrientedBox3TI } from '../src/IntrAlignedBox3OrientedBox3.js';
+import { IntrOrientedBox3OrientedBox3TI } from '../src/IntrOrientedBox3OrientedBox3.js';
+import { check, fc, positive, rotationFrame, seededRandom, wellScaled } from './helpers/arbitraries.js';
 
 function alignedBox(min: number[], max: number[]): AlignedBox {
     return AlignedBox.fromMinMax(Vector.fromArray(min), Vector.fromArray(max));
@@ -213,5 +215,131 @@ describe('IntrAlignedBox3OrientedBox3', () => {
         }
         expect(numIntersect).toBeGreaterThan(20);
         expect(numSeparate).toBeGreaterThan(20);
+    });
+});
+
+describe('IntrAlignedBox3OrientedBox3 verification', () => {
+    const query = new IntrAlignedBox3OrientedBox3TI();
+    const obbQuery = new IntrOrientedBox3OrientedBox3TI();
+
+    const boxArb = fc.tuple(
+        fc.array(wellScaled(-4, 4), { minLength: 3, maxLength: 3 }),
+        fc.array(positive(4), { minLength: 3, maxLength: 3 }))
+        .map(([lo, ext]) => alignedBox(lo,
+            [lo[0] + ext[0], lo[1] + ext[1], lo[2] + ext[2]]));
+
+    const obbArb = fc.tuple(
+        fc.array(wellScaled(-4, 4), { minLength: 3, maxLength: 3 }),
+        rotationFrame(3),
+        fc.array(positive(3), { minLength: 3, maxLength: 3 }))
+        .map(([c, axes, ext]) => orientedBox(c, axes, ext));
+
+    // The aligned box in centered form, as an oriented box with the standard
+    // axes. The dot products of the standard axes with anything are exact, so
+    // both queries evaluate bit-identical expressions.
+    function asOriented(box: AlignedBox): OrientedBox {
+        const { center, extent } = box.getCenteredForm();
+        return OrientedBox.fromCenterAxisExtent(center,
+            [Vector.fromArray([1, 0, 0]), Vector.fromArray([0, 1, 0]),
+                Vector.fromArray([0, 0, 1])], extent);
+    }
+
+    it('agrees with the oriented-oriented query on the same boxes', () => {
+        check(fc.tuple(boxArb, obbArb), ([box0, box1]) => {
+            const a = query.test(box0, box1);
+            const b = obbQuery.test(asOriented(box0), box1);
+            expect(a.intersect).toBe(b.intersect);
+        });
+    });
+
+    it('the reported separating axis really separates the two boxes', () => {
+        check(fc.tuple(boxArb, obbArb), ([box0, box1]) => {
+            const r = query.test(box0, box1);
+            if (r.intersect) {
+                return;
+            }
+            const unit = (i: number): number[] =>
+                [i === 0 ? 1 : 0, i === 1 ? 1 : 0, i === 2 ? 1 : 0];
+            const [i0, i1] = r.separating;
+            let axis: number[];
+            if (i1 < 0) {
+                axis = unit(i0);
+            } else if (i0 < 0) {
+                axis = [...box1.axis[i1].values];
+            } else {
+                const e = unit(i0), u = box1.axis[i1].values;
+                axis = [e[1] * u[2] - e[2] * u[1], e[2] * u[0] - e[0] * u[2],
+                    e[0] * u[1] - e[1] * u[0]];
+            }
+            const len = Math.hypot(axis[0], axis[1], axis[2]);
+            if (len < 1e-8) {
+                // A degenerate edge-edge axis carries no information; the
+                // query cannot report separation on it (both sides are zero).
+                return;
+            }
+            const c0 = supportAligned(box0, axis);
+            const c0n = -supportAligned(box0, [-axis[0], -axis[1], -axis[2]]);
+            const c1 = supportOriented(box1, axis);
+            const c1n = -supportOriented(box1, [-axis[0], -axis[1], -axis[2]]);
+            const scale = 1 + Math.abs(c0) + Math.abs(c0n) + Math.abs(c1)
+                + Math.abs(c1n);
+            const tol = 1e-11 * scale;
+            expect(c0 < c1n + tol || c1 < c0n + tol).toBe(true);
+        });
+    });
+
+    it('a point common to both boxes forces intersect = true', () => {
+        const rnd = seededRandom(0x1d3a77);
+        check(fc.tuple(boxArb, obbArb), ([box0, box1]) => {
+            const r = query.test(box0, box1);
+            if (r.intersect) {
+                return;
+            }
+            const c = box1.center.values;
+            const e = box1.extent.values;
+            for (let k = 0; k < 150; ++k) {
+                const s = [(2 * rnd() - 1) * e[0], (2 * rnd() - 1) * e[1],
+                    (2 * rnd() - 1) * e[2]];
+                let inside = true;
+                for (let d = 0; d < 3; ++d) {
+                    const p = c[d] + s[0] * box1.axis[0].values[d]
+                        + s[1] * box1.axis[1].values[d]
+                        + s[2] * box1.axis[2].values[d];
+                    if (p < box0.min.values[d] || p > box0.max.values[d]) {
+                        inside = false;
+                        break;
+                    }
+                }
+                expect(inside).toBe(false);
+            }
+        }, 50);
+    }, 30000);
+
+    it('a negative epsilon is clamped to zero', () => {
+        // The classic edge-edge separation: with epsilon = 0 the edge-edge
+        // axes are tested, and a negative epsilon must behave the same way.
+        const b0 = alignedBox([-1, -1, -0.1], [1, 1, 0.1]);
+        const axes = rotationAxes(0, 0, Math.PI / 4);
+        const box1 = orientedBox([0, 0, 0.3], axes, [1, 1, 0.1]);
+        const withZero = query.test(b0, box1, 0);
+        expect(query.test(b0, box1, -1).intersect).toBe(withZero.intersect);
+        expect(query.test(b0, box1, -1e-8).intersect).toBe(withZero.intersect);
+    });
+
+    it('a large epsilon skips the edge-edge axes and never reports separation there', () => {
+        const rnd = seededRandom(0x9e3779b);
+        for (let trial = 0; trial < 400; ++trial) {
+            const b0 = alignedBox([-1, -1, -1], [1, 1, 1]);
+            const axes = rotationAxes(2 * rnd(), 2 * rnd(), 2 * rnd());
+            const box1 = orientedBox(
+                [6 * rnd() - 3, 6 * rnd() - 3, 6 * rnd() - 3], axes,
+                [1 + rnd(), 1 + rnd(), 1 + rnd()]);
+            const r = query.test(b0, box1, 2);
+            if (!r.intersect) {
+                // epsilon = 2 makes the cutoff -1, so every pair counts as
+                // parallel and only the six face normals can separate.
+                expect(r.separating[0] < 0 || r.separating[1] < 0).toBe(true);
+            }
+        }
     });
 });

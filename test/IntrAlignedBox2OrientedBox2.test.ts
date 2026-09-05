@@ -3,6 +3,8 @@ import { AlignedBox } from '../src/AlignedBox.js';
 import { OrientedBox } from '../src/OrientedBox.js';
 import { Vector } from '../src/Vector.js';
 import { IntrAlignedBox2OrientedBox2TI } from '../src/IntrAlignedBox2OrientedBox2.js';
+import { IntrOrientedBox2OrientedBox2TI } from '../src/IntrOrientedBox2OrientedBox2.js';
+import { check, fc, positive, seededRandom, wellScaled } from './helpers/arbitraries.js';
 
 function alignedBox(minX: number, minY: number, maxX: number, maxY: number): AlignedBox {
     return AlignedBox.fromMinMax(Vector.fromArray([minX, minY]),
@@ -161,5 +163,102 @@ describe('IntrAlignedBox2OrientedBox2', () => {
         expect(numIntersect).toBeGreaterThan(100);
         expect(numSeparate).toBeGreaterThan(100);
         expect(numSkipped).toBeLessThan(20);
+    });
+});
+
+describe('IntrAlignedBox2OrientedBox2 verification', () => {
+    const query = new IntrAlignedBox2OrientedBox2TI();
+    const obbQuery = new IntrOrientedBox2OrientedBox2TI();
+
+    const boxArb = fc.tuple(wellScaled(-4, 4), wellScaled(-4, 4),
+        positive(4), positive(4))
+        .map(([x, y, w, h]) => alignedBox(x, y, x + w, y + h));
+
+    const obbArb = fc.tuple(wellScaled(-4, 4), wellScaled(-4, 4),
+        wellScaled(-Math.PI, Math.PI), positive(3), positive(3))
+        .map(([cx, cy, a, e0, e1]) => orientedBox(cx, cy, a, e0, e1));
+
+    // The aligned box in centered form, as an oriented box with the standard
+    // axes. Every product the two queries form is then bit-identical, so the
+    // cross-check below is an exact equality.
+    function asOriented(box: AlignedBox): OrientedBox {
+        const { center, extent } = box.getCenteredForm();
+        return OrientedBox.fromCenterAxisExtent(center,
+            [Vector.fromArray([1, 0]), Vector.fromArray([0, 1])], extent);
+    }
+
+    it('agrees with the oriented-oriented query on the same boxes', () => {
+        check(fc.tuple(boxArb, obbArb), ([box0, box1]) => {
+            const a = query.test(box0, box1);
+            const b = obbQuery.test(asOriented(box0), box1);
+            expect(a.intersect).toBe(b.intersect);
+            if (!a.intersect) {
+                expect(a.separating).toBe(b.separating);
+            }
+        });
+    });
+
+    it('the reported separating axis really separates the two boxes', () => {
+        check(fc.tuple(boxArb, obbArb), ([box0, box1]) => {
+            const r = query.test(box0, box1);
+            if (r.intersect) {
+                return;
+            }
+            const axis = r.separating < 2
+                ? Vector.fromArray(r.separating === 0 ? [1, 0] : [0, 1])
+                : box1.axis[r.separating - 2];
+            const project = (vs: Vector[]): [number, number] => {
+                let lo = Infinity, hi = -Infinity;
+                for (const v of vs) {
+                    const d = v.values[0] * axis.values[0]
+                        + v.values[1] * axis.values[1];
+                    lo = Math.min(lo, d);
+                    hi = Math.max(hi, d);
+                }
+                return [lo, hi];
+            };
+            const p0 = project(box0.getVertices());
+            const p1 = project(box1.getVertices());
+            // The query uses a strict '>' on the radius sum, so a reported
+            // separation must be a strict gap. The projections are formed
+            // from the same inputs by a different route, so a relative
+            // tolerance of 1e-12 absorbs the reassociation only.
+            const tol = 1e-12 * (1 + Math.abs(p0[0]) + Math.abs(p0[1])
+                + Math.abs(p1[0]) + Math.abs(p1[1]));
+            expect(p0[1] < p1[0] + tol || p1[1] < p0[0] + tol).toBe(true);
+        });
+    });
+
+    it('a point common to both boxes forces intersect = true', () => {
+        const rnd = seededRandom(0x5ab21c9);
+        check(fc.tuple(boxArb, obbArb), ([box0, box1]) => {
+            const r = query.test(box0, box1);
+            if (r.intersect) {
+                return;
+            }
+            // Sample the oriented box and test containment in the aligned box.
+            const c = box1.center.values;
+            const u0 = box1.axis[0].values, u1 = box1.axis[1].values;
+            const e = box1.extent.values;
+            for (let k = 0; k < 200; ++k) {
+                const s0 = (2 * rnd() - 1) * e[0];
+                const s1 = (2 * rnd() - 1) * e[1];
+                const px = c[0] + s0 * u0[0] + s1 * u1[0];
+                const py = c[1] + s0 * u0[1] + s1 * u1[1];
+                const inside = px >= box0.min.values[0] && px <= box0.max.values[0]
+                    && py >= box0.min.values[1] && py <= box0.max.values[1];
+                expect(inside).toBe(false);
+            }
+        }, 60);
+    }, 30000);
+
+    it('an axis-aligned oriented box reduces to the aligned-aligned query', () => {
+        const b0 = alignedBox(0, 0, 2, 2);
+        // Zero rotation: the oriented box has the standard axes.
+        expect(query.test(b0, orientedBox(3, 1, 0, 1, 1)).intersect).toBe(true);
+        expect(query.test(b0, orientedBox(3.5, 1, 0, 1, 1)).intersect).toBe(false);
+        // Touching along a face is an intersection (closed solids).
+        const touch = query.test(b0, orientedBox(3, 1, 0, 1, 1));
+        expect(touch.intersect).toBe(true);
     });
 });
