@@ -4,6 +4,10 @@ import { DistAlignedBox3OrientedBox3 } from '../src/DistAlignedBox3OrientedBox3.
 import { DistOrientedBox3OrientedBox3 } from '../src/DistOrientedBox3OrientedBox3.js';
 import { OrientedBox } from '../src/OrientedBox.js';
 import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, rotationFrame,
+    seededRandom, wellScaledVector
+} from './helpers/arbitraries.js';
 import { cross } from '../src/Vector3.js';
 
 function v(x: number, y: number, z: number): Vector {
@@ -168,5 +172,127 @@ describe('DistAlignedBox3OrientedBox3', () => {
         expect(result.closest[1].values[0]).toBeCloseTo(1, 12);
         expect(result.closest[1].values[1]).toBeCloseTo(1, 12);
         expect(result.closest[1].values[2]).toBeCloseTo(1, 12);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (see VERIFYING.md): property-based cross-checks of the
+// port against upstream DistAlignedBox3OrientedBox3.h.
+// ---------------------------------------------------------------------------
+
+describe('DistAlignedBox3OrientedBox3 verification', () => {
+    const query = new DistAlignedBox3OrientedBox3();
+    const bbQuery = new DistOrientedBox3OrientedBox3();
+
+    const abArb = fc.tuple(wellScaledVector(3, -4, 4),
+        fc.array(finite(0.05, 3), { minLength: 3, maxLength: 3 }))
+        .map(([c, e]) => AlignedBox.fromMinMax(
+            v(c.values[0] - e[0], c.values[1] - e[1], c.values[2] - e[2]),
+            v(c.values[0] + e[0], c.values[1] + e[1], c.values[2] + e[2])));
+
+    const obArb = fc.tuple(wellScaledVector(3, -5, 5), rotationFrame(3),
+        fc.array(finite(0.05, 3), { minLength: 3, maxLength: 3 }))
+        .map(([c, R, e]) => OrientedBox.fromCenterAxisExtent(c, R,
+            Vector.fromArray([e[0], e[1], e[2]])));
+
+    it('reports consistent distances and in-box closest points', () => {
+        check(fc.tuple(abArb, obArb), ([a, b]) => {
+            const r = query.compute(a, b);
+            expectClose(r.sqrDistance, r.distance * r.distance, 1e-12, 1e-12);
+            // The absolute tolerance is 1e-6: these queries accumulate the
+            // squared distance while clamping to faces and edges, so a
+            // near-touching configuration loses about half the mantissa and
+            // the distance carries an absolute error of order sqrt(eps)
+            // times the coordinate scale. A translation or frame error
+            // would show up as an O(1) discrepancy.
+            expectClose(length(sub(r.closest[0], r.closest[1])), r.distance,
+                1e-6, 1e-8);
+            for (let i = 0; i < 3; ++i) {
+                expect(r.closest[0].values[i])
+                    .toBeGreaterThanOrEqual(a.min.values[i] - 1e-8);
+                expect(r.closest[0].values[i])
+                    .toBeLessThanOrEqual(a.max.values[i] + 1e-8);
+            }
+            const d = sub(r.closest[1], b.center);
+            for (let i = 0; i < 3; ++i) {
+                expect(Math.abs(dot(b.axis[i], d)))
+                    .toBeLessThanOrEqual(b.extent.values[i] + 1e-8);
+            }
+        });
+    });
+
+    // The upstream body converts the aligned box to an identity-framed
+    // oriented box with center (max+min)/2 and extent (max-min)/2 and
+    // delegates. A swapped center/extent or a wrong factor breaks this.
+    it('is the box-box query on the centered form of the aligned box', () => {
+        const axes = [v(1, 0, 0), v(0, 1, 0), v(0, 0, 1)];
+        check(fc.tuple(abArb, obArb), ([a, b]) => {
+            const cf = a.getCenteredForm();
+            const ob = OrientedBox.fromCenterAxisExtent(cf.center, axes,
+                cf.extent);
+            const r0 = query.compute(a, b);
+            const r1 = bbQuery.compute(ob, b);
+            expectClose(r0.distance, r1.distance, 1e-12, 1e-12);
+            expectVectorClose(r0.closest[0], r1.closest[0], 1e-12, 1e-12);
+            expectVectorClose(r0.closest[1], r1.closest[1], 1e-12, 1e-12);
+        });
+    });
+
+    // With an identity frame on the oriented box the answer is the Euclidean
+    // norm of the per-axis interval gaps.
+    it('matches the interval-gap formula for an identity oriented frame',
+        () => {
+            const axes = [v(1, 0, 0), v(0, 1, 0), v(0, 0, 1)];
+            check(fc.tuple(abArb, wellScaledVector(3, -5, 5),
+                fc.array(finite(0.05, 3), { minLength: 3, maxLength: 3 })),
+                ([a, c, e]) => {
+                    const b = OrientedBox.fromCenterAxisExtent(c, axes,
+                        Vector.fromArray(e));
+                    let sqr = 0;
+                    for (let i = 0; i < 3; ++i) {
+                        const lo = Math.max(a.min.values[i],
+                            c.values[i] - e[i]);
+                        const hi = Math.min(a.max.values[i],
+                            c.values[i] + e[i]);
+                        if (lo > hi) { sqr += (lo - hi) * (lo - hi); }
+                    }
+                    const r = query.compute(a, b);
+                    expectClose(r.distance, Math.sqrt(sqr), 1e-8, 1e-8);
+                });
+        });
+
+    it('never exceeds a face sampling of the aligned box', () => {
+        const rng = seededRandom(0x4d1c3b7a);
+        for (let k = 0; k < 20; ++k) {
+            const c = v(6 * rng() - 3, 6 * rng() - 3, 6 * rng() - 3);
+            const e = v(0.3 + rng(), 0.3 + rng(), 0.3 + rng());
+            const a = AlignedBox.fromMinMax(sub(c, e), add(c, e));
+            const w = v(rng() - 0.5, rng() - 0.5, rng() - 0.5);
+            normalize(w);
+            const f = frame(w);
+            const b = OrientedBox.fromCenterAxisExtent(
+                v(6 * rng() - 3, 6 * rng() - 3, 6 * rng() - 3),
+                [f[0], f[1], f[2]],
+                v(0.3 + rng(), 0.3 + rng(), 0.3 + rng()));
+            expect(query.compute(a, b).distance)
+                .toBeLessThanOrEqual(bruteForce(a, b, 24) + 1e-9);
+        }
+    }, 30000);
+
+    it('is invariant under a common translation', () => {
+        check(fc.tuple(abArb, obArb, wellScaledVector(3, -5, 5)),
+            ([a, b, t]) => {
+                const r0 = query.compute(a, b);
+                const r1 = query.compute(
+                    AlignedBox.fromMinMax(add(a.min, t), add(a.max, t)),
+                    OrientedBox.fromCenterAxisExtent(add(b.center, t), b.axis,
+                        b.extent));
+                // Only the distance is compared: when the boxes touch or
+                // overlap there are many equidistant pairs and the two runs
+                // may name different representatives.
+                expectClose(r0.distance, r1.distance, 1e-8, 1e-8);
+                expectClose(length(sub(r1.closest[0], r1.closest[1])),
+                    r0.distance, 1e-7, 1e-7);
+            });
     });
 });

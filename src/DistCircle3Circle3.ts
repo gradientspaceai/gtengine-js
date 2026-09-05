@@ -15,15 +15,35 @@
 // - Upstream builds the polynomials with 'Polynomial1<Rational>', where
 //   Rational is BSRational<UIntegerAP32>. The port's Polynomial1 is
 //   number-valued only, so the small set of rational polynomial operations
-//   needed here (add, subtract, multiply, scalar multiply, evaluate) is
-//   implemented as module-private functions on BSRational[] coefficient
-//   arrays, listed in increasing order of power. The behavior matches
-//   Polynomial1: addition and subtraction eliminate high-order zero
-//   coefficients, multiplication does not.
+//   needed here (add, subtract, multiply, scalar multiply) is implemented as
+//   module-private functions on BSRational[] coefficient arrays, listed in
+//   increasing order of power. The behavior matches Polynomial1: addition
+//   and subtraction eliminate high-order zero coefficients, multiplication
+//   does not.
 // - The private class SCPolynomial in the upstream header is dead code (no
 //   member of the class references it), so it is not ported.
 // - The private helpers PrepareCircles and DoQueryParallelPlanes become
 //   module-private functions.
+//
+// Upstream defects fixed here, each explained at the site and covered by a
+// regression test in test/DistCircle3Circle3.test.ts:
+//  1. PrepareCircles fails to align anti-parallel normals that are
+//     orthogonal to the z-axis, so circles in parallel planes are answered
+//     by the general polynomial path and get the wrong distance.
+//  2. sn = -p6(cs)/p7(cs) is only on the unit circle for an exact root of
+//     phi, so the reported closest point can be off its circle and the
+//     distance below the true minimum. Both signs of sqrt(1 - cs^2) are used
+//     instead.
+//  3. For concentric and coaxial circles phi and p6 are perfect squares and
+//     the sign-change bisection finds no roots at all; upstream then reports
+//     distance 0 with the closest points at the shared axis point.
+//  4. p6 and p7 vanish identically for coaxial circles in parallel planes
+//     and for a zero-radius circle on the other circle's axis; upstream
+//     reports an assertion instead of the answer.
+// Two further upstream quirks are preserved: the result reports at most two
+// closest pairs even when more exist, and PrepareCircles divides by an
+// underflowed length when the transformed circle0 center has subnormal x-
+// and y-components.
 
 import { AxisAngle } from './AxisAngle.js';
 import { BSRational } from './BSRational.js';
@@ -125,15 +145,6 @@ function rpScale(scalar: BSRational, p: RPoly): RPoly {
     return p.map(c => scalar.mul(c));
 }
 
-// Horner's method (the port of Polynomial1::operator()).
-function rpEval(p: RPoly, x: BSRational): BSRational {
-    let result = p[p.length - 1];
-    for (let i = p.length - 2; i >= 0; --i) {
-        result = result.mul(x).add(p[i]);
-    }
-    return result;
-}
-
 // The polynomial is identically zero. This is the port of the upstream test
 // '!(poly.GetDegree() > 0 || poly[0].GetSign() != 0)'.
 function rpIsZero(p: RPoly): boolean {
@@ -213,6 +224,25 @@ function prepareCircles(inCircle0: Circle3, inCircle1: Circle3): {
     circle0.center = add(circle0.center, translate);
     circle0.center = mul(scale, mulMatrix(rotate, circle0.center) as Vector);
     circle0.normal = mulMatrix(rotate, circle0.normal) as Vector;
+
+    // Port fix for an upstream defect. Upstream tries to align the two
+    // normals by negating any normal whose z-component is negative (the two
+    // tests above), which does nothing when both normals are orthogonal to
+    // the z-axis. Two circles in parallel planes whose normals are
+    // anti-parallel and have zero z-component therefore arrive here with
+    // circle0.normal = (0,0,-1); the 'circle0.normal[2] < 1' test in
+    // compute() then misclassifies them as non-parallel and the general
+    // polynomial path returns a wrong distance (for example 3.738 instead of
+    // 5.185 for the configuration in the regression test). A circle is
+    // unchanged when its normal is negated, so aligning the transformed
+    // normal with +z here is safe and makes the parallel test see what it
+    // was meant to see. The second rotation below is about the z-axis and
+    // preserves the z-component, so this is the only place the alignment is
+    // needed.
+    if (circle0.normal.values[2] < 0) {
+        circle0.normal = negate(circle0.normal);
+    }
+
     circle0.radius *= scale;
     circle1.center = new Vector(3);
     circle1.normal = Vector.unit(3, 2);
@@ -392,155 +422,208 @@ export class DistCircle3Circle3
             const rP7 = rpSub(rpAdd(rpMul(rP0, rTmp2), rpMul(rP1, rTmp1)),
                 rpScale(rR0sqr, rTmp4));
 
-            // Parameters for polynomial root finding. Only the unique roots
-            // are needed. The pairs[] array stores the (cosine,sine)
+            // Parameters for polynomial root finding. Only the unique
+            // roots are needed. The pairs[] array stores the (cosine,sine)
             // information mentioned in the PDF.
             const pairs: Array<[number, number]> = [];
+
+            // Set when the p6 == p7 == 0 branch below has already filled
+            // 'result' through the parallel-planes code.
+            let parallelPlanesUsed = false;
+
+            // Add both points of the unit circle with the given cosine.
+            //
+            // Upstream instead sets sn = -p6(cs)/p7(cs) when p7(cs) is
+            // nonzero, arguing that phi(cs) = 0 makes sn^2 = 1 - cs^2. That
+            // holds only for an exact root of phi. The roots that matter are
+            // usually double roots (they are wherever the configuration is
+            // mirror symmetric) and a bisection can place a double root only
+            // to about sqrt(eps), so the quotient lands off the unit circle:
+            // the resulting "closest point" is not on circle1 at all and the
+            // query reports a distance below the true minimum. Since a
+            // critical point must satisfy sn = +/-sqrt(1 - cs^2), the port
+            // pushes both signs. The correct one is always present, every
+            // candidate is a genuine point of circle1, and the sqrDistance
+            // computed below therefore can never fall below the true minimum
+            // -- which is also why adding the extra candidates below is safe.
+            const addCandidates = (roots: readonly BSRational[]): void => {
+                for (const rCos of roots) {
+                    if (!BSRational.fabs(rCos).lessThanOrEqual(rOne)) {
+                        continue;
+                    }
+                    const rSin = BSRational.sqrt(rOne.sub(rCos.mul(rCos)));
+                    pairs.push([rCos.toNumber(), rSin.toNumber()]);
+                    if (rSin.getSign() !== 0) {
+                        pairs.push([rCos.toNumber(), -rSin.toNumber()]);
+                    }
+                }
+            };
+
+            // Because a0 is zero by construction (the second rotation in
+            // prepareCircles puts circle0's center in the plane x = 0), p3
+            // and tmp2 are the zero polynomial and tmp1 = (a1*cs)^2, so
+            //   H(cs,sn) = (a1*cs)^2 * (p0 + sn*p1)
+            //              - r0^2 * (p4 + sn*p5)^2.
+            // Two degenerate families follow, and upstream handles neither.
+            const rR0IsZero = rR0.getSign() === 0;
+
+            // Circle0's center lies on circle1's axis exactly when a1 = 0
+            // (concentric and coaxial circles, a common configuration). Then
+            // H = -r0^2 * (p4 + sn*p5)^2 and
+            // phi = p6^2 - (1-cs^2)*p7^2 = r0^4*(p4^2-(1-cs^2)*p5^2)^2.
+            // Both are perfect squares, so neither changes sign, the
+            // sign-change bisection in RootsGeneralPolynomial reports no
+            // roots at all, and upstream reads candidates[0] -- a
+            // default-constructed ClosestInfo -- and silently reports
+            // distance 0 with both closest points at the shared axis point.
+            //
+            // Squaring only the factor gives p4^2 - (1-cs^2)*p5^2, whose
+            // roots are the critical points; p4 has degree 2 and p5 degree
+            // 1, so their own roots and the two points with sn = 0 are added
+            // too, because those are the critical points when p5 or p4
+            // vanishes identically (concentric circles in perpendicular
+            // planes). These four cheap solves run unconditionally rather
+            // than under an 'a1 == 0' test: a1 is only approximately zero
+            // for a coaxial configuration that survived the transformation
+            // in prepareCircles, and everywhere else the roots are just
+            // harmless extra candidates -- each is a genuine point of
+            // circle1 whose distance to circle0 is computed exactly below,
+            // so an extra candidate can never report less than the true
+            // minimum.
+            addCandidates(solveUnique(rpSub(rpMul(rP4, rP4),
+                rpMul(rpMul(rTmp0, rP5), rP5))));
+            addCandidates(solveUnique(rP4));
+            addCandidates(solveUnique(rP5));
+            addCandidates([rOne, rOne.negated()]);
+
+            if (rR0IsZero) {
+                // Circle0 has zero radius, so H = (a1*cs)^2*(p0 + sn*p1) and
+                // the critical points are cs = 0 together with the roots of
+                // p0^2 - (1-cs^2)*p1^2. When a1 is also zero -- the point
+                // sits on circle1's axis -- H vanishes identically because
+                // every point of circle1 is equidistant from it, and the
+                // candidates above already report that distance.
+                addCandidates([rZero]);
+                addCandidates(solveUnique(rpSub(rpMul(rP0, rP0),
+                    rpMul(rpMul(rTmp0, rP1), rP1))));
+            }
 
             if (!rpIsZero(rP7)) {
                 // H(cs,sn) = p6(cs) + sn * p7(cs)
                 const rPhi = rpSub(rpMul(rP6, rP6),
                     rpMul(rpMul(rTmp0, rP7), rP7));
                 logAssert(rPhi.length - 1 > 0, 'Unexpected degree for phi.');
-
-                for (const rCos of solveUnique(rPhi)) {
-                    if (!BSRational.fabs(rCos).lessThanOrEqual(rOne)) {
-                        continue;
-                    }
-                    const rValue = rpEval(rP7, rCos);
-                    if (rValue.getSign() !== 0) {
-                        // Because phi(cs) = 0, the sine below satisfies
-                        // sn^2 = 1 - cs^2, so (cs,sn) is a point of the unit
-                        // circle as required.
-                        const rSin = rpEval(rP6, rCos).negated().div(rValue);
-                        pairs.push([rCos.toNumber(), rSin.toNumber()]);
-                    } else {
-                        const rSin = BSRational.sqrt(rOne.sub(rCos.mul(rCos)));
-                        pairs.push([rCos.toNumber(), rSin.toNumber()]);
-                        if (rSin.getSign() !== 0) {
-                            pairs.push([rCos.toNumber(), -rSin.toNumber()]);
-                        }
-                    }
-                }
+                addCandidates(solveUnique(rPhi));
 
                 // Upstream uses only the roots of phi. The roots of p6 are
-                // added here for robustness. Squaring H to eliminate the sine
-                // gives phi = p6^2 - (1-cs^2)*p7^2, which has a double root
-                // wherever the configuration is mirror symmetric. Rounding
-                // errors in the transformed circles split such a double root
-                // into two simple roots that can be closer together than the
-                // resolution of the floating-point bisection, so the root
-                // finder reports neither and upstream then reports a critical
-                // point that is not the closest pair. In that configuration p7
-                // is numerically negligible and H reduces to p6, whose roots
-                // pair with sn = +/-sqrt(1-cs^2). Adding those candidates is
-                // safe: each is a point of circle1 whose distance to circle0
-                // is computed exactly below, so an extra candidate can never
-                // produce a distance smaller than the true minimum. See the
-                // PR body.
-                for (const rCos of solveUnique(rP6)) {
-                    if (!BSRational.fabs(rCos).lessThanOrEqual(rOne)) {
-                        continue;
-                    }
-                    const rSin = BSRational.sqrt(rOne.sub(rCos.mul(rCos)));
-                    pairs.push([rCos.toNumber(), rSin.toNumber()]);
-                    if (rSin.getSign() !== 0) {
-                        pairs.push([rCos.toNumber(), -rSin.toNumber()]);
-                    }
-                }
-            } else {
+                // added here for robustness: phi has a double root wherever
+                // the configuration is mirror symmetric, rounding errors
+                // split it into two simple roots closer together than the
+                // resolution of the floating-point bisection, the root
+                // finder reports neither, and upstream then returns a
+                // critical point that is not the closest pair. In that
+                // configuration p7 is numerically negligible and H reduces
+                // to p6.
+                addCandidates(solveUnique(rP6));
+            } else if (!rpIsZero(rP6)) {
                 // H(cs,sn) = p6(cs)
-                logAssert(rP6.length - 1 > 0, 'Unexpected degree for p6.');
-
-                for (const rCos of solveUnique(rP6)) {
-                    if (!BSRational.fabs(rCos).lessThanOrEqual(rOne)) {
-                        continue;
-                    }
-                    const rSin = BSRational.sqrt(rOne.sub(rCos.mul(rCos)));
-                    pairs.push([rCos.toNumber(), rSin.toNumber()]);
-                    if (rSin.getSign() !== 0) {
-                        pairs.push([rCos.toNumber(), -rSin.toNumber()]);
-                    }
-                }
+                addCandidates(solveUnique(rP6));
+            } else if (!rR0IsZero) {
+                // p6 and p7 both vanish identically with r0 > 0, so every
+                // angle is critical. Solving H = 0 as above shows this
+                // happens exactly when a1 = 0 and n0 = (0,0,+/-1), that is,
+                // for coaxial circles in parallel planes: the configuration
+                // is rotationally symmetric about the common axis. The exact
+                // test 'circle0.normal[2] < 1' in compute() lets these reach
+                // the polynomial path whenever the rotation leaves the
+                // z-component a few ulps below one. Upstream reports its
+                // "Unexpected degree for p6" assertion; the port answers the
+                // query with the parallel-planes code, which is written for
+                // exactly this configuration.
+                doQueryParallelPlanes(circle0, circle1,
+                    sub(circle1.center, circle0.center), result);
+                parallelPlanesUsed = true;
             }
 
-            // Upstream indexes a default-constructed std::array of 16
-            // ClosestInfo objects. When no (cosine,sine) pair survives the
-            // filtering, candidates[0] is that default object and the query
-            // silently reports distance 0 at the origin. The port traps the
-            // configuration instead; see the PR body.
-            logAssert(pairs.length > 0,
-                'DistCircle3Circle3: no closest-point candidates.');
+            if (!parallelPlanesUsed) {
+                // Upstream indexes a default-constructed std::array of 16
+                // ClosestInfo objects. When no (cosine,sine) pair survives the
+                // filtering, candidates[0] is that default object and the query
+                // silently reports distance 0 at the origin. The port traps the
+                // configuration instead; see the PR body.
+                logAssert(pairs.length > 0,
+                    'DistCircle3Circle3: no closest-point candidates.');
 
-            // Convert the rational values to floating-point values for fast
-            // computation of the closest-point candidates.
-            const candidates: ClosestInfo[] = [];
-            for (let i = 0; i < pairs.length; ++i) {
-                let delta = add(sub(circle1.center, circle0.center),
-                    mul(circle1.radius,
-                        Vector.fromArray([pairs[i][0], pairs[i][1], 0])));
-                const circle1Closest = add(circle0.center, delta);
+                // Convert the rational values to floating-point values for fast
+                // computation of the closest-point candidates.
+                const candidates: ClosestInfo[] = [];
+                for (let i = 0; i < pairs.length; ++i) {
+                    let delta = add(sub(circle1.center, circle0.center),
+                        mul(circle1.radius,
+                            Vector.fromArray([pairs[i][0], pairs[i][1], 0])));
+                    const circle1Closest = add(circle0.center, delta);
 
-                const n0xDelta = cross(circle0.normal, delta);
-                const lenN0xDelta = length(n0xDelta);
-                let sqrDistance: number;
-                let circle0Closest: Vector;
-                let equidistant: boolean;
-                if (lenN0xDelta > 0) {
-                    const n0dDelta = dot(circle0.normal, delta);
-                    const diff = lenN0xDelta - circle0.radius;
-                    sqrDistance = n0dDelta * n0dDelta + diff * diff;
-                    delta = sub(delta, mul(n0dDelta, circle0.normal));
-                    normalize(delta);
-                    circle0Closest = add(circle0.center,
-                        mul(circle0.radius, delta));
-                    equidistant = false;
-                } else {
-                    // Delta is parallel to the normal of circle0, so every
-                    // point of circle0 is equidistant from circle1Closest.
-                    let U0: Vector;
-                    if (Math.abs(circle0.normal.values[0]) >
-                        Math.abs(circle0.normal.values[1])) {
-                        U0 = Vector.fromArray([-circle0.normal.values[2], 0,
-                            circle0.normal.values[0]]);
+                    const n0xDelta = cross(circle0.normal, delta);
+                    const lenN0xDelta = length(n0xDelta);
+                    let sqrDistance: number;
+                    let circle0Closest: Vector;
+                    let equidistant: boolean;
+                    if (lenN0xDelta > 0) {
+                        const n0dDelta = dot(circle0.normal, delta);
+                        const diff = lenN0xDelta - circle0.radius;
+                        sqrDistance = n0dDelta * n0dDelta + diff * diff;
+                        delta = sub(delta, mul(n0dDelta, circle0.normal));
+                        normalize(delta);
+                        circle0Closest = add(circle0.center,
+                            mul(circle0.radius, delta));
+                        equidistant = false;
                     } else {
-                        U0 = Vector.fromArray([0, circle0.normal.values[2],
-                            -circle0.normal.values[1]]);
-                    }
-                    normalize(U0);
+                        // Delta is parallel to the normal of circle0, so every
+                        // point of circle0 is equidistant from circle1Closest.
+                        let U0: Vector;
+                        if (Math.abs(circle0.normal.values[0]) >
+                            Math.abs(circle0.normal.values[1])) {
+                            U0 = Vector.fromArray([-circle0.normal.values[2], 0,
+                                circle0.normal.values[0]]);
+                        } else {
+                            U0 = Vector.fromArray([0, circle0.normal.values[2],
+                                -circle0.normal.values[1]]);
+                        }
+                        normalize(U0);
 
-                    const r0U0 = mul(circle0.radius, U0);
-                    const diff = sub(delta, r0U0);
-                    sqrDistance = dot(diff, diff);
-                    circle0Closest = add(circle0.center, r0U0);
-                    equidistant = true;
+                        const r0U0 = mul(circle0.radius, U0);
+                        const diff = sub(delta, r0U0);
+                        sqrDistance = dot(diff, diff);
+                        circle0Closest = add(circle0.center, r0U0);
+                        equidistant = true;
+                    }
+
+                    candidates.push({
+                        sqrDistance, circle0Closest, circle1Closest, equidistant
+                    });
                 }
 
-                candidates.push({
-                    sqrDistance, circle0Closest, circle1Closest, equidistant
-                });
-            }
+                candidates.sort((a, b) => a.sqrDistance - b.sqrDistance);
 
-            candidates.sort((a, b) => a.sqrDistance - b.sqrDistance);
-
-            result.numClosestPairs = 1;
-            result.sqrDistance = candidates[0].sqrDistance;
-            result.distance = Math.sqrt(result.sqrDistance);
-            result.circle0Closest[0] = candidates[0].circle0Closest;
-            result.circle1Closest[0] = candidates[0].circle1Closest;
-            result.equidistant = candidates[0].equidistant;
-            // Upstream tests rRoots.size() > 1, the number of roots before
-            // the uniqueness and |cos| <= 1 filtering, rather than the number
-            // of candidates. When a single candidate survives, candidates[1]
-            // is a default-constructed object with sqrDistance 0 and closest
-            // points at the origin, so a zero-distance query reports a bogus
-            // second pair. The port tests the candidate count; see the PR
-            // body.
-            if (candidates.length > 1 &&
-                candidates[1].sqrDistance === candidates[0].sqrDistance) {
-                result.numClosestPairs = 2;
-                result.circle0Closest[1] = candidates[1].circle0Closest;
-                result.circle1Closest[1] = candidates[1].circle1Closest;
+                result.numClosestPairs = 1;
+                result.sqrDistance = candidates[0].sqrDistance;
+                result.distance = Math.sqrt(result.sqrDistance);
+                result.circle0Closest[0] = candidates[0].circle0Closest;
+                result.circle1Closest[0] = candidates[0].circle1Closest;
+                result.equidistant = candidates[0].equidistant;
+                // Upstream tests rRoots.size() > 1, the number of roots before
+                // the uniqueness and |cos| <= 1 filtering, rather than the number
+                // of candidates. When a single candidate survives, candidates[1]
+                // is a default-constructed object with sqrDistance 0 and closest
+                // points at the origin, so a zero-distance query reports a bogus
+                // second pair. The port tests the candidate count; see the PR
+                // body.
+                if (candidates.length > 1 &&
+                    candidates[1].sqrDistance === candidates[0].sqrDistance) {
+                    result.numClosestPairs = 2;
+                    result.circle0Closest[1] = candidates[1].circle0Closest;
+                    result.circle1Closest[1] = candidates[1].circle1Closest;
+                }
             }
         } else {
             // The planes of the circles are parallel. Whether the planes are

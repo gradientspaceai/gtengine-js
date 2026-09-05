@@ -7,7 +7,14 @@ import { DistPointCanonicalBox } from '../src/DistPointCanonicalBox.js';
 import { Matrix, mulMatrix } from '../src/Matrix.js';
 import { inverse3x3 } from '../src/Matrix3x3.js';
 import { Parallelepiped3 } from '../src/Parallelepiped3.js';
+import { DistPointOrientedBox } from '../src/DistPointOrientedBox.js';
+import { OrientedBox } from '../src/OrientedBox.js';
 import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, rotationFrame,
+    seededRandom, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -164,5 +171,137 @@ describe('DistPoint3Parallelepiped3', () => {
             const r1 = query.compute(add(rot(p), shift), moved);
             expect(r1.distance).toBeCloseTo(r0.distance, 9);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (see VERIFYING.md): property-based cross-checks of the
+// port against upstream DistPoint3Parallelepiped3.h.
+// ---------------------------------------------------------------------------
+
+describe('DistPoint3Parallelepiped3 verification', () => {
+    const query = new DistPoint3Parallelepiped3();
+    const obQuery = new DistPointOrientedBox();
+
+    // A well-conditioned parallelepiped: the axes span a volume bounded away
+    // from zero, so Inverse(B) in the query carries significant digits.
+    const ppdArb = fc.tuple(wellScaledVector(3, -5, 5), wellScaledVector(3, -3, 3),
+        wellScaledVector(3, -3, 3), wellScaledVector(3, -3, 3))
+        // Parallelepiped3.fromCenterAxis requires a right-handed basis, so
+        // the filter is on the signed volume rather than its magnitude.
+        .filter(([, a0, a1, a2]) => dot(a0, cross(a1, a2)) > 0.5)
+        .map(([c, a0, a1, a2]) =>
+            Parallelepiped3.fromCenterAxis(c, [a0, a1, a2]));
+
+    const pointArb = wellScaledVector(3, -8, 8);
+
+    it('reports consistent distances and in-solid closest points', () => {
+        check(fc.tuple(pointArb, ppdArb), ([p, box]) => {
+            const r = query.compute(p, box);
+            expect(r.closest[0].equals(p)).toBe(true);
+            expectClose(r.sqrDistance, r.distance * r.distance, 1e-12, 1e-12);
+            const d = sub(r.closest[0], r.closest[1]);
+            expectClose(Math.sqrt(dot(d, d)), r.distance, 1e-9, 1e-9);
+            const s = coordinates(r.closest[1], box);
+            for (let i = 0; i < 3; ++i) {
+                expect(Math.abs(s.values[i])).toBeLessThanOrEqual(1 + 1e-8);
+            }
+        });
+    });
+
+    it('reports zero distance and the point itself for interior points',
+        () => {
+            check(fc.tuple(ppdArb, fc.array(finite(-0.95, 0.95),
+                { minLength: 3, maxLength: 3 })), ([box, s]) => {
+                    let p = box.center.clone();
+                    for (let i = 0; i < 3; ++i) {
+                        p = add(p, mul(s[i], box.axis[i]));
+                    }
+                    const r = query.compute(p, box);
+                    expectClose(r.distance, 0, 1e-9, 0);
+                    expectVectorClose(r.closest[1], p, 1e-8, 1e-8);
+                });
+        });
+
+    // With mutually orthogonal axes the parallelepiped is an oriented box
+    // whose extents are the axis lengths, so the two queries must agree.
+    // This exercises every face/edge/vertex region of GetMinimizer against an
+    // independent implementation.
+    it('agrees with the point-oriented-box query for orthogonal axes', () => {
+        check(fc.tuple(pointArb, wellScaledVector(3, -5, 5), rotationFrame(3),
+            fc.array(finite(0.1, 4), { minLength: 3, maxLength: 3 })),
+            ([p, c, R, e]) => {
+                const axes = [mul(e[0], R[0]), mul(e[1], R[1]),
+                    mul(e[2], R[2])];
+                const box = Parallelepiped3.fromCenterAxis(c, axes);
+                const obox = OrientedBox.fromCenterAxisExtent(c, R,
+                    v(e[0], e[1], e[2]));
+                const r0 = query.compute(p, box);
+                const r1 = obQuery.compute(p, obox);
+                expectClose(r0.distance, r1.distance, 1e-7, 1e-7);
+                expectVectorClose(r0.closest[1], r1.closest[1], 1e-6, 1e-6);
+            });
+    });
+
+    it('never reports more than a grid sampling of the solid', () => {
+        const rng = seededRandom(0x13572468);
+        const box = ppd([0.5, -1, 2], [2, 0.5, 0], [-0.5, 1.5, 0.5],
+            [0.25, 0, 1.75]);
+        for (let k = 0; k < 40; ++k) {
+            const p = v(14 * rng() - 7, 14 * rng() - 7, 14 * rng() - 7);
+            const r = query.compute(p, box);
+            expect(r.distance)
+                .toBeLessThanOrEqual(sampledDistance(p, box, 16) + 1e-9);
+        }
+    }, 30000);
+
+    it('is equivariant under a rigid motion', () => {
+        check(fc.tuple(pointArb, ppdArb, rotationFrame(3),
+            wellScaledVector(3, -5, 5)), ([p, box, R, t]) => {
+                const xf = (q: Vector) => add(add(add(
+                    mul(q.values[0], R[0]), mul(q.values[1], R[1])),
+                    mul(q.values[2], R[2])), t);
+                const rot = (q: Vector) => add(add(
+                    mul(q.values[0], R[0]), mul(q.values[1], R[1])),
+                    mul(q.values[2], R[2]));
+                const r0 = query.compute(p, box);
+                const r1 = query.compute(xf(p), Parallelepiped3.fromCenterAxis(
+                    xf(box.center), [rot(box.axis[0]), rot(box.axis[1]),
+                        rot(box.axis[2])]));
+                expectClose(r0.distance, r1.distance, 1e-8, 1e-8);
+                expectVectorClose(xf(r0.closest[1]), r1.closest[1],
+                    1e-6, 1e-6);
+            });
+    });
+
+    it('is invariant under negating two axes', () => {
+        // The solid is unchanged when two axes are negated (a rotation by pi
+        // about the third), and the basis stays right-handed. This catches a
+        // sign slip in the fixed coordinate of the face helpers, where the
+        // -1 and +1 faces would swap roles.
+        check(fc.tuple(pointArb, ppdArb, fc.integer({ min: 0, max: 2 })),
+            ([p, box, k]) => {
+                const axes = [box.axis[0].clone(), box.axis[1].clone(),
+                    box.axis[2].clone()];
+                axes[(k + 1) % 3] = mul(-1, axes[(k + 1) % 3]);
+                axes[(k + 2) % 3] = mul(-1, axes[(k + 2) % 3]);
+                const r0 = query.compute(p, box);
+                const r1 = query.compute(p,
+                    Parallelepiped3.fromCenterAxis(box.center, axes));
+                expectClose(r0.distance, r1.distance, 1e-8, 1e-8);
+                expectVectorClose(r0.closest[1], r1.closest[1], 1e-6, 1e-6);
+            });
+    });
+
+    it('is invariant under a cyclic permutation of the axes', () => {
+        check(fc.tuple(pointArb, ppdArb), ([p, box]) => {
+            const r0 = query.compute(p, box);
+            const r1 = query.compute(p, Parallelepiped3.fromCenterAxis(
+                box.center, [box.axis[1], box.axis[2], box.axis[0]]));
+            const r2 = query.compute(p, Parallelepiped3.fromCenterAxis(
+                box.center, [box.axis[2], box.axis[0], box.axis[1]]));
+            expectClose(r0.distance, r1.distance, 1e-8, 1e-8);
+            expectClose(r0.distance, r2.distance, 1e-8, 1e-8);
+        });
     });
 });

@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { DistPlane3OrientedBox3 } from '../src/DistPlane3OrientedBox3.js';
 import { Hyperplane } from '../src/Hyperplane.js';
 import { OrientedBox } from '../src/OrientedBox.js';
-import { Vector, dot, normalize, sub } from '../src/Vector.js';
+import { AlignedBox } from '../src/AlignedBox.js';
+import { DistPlane3AlignedBox3 } from '../src/DistPlane3AlignedBox3.js';
+import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, rotationFrame,
+    unitVector, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -129,5 +135,105 @@ describe('DistPlane3OrientedBox3', () => {
             expect(result.distance).toBeCloseTo(analyticDistance(p, b), 9);
             expectConsistent(p, b, result);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (see VERIFYING.md): property-based cross-checks of the
+// port against upstream DistPlane3OrientedBox3.h.
+// ---------------------------------------------------------------------------
+
+describe('DistPlane3OrientedBox3 verification', () => {
+    const query = new DistPlane3OrientedBox3();
+    const abQuery = new DistPlane3AlignedBox3();
+
+    const planeArb = fc.tuple(unitVector(3), wellScaledVector(3, -6, 6))
+        .map(([n, o]) => Hyperplane.fromNormalOrigin(n, o));
+
+    const boxArb = fc.tuple(wellScaledVector(3, -5, 5), rotationFrame(3),
+        fc.array(finite(0, 4), { minLength: 3, maxLength: 3 }))
+        .map(([c, axis, e]) =>
+            OrientedBox.fromCenterAxisExtent(c, axis, v(e[0], e[1], e[2])));
+
+    // Map a vector from box coordinates to world coordinates.
+    function toWorld(f: Vector[], p: Vector): Vector {
+        return add(add(mul(p.values[0], f[0]), mul(p.values[1], f[1])),
+            mul(p.values[2], f[2]));
+    }
+
+    it('reports consistent distances and on-primitive closest points', () => {
+        check(fc.tuple(planeArb, boxArb), ([p, b]) => {
+            const r = query.compute(p, b);
+            expectClose(r.sqrDistance, r.distance * r.distance, 1e-12, 1e-12);
+            const d = sub(r.closest[0], r.closest[1]);
+            expectClose(Math.sqrt(dot(d, d)), r.distance, 1e-9, 1e-9);
+            expectClose(dot(p.normal, r.closest[0]), p.constant, 1e-9, 1e-9);
+            const delta = sub(r.closest[1], b.center);
+            for (let i = 0; i < 3; ++i) {
+                expect(Math.abs(dot(b.axis[i], delta)))
+                    .toBeLessThanOrEqual(b.extent.values[i] + 1e-9);
+            }
+        });
+    });
+
+    it('matches the vertex-signed-distance formula', () => {
+        check(fc.tuple(planeArb, boxArb), ([p, b]) => {
+            const r = query.compute(p, b);
+            expectClose(r.distance, analyticDistance(p, b), 1e-9, 1e-9);
+        });
+    });
+
+    // Both closest points come back in box coordinates from the canonical
+    // query, so both must be mapped through the same frame. Transforming only
+    // one of them (or transforming an already-world-space point a second
+    // time) would break this identity.
+    it('agrees with the aligned-box query for an identity box frame', () => {
+        const axes = [v(1, 0, 0), v(0, 1, 0), v(0, 0, 1)];
+        check(fc.tuple(planeArb, wellScaledVector(3, -5, 5),
+            fc.array(finite(0, 4), { minLength: 3, maxLength: 3 })),
+            ([p, c, e]) => {
+                const ob = OrientedBox.fromCenterAxisExtent(c, axes,
+                    v(e[0], e[1], e[2]));
+                const ab = AlignedBox.fromMinMax(
+                    v(c.values[0] - e[0], c.values[1] - e[1],
+                        c.values[2] - e[2]),
+                    v(c.values[0] + e[0], c.values[1] + e[1],
+                        c.values[2] + e[2]));
+                const r0 = query.compute(p, ob);
+                const r1 = abQuery.compute(p, ab);
+                // Only the distance is compared: a box face parallel to the
+                // plane leaves many equidistant pairs, and the two queries
+                // may name different representatives.
+                expectClose(r0.distance, r1.distance, 1e-9, 1e-9);
+            });
+    });
+
+    it('is equivariant under a rigid motion of plane and box', () => {
+        check(fc.tuple(planeArb, boxArb, rotationFrame(3),
+            wellScaledVector(3, -6, 6)), ([p, b, R, t]) => {
+                const r0 = query.compute(p, b);
+                const xf = (q: Vector) => add(toWorld(R, q), t);
+                const p1 = Hyperplane.fromNormalOrigin(toWorld(R, p.normal),
+                    xf(p.origin));
+                const b1 = OrientedBox.fromCenterAxisExtent(xf(b.center),
+                    [toWorld(R, b.axis[0]), toWorld(R, b.axis[1]),
+                        toWorld(R, b.axis[2])], b.extent);
+                const r1 = query.compute(p1, b1);
+                expectClose(r0.distance, r1.distance, 1e-9, 1e-9);
+                expectClose(dot(p1.normal, r1.closest[0]), p1.constant,
+                    1e-8, 1e-8);
+            });
+    });
+
+    it('handles a degenerate zero-extent box', () => {
+        check(fc.tuple(planeArb, wellScaledVector(3, -5, 5), rotationFrame(3)),
+            ([p, c, axis]) => {
+                const b = OrientedBox.fromCenterAxisExtent(c, axis,
+                    v(0, 0, 0));
+                const r = query.compute(p, b);
+                expectClose(r.distance,
+                    Math.abs(dot(p.normal, c) - p.constant), 1e-9, 1e-9);
+                expectVectorClose(r.closest[1], c, 1e-9, 1e-9);
+            });
     });
 });

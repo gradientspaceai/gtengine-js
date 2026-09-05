@@ -4,7 +4,13 @@ import type { DistTriangle3Rectangle3Result }
     from '../src/DistTriangle3Rectangle3.js';
 import { Rectangle } from '../src/Rectangle.js';
 import { Triangle } from '../src/Triangle.js';
+import { DistTriangle3Triangle3 } from '../src/DistTriangle3Triangle3.js';
 import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, latticeVector,
+    rotationFrame, seededRandom, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -155,5 +161,127 @@ describe('DistTriangle3Rectangle3', () => {
             expect(sampled - result.distance).toBeLessThan(0.25);
             expectConsistent(t, r, result);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (see VERIFYING.md): property-based cross-checks of the
+// port against upstream DistTriangle3Rectangle3.h.
+// ---------------------------------------------------------------------------
+
+describe('DistTriangle3Rectangle3 verification', () => {
+    const query = new DistTriangle3Rectangle3();
+    const ttQuery = new DistTriangle3Triangle3();
+
+    const rectArb = fc.tuple(wellScaledVector(3, -5, 5), rotationFrame(3),
+        fc.array(finite(0.05, 3), { minLength: 2, maxLength: 2 }))
+        .map(([c, R, e]) =>
+            Rectangle.fromCenterAxisExtent(c, [R[0], R[1]], v(e[0], e[1])));
+
+    const triArb = fc.tuple(latticeVector(3, -6, 6), latticeVector(3, -6, 6),
+        latticeVector(3, -6, 6))
+        .filter(([a, b, c]) => {
+            const n = cross(sub(b, a), sub(c, a));
+            return dot(n, n) > 4;
+        })
+        .map(([a, b, c]) => Triangle.fromVertices(a, b, c));
+
+    it('reports consistent distances and on-primitive closest points', () => {
+        check(fc.tuple(triArb, rectArb), ([t, r]) => {
+            const res = query.compute(t, r);
+            // The absolute tolerance is 1e-6: these queries accumulate the
+            // squared distance while clamping to faces and edges, so a
+            // near-touching configuration loses about half the mantissa and
+            // the distance carries an absolute error of order sqrt(eps)
+            // times the coordinate scale. A translation or frame error
+            // would show up as an O(1) discrepancy.
+            expectClose(res.sqrDistance, res.distance * res.distance,
+                1e-12, 1e-12);
+            const d = sub(res.closest[0], res.closest[1]);
+            expectClose(Math.sqrt(dot(d, d)), res.distance, 1e-6, 1e-8);
+
+            const b = res.barycentric;
+            expectClose(b[0] + b[1] + b[2], 1, 1e-9, 1e-9);
+            let rebuilt = new Vector(3);
+            for (let i = 0; i < 3; ++i) {
+                expect(b[i]).toBeGreaterThanOrEqual(-1e-8);
+                rebuilt = add(rebuilt, mul(b[i], t.v[i]));
+            }
+            expectVectorClose(rebuilt, res.closest[0], 1e-7, 1e-7);
+
+            let onRect = r.center.clone();
+            for (let i = 0; i < 2; ++i) {
+                expect(Math.abs(res.cartesian[i]))
+                    .toBeLessThanOrEqual(r.extent.values[i] + 1e-8);
+                onRect = add(onRect, mul(res.cartesian[i], r.axis[i]));
+            }
+            expectVectorClose(onRect, res.closest[1], 1e-7, 1e-7);
+        });
+    });
+
+    // The rectangle is the union of the triangles <0,1,3> and <0,3,2> of its
+    // bit-ordered vertices, so the distance equals the minimum over the two
+    // triangle-triangle queries.
+    it('equals the minimum over the two triangles of the rectangle', () => {
+        check(fc.tuple(triArb, rectArb), ([t, r]) => {
+            const p = r.getVertices();
+            const best = Math.min(
+                ttQuery.compute(t,
+                    Triangle.fromVertices(p[0], p[1], p[3])).sqrDistance,
+                ttQuery.compute(t,
+                    Triangle.fromVertices(p[0], p[3], p[2])).sqrDistance);
+            const res = query.compute(t, r);
+            expectClose(res.sqrDistance, best, 1e-8, 1e-8);
+        });
+    });
+
+    it('brackets a barycentric sampling of the triangle', () => {
+        const rng = seededRandom(0x3141c0de);
+        const n = 40;
+        for (let k = 0; k < 25; ++k) {
+            const p = () => [6 * rng() - 3, 6 * rng() - 3, 6 * rng() - 3];
+            const t = tri(p(), p(), p());
+            const r = rect(p(), frame(2 * Math.PI * rng(),
+                2 * Math.PI * rng()), 0.5 + rng(), 0.5 + rng());
+            const res = query.compute(t, r);
+            const s = sampledDistance(t, r, n);
+            expect(res.distance).toBeLessThanOrEqual(s + 1e-9);
+            let maxEdge = 0;
+            for (let i = 0; i < 3; ++i) {
+                const e = sub(t.v[(i + 1) % 3], t.v[i]);
+                maxEdge = Math.max(maxEdge, Math.sqrt(dot(e, e)));
+            }
+            expect(s - res.distance)
+                .toBeLessThanOrEqual(maxEdge / n + 1e-9);
+        }
+    }, 30000);
+
+    it('is equivariant under a rigid motion', () => {
+        check(fc.tuple(triArb, rectArb, rotationFrame(3),
+            wellScaledVector(3, -4, 4)), ([t, r, R, tr]) => {
+                const rot = (q: Vector) => add(add(
+                    mul(q.values[0], R[0]), mul(q.values[1], R[1])),
+                    mul(q.values[2], R[2]));
+                const xf = (q: Vector) => add(rot(q), tr);
+                const a = query.compute(t, r);
+                const b = query.compute(
+                    Triangle.fromVertices(xf(t.v[0]), xf(t.v[1]), xf(t.v[2])),
+                    Rectangle.fromCenterAxisExtent(xf(r.center),
+                        [rot(r.axis[0]), rot(r.axis[1])], r.extent));
+                expectClose(a.distance, b.distance, 1e-8, 1e-8);
+            });
+    });
+
+    it('handles a zero-extent (point) rectangle', () => {
+        check(fc.tuple(triArb, wellScaledVector(3, -5, 5), rotationFrame(3)),
+            ([t, c, R]) => {
+                const pt = Rectangle.fromCenterAxisExtent(c, [R[0], R[1]],
+                    v(0, 0));
+                const res = query.compute(t, pt);
+                expectVectorClose(res.closest[1], c, 1e-8, 1e-8);
+                // '+ 0' normalizes -0, which toBe compares with Object.is.
+                expect(res.cartesian[0] + 0).toBe(0);
+                expect(res.cartesian[1] + 0).toBe(0);
+            });
     });
 });

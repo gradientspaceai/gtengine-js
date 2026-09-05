@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { AlignedBox } from '../src/AlignedBox.js';
 import { DistPlane3AlignedBox3 } from '../src/DistPlane3AlignedBox3.js';
 import { Hyperplane } from '../src/Hyperplane.js';
-import { Vector, dot, normalize, sub } from '../src/Vector.js';
+import { CanonicalBox } from '../src/CanonicalBox.js';
+import { DistPlane3CanonicalBox3 } from '../src/DistPlane3CanonicalBox3.js';
+import { Vector, add, dot, normalize, sub } from '../src/Vector.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite, unitVector,
+    wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -124,5 +130,111 @@ describe('DistPlane3AlignedBox3', () => {
             expect(result.distance).toBeCloseTo(analyticDistance(p, b), 9);
             expectConsistent(p, b, result);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (see VERIFYING.md): property-based cross-checks of the
+// port against upstream DistPlane3AlignedBox3.h.
+// ---------------------------------------------------------------------------
+
+describe('DistPlane3AlignedBox3 verification', () => {
+    const query = new DistPlane3AlignedBox3();
+    const cQuery = new DistPlane3CanonicalBox3();
+
+    // wellScaledVector avoids the subnormal components that vector() emits;
+    // the query squares its inputs when forming the distance.
+    const planeArb = fc.tuple(unitVector(3), wellScaledVector(3, -6, 6))
+        .map(([n, o]) => Hyperplane.fromNormalOrigin(n, o));
+
+    const boxArb = fc.tuple(wellScaledVector(3, -5, 5),
+        fc.array(finite(0, 4), { minLength: 3, maxLength: 3 }))
+        .map(([c, e]) => AlignedBox.fromMinMax(
+            v(c.values[0] - e[0], c.values[1] - e[1], c.values[2] - e[2]),
+            v(c.values[0] + e[0], c.values[1] + e[1], c.values[2] + e[2])));
+
+    it('reports consistent distances and on-primitive closest points', () => {
+        check(fc.tuple(planeArb, boxArb), ([p, b]) => {
+            const r = query.compute(p, b);
+            expectClose(r.sqrDistance, r.distance * r.distance, 1e-12, 1e-12);
+            expectClose(Math.sqrt(dot(sub(r.closest[0], r.closest[1]),
+                sub(r.closest[0], r.closest[1]))), r.distance, 1e-9, 1e-9);
+            expectClose(dot(p.normal, r.closest[0]), p.constant, 1e-9, 1e-9);
+            for (let i = 0; i < 3; ++i) {
+                expect(r.closest[1].values[i])
+                    .toBeGreaterThanOrEqual(b.min.values[i] - 1e-9);
+                expect(r.closest[1].values[i])
+                    .toBeLessThanOrEqual(b.max.values[i] + 1e-9);
+            }
+        });
+    });
+
+    it('matches the vertex-signed-distance formula', () => {
+        check(fc.tuple(planeArb, boxArb), ([p, b]) => {
+            const r = query.compute(p, b);
+            expectClose(r.distance, analyticDistance(p, b), 1e-9, 1e-9);
+        });
+    });
+
+    // The upstream body is exactly "translate so the box is canonical, run
+    // the canonical query, translate the closest points back". A sign error
+    // in either translation would break this identity.
+    it('agrees with the canonical-box query under the box translation', () => {
+        check(fc.tuple(planeArb, boxArb), ([p, b]) => {
+            const cf = b.getCenteredForm();
+            const cbox = CanonicalBox.fromExtent(cf.extent);
+            const xp = Hyperplane.fromNormalOrigin(p.normal,
+                sub(p.origin, cf.center));
+            const rc = cQuery.compute(xp, cbox);
+            const r = query.compute(p, b);
+            expectClose(r.distance, rc.distance, 1e-12, 1e-12);
+            expectVectorClose(r.closest[0], add(rc.closest[0], cf.center),
+                1e-9, 1e-9);
+            expectVectorClose(r.closest[1], add(rc.closest[1], cf.center),
+                1e-9, 1e-9);
+        });
+    });
+
+    it('is invariant under a common translation of plane and box', () => {
+        check(fc.tuple(planeArb, boxArb, wellScaledVector(3, -7, 7)),
+            ([p, b, t]) => {
+                const r0 = query.compute(p, b);
+                const p1 = Hyperplane.fromNormalOrigin(p.normal,
+                    add(p.origin, t));
+                const b1 = AlignedBox.fromMinMax(add(b.min, t), add(b.max, t));
+                const r1 = query.compute(p1, b1);
+                // Only the distance is compared: when the two objects touch or
+                // several pairs are equidistant, the runs may name different
+                // representatives of the same minimum.
+                expectClose(r0.distance, r1.distance, 1e-9, 1e-9);
+                expectClose(Math.sqrt(dot(sub(r1.closest[0], r1.closest[1]),
+                    sub(r1.closest[0], r1.closest[1]))), r1.distance,
+                    1e-9, 1e-9);
+            });
+    });
+
+    it('reports zero distance for a degenerate (point) box on the plane',
+        () => {
+            const p = plane([0, 0, 1], [0, 0, 3]);
+            const b = box([1, 2, 3], [1, 2, 3]);
+            const r = query.compute(p, b);
+            expect(r.distance).toBe(0);
+            expect(r.sqrDistance).toBe(0);
+            expectVectorClose(r.closest[0], v(1, 2, 3), 1e-12, 1e-12);
+            expectVectorClose(r.closest[1], v(1, 2, 3), 1e-12, 1e-12);
+        });
+
+    it('handles a flat (zero-extent) box without NaN', () => {
+        check(fc.tuple(planeArb, boxArb, fc.integer({ min: 0, max: 2 })),
+            ([p, b, k]) => {
+                const min = b.min.clone();
+                const max = b.max.clone();
+                max.values[k] = min.values[k];
+                const flat = AlignedBox.fromMinMax(min, max);
+                const r = query.compute(p, flat);
+                expect(Number.isFinite(r.distance)).toBe(true);
+                expect(Number.isFinite(r.sqrDistance)).toBe(true);
+                expectClose(r.distance, analyticDistance(p, flat), 1e-9, 1e-9);
+            });
     });
 });

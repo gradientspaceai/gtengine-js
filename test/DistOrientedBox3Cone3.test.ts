@@ -5,7 +5,8 @@ import type { DistOrientedBox3Cone3Result }
     from '../src/DistOrientedBox3Cone3.js';
 import { OrientedBox } from '../src/OrientedBox.js';
 import { Ray } from '../src/Ray.js';
-import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
+import { seededRandom } from './helpers/arbitraries.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -239,5 +240,180 @@ describe('DistOrientedBox3Cone3', () => {
         // But it is not the closest such pair.
         expect(sampled).toBeLessThan(0.1);
         expect(result.distance).toBeCloseTo(0.362774519113053, 6);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (see VERIFYING.md): cross-checks of the port against
+// upstream DistOrientedBox3Cone3.h.
+//
+// This query is the least robust in the group and the properties below are
+// chosen accordingly. Two upstream defects are involved:
+//
+//  * Minimize1 collapses its bracket when F(-pi/2) and F(+pi/2) agree to
+//    within round-off, which they always do here (both angles describe the
+//    same quadrilateral). The reported angle, and therefore the reported
+//    distance, is then whatever the truncated search happened to reach. This
+//    is recorded by the 'records the known upstream minimizer limitation'
+//    test above and in the port notes.
+//  * The 5-variable box-quadrilateral subproblem has a rank-deficient
+//    Hessian (the Gram matrix of five vectors in R^3), so its 10-dimensional
+//    LCP is degenerate. For a small fraction of configurations Lemke's
+//    algorithm reports HAS_NONTRIVIAL_SOLUTION with a (w,z) pair that does
+//    not satisfy w = q + M*z, and the query then returns points that lie
+//    outside the box and outside the frustum. See the regression test at the
+//    end of this block.
+//
+// Both defects make the query sensitive to tiny input perturbations, so
+// rigid-motion and uniform-scaling equivariance are NOT properties of this
+// query (they fail for roughly 10-20% of random configurations) and are not
+// asserted here. What does hold unconditionally is the internal consistency
+// of the returned triple, which is what these properties check, over a fixed
+// seeded sample so that the outcome is deterministic.
+// ---------------------------------------------------------------------------
+
+describe('DistOrientedBox3Cone3 verification', () => {
+    const query = new DistOrientedBox3Cone3();
+
+    // A deterministic sample of (box, frustum) configurations.
+    function sampleConfigurations(seed: number, count: number):
+        Array<{ box: OrientedBox, cone: Cone }> {
+        const rng = seededRandom(seed);
+        const out: Array<{ box: OrientedBox, cone: Cone }> = [];
+        for (let k = 0; k < count; ++k) {
+            const dir = v(rng() - 0.5, rng() - 0.5, rng() - 0.5);
+            normalize(dir);
+            const h0 = 0.3 + 1.5 * rng();
+            const h1 = h0 + 0.5 + 3 * rng();
+            const cone = Cone.fromRayAngleMinMaxHeight(
+                Ray.fromOriginDirection(
+                    v(4 * rng() - 2, 4 * rng() - 2, 4 * rng() - 2), dir),
+                0.15 + rng(), h0, h1);
+            const box = OrientedBox.fromCenterAxisExtent(
+                v(10 * rng() - 5, 10 * rng() - 5, 10 * rng() - 5),
+                frame(2 * Math.PI * rng(), 2 * Math.PI * rng()),
+                v(0.1 + 1.8 * rng(), 0.1 + 1.8 * rng(), 0.1 + 1.8 * rng()));
+            out.push({ box, cone });
+        }
+        return out;
+    }
+
+    const sample = sampleConfigurations(0x51ce0001, 120);
+
+    it('always reports a finite distance equal to the pair separation', () => {
+        for (const { box, cone } of sample) {
+            const r = query.compute(box, cone);
+            expect(Number.isFinite(r.distance)).toBe(true);
+            expect(r.distance).toBeGreaterThanOrEqual(0);
+            const d = sub(r.boxClosestPoint, r.coneClosestPoint);
+            expect(Math.sqrt(dot(d, d))).toBeCloseTo(r.distance, 8);
+        }
+    }, 30000);
+
+    it('reports points on the box and on the frustum for the sample', () => {
+        // Over wider random sampling roughly one configuration in 400 breaks
+        // this because of the degenerate-LCP defect described above; the
+        // fixed seed keeps this test deterministic and the known bad
+        // configuration is pinned by the regression test below.
+        for (const { box, cone } of sample) {
+            const r = query.compute(box, cone);
+            const bd = sub(r.boxClosestPoint, box.center);
+            for (let i = 0; i < 3; ++i) {
+                expect(Math.abs(dot(box.axis[i], bd)))
+                    .toBeLessThanOrEqual(box.extent.values[i] + 1e-6);
+            }
+            const cd = sub(r.coneClosestPoint, cone.ray.origin);
+            const h = dot(cone.ray.direction, cd);
+            expect(h).toBeGreaterThanOrEqual(cone.getMinHeight() - 1e-6);
+            expect(h).toBeLessThanOrEqual(cone.getMaxHeight() + 1e-6);
+            const radial = sub(cd, mul(h, cone.ray.direction));
+            expect(Math.sqrt(dot(radial, radial)))
+                .toBeLessThanOrEqual(h * cone.tanAngle + 1e-6);
+        }
+    }, 30000);
+
+    // The frustum is contained in the ball centered on its mid-height axis
+    // point whose radius reaches both cap rims, so the box-to-ball distance
+    // is a lower bound for the true minimum and therefore for any distance
+    // the query can legitimately report.
+    it('is never below the box-to-bounding-ball distance', () => {
+        for (const { box, cone } of sample) {
+            const h0 = cone.getMinHeight(), h1 = cone.getMaxHeight();
+            const hc = 0.5 * (h0 + h1);
+            const radiusSqr = Math.max(
+                (h0 - hc) ** 2 + (h0 * cone.tanAngle) ** 2,
+                (h1 - hc) ** 2 + (h1 * cone.tanAngle) ** 2);
+            const center = add(cone.ray.origin, mul(hc, cone.ray.direction));
+            const lower = pointBoxDistance(center, box) - Math.sqrt(radiusSqr);
+            const r = query.compute(box, cone);
+            expect(r.distance)
+                .toBeGreaterThanOrEqual(Math.max(lower, 0) - 1e-6);
+        }
+    }, 30000);
+
+    it('reports zero when the box swallows the whole frustum', () => {
+        for (const { cone } of sample) {
+            const h0 = cone.getMinHeight(), h1 = cone.getMaxHeight();
+            const p0 = add(cone.ray.origin, mul(h0, cone.ray.direction));
+            const p1 = add(cone.ray.origin, mul(h1, cone.ray.direction));
+            const e = 2 * (h1 - h0) + 2 * h1 * cone.tanAngle;
+            const box = OrientedBox.fromCenterAxisExtent(
+                mul(0.5, add(p0, p1)),
+                [v(1, 0, 0), v(0, 1, 0), v(0, 0, 1)], v(e, e, e));
+            expect(query.compute(box, cone).distance).toBeLessThan(1e-6);
+        }
+    }, 30000);
+
+    // The LCP solver is a member reused across calls, so a result that
+    // aliased its scratch state would change when another query ran.
+    it('does not leak solver state between calls', () => {
+        const cone = frustum([0, 0, 0], [0, 0, 1], Math.PI / 6, 1, 4);
+        const box0 = obox([4, 1, 2], frame(0.3, 0.6), [0.7, 1.2, 0.5]);
+        const box1 = obox([-3, 2, 5], frame(1.1, 0.2), [0.4, 0.9, 1.3]);
+        const a = query.compute(box0, cone);
+        const savedDistance = a.distance;
+        const savedBox = a.boxClosestPoint.clone();
+        const savedCone = a.coneClosestPoint.clone();
+        query.compute(box1, cone);
+        expect(a.distance).toBe(savedDistance);
+        expect(a.boxClosestPoint.equals(savedBox)).toBe(true);
+        expect(a.coneClosestPoint.equals(savedCone)).toBe(true);
+        expect(query.compute(box0, cone).distance).toBe(savedDistance);
+    });
+
+    it('records the known upstream degenerate-LCP failure', () => {
+        // For this configuration the LCP built for quadrilateral angle -pi/4
+        // converges to w = 0 for the constraint row z[1] <= 2*extent[1] even
+        // though q + M*z gives -0.71 there: the returned (w,z) is not a
+        // solution of the LCP it was handed. DistOrientedBox3Cone3 believes
+        // it and reports a pair whose "box point" is outside the box and
+        // whose "frustum point" has height below hmin, with a distance below
+        // the true minimum (about 0.538 for this configuration).
+        //
+        // The port preserves upstream behavior; update this test if the
+        // upstream LCPSolver is ever made robust for degenerate problems.
+        const box = OrientedBox.fromCenterAxisExtent(v(0, 0, 0),
+            [v(1, 0, 0), v(0, 1, 0), v(0, 0, 1)],
+            v(0.9824121509090933, 1.864152179336889, 0.8282953716840157));
+        const cone = Cone.fromRayAngleMinMaxHeight(
+            Ray.fromOriginDirection(v(0, 3, 0), v(0, 0, -1)),
+            0.6731308200362891, 1.3644785852643415, 1.8644785852643424);
+        const r = query.compute(box, cone);
+
+        // The reported distance is still the separation of the reported pair.
+        const d = sub(r.boxClosestPoint, r.coneClosestPoint);
+        expect(Math.sqrt(dot(d, d))).toBeCloseTo(r.distance, 8);
+
+        // But the "frustum point" is below the minimum height ...
+        const cd = sub(r.coneClosestPoint, cone.ray.origin);
+        const h = dot(cone.ray.direction, cd);
+        expect(h).toBeCloseTo(1.1092690739354032, 9);
+        expect(h).toBeLessThan(cone.getMinHeight());
+
+        // ... and the "box point" is outside the box.
+        expect(Math.abs(dot(box.axis[1], sub(r.boxClosestPoint, box.center))))
+            .toBeGreaterThan(box.extent.values[1]);
+
+        expect(r.distance).toBeCloseTo(0.5097726463860089, 9);
     });
 });
