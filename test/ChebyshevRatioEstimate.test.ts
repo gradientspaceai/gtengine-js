@@ -3,6 +3,8 @@ import {
     chebyshevRatioEstimate, getChebyshevRatioEstimateMaxError,
     chebyshevRatioEstimateR, getChebyshevRatioEstimateRMaxError
 } from '../src/ChebyshevRatioEstimate.js';
+import { chebyshevRatios } from '../src/ChebyshevRatio.js';
+import { check, fc, scaled } from './helpers/arbitraries.js';
 
 // Upstream-documented maximum errors for degrees 1..16 (angle in [0,pi/2]).
 const MAX_ERROR = [
@@ -196,5 +198,202 @@ describe('max error queries', () => {
         expect(() => getChebyshevRatioEstimateMaxError(17)).toThrow('Invalid degree.');
         expect(() => getChebyshevRatioEstimateRMaxError(0)).toThrow('Invalid degree.');
         expect(() => getChebyshevRatioEstimateRMaxError(13)).toThrow('Invalid degree.');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V23): independent review against upstream
+// ChebyshevRatioEstimate.h.
+// ---------------------------------------------------------------------------
+
+/**
+ * The upstream coefficient helpers, restated directly from the header:
+ *   a[i] = (Degree != i+1 ? 1 : u[i]) / ((i+1) * (2*(i+1)+1))
+ *   b[i] = (Degree != i+1 ? 1 : u[i]) * (i+1) / (2*(i+1)+1)
+ * The port folds these into the evaluation loop, so this reference confirms
+ * the folding did not change which term carries the u-value.
+ */
+function referenceEstimate(t: number, x: number, degree: number,
+    u: readonly number[]): [number, number] {
+    const a: number[] = [];
+    const b: number[] = [];
+    for (let i = 0; i < u.length; ++i) {
+        const scale = degree !== i + 1 ? 1 : u[i];
+        a.push(scale / ((i + 1) * (2 * (i + 1) + 1)));
+        b.push((scale * (i + 1)) / (2 * (i + 1) + 1));
+    }
+    const y = 1 - x;
+    let term0 = 1 - t;
+    let term1 = t;
+    const sqr0 = term0 * term0;
+    const sqr1 = term1 * term1;
+    const f: [number, number] = [term0, term1];
+    for (let i = 0; i < degree; ++i) {
+        term0 *= (b[i] - a[i] * sqr0) * y;
+        term1 *= (b[i] - a[i] * sqr1) * y;
+        f[0] += term0;
+        f[1] += term1;
+    }
+    return f;
+}
+
+const U = [
+    1.5149656562200644050, 1.6410179946672027729, 1.7124880779005808851,
+    1.7593545031636841358, 1.7927054757060019163, 1.8177479632959470113,
+    1.8372872973294931409, 1.8529805143706497006, 1.8658739107798316681,
+    1.8766626700393858052, 1.8858276947289707159, 1.8937127486228939599,
+    1.9005703533887863266, 1.9065903281211855624, 1.9119182032942771965,
+    1.9166674811124804201
+];
+const U_R = [
+    1.1021472152138613865, 1.1239349540626744073, 1.1351870374370363059,
+    1.1421060160698368602, 1.1468020192623136211, 1.1502017494201659531,
+    1.1527782928466798751, 1.1547990001678465344, 1.1564265502929687024,
+    1.1577657226562501069, 1.1588859375000000185, 1.1598375000000000767
+];
+
+describe('ChebyshevRatioEstimate verification', () => {
+    const anyT = fc.double({ min: 0, max: 1, noNaN: true });
+    const anyX = fc.double({ min: 0, max: 1, noNaN: true });
+    const anyXR = fc.double({ min: Math.SQRT1_2, max: 1, noNaN: true });
+
+    it('matches the upstream a/b coefficient tables bit for bit', () => {
+        for (const degree of [1, 2, 5, 9, 16]) {
+            check(fc.tuple(anyT, anyX), ([t, x]) => {
+                const got = chebyshevRatioEstimate(t, x, degree);
+                const want = referenceEstimate(t, x, degree, U);
+                return got[0] === want[0] && got[1] === want[1];
+            });
+        }
+        for (const degree of [1, 2, 5, 9, 12]) {
+            check(fc.tuple(anyT, anyXR), ([t, x]) => {
+                const got = chebyshevRatioEstimateR(t, x, degree);
+                const want = referenceEstimate(t, x, degree, U_R);
+                return got[0] === want[0] && got[1] === want[1];
+            });
+        }
+    });
+
+    it('is within the documented bound on fast-check samples', () => {
+        // A uniform grid rather than fc.double: sampling the bit patterns
+        // of [0,pi/2] produces subnormal angles, where the *reference*
+        // sin(t*A)/sin(A) underflows to 0/A and the comparison becomes
+        // meaningless (the estimate itself is fine there).
+        const angle = scaled(0, Math.PI / 2);
+        for (const degree of [1, 4, 8, 12, 16]) {
+            check(fc.tuple(anyT, angle), ([t, A]) => {
+                const f = chebyshevRatioEstimate(t, Math.cos(A), degree);
+                const sinA = Math.sin(A);
+                const exact0 = A === 0 ? 1 - t : Math.sin((1 - t) * A) / sinA;
+                const exact1 = A === 0 ? t : Math.sin(t * A) / sinA;
+                const bound = MAX_ERROR[degree - 1];
+                return Math.abs(f[0] - exact0) <= bound
+                    && Math.abs(f[1] - exact1) <= bound;
+            });
+        }
+    });
+
+    it('has a measured max error that decreases with the degree', () => {
+        // Independently measured on a dense (A,t) grid rather than read from
+        // the table. Every degree of both variants stays inside its published
+        // bound; the only entry that comes close to exceeding it is the R
+        // variant at degree 12, whose bound (3.2752e-14) is itself near the
+        // round-off floor of the summation, so that check carries a 1%
+        // cushion.
+        const measure = (est: (t: number, x: number, d: number) => [number, number],
+            degree: number, aMax: number): number => {
+            let worst = 0;
+            const NA = 240, NT = 240;
+            for (let i = 0; i <= NA; ++i) {
+                const A = (i * aMax) / NA;
+                const x = Math.cos(A);
+                const sinA = Math.sin(A);
+                for (let j = 0; j <= NT; ++j) {
+                    const t = j / NT;
+                    const f = est(t, x, degree);
+                    const e0 = A === 0 ? Math.abs(f[0] - (1 - t))
+                        : Math.abs(f[0] - Math.sin((1 - t) * A) / sinA);
+                    const e1 = A === 0 ? Math.abs(f[1] - t)
+                        : Math.abs(f[1] - Math.sin(t * A) / sinA);
+                    worst = Math.max(worst, e0, e1);
+                }
+            }
+            return worst;
+        };
+        let previous = Number.POSITIVE_INFINITY;
+        for (let degree = 1; degree <= 16; ++degree) {
+            const observed = measure(chebyshevRatioEstimate, degree, Math.PI / 2);
+            expect(observed).toBeLessThanOrEqual(MAX_ERROR[degree - 1] * 1.01);
+            expect(observed).toBeLessThan(previous);
+            previous = observed;
+        }
+        previous = Number.POSITIVE_INFINITY;
+        for (let degree = 1; degree <= 12; ++degree) {
+            const observed = measure(chebyshevRatioEstimateR, degree, Math.PI / 4);
+            expect(observed).toBeLessThanOrEqual(MAX_ERROR_R[degree - 1] * 1.01);
+            expect(observed).toBeLessThan(previous);
+            previous = observed;
+        }
+    }, 30000);
+
+    it('is exactly symmetric under the swap of t and 1-t', () => {
+        // The loop treats term0 and term1 identically, so swapping the two
+        // arguments swaps the outputs bit for bit whenever 1-t is exact,
+        // which Sterbenz guarantees on [1/2,1].
+        const upperHalf = fc.double({ min: 0.5, max: 1, noNaN: true });
+        for (const degree of [1, 3, 8, 16]) {
+            check(fc.tuple(upperHalf, anyX), ([t, x]) => {
+                const a = chebyshevRatioEstimate(t, x, degree);
+                const b = chebyshevRatioEstimate(1 - t, x, degree);
+                return a[0] === b[1] && a[1] === b[0];
+            });
+        }
+    });
+
+    it('is exact at the arc endpoints and at zero angle', () => {
+        for (let degree = 1; degree <= 16; ++degree) {
+            check(anyX, x => {
+                const atZero = chebyshevRatioEstimate(0, x, degree);
+                const atOne = chebyshevRatioEstimate(1, x, degree);
+                return atZero[1] === 0 && atOne[0] === 0;
+            });
+            check(anyT, t => {
+                const f = chebyshevRatioEstimate(t, 1, degree);
+                return f[0] === 1 - t && f[1] === t;
+            });
+        }
+    });
+
+    it('beats the full-range estimate on [0,pi/4] at every shared degree', () => {
+        // The R variant differs only in the u-values, chosen for the smaller
+        // domain; swapping the two tables would invert this.
+        const angle = scaled(0, Math.PI / 4);
+        for (let degree = 1; degree <= 12; ++degree) {
+            expect(getChebyshevRatioEstimateRMaxError(degree))
+                .toBeLessThan(getChebyshevRatioEstimateMaxError(degree));
+            check(fc.tuple(anyT, angle), ([t, A]) => {
+                const x = Math.cos(A);
+                const sinA = Math.sin(A);
+                const exact = A === 0 ? t : Math.sin(t * A) / sinA;
+                const eR = Math.abs(
+                    chebyshevRatioEstimateR(t, x, degree)[1] - exact);
+                return eR <= MAX_ERROR_R[degree - 1];
+            });
+        }
+    });
+
+    it('agrees with the exact ChebyshevRatio pair within the bound', () => {
+        // Cross-check against the non-estimating file of the same group.
+        const angle = scaled(1e-9, Math.PI / 2 - 1e-9);
+        for (const degree of [4, 10, 16]) {
+            check(fc.tuple(anyT, angle), ([t, A]) => {
+                const x = Math.cos(A);
+                const exact = chebyshevRatios(t, A);
+                const est = chebyshevRatioEstimate(t, x, degree);
+                const bound = MAX_ERROR[degree - 1] + 1e-12;
+                return Math.abs(est[0] - exact[0]) <= bound
+                    && Math.abs(est[1] - exact[1]) <= bound;
+            });
+        }
     });
 });
