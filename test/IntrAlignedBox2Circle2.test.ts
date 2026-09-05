@@ -8,6 +8,11 @@ import {
     IntrAlignedBox2Circle2FI,
     IntrAlignedBox2Circle2FIResultType as Type
 } from '../src/IntrAlignedBox2Circle2.js';
+import { dot, sub } from '../src/Vector.js';
+import {
+    check, expectClose, expectVectorClose, fc, positive, unitVector,
+    wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -275,5 +280,190 @@ describe('IntrAlignedBox2Circle2FI', () => {
         expect(numContact).toBeGreaterThan(10);
         expect(numOverlap).toBeGreaterThan(10);
         expect(numNone).toBeGreaterThan(10);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V32): properties cross-checking the port against upstream
+// IntrAlignedBox2Circle2.h.
+// ---------------------------------------------------------------------------
+
+describe('IntrAlignedBox2Circle2 verification', () => {
+    const ti = new IntrAlignedBox2Circle2TI();
+    const fi = new IntrAlignedBox2Circle2FI();
+
+    const arbBox = fc.tuple(wellScaledVector(2, -4, 4),
+        fc.array(positive(3, 0.2), { minLength: 2, maxLength: 2 }))
+        .map(([c, e]) => AlignedBox.fromMinMax(
+            Vector.fromArray([c.get(0) - e[0], c.get(1) - e[1]]),
+            Vector.fromArray([c.get(0) + e[0], c.get(1) + e[1]])));
+    const arbCircle = fc.tuple(wellScaledVector(2, -6, 6), positive(2, 0.2))
+        .map(([c, r]) => Hypersphere.fromCenterRadius(c, r));
+
+    // The signed gap between the moving circle and the moving box: negative
+    // when they overlap, zero on contact. Computed from the closed-form
+    // point-box distance, independent of the query's Voronoi-region analysis.
+    function gap(b: AlignedBox, bv: Vector, c: Hypersphere, cv: Vector,
+        t: number): number {
+        let sum = 0;
+        for (let i = 0; i < 2; ++i) {
+            const lo = b.min.get(i) + t * bv.get(i);
+            const hi = b.max.get(i) + t * bv.get(i);
+            const p = c.center.get(i) + t * cv.get(i);
+            const d = Math.max(lo - p, 0, p - hi);
+            sum += d * d;
+        }
+        return Math.sqrt(sum) - c.radius;
+    }
+
+    it('the TI query matches the closed-form point-box distance', () => {
+        check(fc.tuple(arbBox, arbCircle), ([b, c]) => {
+            const expected = gap(b, Vector.zero(2), c, Vector.zero(2), 0) <= 0;
+            const actual = ti.test(b, c).intersect;
+            // Only assert away from exact tangency, where the two formulas can
+            // differ by an ulp (the query compares squared quantities).
+            if (Math.abs(gap(b, Vector.zero(2), c, Vector.zero(2), 0))
+                > 1e-9 * (1 + c.radius)) {
+                expect(actual).toBe(expected);
+            }
+        });
+    });
+
+    // Configurations aimed at the box so that a useful fraction of the draws
+    // produce contacts.
+    const arbMoving = fc.tuple(arbBox, arbCircle, unitVector(2),
+        positive(2, 0.2))
+        .map(([b, c, jitter, speed]) => {
+            const center = mul(0.5, add(b.min, b.max));
+            const aim = add(sub(center, c.center), mul(2, jitter));
+            const len = Math.sqrt(dot(aim, aim));
+            const cv = len > 1e-6 ? mul(speed / len, aim) : mul(speed, jitter);
+            return { b, c, cv };
+        });
+
+    it('an initial overlap is reported with contact time zero', () => {
+        check(arbMoving, ({ b, c, cv }) => {
+            const g = gap(b, Vector.zero(2), c, cv, 0);
+            if (g >= 0) {
+                return;
+            }
+            const res = fi.find(b, Vector.zero(2), c, cv);
+            expect(res.intersectionType).toBe(Type.initiallyOverlapping);
+            expect(res.contactTime).toBe(0);
+            // The reported point is inside the box and inside the circle.
+            for (let i = 0; i < 2; ++i) {
+                expect(res.contactPoint.get(i))
+                    .toBeGreaterThanOrEqual(b.min.get(i) - 1e-9);
+                expect(res.contactPoint.get(i))
+                    .toBeLessThanOrEqual(b.max.get(i) + 1e-9);
+            }
+        });
+    });
+
+    it('a reported contact time is the first time the objects touch', () => {
+        check(arbMoving, ({ b, c, cv }) => {
+            const res = fi.find(b, Vector.zero(2), c, cv);
+            if (res.intersectionType !== Type.contact
+                || res.contactTime === 0) {
+                return;
+            }
+            const t = res.contactTime;
+            expect(Number.isFinite(t)).toBe(true);
+            expect(t).toBeGreaterThan(0);
+            expectClose(gap(b, Vector.zero(2), c, cv, t), 0, 1e-7, 1e-7);
+            for (let k = 1; k < 64; ++k) {
+                expect(gap(b, Vector.zero(2), c, cv, (t * k) / 64))
+                    .toBeGreaterThan(-1e-7);
+            }
+            // The contact point is on the box boundary and at distance
+            // radius from the circle center at the contact time.
+            const p = res.contactPoint;
+            const moved = sub(p, add(c.center, mul(t, cv)));
+            expectClose(Math.sqrt(dot(moved, moved)), c.radius, 1e-6, 1e-6);
+            for (let i = 0; i < 2; ++i) {
+                expect(p.get(i)).toBeGreaterThanOrEqual(b.min.get(i) - 1e-7);
+                expect(p.get(i)).toBeLessThanOrEqual(b.max.get(i) + 1e-7);
+            }
+        });
+    });
+
+    it('a reported no-contact is confirmed by sampling the motion', () => {
+        check(arbMoving, ({ b, c, cv }) => {
+            const res = fi.find(b, Vector.zero(2), c, cv);
+            if (res.intersectionType !== Type.noContact) {
+                return;
+            }
+            for (let k = 0; k <= 400; ++k) {
+                expect(gap(b, Vector.zero(2), c, cv, (20 * k) / 400))
+                    .toBeGreaterThan(-1e-7);
+            }
+            expect(res.contactTime).toBe(0);
+            expect(res.contactPoint.equals(Vector.zero(2))).toBe(true);
+        }, 80);
+    });
+
+    it('the result depends only on the relative velocity', () => {
+        check(fc.tuple(arbMoving, wellScaledVector(2, -2, 2)),
+            ([{ b, c, cv }, drift]) => {
+                const a = fi.find(b, Vector.zero(2), c, cv);
+                const d = fi.find(b, drift, c, add(cv, drift));
+                expect(d.intersectionType).toBe(a.intersectionType);
+                expectClose(d.contactTime, a.contactTime, 1e-9, 1e-9);
+            });
+    });
+
+    it('is equivariant under translation and under reflection in the axes',
+        () => {
+            check(fc.tuple(arbMoving, wellScaledVector(2, -5, 5)),
+                ([{ b, c, cv }, shift]) => {
+                    const a = fi.find(b, Vector.zero(2), c, cv);
+
+                    const bT = AlignedBox.fromMinMax(add(b.min, shift),
+                        add(b.max, shift));
+                    const cT = Hypersphere.fromCenterRadius(
+                        add(c.center, shift), c.radius);
+                    const t = fi.find(bT, Vector.zero(2), cT, cv);
+                    expect(t.intersectionType).toBe(a.intersectionType);
+                    expectClose(t.contactTime, a.contactTime, 1e-9, 1e-9);
+                    if (a.intersectionType !== Type.noContact) {
+                        expectVectorClose(t.contactPoint,
+                            add(a.contactPoint, shift), 1e-8, 1e-8);
+                    }
+
+                    // Reflect x -> -x. The query mirrors the circle center
+                    // into the first quadrant, so this exercises the sign
+                    // bookkeeping.
+                    const flip = (v: Vector): Vector =>
+                        Vector.fromArray([-v.get(0), v.get(1)]);
+                    const bF = AlignedBox.fromMinMax(
+                        Vector.fromArray([-b.max.get(0), b.min.get(1)]),
+                        Vector.fromArray([-b.min.get(0), b.max.get(1)]));
+                    const cF = Hypersphere.fromCenterRadius(flip(c.center),
+                        c.radius);
+                    const f = fi.find(bF, Vector.zero(2), cF, flip(cv));
+                    expect(f.intersectionType).toBe(a.intersectionType);
+                    expectClose(f.contactTime, a.contactTime, 1e-9, 1e-9);
+                    if (a.intersectionType !== Type.noContact) {
+                        expectVectorClose(f.contactPoint, flip(a.contactPoint),
+                            1e-8, 1e-8);
+                    }
+                });
+        });
+
+    it('reports no NaN in any field', () => {
+        check(arbMoving, ({ b, c, cv }) => {
+            const res = fi.find(b, Vector.zero(2), c, cv);
+            expect(Number.isNaN(res.contactTime)).toBe(false);
+            expect(Number.isNaN(res.contactPoint.get(0))).toBe(false);
+            expect(Number.isNaN(res.contactPoint.get(1))).toBe(false);
+        });
+    });
+
+    it('rejects inputs of the wrong dimension', () => {
+        const b3 = AlignedBox.fromMinMax(Vector.zero(3), Vector.zero(3));
+        const c2 = circle(0, 0, 1);
+        expect(() => ti.test(b3, c2)).toThrow('mismatched sizes');
+        expect(() => fi.find(b3, Vector.zero(3), c2, Vector.zero(2)))
+            .toThrow('mismatched sizes');
     });
 });

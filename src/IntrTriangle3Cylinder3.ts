@@ -76,18 +76,26 @@ function diskOverlapsPolygon(numVertices: number, Q: readonly Vector[],
             ++negative;
         }
     }
-    if (positive === 0 || negative === 0) {
-        // The polygon contains (0,0), so the disk and polygon overlap.
+    if (positive === 0 && negative === 0) {
+        // Every DotPerp is zero, which happens exactly when every edge of the
+        // polygon is collinear with the origin, that is, when the polygon
+        // degenerates to a point or to a segment whose supporting line passes
+        // through the origin. A nondegenerate convex polygon containing the
+        // origin always has a nonzero DotPerp, so this is never the
+        // containment case.
         //
-        // NOTE: When the polygon degenerates to a single point, all of the
-        // DotPerp values are zero, so positive == negative == 0 and the
-        // upstream code reports containment of (0,0) even when the point is
-        // far from the origin. This cannot occur for a nondegenerate
-        // triangle: the projection along the cylinder axis has a
-        // one-dimensional kernel, so it cannot collapse a triangle to a
-        // point. It does occur for a triangle degenerated to a segment
-        // parallel to the cylinder axis, for which the query then reports a
-        // false positive. The port preserves the upstream behavior.
+        // Upstream bug (FIXED here; see the upstream-bug issue for
+        // IntrTriangle3Cylinder3): upstream returns true, reporting that the
+        // polygon contains (0,0). That is a false positive for every triangle
+        // whose plane contains the cylinder axis and which lies inside the
+        // slab |z| <= h/2, however far it is from the cylinder: the
+        // projection of such a triangle onto the plane perpendicular to the
+        // axis is a segment through the origin. The degenerate cases are
+        // handled correctly by the edge tests below, so the port falls
+        // through to them.
+    }
+    else if (positive === 0 || negative === 0) {
+        // The polygon contains (0,0), so the disk and polygon overlap.
         return true;
     }
 

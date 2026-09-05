@@ -8,6 +8,10 @@ import { computeOrthogonalComplement3 } from '../src/Vector3.js';
 import {
     IntrTriangle3Cylinder3TI
 } from '../src/IntrTriangle3Cylinder3.js';
+import { cross } from '../src/Vector3.js';
+import {
+    check, fc, positive, rotationFrame, unitVector, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -254,13 +258,11 @@ describe('IntrTriangle3Cylinder3TI', () => {
         // upstream containment test in DiskOverlapsPolygon reports that a
         // polygon degenerated to a single point contains the origin (all of
         // the DotPerp values are zero, so both the positive and negative
-        // counts are zero), so this reports a false positive. The port
-        // preserves the upstream behavior; the case cannot arise for a
-        // nondegenerate triangle because the projection along the axis has a
-        // one-dimensional kernel and therefore cannot collapse a triangle to
-        // a point. See the PR notes for B72.
+        // counts are zero), so upstream reports a false positive here. The
+        // port instead falls through to the edge tests, which classify the
+        // degenerate polygon correctly. See the V32 verification block below.
         expect(test(tri(v3(4, 0, -4), v3(4, 0, 4), v3(4, 0, -4)),
-            cyl)).toBe(true);
+            cyl)).toBe(false);
 
         // A degenerate segment crossing the slab far from the axis but not
         // parallel to it (the projection is a segment, not a point).
@@ -472,5 +474,192 @@ describe('IntrTriangle3Cylinder3TI', () => {
 
         expect(numIntersecting).toBeGreaterThan(50);
         expect(numMismatches).toBe(0);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V32): properties cross-checking the port against upstream
+// IntrTriangle3Cylinder3.h.
+// ---------------------------------------------------------------------------
+
+// The signed cylinder function: negative strictly inside the solid, zero on
+// the boundary, positive outside.
+function signedCylinder(p: Vector, cyl: Cylinder3): number {
+    const diff = sub(p, cyl.axis.origin);
+    const z = dot(diff, cyl.axis.direction);
+    const radial = sub(diff, mul(cyl.axis.direction, z));
+    const rho = Math.sqrt(dot(radial, radial));
+    return Math.max(rho - cyl.radius, Math.abs(z) - 0.5 * cyl.height);
+}
+
+function gridMinSigned(t: Triangle, cyl: Cylinder3, n: number): number {
+    let best = Number.MAX_VALUE;
+    const e1 = sub(t.v[1], t.v[0]);
+    const e2 = sub(t.v[2], t.v[0]);
+    for (let i = 0; i <= n; ++i) {
+        for (let j = 0; i + j <= n; ++j) {
+            const s = signedCylinder(
+                add(t.v[0], add(mul(e1, i / n), mul(e2, j / n))), cyl);
+            if (s < best) {
+                best = s;
+            }
+        }
+    }
+    return best;
+}
+
+describe('IntrTriangle3Cylinder3 verification', () => {
+    const ti = new IntrTriangle3Cylinder3TI();
+
+    const arbTriangle = fc.tuple(wellScaledVector(3, -3, 3),
+        wellScaledVector(3, -3, 3), wellScaledVector(3, -3, 3))
+        .filter(([a, b, c]) => {
+            const e0 = sub(b, a), e1 = sub(c, a);
+            const n = cross(e0, e1);
+            return dot(n, n) > 0.25;
+        })
+        .map(([a, b, c]) => Triangle.fromVertices(a, b, c));
+    const arbCylinder = fc.tuple(wellScaledVector(3, -2, 2), unitVector(3),
+        positive(2, 0.25), positive(4, 0.5))
+        .map(([o, d, r, h]) => Cylinder3.fromAxisRadiusHeight(
+            Line.fromOriginDirection(o, d), r, h));
+    const arbPair = fc.tuple(arbTriangle, arbCylinder);
+
+    it('reports an intersection whenever a sampled triangle point is well'
+        + ' inside the solid cylinder', () => {
+        check(arbPair, ([t, cyl]) => {
+            if (gridMinSigned(t, cyl, 24) < -1e-6) {
+                expect(ti.test(t, cyl).intersect).toBe(true);
+            }
+        }, 100);
+    });
+
+    // The containment test of DiskOverlapsPolygon is a set of sign tests on
+    // DotPerp values. When the plane of the triangle nearly contains the
+    // cylinder axis, the projection of the triangle onto the plane
+    // perpendicular to the axis is a nearly degenerate polygon, those values
+    // are pure round-off, and the sign tests are unreliable: if they all come
+    // out nonnegative the query reports that the polygon contains the axis
+    // and returns a false positive. The exactly degenerate case is handled
+    // (see the regression test below), but the nearly degenerate one is a
+    // conditioning limitation of the upstream algorithm, so the properties
+    // that predict a 'false' answer exclude it.
+    function axisTransversal(t: Triangle, cyl: Cylinder3): boolean {
+        const n = cross(sub(t.v[1], t.v[0]), sub(t.v[2], t.v[0]));
+        const len = Math.sqrt(dot(n, n));
+        return len > 0
+            && Math.abs(dot(n, cyl.axis.direction)) / len > 1e-2;
+    }
+
+    it('reports no intersection when the whole triangle is provably outside',
+        () => {
+            // distanceToSolidCylinder is 1-Lipschitz, so the true minimum over
+            // the triangle is at least gridMinDistance - gridResolution.
+            check(arbPair, ([t, cyl]) => {
+                const n = 24;
+                if (axisTransversal(t, cyl)
+                    && gridMinDistance(t, cyl, n) - gridResolution(t, n)
+                        > 1e-6) {
+                    expect(ti.test(t, cyl).intersect).toBe(false);
+                }
+            }, 100);
+        });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(arbPair, rotationFrame(3), wellScaledVector(3, -3, 3)),
+            ([[t, cyl], frame, shift]) => {
+                const rot = (v: Vector): Vector => Vector.fromArray([
+                    dot(frame[0], v), dot(frame[1], v), dot(frame[2], v)]);
+                const map = (v: Vector): Vector => add(rot(v), shift);
+                const t2 = Triangle.fromVertices(map(t.v[0]), map(t.v[1]),
+                    map(t.v[2]));
+                const cyl2 = Cylinder3.fromAxisRadiusHeight(
+                    Line.fromOriginDirection(map(cyl.axis.origin),
+                        rot(cyl.axis.direction)), cyl.radius, cyl.height);
+                // The query classifies with exact comparisons, so a tangential
+                // configuration can flip. Assert only when the answer is
+                // robust: a sampled point is well inside, or the triangle is
+                // provably outside.
+                const n = 24;
+                if (gridMinSigned(t, cyl, n) < -1e-4) {
+                    expect(ti.test(t2, cyl2).intersect).toBe(true);
+                }
+                else if (axisTransversal(t, cyl)
+                    && gridMinDistance(t, cyl, n)
+                        - gridResolution(t, n) > 1e-4) {
+                    expect(ti.test(t2, cyl2).intersect).toBe(false);
+                }
+            }, 60);
+    });
+
+    it('is invariant under permuting the triangle vertices', () => {
+        // The query sorts the vertices by their axial coordinate, so the
+        // answer must not depend on the input order.
+        check(arbPair, ([t, cyl]) => {
+            const expected = ti.test(t, cyl).intersect;
+            const orders = [[0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1],
+                [2, 1, 0]];
+            for (const o of orders) {
+                const p = Triangle.fromVertices(t.v[o[0]], t.v[o[1]],
+                    t.v[o[2]]);
+                expect(ti.test(p, cyl).intersect).toBe(expected);
+            }
+        });
+    });
+
+    it('rejects infinite cylinders', () => {
+        const infinite = Cylinder3.fromAxisRadiusHeight(
+            Line.fromOriginDirection(v3(0, 0, 0), v3(0, 0, 1)), 1, -1);
+        expect(() => ti.test(tri(v3(0, 0, 0), v3(1, 0, 0), v3(0, 1, 0)),
+            infinite)).toThrow('Infinite cylinders are not yet supported.');
+    });
+
+    it('does not report a degenerate projected polygon as containing the'
+        + ' axis (upstream-bug regression)', () => {
+        const cyl = unitCylinder();   // axis (0,0,1), radius 1, |z| <= 1
+
+        // A triangle degenerated to a segment parallel to the axis. Its
+        // projection is a single point 10 units from the axis, so every
+        // DotPerp of DiskOverlapsPolygon is zero; upstream reports that the
+        // polygon contains the origin.
+        const degenerate = tri(v3(10, 0, -0.5), v3(10, 0, 0), v3(10, 0, 0.5));
+        expect(ti.test(degenerate, cyl).intersect).toBe(false);
+        expect(distanceToSolidCylinder(v3(10, 0, 0), cyl)).toBeGreaterThan(8);
+
+        // A nondegenerate triangle in a plane that contains the cylinder
+        // axis. Its projection is a segment on a line through the origin, so
+        // again every DotPerp is zero. The triangle is 3 units from the axis.
+        const coplanar = tri(v3(0, 3, 0), v3(0, 6, 0), v3(0, 4, 0.5));
+        expect(ti.test(coplanar, cyl).intersect).toBe(false);
+        expect(gridMinDistance(coplanar, cyl, 16)).toBeGreaterThan(1.5);
+
+        // The same configuration moved onto the cylinder still intersects.
+        const touching = tri(v3(0, 0.5, 0), v3(0, 6, 0), v3(0, 4, 0.5));
+        expect(ti.test(touching, cyl).intersect).toBe(true);
+
+        // A point-degenerate projection inside the disk also still
+        // intersects.
+        const inside = tri(v3(0.5, 0, -0.5), v3(0.5, 0, 0), v3(0.5, 0, 0.5));
+        expect(ti.test(inside, cyl).intersect).toBe(true);
+    });
+
+    it('handles the exact slab boundary cases', () => {
+        const cyl = unitCylinder();   // |z| <= 1, x^2 + y^2 <= 1
+        // A triangle entirely in the plane z = 1 (case 1b/2b of the PDF) that
+        // overlaps the disk.
+        const onTop = tri(v3(0, 0, 1), v3(2, 0, 1), v3(0, 2, 1));
+        expect(ti.test(onTop, cyl).intersect).toBe(true);
+        // The same triangle translated so it only touches the rim.
+        const rim = tri(v3(1, 0, 1), v3(3, 0, 1), v3(1, 2, 1));
+        expect(ti.test(rim, cyl).intersect).toBe(true);
+        // Strictly above the slab.
+        const above = tri(v3(0, 0, 1.5), v3(2, 0, 1.5), v3(0, 2, 1.5));
+        expect(ti.test(above, cyl).intersect).toBe(false);
+        // Strictly below the slab.
+        const below = tri(v3(0, 0, -1.5), v3(2, 0, -1.5), v3(0, 2, -1.5));
+        expect(ti.test(below, cyl).intersect).toBe(false);
+        // In the plane z = 1 but outside the disk.
+        const offTop = tri(v3(2, 0, 1), v3(4, 0, 1), v3(2, 2, 1));
+        expect(ti.test(offTop, cyl).intersect).toBe(false);
     });
 });
