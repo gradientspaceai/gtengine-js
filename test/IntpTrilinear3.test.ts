@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { IntpTrilinear3 } from '../src/IntpTrilinear3.js';
+import { check, expectClose, fc, finite, seededRandom }
+    from './helpers/arbitraries.js';
 
 // Grid used by most of the tests. The bounds, origins and spacings are all
 // distinct so that a transposed index or a swapped spacing is caught.
@@ -388,5 +390,209 @@ describe('IntpTrilinear3', () => {
             expect(left).toBeCloseTo(right, 8);
             expect(left).toBeCloseTo(interp.evaluate(xEdge, y, z), 8);
         });
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (V29): property-based checks against upstream
+// IntpTrilinear3.h.
+// ---------------------------------------------------------------------------
+
+interface TrilinearCase {
+    xBound: number; yBound: number; zBound: number;
+    xMin: number; xSpacing: number;
+    yMin: number; ySpacing: number;
+    zMin: number; zSpacing: number;
+    F: number[];
+    intp: IntpTrilinear3;
+}
+
+// Grid origins are integers and the spacings are exact binary fractions, so
+// (x - min) * (1/spacing) is exact at the sample abscissae and the properties
+// below need no allowance for index round-off.
+const trilinearCase = fc.tuple(
+    fc.integer({ min: 2, max: 4 }),
+    fc.integer({ min: 2, max: 4 }),
+    fc.integer({ min: 2, max: 4 }),
+    fc.integer({ min: -3, max: 3 }),
+    fc.constantFrom(0.5, 1, 2),
+    fc.integer({ min: -3, max: 3 }),
+    fc.constantFrom(0.5, 1, 2),
+    fc.integer({ min: -3, max: 3 }),
+    fc.constantFrom(0.5, 1, 2),
+    fc.integer({ min: 0, max: 0xffff })
+).map(([xBound, yBound, zBound, xMin, xSpacing, yMin, ySpacing, zMin,
+    zSpacing, seed]): TrilinearCase => {
+    const rand = seededRandom(seed + 1);
+    const F: number[] = [];
+    for (let i = 0; i < xBound * yBound * zBound; ++i) {
+        F.push(Math.round(20 * (2 * rand() - 1)));
+    }
+    return {
+        xBound, yBound, zBound, xMin, xSpacing, yMin, ySpacing, zMin, zSpacing,
+        F,
+        intp: new IntpTrilinear3(xBound, yBound, zBound, xMin, xSpacing, yMin,
+            ySpacing, zMin, zSpacing, F)
+    };
+});
+
+// An independent evaluation: clamp the cell index the way upstream does, then
+// apply three successive one-dimensional linear blends. This exercises the
+// blending matrix and the flat sample indexing without reusing either.
+function trilinearReference(c: TrilinearCase, x: number, y: number,
+    z: number): number {
+    const clamp = (i: number, bound: number) =>
+        i < 0 ? 0 : (i >= bound ? bound - 1 : i);
+    const xIndex = (x - c.xMin) / c.xSpacing;
+    const yIndex = (y - c.yMin) / c.ySpacing;
+    const zIndex = (z - c.zMin) / c.zSpacing;
+    const ix = clamp(Math.trunc(xIndex), c.xBound);
+    const iy = clamp(Math.trunc(yIndex), c.yBound);
+    const iz = clamp(Math.trunc(zIndex), c.zBound);
+    const u = xIndex - ix, v = yIndex - iy, w = zIndex - iz;
+
+    const at = (dx: number, dy: number, dz: number) =>
+        c.F[clamp(ix + dx, c.xBound)
+            + c.xBound * (clamp(iy + dy, c.yBound)
+                + c.yBound * clamp(iz + dz, c.zBound))];
+    const lerpX = (dy: number, dz: number) =>
+        (1 - u) * at(0, dy, dz) + u * at(1, dy, dz);
+    const lerpY = (dz: number) => (1 - v) * lerpX(0, dz) + v * lerpX(1, dz);
+    return (1 - w) * lerpY(0) + w * lerpY(1);
+}
+
+describe('IntpTrilinear3 verification', () => {
+    it('agrees with an independent successive-lerp evaluation, inside and '
+        + 'outside the domain', () => {
+            check(fc.tuple(trilinearCase, fc.integer({ min: 0, max: 0xffff })),
+                ([c, seed]) => {
+                    const rand = seededRandom(seed + 3);
+                    for (let n = 0; n < 12; ++n) {
+                        // Sample a box one cell wider than the domain in each
+                        // direction so the clamping paths are exercised.
+                        const x = c.xMin + c.xSpacing * (-1 + (c.xBound + 1) * rand());
+                        const y = c.yMin + c.ySpacing * (-1 + (c.yBound + 1) * rand());
+                        const z = c.zMin + c.zSpacing * (-1 + (c.zBound + 1) * rand());
+                        expectClose(c.intp.evaluate(x, y, z),
+                            trilinearReference(c, x, y, z), 1e-9, 1e-12);
+                    }
+                    return true;
+                });
+        });
+
+    it('interpolates every sample of the grid', () => {
+        check(trilinearCase, c => {
+            for (let k = 0; k < c.zBound; ++k) {
+                for (let j = 0; j < c.yBound; ++j) {
+                    for (let i = 0; i < c.xBound; ++i) {
+                        const value = c.intp.evaluate(c.xMin + c.xSpacing * i,
+                            c.yMin + c.ySpacing * j, c.zMin + c.zSpacing * k);
+                        expectClose(value,
+                            c.F[i + c.xBound * (j + c.yBound * k)], 1e-9, 1e-12);
+                    }
+                }
+            }
+            return true;
+        });
+    });
+
+    // Trilinear interpolation reproduces the eight-term trilinear polynomial
+    // exactly, and its mixed partial d^3/dxdydz is the coefficient of xyz.
+    it('reproduces a trilinear polynomial and its derivatives', () => {
+        check(fc.tuple(trilinearCase,
+            fc.array(fc.integer({ min: -5, max: 5 }),
+                { minLength: 8, maxLength: 8 }),
+            fc.integer({ min: 0, max: 0xffff })), ([c, k, seed]) => {
+                const f = (x: number, y: number, z: number) =>
+                    k[0] + k[1] * x + k[2] * y + k[3] * z + k[4] * x * y
+                    + k[5] * x * z + k[6] * y * z + k[7] * x * y * z;
+                const F: number[] = [];
+                for (let s = 0; s < c.zBound; ++s) {
+                    for (let r = 0; r < c.yBound; ++r) {
+                        for (let q = 0; q < c.xBound; ++q) {
+                            F.push(f(c.xMin + c.xSpacing * q,
+                                c.yMin + c.ySpacing * r,
+                                c.zMin + c.zSpacing * s));
+                        }
+                    }
+                }
+                const intp = new IntpTrilinear3(c.xBound, c.yBound, c.zBound,
+                    c.xMin, c.xSpacing, c.yMin, c.ySpacing, c.zMin, c.zSpacing, F);
+                const rand = seededRandom(seed + 5);
+                for (let n = 0; n < 8; ++n) {
+                    const x = c.xMin + c.xSpacing * (c.xBound - 1) * rand();
+                    const y = c.yMin + c.ySpacing * (c.yBound - 1) * rand();
+                    const z = c.zMin + c.zSpacing * (c.zBound - 1) * rand();
+                    expectClose(intp.evaluate(x, y, z), f(x, y, z), 1e-8, 1e-11);
+                    expectClose(intp.evaluate(1, 0, 0, x, y, z),
+                        k[1] + k[4] * y + k[5] * z + k[7] * y * z, 1e-8, 1e-11);
+                    expectClose(intp.evaluate(1, 1, 1, x, y, z), k[7],
+                        1e-8, 1e-11);
+                }
+                return true;
+            });
+    });
+
+    // The samples all carry weight one, so a constant field is reproduced
+    // everywhere, including outside the domain where the stencil is clamped.
+    it('reproduces a constant field everywhere', () => {
+        check(fc.tuple(trilinearCase, fc.integer({ min: -9, max: 9 }),
+            fc.integer({ min: 0, max: 0xffff })), ([c, value, seed]) => {
+                const F = new Array<number>(c.xBound * c.yBound * c.zBound)
+                    .fill(value);
+                const intp = new IntpTrilinear3(c.xBound, c.yBound, c.zBound,
+                    c.xMin, c.xSpacing, c.yMin, c.ySpacing, c.zMin, c.zSpacing, F);
+                const rand = seededRandom(seed + 9);
+                for (let n = 0; n < 8; ++n) {
+                    const x = c.xMin + c.xSpacing * (-2 + (c.xBound + 3) * rand());
+                    const y = c.yMin + c.ySpacing * (-2 + (c.yBound + 3) * rand());
+                    const z = c.zMin + c.zSpacing * (-2 + (c.zBound + 3) * rand());
+                    expectClose(intp.evaluate(x, y, z), value, 1e-9, 1e-12);
+                }
+                return true;
+            });
+    });
+
+    // Upstream (issue #69): the evaluators claim to clamp the inputs to the
+    // domain but only clamp the cell index. Above the maximum both entries of
+    // the stencil collapse onto the last sample and the two blend weights sum
+    // to one, so the boundary value is held; below the minimum the stencil
+    // still spans two distinct samples and the boundary cell is extrapolated.
+    it('holds the value above the domain and extrapolates below it', () => {
+        check(fc.tuple(trilinearCase, finite(0.01, 5)), ([c, delta]) => {
+            const yMid = c.yMin + c.ySpacing * (c.yBound - 1) / 2;
+            const zMid = c.zMin + c.zSpacing * (c.zBound - 1) / 2;
+            const xMax = c.intp.getXMax();
+            expectClose(c.intp.evaluate(xMax + delta, yMid, zMid),
+                c.intp.evaluate(xMax, yMid, zMid), 1e-9, 1e-12);
+
+            // Below the minimum the interpolant continues the first cell's
+            // linear polynomial: f(xMin - d) = f(xMin) - d * f'(xMin).
+            const xMin = c.intp.getXMin();
+            const slope = c.intp.evaluate(1, 0, 0, xMin, yMid, zMid);
+            if (delta < c.xSpacing) {
+                expectClose(c.intp.evaluate(xMin - delta, yMid, zMid),
+                    c.intp.evaluate(xMin, yMid, zMid) - delta * slope,
+                    1e-9, 1e-11);
+            }
+            return true;
+        });
+    });
+
+    // The trilinear polynomial is degree one in each variable, so the second
+    // derivative in any variable vanishes; upstream returns zero for any order
+    // above one without even evaluating the stencil.
+    it('returns zero for derivative orders outside [0,1]', () => {
+        check(fc.tuple(trilinearCase, fc.integer({ min: 2, max: 6 }),
+            fc.integer({ min: 0, max: 2 })), ([c, order, axis]) => {
+                const orders = [0, 0, 0];
+                orders[axis] = order;
+                const x = c.xMin + c.xSpacing * 0.5;
+                const y = c.yMin + c.ySpacing * 0.5;
+                const z = c.zMin + c.zSpacing * 0.5;
+                expect(c.intp.evaluate(orders[0], orders[1], orders[2], x, y, z))
+                    .toBe(0);
+                return true;
+            });
     });
 });

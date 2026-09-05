@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { IntpTricubic3 } from '../src/IntpTricubic3.js';
+import { check, expectClose, fc, seededRandom }
+    from './helpers/arbitraries.js';
 
 // Grid used by most of the tests. The bounds, origins and spacings are all
 // distinct so that a transposed index or a swapped spacing is caught.
@@ -513,5 +515,278 @@ describe('IntpTricubic3', () => {
             expect(left).toBeCloseTo(right, 8);
             expect(left).toBeCloseTo(interp.evaluate(xEdge, y, z), 8);
         });
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification pass (V29): property-based checks against upstream
+// IntpTricubic3.h.
+// ---------------------------------------------------------------------------
+
+interface TricubicCase {
+    xBound: number; yBound: number; zBound: number;
+    xMin: number; xSpacing: number;
+    yMin: number; ySpacing: number;
+    zMin: number; zSpacing: number;
+    catmullRom: boolean;
+    F: number[];
+    intp: IntpTricubic3;
+}
+
+// Grid origins are integers and the spacings are exact binary fractions, so
+// (x - min) * (1/spacing) is exact at the sample abscissae.
+const tricubicCase = fc.tuple(
+    fc.integer({ min: 4, max: 6 }),
+    fc.integer({ min: 4, max: 6 }),
+    fc.integer({ min: 4, max: 5 }),
+    fc.integer({ min: -3, max: 3 }),
+    fc.constantFrom(0.5, 1, 2),
+    fc.integer({ min: -3, max: 3 }),
+    fc.constantFrom(0.5, 1, 2),
+    fc.integer({ min: -3, max: 3 }),
+    fc.constantFrom(0.5, 1, 2),
+    fc.boolean(),
+    fc.integer({ min: 0, max: 0xffff })
+).map(([xBound, yBound, zBound, xMin, xSpacing, yMin, ySpacing, zMin,
+    zSpacing, catmullRom, seed]): TricubicCase => {
+    const rand = seededRandom(seed + 1);
+    const F: number[] = [];
+    for (let i = 0; i < xBound * yBound * zBound; ++i) {
+        F.push(Math.round(20 * (2 * rand() - 1)));
+    }
+    return {
+        xBound, yBound, zBound, xMin, xSpacing, yMin, ySpacing, zMin, zSpacing,
+        catmullRom, F,
+        intp: new IntpTricubic3(xBound, yBound, zBound, xMin, xSpacing, yMin,
+            ySpacing, zMin, zSpacing, F, catmullRom)
+    };
+});
+
+// The four tap weights of the classical Catmull-Rom spline,
+//   p(u) = 0.5*(2*f1 + (-f0+f2)*u + (2f0-5f1+4f2-f3)*u^2
+//               + (-f0+3f1-3f2+f3)*u^3),
+// and of the uniform cubic B-spline,
+//   p(u) = ((1-u)^3*f0 + (4-6u^2+3u^3)*f1 + (1+3u+3u^2-3u^3)*f2 + u^3*f3)/6.
+// Both are written independently of the port's blending matrix.
+function tapWeights(catmullRom: boolean, u: number): number[] {
+    const u2 = u * u, u3 = u2 * u;
+    if (catmullRom) {
+        return [
+            0.5 * (-u + 2 * u2 - u3),
+            0.5 * (2 - 5 * u2 + 3 * u3),
+            0.5 * (u + 4 * u2 - 3 * u3),
+            0.5 * (-u2 + u3)
+        ];
+    }
+    return [
+        (1 - 3 * u + 3 * u2 - u3) / 6,
+        (4 - 6 * u2 + 3 * u3) / 6,
+        (1 + 3 * u + 3 * u2 - 3 * u3) / 6,
+        u3 / 6
+    ];
+}
+
+// An independent evaluation: clamp the cell index the way upstream does, then
+// apply the three one-dimensional four-tap blends in sequence.
+function tricubicReference(c: TricubicCase, x: number, y: number,
+    z: number): number {
+    const clamp = (i: number, bound: number) =>
+        i < 0 ? 0 : (i >= bound ? bound - 1 : i);
+    const xIndex = (x - c.xMin) / c.xSpacing;
+    const yIndex = (y - c.yMin) / c.ySpacing;
+    const zIndex = (z - c.zMin) / c.zSpacing;
+    const ix = clamp(Math.trunc(xIndex), c.xBound);
+    const iy = clamp(Math.trunc(yIndex), c.yBound);
+    const iz = clamp(Math.trunc(zIndex), c.zBound);
+    const P = tapWeights(c.catmullRom, xIndex - ix);
+    const Q = tapWeights(c.catmullRom, yIndex - iy);
+    const R = tapWeights(c.catmullRom, zIndex - iz);
+
+    let result = 0;
+    for (let slice = 0; slice < 4; ++slice) {
+        const kz = clamp(iz - 1 + slice, c.zBound);
+        let sumYX = 0;
+        for (let row = 0; row < 4; ++row) {
+            const ky = clamp(iy - 1 + row, c.yBound);
+            let sumX = 0;
+            for (let col = 0; col < 4; ++col) {
+                const kx = clamp(ix - 1 + col, c.xBound);
+                sumX += P[col] * c.F[kx + c.xBound * (ky + c.yBound * kz)];
+            }
+            sumYX += Q[row] * sumX;
+        }
+        result += R[slice] * sumYX;
+    }
+    return result;
+}
+
+describe('IntpTricubic3 verification', () => {
+    it('agrees with an independent four-tap evaluation, inside and outside '
+        + 'the domain', () => {
+            check(fc.tuple(tricubicCase, fc.integer({ min: 0, max: 0xffff })),
+                ([c, seed]) => {
+                    const rand = seededRandom(seed + 3);
+                    for (let n = 0; n < 10; ++n) {
+                        const x = c.xMin + c.xSpacing * (-1 + (c.xBound + 1) * rand());
+                        const y = c.yMin + c.ySpacing * (-1 + (c.yBound + 1) * rand());
+                        const z = c.zMin + c.zSpacing * (-1 + (c.zBound + 1) * rand());
+                        expectClose(c.intp.evaluate(x, y, z),
+                            tricubicReference(c, x, y, z), 1e-9, 1e-11);
+                    }
+                    return true;
+                });
+        });
+
+    // Catmull-Rom is interpolatory: at a sample the local parameter is zero
+    // and the tap weights are (0,1,0,0).
+    it('Catmull-Rom interpolates every sample of the grid', () => {
+        check(tricubicCase, c => {
+            const intp = new IntpTricubic3(c.xBound, c.yBound, c.zBound, c.xMin,
+                c.xSpacing, c.yMin, c.ySpacing, c.zMin, c.zSpacing, c.F, true);
+            for (let k = 0; k < c.zBound; ++k) {
+                for (let j = 0; j < c.yBound; ++j) {
+                    for (let i = 0; i < c.xBound; ++i) {
+                        expectClose(intp.evaluate(c.xMin + c.xSpacing * i,
+                            c.yMin + c.ySpacing * j, c.zMin + c.zSpacing * k),
+                            c.F[i + c.xBound * (j + c.yBound * k)], 1e-9, 1e-12);
+                    }
+                }
+            }
+            return true;
+        });
+    });
+
+    // Both blends are partitions of unity, so a constant field is reproduced
+    // everywhere, including where the stencil is clamped.
+    it('reproduces a constant field everywhere', () => {
+        check(fc.tuple(tricubicCase, fc.integer({ min: -9, max: 9 }),
+            fc.integer({ min: 0, max: 0xffff })), ([c, value, seed]) => {
+                const F = new Array<number>(c.xBound * c.yBound * c.zBound)
+                    .fill(value);
+                const intp = new IntpTricubic3(c.xBound, c.yBound, c.zBound,
+                    c.xMin, c.xSpacing, c.yMin, c.ySpacing, c.zMin, c.zSpacing,
+                    F, c.catmullRom);
+                const rand = seededRandom(seed + 9);
+                for (let n = 0; n < 8; ++n) {
+                    const x = c.xMin + c.xSpacing * (-2 + (c.xBound + 3) * rand());
+                    const y = c.yMin + c.ySpacing * (-2 + (c.yBound + 3) * rand());
+                    const z = c.zMin + c.zSpacing * (-2 + (c.zBound + 3) * rand());
+                    expectClose(intp.evaluate(x, y, z), value, 1e-9, 1e-12);
+                }
+                return true;
+            });
+    });
+
+    // Catmull-Rom has second-order precision: the tangent estimate
+    // (f(i+1)-f(i-1))/2 is exact for quadratics but not for cubics, so the
+    // interpolant reproduces a polynomial of degree at most two per variable
+    // wherever the four-tap stencil lies entirely inside the grid. Uniform
+    // cubic B-spline blending with the samples as control points has only
+    // linear precision.
+    it('reproduces polynomials up to the precision of each blend', () => {
+        check(fc.tuple(tricubicCase,
+            fc.array(fc.integer({ min: -4, max: 4 }),
+                { minLength: 7, maxLength: 7 }),
+            fc.integer({ min: 0, max: 0xffff })), ([c, k, seed]) => {
+                const degree = c.catmullRom ? 2 : 1;
+                const f = (x: number, y: number, z: number) =>
+                    k[0] + k[1] * x + k[2] * y + k[3] * z
+                    + (degree === 2
+                        ? k[4] * x * x + k[5] * y * y + k[6] * z * z : 0);
+                const F: number[] = [];
+                for (let s = 0; s < c.zBound; ++s) {
+                    for (let r = 0; r < c.yBound; ++r) {
+                        for (let q = 0; q < c.xBound; ++q) {
+                            F.push(f(c.xMin + c.xSpacing * q,
+                                c.yMin + c.ySpacing * r,
+                                c.zMin + c.zSpacing * s));
+                        }
+                    }
+                }
+                const intp = new IntpTricubic3(c.xBound, c.yBound, c.zBound,
+                    c.xMin, c.xSpacing, c.yMin, c.ySpacing, c.zMin, c.zSpacing,
+                    F, c.catmullRom);
+                const rand = seededRandom(seed + 5);
+                for (let n = 0; n < 8; ++n) {
+                    // The interior: the cell index stays in [1, bound-3] so
+                    // that the four taps ix-1 .. ix+2 are all real samples.
+                    const x = c.xMin + c.xSpacing * (1 + (c.xBound - 3) * rand());
+                    const y = c.yMin + c.ySpacing * (1 + (c.yBound - 3) * rand());
+                    const z = c.zMin + c.zSpacing * (1 + (c.zBound - 3) * rand());
+                    expectClose(intp.evaluate(x, y, z), f(x, y, z), 1e-8, 1e-10);
+                    expectClose(intp.evaluate(1, 0, 0, x, y, z),
+                        k[1] + (degree === 2 ? 2 * k[4] * x : 0), 1e-7, 1e-9);
+                }
+                return true;
+            });
+    });
+
+    // The interpolant is a cubic in each variable on a cell, so its fourth
+    // derivative vanishes and the second central difference is exact for it.
+    it('matches the exact second central difference inside a cell', () => {
+        check(tricubicCase, c => {
+            const h = c.xSpacing / 4;
+            const x = c.xMin + c.xSpacing * 1.5;
+            const y = c.yMin + c.ySpacing * 1.5;
+            const z = c.zMin + c.zSpacing * 1.5;
+            const d2 = (c.intp.evaluate(x + h, y, z) - 2 * c.intp.evaluate(x, y, z)
+                + c.intp.evaluate(x - h, y, z)) / (h * h);
+            expectClose(c.intp.evaluate(2, 0, 0, x, y, z), d2, 1e-7, 1e-8);
+            return true;
+        });
+    });
+
+    // The third derivative of a cubic is constant on the cell.
+    it('has a constant third derivative inside a cell', () => {
+        check(tricubicCase, c => {
+            const y = c.yMin + c.ySpacing * 1.5;
+            const z = c.zMin + c.zSpacing * 1.5;
+            const base = c.intp.evaluate(3, 0, 0,
+                c.xMin + c.xSpacing * 1.25, y, z);
+            expect(c.intp.evaluate(3, 0, 0, c.xMin + c.xSpacing * 1.75, y, z))
+                .toBe(base);
+            return true;
+        });
+    });
+
+    // Upstream returns zero from the switch default for any order above three.
+    it('returns zero for derivative orders outside [0,3]', () => {
+        check(fc.tuple(tricubicCase, fc.integer({ min: 4, max: 9 }),
+            fc.integer({ min: 0, max: 2 })), ([c, order, axis]) => {
+                const orders = [0, 0, 0];
+                orders[axis] = order;
+                const x = c.xMin + c.xSpacing * 1.5;
+                const y = c.yMin + c.ySpacing * 1.5;
+                const z = c.zMin + c.zSpacing * 1.5;
+                expect(c.intp.evaluate(orders[0], orders[1], orders[2], x, y, z))
+                    .toBe(0);
+                return true;
+            });
+    });
+
+    // Upstream (issue #69): the evaluators claim to clamp the inputs to the
+    // domain but only clamp the cell index, so an input outside the domain
+    // extrapolates the boundary cell's cubic instead of holding the boundary
+    // value. The port preserves that; here the extrapolated value differs
+    // from the boundary value whenever the boundary derivative is nonzero.
+    it('extrapolates rather than clamping outside the domain', () => {
+        const bound = 4;
+        const F: number[] = [];
+        for (let k = 0; k < bound; ++k) {
+            for (let j = 0; j < bound; ++j) {
+                for (let i = 0; i < bound; ++i) {
+                    F.push(i);   // f = x, so the boundary slope is 1
+                }
+            }
+        }
+        for (const catmullRom of [true, false]) {
+            const intp = new IntpTricubic3(bound, bound, bound, 0, 1, 0, 1,
+                0, 1, F, catmullRom);
+            // If the inputs were clamped as the header comment claims, the
+            // two values would be identical.
+            const inside = intp.evaluate(0, 1.5, 1.5);
+            const outside = intp.evaluate(-0.5, 1.5, 1.5);
+            expect(Math.abs(outside - inside)).toBeGreaterThan(1e-3);
+        }
     });
 });
