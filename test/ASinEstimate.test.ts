@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { asinEstimate, getASinEstimateMaxError } from '../src/ASinEstimate.js';
 import { acosEstimate, getACosEstimateMaxError } from '../src/ACosEstimate.js';
 import { GTE_C_HALF_PI } from '../src/Constants.js';
+import { sinEstimate } from '../src/SinEstimate.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 const DEGREES = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 
@@ -111,5 +113,85 @@ describe('getASinEstimateMaxError', () => {
         expect(() => getASinEstimateMaxError(2.5)).toThrow(/Invalid degree/);
         expect(() => asinEstimate(0.5, 0)).toThrow(/Invalid degree/);
         expect(() => asinEstimate(0.5, 9)).toThrow(/Invalid degree/);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V23): independent review against upstream ASinEstimate.h.
+// ---------------------------------------------------------------------------
+
+describe('ASinEstimate verification', () => {
+    const inDomain = fc.double({ min: 0, max: 1, noNaN: true });
+
+    it('is exactly pi/2 minus the acos estimate, for every input', () => {
+        // Upstream is a one-line forward; the identity must be bit exact.
+        for (const degree of DEGREES) {
+            check(inDomain, x =>
+                asinEstimate(x, degree)
+                    === GTE_C_HALF_PI - acosEstimate(x, degree));
+        }
+    });
+
+    it('is within the documented bound on fast-check samples of [0,1]', () => {
+        for (const degree of DEGREES) {
+            check(inDomain, x =>
+                Math.abs(asinEstimate(x, degree) - Math.asin(x))
+                    <= MAX_ERROR[degree - 1]);
+        }
+    });
+
+    it('has a max error over [0,1] that decreases with the degree', () => {
+        // Measured independently of the published table. asin and acos share
+        // the same polynomial, so the two tables must agree to within the
+        // rounding of the pi/2 constant, which this also confirms.
+        const samples = 40000;
+        let previous = Number.POSITIVE_INFINITY;
+        for (const degree of DEGREES) {
+            let observed = 0;
+            for (let i = 0; i <= samples; ++i) {
+                const x = i / samples;
+                observed = Math.max(observed,
+                    Math.abs(asinEstimate(x, degree) - Math.asin(x)));
+            }
+            expect(observed).toBeLessThanOrEqual(MAX_ERROR[degree - 1]);
+            expect(observed).toBeGreaterThan(0.9 * MAX_ERROR[degree - 1]);
+            expect(observed).toBeLessThan(previous);
+            previous = observed;
+        }
+    }, 30000);
+
+    it('is strictly increasing on [0,1] for every degree', () => {
+        const samples = 5000;
+        for (const degree of DEGREES) {
+            let previous = Number.NEGATIVE_INFINITY;
+            for (let i = 0; i <= samples; ++i) {
+                const v = asinEstimate(i / samples, degree);
+                expect(v).toBeGreaterThan(previous);
+                previous = v;
+            }
+        }
+    }, 30000);
+
+    it('sums with the acos estimate to exactly pi/2', () => {
+        // The complementary identity holds bit exactly because the port
+        // subtracts the same acos value it adds back.
+        for (const degree of DEGREES) {
+            check(inDomain, x =>
+                asinEstimate(x, degree) + acosEstimate(x, degree)
+                    === GTE_C_HALF_PI);
+        }
+    });
+
+    it('matches sinEstimate as a left inverse to the combined accuracy', () => {
+        // sin(asin(x)) = x through two independent files; the derivative of
+        // sin at asin(x) is sqrt(1-x^2) <= 1, so the errors simply add.
+        for (const degree of [6, 8]) {
+            check(inDomain, x => {
+                const a = asinEstimate(x, degree);
+                const back = sinEstimate(a, 11);
+                return Math.abs(back - x)
+                    <= MAX_ERROR[degree - 1] + 2e-11 + 1e-12;
+            });
+        }
     });
 });

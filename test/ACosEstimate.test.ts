@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { acosEstimate, getACosEstimateMaxError } from '../src/ACosEstimate.js';
+import { cosEstimate } from '../src/CosEstimate.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 const DEGREES = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 
@@ -85,5 +87,91 @@ describe('getACosEstimateMaxError', () => {
     it('throws for invalid degrees', () => {
         expect(() => getACosEstimateMaxError(0)).toThrow('Invalid degree.');
         expect(() => getACosEstimateMaxError(9)).toThrow('Invalid degree.');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V23): independent review against upstream ACosEstimate.h.
+// ---------------------------------------------------------------------------
+
+describe('ACosEstimate verification', () => {
+    const inDomain = fc.double({ min: 0, max: 1, noNaN: true });
+
+    it('is within the documented bound on fast-check samples of [0,1]', () => {
+        for (const degree of DEGREES) {
+            check(inDomain, x =>
+                Math.abs(acosEstimate(x, degree) - Math.acos(x))
+                    <= MAX_ERROR[degree - 1]);
+        }
+    });
+
+    it('has a max error over [0,1] that decreases with the degree', () => {
+        // Measured here rather than read from the table: the RotationEstimate
+        // tables were found to understate the true error at high degrees, so
+        // every table in this group is re-derived.
+        const samples = 40000;
+        let previous = Number.POSITIVE_INFINITY;
+        for (const degree of DEGREES) {
+            let observed = 0;
+            for (let i = 0; i <= samples; ++i) {
+                const x = i / samples;
+                observed = Math.max(observed,
+                    Math.abs(acosEstimate(x, degree) - Math.acos(x)));
+            }
+            expect(observed).toBeLessThanOrEqual(MAX_ERROR[degree - 1]);
+            expect(observed).toBeGreaterThan(0.9 * MAX_ERROR[degree - 1]);
+            expect(observed).toBeLessThan(previous);
+            previous = observed;
+        }
+    }, 30000);
+
+    it('is strictly decreasing on [0,1] for every degree', () => {
+        // acos decreases from pi/2 to 0; the sqrt(1-x) factor makes this a
+        // property of the whole expression, not just the polynomial.
+        const samples = 5000;
+        for (const degree of DEGREES) {
+            let previous = Number.POSITIVE_INFINITY;
+            for (let i = 0; i <= samples; ++i) {
+                const v = acosEstimate(i / samples, degree);
+                expect(v).toBeLessThan(previous);
+                previous = v;
+            }
+        }
+    }, 30000);
+
+    it('carries the sqrt(1-x) factor, so the estimate vanishes only at x = 1', () => {
+        // The upstream form is sqrt(1-x)*p(x), which is what makes the
+        // estimate exact at the endpoint where acos has a square-root
+        // singularity; dropping the factor would leave a nonzero value there.
+        for (const degree of DEGREES) {
+            expect(acosEstimate(1, degree)).toBe(0);
+            check(fc.double({ min: 0, max: 0.999, noNaN: true }), x =>
+                acosEstimate(x, degree) > 0);
+        }
+    });
+
+    it('has a ratio to sqrt(1-x) that stays bounded near the endpoint', () => {
+        // acos(x)/sqrt(1-x) -> sqrt(2) as x -> 1, which is what the minimax
+        // polynomial approximates; the ratio must not blow up.
+        for (const degree of DEGREES) {
+            check(inDomain.filter(x => x < 1), x => {
+                const ratio = acosEstimate(x, degree) / Math.sqrt(1 - x);
+                return ratio > 1.3 && ratio < 1.6;
+            });
+        }
+    });
+
+    it('matches cosEstimate as a left inverse to the combined accuracy', () => {
+        // cos(acos(x)) = x, computed through two independent files. cos has
+        // slope -sin(a) at a = acos(x), so the error transfers with the
+        // factor sqrt(1-x^2) <= 1.
+        for (const degree of [6, 8]) {
+            check(inDomain, x => {
+                const a = acosEstimate(x, degree);
+                const back = cosEstimate(a, 10);
+                return Math.abs(back - x)
+                    <= MAX_ERROR[degree - 1] + 2.8e-10 + 1e-12;
+            });
+        }
     });
 });
