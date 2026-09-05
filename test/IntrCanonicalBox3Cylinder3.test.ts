@@ -237,3 +237,172 @@ describe('IntrCanonicalBox3Cylinder3', () => {
             .toThrow();
     });
 });
+
+// ---------------------------------------------------------------------------
+// Verification (V31): property-based checks against the upstream header.
+// ---------------------------------------------------------------------------
+import {
+    check, fc, unitVector, wellScaledVector, seededRandom
+} from './helpers/arbitraries.js';
+import { add, mul } from '../src/Vector.js';
+import { computeOrthogonalComplement3 } from '../src/Vector3.js';
+
+const canonBox = fc.tuple(fc.double({ min: 0.2, max: 3, noNaN: true }),
+    fc.double({ min: 0.2, max: 3, noNaN: true }),
+    fc.double({ min: 0.2, max: 3, noNaN: true }))
+    .map(([e0, e1, e2]) =>
+        CanonicalBox.fromExtent(Vector.fromArray([e0, e1, e2])));
+
+const cylV31 = fc.tuple(wellScaledVector(3, -4, 4), unitVector(3),
+    fc.double({ min: 0.1, max: 2, noNaN: true }),
+    fc.double({ min: 0.2, max: 4, noNaN: true }))
+    .map(([o, w, r, h]) => Cylinder3.fromAxisRadiusHeight(
+        Line.fromOriginDirection(o, w), r, h));
+
+function inBox(box: CanonicalBox, p: Vector, tol: number): boolean {
+    for (let i = 0; i < 3; ++i) {
+        if (Math.abs(p.values[i]) > box.extent.values[i] + tol) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function inCyl(c: Cylinder3, p: Vector, tol: number): boolean {
+    const diff = sub(p, c.axis.origin);
+    const z = dot(diff, c.axis.direction);
+    if (Math.abs(z) > 0.5 * c.height + tol) {
+        return false;
+    }
+    const radial = length(sub(diff, mul(z, c.axis.direction)));
+    return radial <= c.radius + tol;
+}
+
+describe('IntrCanonicalBox3Cylinder3 verification', () => {
+    const tiq = new IntrCanonicalBox3Cylinder3TI();
+
+    it('reports an intersection whenever a sampled common point exists', () => {
+        const rnd = seededRandom(0x64bd2ae1);
+        for (let trial = 0; trial < 150; ++trial) {
+            const box = CanonicalBox.fromExtent(Vector.fromArray(
+                [0.3 + rnd() * 2, 0.3 + rnd() * 2, 0.3 + rnd() * 2]));
+            const w = Vector.fromArray([rnd() * 2 - 1, rnd() * 2 - 1,
+                rnd() * 2 - 1]);
+            if (length(w) < 0.3) {
+                continue;
+            }
+            normalize(w);
+            const c = Cylinder3.fromAxisRadiusHeight(
+                Line.fromOriginDirection(Vector.fromArray([rnd() * 6 - 3,
+                    rnd() * 6 - 3, rnd() * 6 - 3]), w),
+                0.2 + rnd() * 1.2, 0.4 + rnd() * 2.5);
+            const got = tiq.test(box, c).intersect;
+            // Sample the solid cylinder and look for a point inside the box.
+            const basis = [w.clone(), new Vector(3), new Vector(3)];
+            computeOrthogonalComplement3(1, basis);
+            let common = false;
+            const half = 0.5 * c.height;
+            for (let i = 0; i <= 12 && !common; ++i) {
+                const z = -half + (2 * half * i) / 12;
+                for (let j = 0; j <= 6 && !common; ++j) {
+                    const rr = (c.radius * j) / 6;
+                    for (let k = 0; k < 24; ++k) {
+                        const a = (2 * Math.PI * k) / 24;
+                        const p = add(c.axis.origin, add(mul(z, basis[0]),
+                            add(mul(rr * Math.cos(a), basis[1]),
+                                mul(rr * Math.sin(a), basis[2]))));
+                        if (inBox(box, p, 0)) {
+                            common = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!common) {
+                // Also sample the box for a point inside the cylinder.
+                for (let i = 0; i <= 12 && !common; ++i) {
+                    for (let j = 0; j <= 12 && !common; ++j) {
+                        for (let k = 0; k <= 12; ++k) {
+                            const p = Vector.fromArray([
+                                box.extent.values[0] * (2 * i / 12 - 1),
+                                box.extent.values[1] * (2 * j / 12 - 1),
+                                box.extent.values[2] * (2 * k / 12 - 1)]);
+                            if (inCyl(c, p, 0)) {
+                                common = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if (common) {
+                expect(got).toBe(true);
+            }
+        }
+    }, 30000);
+
+    it('is invariant under reflections of the coordinate axes', () => {
+        check(fc.tuple(canonBox, cylV31, fc.boolean(), fc.boolean(),
+            fc.boolean()), ([box, c, f0, f1, f2]) => {
+            const sgn = [f0 ? -1 : 1, f1 ? -1 : 1, f2 ? -1 : 1];
+            const refl = (v: Vector): Vector => Vector.fromArray(
+                [0, 1, 2].map(i => sgn[i] * v.values[i]));
+            const c2 = Cylinder3.fromAxisRadiusHeight(
+                Line.fromOriginDirection(refl(c.axis.origin),
+                    refl(c.axis.direction)), c.radius, c.height);
+            expect(tiq.test(box, c).intersect)
+                .toBe(tiq.test(box, c2).intersect);
+        });
+    });
+
+    it('is invariant under a coordinate permutation of box and cylinder', () => {
+        check(fc.tuple(canonBox, cylV31, fc.constantFrom(
+            [0, 1, 2], [1, 2, 0], [2, 0, 1], [0, 2, 1], [1, 0, 2], [2, 1, 0])),
+            ([box, c, perm]) => {
+                const permute = (v: Vector): Vector =>
+                    Vector.fromArray(perm.map(i => v.values[i]));
+                const box2 = CanonicalBox.fromExtent(permute(box.extent));
+                const c2 = Cylinder3.fromAxisRadiusHeight(
+                    Line.fromOriginDirection(permute(c.axis.origin),
+                        permute(c.axis.direction)), c.radius, c.height);
+                expect(tiq.test(box, c).intersect)
+                    .toBe(tiq.test(box2, c2).intersect);
+            });
+    });
+
+    it('a cylinder whose axis passes through the box intersects', () => {
+        check(fc.tuple(canonBox, unitVector(3),
+            fc.double({ min: 0.1, max: 2, noNaN: true }),
+            fc.double({ min: -0.8, max: 0.8, noNaN: true }),
+            fc.double({ min: -0.8, max: 0.8, noNaN: true }),
+            fc.double({ min: -0.8, max: 0.8, noNaN: true })),
+            ([box, w, r, s0, s1, s2]) => {
+                const inside = Vector.fromArray([
+                    s0 * box.extent.values[0], s1 * box.extent.values[1],
+                    s2 * box.extent.values[2]]);
+                const c = Cylinder3.fromAxisRadiusHeight(
+                    Line.fromOriginDirection(inside, w), r, 1);
+                expect(tiq.test(box, c).intersect).toBe(true);
+            });
+    });
+
+    it('a cylinder translated far away does not intersect', () => {
+        check(fc.tuple(canonBox, cylV31, unitVector(3)), ([box, c, d]) => {
+            const reach = length(box.extent) + c.radius + 0.5 * c.height + 1;
+            const moved = Cylinder3.fromAxisRadiusHeight(
+                Line.fromOriginDirection(mul(2 * reach, d),
+                    c.axis.direction), c.radius, c.height);
+            expect(tiq.test(box, moved).intersect).toBe(false);
+        });
+    });
+
+    it('a cylinder that contains the box intersects', () => {
+        check(fc.tuple(canonBox, unitVector(3)), ([box, w]) => {
+            const reach = length(box.extent);
+            const c = Cylinder3.fromAxisRadiusHeight(
+                Line.fromOriginDirection(Vector.fromArray([0, 0, 0]), w),
+                reach + 1, 2 * reach + 2);
+            expect(tiq.test(box, c).intersect).toBe(true);
+        });
+    });
+});

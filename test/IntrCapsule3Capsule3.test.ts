@@ -150,3 +150,171 @@ describe('IntrCapsule3Capsule3', () => {
         expect(() => ti.test(c3, c2)).toThrow();
     });
 });
+
+// ---------------------------------------------------------------------------
+// Verification (V31): property-based checks against the upstream header.
+// ---------------------------------------------------------------------------
+import {
+    check, fc, rotationFrame, unitVector, wellScaledVector, seededRandom
+} from './helpers/arbitraries.js';
+import { DistSegmentSegment } from '../src/DistSegmentSegment.js';
+
+const capsuleArb = fc.tuple(wellScaledVector(3, -4, 4), unitVector(3),
+    fc.double({ min: 0.2, max: 4, noNaN: true }),
+    fc.double({ min: 0.1, max: 2, noNaN: true }))
+    .map(([p0, u, len, r]) => Capsule.fromSegmentRadius(
+        Segment.fromEndpoints(p0, add(p0, mul(len, u))), r));
+
+// Minimum distance between two segments, by dense sampling. Used only as a
+// bracket (an upper bound on the true distance).
+function sampledSegmentDistance(a: Segment, b: Segment, n: number): number {
+    let best = Infinity;
+    for (let i = 0; i <= n; ++i) {
+        const p = add(a.p[0], mul(i / n, sub(a.p[1], a.p[0])));
+        for (let j = 0; j <= n; ++j) {
+            const q = add(b.p[0], mul(j / n, sub(b.p[1], b.p[0])));
+            best = Math.min(best, length(sub(p, q)));
+        }
+    }
+    return best;
+}
+
+describe('IntrCapsule3Capsule3 verification', () => {
+    const tiq = new IntrCapsule3Capsule3TI();
+
+    it('is symmetric under argument swap', () => {
+        check(fc.tuple(capsuleArb, capsuleArb), ([c0, c1]) => {
+            expect(tiq.test(c0, c1).intersect).toBe(tiq.test(c1, c0).intersect);
+        });
+    });
+
+    it('agrees with a dense sampling of the two medial segments', () => {
+        const rnd = seededRandom(0x71c4e0d3);
+        for (let trial = 0; trial < 150; ++trial) {
+            const mk = (): Capsule => {
+                const p0 = Vector.fromArray([rnd() * 6 - 3, rnd() * 6 - 3,
+                    rnd() * 6 - 3]);
+                const u = Vector.fromArray([rnd() * 2 - 1, rnd() * 2 - 1,
+                    rnd() * 2 - 1]);
+                const p1 = add(p0, mul(0.5 + rnd() * 3, u));
+                return Capsule.fromSegmentRadius(
+                    Segment.fromEndpoints(p0, p1), 0.2 + rnd() * 1.2);
+            };
+            const c0 = mk(), c1 = mk();
+            const rSum = c0.radius + c1.radius;
+            const sampled = sampledSegmentDistance(c0.segment, c1.segment, 40);
+            const got = tiq.test(c0, c1).intersect;
+            // The sampled distance is an upper bound on the true distance, so
+            // 'sampled <= rSum' implies an intersection; the converse needs a
+            // margin for the sampling error.
+            if (sampled <= rSum) {
+                expect(got).toBe(true);
+            }
+            if (sampled > rSum + 0.5) {
+                expect(got).toBe(false);
+            }
+        }
+    }, 30000);
+
+    it('a capsule always intersects itself', () => {
+        check(capsuleArb, c => {
+            expect(tiq.test(c, c).intersect).toBe(true);
+        });
+    });
+
+    it('a capsule intersects a transverse capsule crossing its axis', () => {
+        // A contained sub-capsule of the same medial segment is *not* used
+        // here: that configuration is exactly collinear and hits the upstream
+        // DistSegmentSegment parallelism defect pinned below.
+        check(fc.tuple(capsuleArb, unitVector(3),
+            fc.double({ min: 0.2, max: 0.8, noNaN: true }),
+            fc.double({ min: 0.2, max: 2, noNaN: true }),
+            fc.double({ min: 0.1, max: 1, noNaN: true })),
+            ([c, d, s, len, r]) => {
+                const e = sub(c.segment.p[1], c.segment.p[0]);
+                const mid = add(c.segment.p[0], mul(s, e));
+                if (Math.abs(dot(d, e)) > 0.9 * length(e)) {
+                    return;   // nearly collinear; see the pinned defect
+                }
+                const other = Capsule.fromSegmentRadius(
+                    Segment.fromEndpoints(sub(mid, mul(len, d)),
+                        add(mid, mul(len, d))), r);
+                expect(tiq.test(c, other).intersect).toBe(true);
+                expect(tiq.test(other, c).intersect).toBe(true);
+            });
+    });
+
+    it('inherits the upstream DistSegmentSegment parallelism defect', () => {
+        // Upstream issue #418: DCPQuery<Segment,Segment>::operator() decides
+        // parallelism with 'det = a*c - b*b > 0', which for mathematically
+        // parallel directions can round one ulp above zero. The nonparallel
+        // branch then runs on rounding noise. IntrCapsule3Capsule3 calls that
+        // (non-robust) query, exactly as upstream does, so a capsule that
+        // strictly contains another can be reported as non-intersecting.
+        // The behaviour is preserved, not fixed, because the defect belongs
+        // to DistSegmentSegment; ComputeRobust gets it right.
+        const p0 = Vector.fromArray([0, 0, 0]);
+        const p1 = Vector.fromArray([0, -2.8284271276953388,
+            -2.828427121774217]);
+        const outer = Capsule.fromSegmentRadius(
+            Segment.fromEndpoints(p0, p1), 0.1);
+        const e = sub(p1, p0);
+        const inner = Capsule.fromSegmentRadius(
+            Segment.fromEndpoints(add(p0, mul(0.10000000000000005, e)),
+                add(p0, mul(0.8749998538754875, e))), 0.05);
+        const q = new DistSegmentSegment();
+        expect(q.compute(outer.segment, inner.segment).distance)
+            .toBeGreaterThan(0.5);
+        expect(q.computeRobust(outer.segment, inner.segment).distance)
+            .toBe(0);
+        // The consequence: a false negative for a contained capsule.
+        expect(tiq.test(outer, inner).intersect).toBe(false);
+    });
+
+    it('capsules separated by more than the radius sum do not intersect', () => {
+        check(fc.tuple(capsuleArb, unitVector(3),
+            fc.double({ min: 0.5, max: 5, noNaN: true })),
+            ([c, d, extra]) => {
+                // Translate a copy far along d: the medial segments are then
+                // at least (2*len + rSum + extra) apart in the worst case, so
+                // shift by the diameter of the configuration.
+                const len = length(sub(c.segment.p[1], c.segment.p[0]));
+                const shift = mul(2 * len + 2 * c.radius + extra + 1, d);
+                const far = Capsule.fromSegmentRadius(
+                    Segment.fromEndpoints(add(c.segment.p[0], shift),
+                        add(c.segment.p[1], shift)), c.radius);
+                expect(tiq.test(c, far).intersect).toBe(false);
+            });
+    });
+
+    it('is invariant under a common rigid motion', () => {
+        check(fc.tuple(capsuleArb, capsuleArb, rotationFrame(3),
+            wellScaledVector(3, -4, 4)), ([c0, c1, R, tr]) => {
+            const rot = (p: Vector): Vector => add(mul(p.values[0], R[0]),
+                add(mul(p.values[1], R[1]), mul(p.values[2], R[2])));
+            const xf = (c: Capsule): Capsule => Capsule.fromSegmentRadius(
+                Segment.fromEndpoints(add(tr, rot(c.segment.p[0])),
+                    add(tr, rot(c.segment.p[1]))), c.radius);
+            const a = tiq.test(c0, c1).intersect;
+            const b = tiq.test(xf(c0), xf(c1)).intersect;
+            // Skip configurations right on the touching boundary, where the
+            // decision legitimately flips under rounding.
+            const rSum = c0.radius + c1.radius;
+            const approx = sampledSegmentDistance(c0.segment, c1.segment, 20);
+            if (Math.abs(approx - rSum) < 1e-6) {
+                return;
+            }
+            expect(a).toBe(b);
+        });
+    });
+
+    it('throws for capsules that are not 3-dimensional', () => {
+        const c2 = Capsule.fromSegmentRadius(
+            Segment.fromEndpoints(Vector.fromArray([0, 0]),
+                Vector.fromArray([1, 0])), 1);
+        const c3 = Capsule.fromSegmentRadius(
+            Segment.fromEndpoints(Vector.fromArray([0, 0, 0]),
+                Vector.fromArray([1, 0, 0])), 1);
+        expect(() => tiq.test(c2, c3)).toThrow();
+    });
+});

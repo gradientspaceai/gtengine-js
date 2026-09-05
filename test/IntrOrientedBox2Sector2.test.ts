@@ -165,3 +165,186 @@ describe('IntrOrientedBox2Sector2', () => {
         expect(hits).toBeGreaterThan(20);
     });
 });
+
+// ---------------------------------------------------------------------------
+// Verification (V31): property-based checks against the upstream header.
+// ---------------------------------------------------------------------------
+import {
+    check, fc, rotationFrame, unitVector, wellScaledVector, seededRandom
+} from './helpers/arbitraries.js';
+import { dot, sub, length } from '../src/Vector.js';
+
+// Upstream models the wedge as the intersection of two halfplanes, which is
+// valid only for a half-angle of at most pi/2.
+const sectorV31 = fc.tuple(wellScaledVector(2, -4, 4), unitVector(2),
+    fc.double({ min: 0.3, max: 4, noNaN: true }),
+    fc.double({ min: 0.05, max: Math.PI / 2, noNaN: true }))
+    .map(([v, d, r, a]) =>
+        Sector2.fromVertexRadiusDirectionAngle(v, r, d, a));
+
+const boxV31 = fc.tuple(wellScaledVector(2, -4, 4), rotationFrame(2),
+    fc.double({ min: 0.1, max: 2, noNaN: true }),
+    fc.double({ min: 0.1, max: 2, noNaN: true }))
+    .map(([c, R, e0, e1]) => OrientedBox.fromCenterAxisExtent(c, R,
+        Vector.fromArray([e0, e1])));
+
+// Membership in the solid sector, from the definition in Sector2.h.
+function inSectorV31(s: Sector2, p: Vector): boolean {
+    const q = sub(p, s.vertex);
+    const len = length(q);
+    if (len > s.radius) {
+        return false;
+    }
+    if (len === 0) {
+        return true;
+    }
+    return dot(s.direction, q) >= s.cosAngle * len;
+}
+
+describe('IntrOrientedBox2Sector2 verification', () => {
+    const tiq = new IntrOrientedBox2Sector2TI();
+
+    it('reports an intersection whenever a sampled box point is inside', () => {
+        check(fc.tuple(boxV31, sectorV31,
+            fc.double({ min: -1, max: 1, noNaN: true }),
+            fc.double({ min: -1, max: 1, noNaN: true })),
+            ([b, s, s0, s1]) => {
+                const p = add(b.center,
+                    add(mul(s0 * b.extent.values[0], b.axis[0]),
+                        mul(s1 * b.extent.values[1], b.axis[1])));
+                if (!inSectorV31(s, p)) {
+                    return;
+                }
+                expect(tiq.test(b, s).intersect).toBe(true);
+            });
+    });
+
+    it('agrees with a dense sampling of the box', () => {
+        const rnd = seededRandom(0x5b71d0c6);
+        for (let trial = 0; trial < 200; ++trial) {
+            const ang = rnd() * 2 * Math.PI;
+            const axis = [
+                Vector.fromArray([Math.cos(ang), Math.sin(ang)]),
+                Vector.fromArray([-Math.sin(ang), Math.cos(ang)])];
+            const b = OrientedBox.fromCenterAxisExtent(
+                Vector.fromArray([rnd() * 6 - 3, rnd() * 6 - 3]), axis,
+                Vector.fromArray([0.2 + rnd(), 0.2 + rnd()]));
+            const sa = rnd() * 2 * Math.PI;
+            const s = Sector2.fromVertexRadiusDirectionAngle(
+                Vector.fromArray([rnd() * 6 - 3, rnd() * 6 - 3]),
+                0.5 + rnd() * 3,
+                Vector.fromArray([Math.cos(sa), Math.sin(sa)]),
+                0.1 + rnd() * (Math.PI / 2 - 0.1));
+            const got = tiq.test(b, s).intersect;
+            let anyInside = false;
+            let minGap = Infinity;
+            for (let i = 0; i <= 40 && !anyInside; ++i) {
+                for (let j = 0; j <= 40; ++j) {
+                    const p = add(b.center, add(
+                        mul((2 * i / 40 - 1) * b.extent.values[0], b.axis[0]),
+                        mul((2 * j / 40 - 1) * b.extent.values[1],
+                            b.axis[1])));
+                    if (inSectorV31(s, p)) {
+                        anyInside = true;
+                        break;
+                    }
+                    // Distance from the sampled point to the sector vertex,
+                    // used only as a coarse separation witness.
+                    minGap = Math.min(minGap,
+                        length(sub(p, s.vertex)) - s.radius);
+                }
+            }
+            if (anyInside) {
+                expect(got).toBe(true);
+            }
+            if (!anyInside && minGap > 0.5) {
+                // Every sampled box point is well beyond the sector radius,
+                // and the box is convex, so the whole box is outside.
+                expect(got).toBe(false);
+            }
+        }
+    }, 30000);
+
+    it('a box containing the sector vertex always intersects', () => {
+        check(fc.tuple(sectorV31, rotationFrame(2),
+            fc.double({ min: 0.1, max: 2, noNaN: true }),
+            fc.double({ min: 0.1, max: 2, noNaN: true }),
+            fc.double({ min: -0.8, max: 0.8, noNaN: true }),
+            fc.double({ min: -0.8, max: 0.8, noNaN: true })),
+            ([s, R, e0, e1, f0, f1]) => {
+                // Place the box so that the sector vertex is strictly inside.
+                const center = sub(s.vertex, add(mul(f0 * e0, R[0]),
+                    mul(f1 * e1, R[1])));
+                const b = OrientedBox.fromCenterAxisExtent(center, R,
+                    Vector.fromArray([e0, e1]));
+                expect(tiq.test(b, s).intersect).toBe(true);
+            });
+    });
+
+    it('a box beyond the sector radius never intersects', () => {
+        check(fc.tuple(sectorV31, rotationFrame(2), unitVector(2),
+            fc.double({ min: 0.1, max: 1, noNaN: true }),
+            fc.double({ min: 0.1, max: 1, noNaN: true }),
+            fc.double({ min: 0.5, max: 3, noNaN: true })),
+            ([s, R, d, e0, e1, extra]) => {
+                const dist = s.radius + Math.hypot(e0, e1) + extra;
+                const b = OrientedBox.fromCenterAxisExtent(
+                    add(s.vertex, mul(dist, d)), R,
+                    Vector.fromArray([e0, e1]));
+                expect(tiq.test(b, s).intersect).toBe(false);
+            });
+    });
+
+    it('is invariant under a common rigid motion', () => {
+        check(fc.tuple(boxV31, sectorV31,
+            fc.double({ min: -Math.PI, max: Math.PI, noNaN: true }),
+            wellScaledVector(2, -4, 4)), ([b, s, ang, tr]) => {
+            const ca = Math.cos(ang), sa = Math.sin(ang);
+            const rot = (p: Vector): Vector => Vector.fromArray([
+                ca * p.values[0] - sa * p.values[1],
+                sa * p.values[0] + ca * p.values[1]]);
+            const xf = (p: Vector): Vector => add(tr, rot(p));
+            const b2 = OrientedBox.fromCenterAxisExtent(xf(b.center),
+                [rot(b.axis[0]), rot(b.axis[1])], b.extent);
+            const s2 = Sector2.fromVertexRadiusDirectionAngle(xf(s.vertex),
+                s.radius, rot(s.direction), s.angle);
+            const a = tiq.test(b, s).intersect;
+            const c = tiq.test(b2, s2).intersect;
+            if (a === c) {
+                return;
+            }
+            // A disagreement is acceptable only for a configuration that is
+            // (numerically) touching: some box corner sits on the sector
+            // boundary. Verify that with an independent membership test.
+            let minAbs = Infinity;
+            for (const [i, j] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+                const p = add(b.center,
+                    add(mul(i * b.extent.values[0], b.axis[0]),
+                        mul(j * b.extent.values[1], b.axis[1])));
+                const q = sub(p, s.vertex);
+                const len = length(q);
+                minAbs = Math.min(minAbs, Math.abs(len - s.radius),
+                    Math.abs(dot(s.direction, q) - s.cosAngle * len));
+            }
+            expect(minAbs).toBeLessThan(1e-6);
+        });
+    });
+
+    it('keeps the clipped polygon when a clip is a no-op (upstream #200)', () => {
+        // Regression for the fixed upstream defect: when the first clip
+        // leaves the polygon entirely inside the second halfplane, upstream
+        // overwrites the polygon with the empty "no clipping necessary"
+        // result and reports a false negative. Sweep a band of boxes that
+        // sit inside the wedge and confirm every one is reported.
+        const s = Sector2.fromVertexRadiusDirectionAngle(
+            Vector.fromArray([0, 0]), 10, Vector.fromArray([1, 0]),
+            Math.PI / 3);
+        const axis = [Vector.fromArray([1, 0]), Vector.fromArray([0, 1])];
+        for (let k = 0; k <= 40; ++k) {
+            const cx = 1 + (7 * k) / 40;
+            const b = OrientedBox.fromCenterAxisExtent(
+                Vector.fromArray([cx, 0]), axis, Vector.fromArray([0.3, 0.3]));
+            expect(tiq.test(b, s).intersect).toBe(true);
+        }
+    });
+});

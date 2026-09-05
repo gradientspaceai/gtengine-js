@@ -138,3 +138,173 @@ describe('IntrDisk2Sector2', () => {
         expect(ti.test(disk(-0.5, 0, 0.1), half).intersect).toBe(false);
     });
 });
+
+// ---------------------------------------------------------------------------
+// Verification (V31): property-based checks against the upstream header.
+// ---------------------------------------------------------------------------
+import {
+    check, fc, unitVector, wellScaledVector, seededRandom
+} from './helpers/arbitraries.js';
+import { dot } from '../src/Vector.js';
+
+// Upstream requires the sector to be convex, so the half-angle is in
+// (0, pi/2].
+const sectorArb = fc.tuple(wellScaledVector(2, -4, 4), unitVector(2),
+    fc.double({ min: 0.2, max: 4, noNaN: true }),
+    fc.double({ min: 0.05, max: Math.PI / 2, noNaN: true }))
+    .map(([v, d, r, a]) =>
+        Sector2.fromVertexRadiusDirectionAngle(v, r, d, a));
+
+const diskArb = fc.tuple(wellScaledVector(2, -4, 4),
+    fc.double({ min: 0.1, max: 3, noNaN: true }))
+    .map(([c, r]) => Hypersphere.fromCenterRadius(c, r));
+
+// Membership in the solid sector, from the definition in Sector2.h.
+function inSector(s: Sector2, p: Vector): boolean {
+    const q = sub(p, s.vertex);
+    const len = length(q);
+    if (len > s.radius) {
+        return false;
+    }
+    if (len === 0) {
+        return true;
+    }
+    return dot(s.direction, q) >= s.cosAngle * len;
+}
+
+// The minimum distance from the disk centre to the sector, by sampling the
+// sector densely. This is an upper bound on the true distance.
+function sampledDistanceToSector(s: Sector2, c: Vector, nr: number,
+    na: number): number {
+    let best = Infinity;
+    const perp = Vector.fromArray([-s.direction.values[1],
+        s.direction.values[0]]);
+    for (let i = 0; i <= nr; ++i) {
+        const r = (s.radius * i) / nr;
+        for (let k = 0; k <= na; ++k) {
+            const a = -s.angle + (2 * s.angle * k) / na;
+            const p = add(s.vertex, add(mul(r * Math.cos(a), s.direction),
+                mul(r * Math.sin(a), perp)));
+            best = Math.min(best, length(sub(p, c)));
+        }
+    }
+    return best;
+}
+
+describe('IntrDisk2Sector2 verification', () => {
+    const tiq = new IntrDisk2Sector2TI();
+
+    it('agrees with a dense sampling of the sector', () => {
+        const rnd = seededRandom(0x18ae6d54);
+        for (let trial = 0; trial < 200; ++trial) {
+            const s = Sector2.fromVertexRadiusDirectionAngle(
+                Vector.fromArray([rnd() * 6 - 3, rnd() * 6 - 3]), 0.3 + rnd() * 3,
+                (() => {
+                    const a = rnd() * 2 * Math.PI;
+                    return Vector.fromArray([Math.cos(a), Math.sin(a)]);
+                })(), 0.05 + rnd() * (Math.PI / 2 - 0.05));
+            const disk = Hypersphere.fromCenterRadius(
+                Vector.fromArray([rnd() * 6 - 3, rnd() * 6 - 3]),
+                0.2 + rnd() * 1.5);
+            const got = tiq.test(disk, s).intersect;
+            const d = sampledDistanceToSector(s, disk.center, 60, 90);
+            // The sampled distance is an upper bound on the true distance.
+            if (d <= disk.radius) {
+                expect(got).toBe(true);
+            }
+            if (d > disk.radius + 0.2) {
+                expect(got).toBe(false);
+            }
+        }
+    }, 30000);
+
+    it('a disk containing a sampled sector point always intersects', () => {
+        // Strictly interior fractions: a point generated exactly on the arc
+        // or on a boundary ray rounds to just outside the sector. The radial
+        // fraction is also bounded away from zero, because a subnormal-scale
+        // offset from the sector vertex is absorbed by the vertex
+        // coordinates and lands the sample on the far side of the wedge.
+        check(fc.tuple(sectorArb,
+            fc.double({ min: 0.05, max: 0.95, noNaN: true }),
+            fc.double({ min: -0.95, max: 0.95, noNaN: true }),
+            fc.double({ min: 0.05, max: 2, noNaN: true })),
+            ([s, rf, af, radius]) => {
+                const perp = Vector.fromArray([-s.direction.values[1],
+                    s.direction.values[0]]);
+                const r = rf * s.radius;
+                const a = af * s.angle;
+                const p = add(s.vertex, add(mul(r * Math.cos(a), s.direction),
+                    mul(r * Math.sin(a), perp)));
+                expect(inSector(s, p)).toBe(true);
+                const disk = Hypersphere.fromCenterRadius(p, radius);
+                expect(tiq.test(disk, s).intersect).toBe(true);
+            });
+    });
+
+    it('a disk containing the sector vertex always intersects', () => {
+        check(fc.tuple(sectorArb, unitVector(2),
+            fc.double({ min: 0, max: 0.9, noNaN: true }),
+            fc.double({ min: 0.2, max: 2, noNaN: true })),
+            ([s, d, frac, radius]) => {
+                const disk = Hypersphere.fromCenterRadius(
+                    add(s.vertex, mul(frac * radius, d)), radius);
+                expect(tiq.test(disk, s).intersect).toBe(true);
+            });
+    });
+
+    it('a disk beyond the sector radius never intersects', () => {
+        check(fc.tuple(sectorArb, unitVector(2),
+            fc.double({ min: 0.1, max: 2, noNaN: true }),
+            fc.double({ min: 0.5, max: 3, noNaN: true })),
+            ([s, d, radius, extra]) => {
+                const far = add(s.vertex,
+                    mul(s.radius + radius + extra, d));
+                const disk = Hypersphere.fromCenterRadius(far, radius);
+                expect(tiq.test(disk, s).intersect).toBe(false);
+            });
+    });
+
+    it('is invariant under a common rigid motion', () => {
+        check(fc.tuple(diskArb, sectorArb,
+            fc.double({ min: -Math.PI, max: Math.PI, noNaN: true }),
+            wellScaledVector(2, -4, 4)), ([disk, s, ang, tr]) => {
+            const ca = Math.cos(ang), sa = Math.sin(ang);
+            const rot = (p: Vector): Vector => Vector.fromArray([
+                ca * p.values[0] - sa * p.values[1],
+                sa * p.values[0] + ca * p.values[1]]);
+            const xf = (p: Vector): Vector => add(tr, rot(p));
+            const s2 = Sector2.fromVertexRadiusDirectionAngle(xf(s.vertex),
+                s.radius, rot(s.direction), s.angle);
+            const d2 = Hypersphere.fromCenterRadius(xf(disk.center),
+                disk.radius);
+            const a = tiq.test(disk, s).intersect;
+            const b = tiq.test(d2, s2).intersect;
+            // Skip near-touching configurations, where the decision flips.
+            const dist = sampledDistanceToSector(s, disk.center, 24, 36);
+            if (Math.abs(dist - disk.radius) < 1e-6) {
+                return;
+            }
+            expect(a).toBe(b);
+        });
+    });
+
+    it('a zero-radius disk is the point-in-sector test', () => {
+        check(fc.tuple(sectorArb, wellScaledVector(2, -5, 5)), ([s, p]) => {
+            const disk = Hypersphere.fromCenterRadius(p, 0);
+            const expected = inSector(s, p);
+            const got = tiq.test(disk, s).intersect;
+            const q = sub(p, s.vertex);
+            const len = length(q);
+            // Skip the boundary band, where the two formulations round
+            // differently (the query works with sines and cosines of the
+            // half-angle, the reference with the cosine constraint).
+            const nearArc = Math.abs(len - s.radius) < 1e-9;
+            const nearRay = Math.abs(dot(s.direction, q) - s.cosAngle * len)
+                < 1e-9;
+            if (nearArc || nearRay) {
+                return;
+            }
+            expect(got).toBe(expected);
+        });
+    });
+});
