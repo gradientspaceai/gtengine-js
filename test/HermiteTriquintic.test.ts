@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { HermiteTriquintic, HermiteTriquinticSample } from '../src/HermiteTriquintic.js';
+import { HermiteQuintic, HermiteQuinticSample } from '../src/HermiteQuintic.js';
+import { check, expectClose, fc, finite, scaled } from './helpers/arbitraries.js';
 
 // Polynomial helpers: value and derivative of sum_i c[i] x^i.
 function polyval(c: readonly number[], x: number): number {
@@ -198,5 +200,152 @@ describe('HermiteTriquintic', () => {
         expect(h.evaluate(0, 6, 0, 0.5, 0.5, 0.5)).toBe(0);
         expect(h.evaluate(0, 0, 6, 0.5, 0.5, 0.5)).toBe(0);
         expect(h.evaluate(7, 7, 7, 0.25, 0.75, 0.5)).toBe(0);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V28): property-based cross-checks against HermiteTriquintic.h.
+// ---------------------------------------------------------------------------
+type Tuple27 = [number, number, number, number, number, number, number, number,
+    number, number, number, number, number, number, number, number, number,
+    number, number, number, number, number, number, number, number, number,
+    number];
+
+describe('HermiteTriquintic verification', () => {
+    // The 27 sample fields in constructor order, with the (x,y,z) derivative
+    // orders each one denotes. This list is also the vXYZ naming used by
+    // upstream's GenerateSingle, so it doubles as a check of that mapping.
+    const ORDERS: ReadonlyArray<readonly [number, number, number]> = [
+        [0, 0, 0],
+        [1, 0, 0], [0, 1, 0], [0, 0, 1],
+        [2, 0, 0], [1, 1, 0], [1, 0, 1], [0, 2, 0], [0, 1, 1], [0, 0, 2],
+        [2, 1, 0], [2, 0, 1], [1, 2, 0], [1, 1, 1], [1, 0, 2], [0, 2, 1], [0, 1, 2],
+        [2, 2, 0], [2, 1, 1], [2, 0, 2], [1, 2, 1], [1, 1, 2], [0, 2, 2],
+        [2, 2, 1], [2, 1, 2], [1, 2, 2],
+        [2, 2, 2]
+    ];
+
+    const FIELDS: ReadonlyArray<keyof HermiteTriquinticSample> = [
+        'f', 'fx', 'fy', 'fz', 'fxx', 'fxy', 'fxz', 'fyy', 'fyz', 'fzz',
+        'fxxy', 'fxxz', 'fxyy', 'fxyz', 'fxzz', 'fyyz', 'fyzz',
+        'fxxyy', 'fxxyz', 'fxxzz', 'fxyyz', 'fxyzz', 'fyyzz',
+        'fxxyyz', 'fxxyzz', 'fxyyzz', 'fxxyyzz'];
+
+    const mono = (k: number, i: number, t: number): number => {
+        if (i < k) { return 0; }
+        let c = 1;
+        for (let m = 0; m < k; ++m) { c *= i - m; }
+        return c * Math.pow(t, i - k);
+    };
+
+    // p(x,y,z) = sum_{i,j,k<=5} a[36i+6j+k] x^i y^j z^k, differentiated m times.
+    const evalPoly = (a: number[], m: readonly [number, number, number],
+        x: number, y: number, z: number): number => {
+        let sum = 0;
+        for (let i = 0; i <= 5; ++i) {
+            const mi = mono(m[0], i, x);
+            if (mi === 0) { continue; }
+            for (let j = 0; j <= 5; ++j) {
+                const mj = mono(m[1], j, y);
+                if (mj === 0) { continue; }
+                for (let k = 0; k <= 5; ++k) {
+                    sum += a[36 * i + 6 * j + k] * mi * mj * mono(m[2], k, z);
+                }
+            }
+        }
+        return sum;
+    };
+
+    const sampleOf = (values: number[]) =>
+        new HermiteTriquinticSample(...(values as Tuple27));
+
+    const sampleAt = (a: number[], bx: number, by: number, bz: number) =>
+        sampleOf(ORDERS.map(m => evalPoly(a, m, bx, by, bz)));
+
+    const blocksOf = (a: number[]) => [
+        [[sampleAt(a, 0, 0, 0), sampleAt(a, 0, 0, 1)],
+            [sampleAt(a, 0, 1, 0), sampleAt(a, 0, 1, 1)]],
+        [[sampleAt(a, 1, 0, 0), sampleAt(a, 1, 0, 1)],
+            [sampleAt(a, 1, 1, 0), sampleAt(a, 1, 1, 1)]]
+    ] as const;
+
+    it('reproduces every triquintic from exact samples of its 27 derivatives', () => {
+        check(fc.tuple(fc.array(finite(-1, 1), { minLength: 216, maxLength: 216 }),
+            scaled(0, 1), scaled(0, 1), scaled(0, 1)), ([a, x, y, z]) => {
+            const h = new HermiteTriquintic(blocksOf(a));
+            // The mixed high-order corner data of a unit-coefficient
+            // triquintic reach 8000 per term and generateSingle weights the
+            // value by up to 1000, so intermediates are of order 1e5 while the
+            // reconstructed value is of order 10. The absolute tolerance is
+            // that intermediate scale times a few hundred ulps.
+            const orders: ReadonlyArray<readonly [number, number, number]> = [
+                [0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 1], [2, 0, 0]];
+            for (const m of orders) {
+                expectClose(h.evaluate(m[0], m[1], m[2], x, y, z),
+                    evalPoly(a, m, x, y, z), 1e-7, 1e-9);
+            }
+        }, 50);
+    }, 30000);
+
+    it('interpolates the prescribed data at all eight corners', () => {
+        check(fc.array(finite(-2, 2), { minLength: 27 * 8, maxLength: 27 * 8 }), s => {
+            const mk = (n: number) => sampleOf(s.slice(27 * n, 27 * n + 27));
+            const blocks = [[[mk(0), mk(1)], [mk(2), mk(3)]],
+                [[mk(4), mk(5)], [mk(6), mk(7)]]] as const;
+            const h = new HermiteTriquintic(blocks);
+            for (let b0 = 0; b0 <= 1; ++b0) {
+                for (let b1 = 0; b1 <= 1; ++b1) {
+                    for (let b2 = 0; b2 <= 1; ++b2) {
+                        const b = blocks[b0][b1][b2];
+                        for (let n = 0; n < ORDERS.length; ++n) {
+                            const m = ORDERS[n];
+                            // Each derivative order multiplies the roundoff by
+                            // up to 120 (the largest basis derivative), so the
+                            // sixth-order mixed term keeps about eight digits.
+                            expectClose(h.evaluate(m[0], m[1], m[2], b0, b1, b2),
+                                b[FIELDS[n]], 1e-6, 1e-7);
+                        }
+                    }
+                }
+            }
+        }, 50);
+    }, 30000);
+
+    it('agrees with the tensor product of three HermiteQuintics', () => {
+        check(fc.tuple(fc.array(finite(-2, 2), { minLength: 18, maxLength: 18 }),
+            scaled(0, 1), scaled(0, 1), scaled(0, 1)), ([s, x, y, z]) => {
+            const mk1 = (o: number) => new HermiteQuintic([
+                new HermiteQuinticSample(s[o], s[o + 1], s[o + 2]),
+                new HermiteQuinticSample(s[o + 3], s[o + 4], s[o + 5])]);
+            const g = mk1(0), k = mk1(6), l = mk1(12);
+            const mk = (bx: number, by: number, bz: number) =>
+                sampleOf(ORDERS.map(m => g.evaluate(m[0], bx) * k.evaluate(m[1], by)
+                    * l.evaluate(m[2], bz)));
+            const h = new HermiteTriquintic([
+                [[mk(0, 0, 0), mk(0, 0, 1)], [mk(0, 1, 0), mk(0, 1, 1)]],
+                [[mk(1, 0, 0), mk(1, 0, 1)], [mk(1, 1, 0), mk(1, 1, 1)]]]);
+            expectClose(h.evaluate(0, 0, 0, x, y, z),
+                g.evaluate(0, x) * k.evaluate(0, y) * l.evaluate(0, z), 1e-8, 1e-9);
+            expectClose(h.evaluate(1, 1, 1, x, y, z),
+                g.evaluate(1, x) * k.evaluate(1, y) * l.evaluate(1, z), 1e-7, 1e-8);
+        }, 100);
+    }, 30000);
+
+    it('exposes c publicly for manual coefficient assignment (upstream API)', () => {
+        const h = new HermiteTriquintic();
+        h.c[5][5][5] = 7;
+        // P(5,t) = t^5, so H(x,y,z) = 7 x^5 y^5 z^5.
+        expectClose(h.evaluate(0, 0, 0, 1, 1, 1), 7, 1e-15, 1e-15);
+        expect(h.evaluate(0, 0, 0, 0, 1, 1)).toBe(0);
+    });
+
+    it('returns zero when any order exceeds the degree', () => {
+        check(fc.tuple(fc.integer({ min: 6, max: 20 }), scaled(0, 1)), ([big, t]) => {
+            const h = new HermiteTriquintic();
+            h.c[2][3][4] = 1;
+            expect(h.evaluate(big, 0, 0, t, t, t)).toBe(0);
+            expect(h.evaluate(0, big, 0, t, t, t)).toBe(0);
+            expect(h.evaluate(0, 0, big, t, t, t)).toBe(0);
+        });
     });
 });

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { HermiteQuintic, HermiteQuinticSample } from '../src/HermiteQuintic.js';
+import { check, expectClose, fc, finite, scaled } from './helpers/arbitraries.js';
 
 describe('HermiteQuintic', () => {
     it('default constructor creates the identically zero polynomial', () => {
@@ -134,5 +135,88 @@ describe('HermiteQuintic', () => {
         }
         expect(h.evaluate(1, 0.5)).toBeCloseTo(0, 13);
         expect(h.evaluate(2, 0.5)).toBeCloseTo(0, 12);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V28): property-based cross-checks against HermiteQuintic.h.
+// ---------------------------------------------------------------------------
+describe('HermiteQuintic verification', () => {
+    const basis = (i: number, t: number): number =>
+        Math.pow(1 - t, 5 - i) * Math.pow(t, i);
+
+    it('p(select, 0, t) equals (1-t)^{5-i} t^i', () => {
+        check(fc.tuple(fc.integer({ min: 0, max: 5 }), scaled(-1, 2)), ([i, t]) => {
+            expectClose(HermiteQuintic.p(i, 0, t), basis(i, t), 1e-14, 1e-13);
+        });
+    });
+
+    it('p(select, order, t) matches a central difference of p(select, order-1)', () => {
+        const h = 1e-4;
+        check(fc.tuple(fc.integer({ min: 0, max: 5 }),
+            fc.integer({ min: 1, max: 5 }), scaled(0.1, 0.9)), ([i, order, t]) => {
+            const fd = (HermiteQuintic.p(i, order - 1, t + h)
+                - HermiteQuintic.p(i, order - 1, t - h)) / (2 * h);
+            // Truncation is (h^2/6) * P^{(order+2)}, at most O(120*1e-8/6);
+            // roundoff is O(eps * 120 / h) = O(1e-11).
+            expectClose(HermiteQuintic.p(i, order, t), fd, 1e-5, 1e-5);
+        });
+    });
+
+    it('interpolates value, slope and curvature at the cell corners', () => {
+        check(fc.array(finite(-5, 5), { minLength: 6, maxLength: 6 }), s => {
+            const h = new HermiteQuintic([new HermiteQuinticSample(s[0], s[1], s[2]),
+                new HermiteQuinticSample(s[3], s[4], s[5])]);
+            expectClose(h.evaluate(0, 0), s[0], 1e-13, 1e-13);
+            expectClose(h.evaluate(1, 0), s[1], 1e-11, 1e-11);
+            expectClose(h.evaluate(2, 0), s[2], 1e-10, 1e-10);
+            expectClose(h.evaluate(0, 1), s[3], 1e-13, 1e-13);
+            expectClose(h.evaluate(1, 1), s[4], 1e-11, 1e-11);
+            expectClose(h.evaluate(2, 1), s[5], 1e-10, 1e-10);
+        });
+    });
+
+    it('reproduces every quintic from exact samples of f, f\' and f\'\'', () => {
+        check(fc.tuple(fc.array(finite(-3, 3), { minLength: 6, maxLength: 6 }),
+            scaled(0, 1)), ([a, x]) => {
+            const p = (t: number) => a.reduceRight((acc, ai) => acc * t + ai, 0);
+            const d1 = (t: number) => a.slice(1).map((ai, i) => (i + 1) * ai)
+                .reduceRight((acc, ai) => acc * t + ai, 0);
+            const d2 = (t: number) => a.slice(2).map((ai, i) => (i + 1) * (i + 2) * ai)
+                .reduceRight((acc, ai) => acc * t + ai, 0);
+            const h = new HermiteQuintic([
+                new HermiteQuinticSample(p(0), d1(0), d2(0)),
+                new HermiteQuinticSample(p(1), d1(1), d2(1))]);
+            // The largest coefficient multiplier in generateSingle is 10, and
+            // the basis functions are O(1) on [0,1], so the reconstruction
+            // keeps about 13 digits.
+            expectClose(h.evaluate(0, x), p(x), 1e-11, 1e-11);
+            expectClose(h.evaluate(1, x), d1(x), 1e-10, 1e-10);
+            expectClose(h.evaluate(2, x), d2(x), 1e-9, 1e-9);
+        });
+    });
+
+    it('is linear in the sample data', () => {
+        check(fc.tuple(fc.array(finite(-3, 3), { minLength: 6, maxLength: 6 }),
+            fc.array(finite(-3, 3), { minLength: 6, maxLength: 6 }),
+            scaled(0, 1)), ([u, v, x]) => {
+            const mk = (s: number[]) => new HermiteQuintic([
+                new HermiteQuinticSample(s[0], s[1], s[2]),
+                new HermiteQuinticSample(s[3], s[4], s[5])]);
+            const sum = u.map((ui, i) => ui + v[i]);
+            for (let order = 0; order <= 5; ++order) {
+                expectClose(mk(sum).evaluate(order, x),
+                    mk(u).evaluate(order, x) + mk(v).evaluate(order, x), 1e-10, 1e-10);
+            }
+        });
+    });
+
+    it('returns zero for derivative orders above the degree', () => {
+        check(fc.tuple(fc.integer({ min: 6, max: 40 }), scaled(0, 1)), ([order, x]) => {
+            const h = new HermiteQuintic([new HermiteQuinticSample(1, 2, 3),
+                new HermiteQuinticSample(-3, 4, -5)]);
+            expect(h.evaluate(order, x)).toBe(0);
+            expect(HermiteQuintic.p(3, order, x)).toBe(0);
+        });
     });
 });
