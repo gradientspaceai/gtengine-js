@@ -8,6 +8,12 @@
 // derives from MarchingCubes, which owns the 256-entry table of voxel sign
 // configurations.
 //
+// Upstream bug suspect (FIXED here; see the PR description): the per-voxel
+// Extract computes each edge vertex as F[j0] / (F[j0] - F[j1]), the zero
+// crossing of F, instead of the crossing of F - level. Every extraction with
+// a nonzero 'level' therefore places its vertices wrongly. The port
+// subtracts 'level' in the numerators.
+//
 // Port notes: T and IndexType are both number. The nested struct Mesh is
 // exported as SurfaceExtractorMCMesh. The two upstream Extract overloads are
 // extractVoxel(level, perturb, F) (returning the per-voxel mesh and whether
@@ -121,6 +127,18 @@ export class SurfaceExtractorMC extends MarchingCubes {
             // computations avoid these floating-point rounding errors. It is
             // guaranteed that j0 < j1, so multiple voxels sharing the same
             // edge will generate the same vertex.
+            //
+            // Upstream bug (fixed here): upstream divides the raw voxel value
+            // F[j0] by F[j0] - F[j1], which is the zero crossing of F rather
+            // than the crossing of F - level. For any nonzero 'level' the
+            // vertex is misplaced and can even leave the voxel (for example
+            // F[j0] = 0, F[j1] = 10 and level = 5 puts the vertex at the
+            // corner instead of at the edge midpoint). Only the numerators
+            // gain the level shift, because
+            // (F[j0] - level) - (F[j1] - level) = F[j0] - F[j1]. The
+            // unperturbed F values are used, exactly as upstream does, so
+            // 'perturb' still affects only the sign classification and never
+            // the vertex placement.
             const vertex = mesh.vertices[i];
             const k0 = [j0 & 1, (j0 & 2) >> 1, (j0 & 4) >> 2];
             const k1 = [j1 & 1, (j1 & 2) >> 1, (j1 & 4) >> 2];
@@ -129,11 +147,11 @@ export class SurfaceExtractorMC extends MarchingCubes {
                     if (k1[index] === 0) {
                         vertex.values[index] = 0;
                     } else { // k1[index] = 1
-                        vertex.values[index] = F[j0] / (F[j0] - F[j1]);
+                        vertex.values[index] = (F[j0] - level) / (F[j0] - F[j1]);
                     }
                 } else { // k0[index] = 1
                     if (k1[index] === 0) {
-                        vertex.values[index] = F[j1] / (F[j1] - F[j0]);
+                        vertex.values[index] = (F[j1] - level) / (F[j1] - F[j0]);
                     } else { // k1[index] = 1
                         vertex.values[index] = 1;
                     }

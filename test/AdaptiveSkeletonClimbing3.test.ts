@@ -4,6 +4,8 @@ import {
     type AdaptiveSkeletonClimbing3Vertex
 } from '../src/AdaptiveSkeletonClimbing3.js';
 import { TriangleKey } from '../src/TriangleKey.js';
+import { SurfaceExtractorCubes } from '../src/SurfaceExtractorCubes.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 type Vertex = AdaptiveSkeletonClimbing3Vertex;
 
@@ -672,4 +674,382 @@ describe('AdaptiveSkeletonClimbing3', () => {
         expect(asc.getNumBoxes()).toBe(8);
         expect(result.triangles.length).toBe(8);
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V27): property-based cross-checks against the upstream
+// header AdaptiveSkeletonClimbing3.h.
+// ---------------------------------------------------------------------------
+
+describe('AdaptiveSkeletonClimbing3 verification', () => {
+    const N = 3;
+    const size = (1 << N) + 1;   // 9
+
+    // A field of two spheres, the configuration the extractor is designed
+    // for: large monotone regions that merge plus a nontrivial surface.
+    const twoSphereArb = fc.tuple(
+        fc.integer({ min: 2, max: 4 }), fc.integer({ min: 2, max: 4 }),
+        fc.integer({ min: 2, max: 4 }), fc.integer({ min: 4, max: 6 }),
+        fc.integer({ min: 4, max: 6 }), fc.integer({ min: 4, max: 6 }),
+        fc.integer({ min: 2, max: 5 }), fc.integer({ min: 2, max: 5 }))
+        .map(([ax, ay, az, bx, by, bz, ra2, rb2]) =>
+            makeImage(N, (x, y, z) => Math.max(
+                ra2 - ((x - ax) ** 2 + (y - ay) ** 2 + (z - az) ** 2),
+                rb2 - ((x - bx) ** 2 + (y - by) ** 2 + (z - bz) ** 2))));
+
+    // The grid edge a vertex lies on, as "x,y,z|d" with (x,y,z) the lattice
+    // endpoint of smaller coordinate along the direction d; null when the
+    // vertex is not in the interior of a grid edge.
+    const edgeKey = (v: readonly number[]): string | null => {
+        let d = -1;
+        for (let i = 0; i < 3; ++i) {
+            if (!isInteger(v[i])) {
+                if (d >= 0) {
+                    return null;
+                }
+                d = i;
+            }
+        }
+        if (d < 0) {
+            return null;
+        }
+        return Math.round(v[0] - (d === 0 ? v[0] - Math.floor(v[0]) : 0))
+            + ',' + Math.round(v[1] - (d === 1 ? v[1] - Math.floor(v[1]) : 0))
+            + ',' + Math.round(v[2] - (d === 2 ? v[2] - Math.floor(v[2]) : 0))
+            + '|' + d;
+    };
+
+    it('cuts the same grid edges as SurfaceExtractorCubes at full resolution',
+        () => {
+            // AdaptiveSkeletonClimbing3 extracts the surface F = level for a
+            // real level; SurfaceExtractorCubes doubles the voxel values and
+            // subtracts the odd integer 2*L+1, so it extracts F = L + 1/2.
+            // With level = 1/2 and L = 0 the two solve the same equation by
+            // completely different algorithms.
+            check(twoSphereArb, (voxels) => {
+                const asc = new AdaptiveSkeletonClimbing3(N, voxels);
+                const fine = asc.extract(0.5, N);
+                asc.makeUnique(fine.vertices, fine.triangles);
+
+                const cubes = new SurfaceExtractorCubes(size, size, size,
+                    voxels).extract(0, true);
+
+                const collect = (vertices: readonly (readonly number[])[]) => {
+                    const map = new Map<string, number>();
+                    for (const v of vertices) {
+                        const key = edgeKey(v);
+                        if (key !== null) {
+                            map.set(key, v[Number(key.split('|')[1])]);
+                        }
+                    }
+                    return map;
+                };
+                const a = collect(fine.vertices);
+                const b = collect(cubes.vertices);
+                expect([...a.keys()].sort()).toEqual([...b.keys()].sort());
+                for (const [key, value] of a) {
+                    // The two evaluate the same crossing by different
+                    // sequences of divisions.
+                    expect(value).toBeCloseTo(b.get(key) as number, 9);
+                }
+            }, 25);
+        });
+
+    it('every vertex is on the level set or is a branch point or centroid',
+        () => {
+            check(fc.tuple(twoSphereArb, fc.integer({ min: 1, max: N })),
+                ([voxels, depth]) => {
+                    const asc = new AdaptiveSkeletonClimbing3(N, voxels);
+                    const result = asc.extract(0.5, depth);
+                    asc.makeUnique(result.vertices, result.triangles);
+                    checkIndices(result.vertices, result.triangles);
+                    checkVerticesOnLevelSet(voxels, size, 0.5,
+                        result.vertices);
+                    for (const v of result.vertices) {
+                        for (let i = 0; i < 3; ++i) {
+                            expect(v[i]).toBeGreaterThanOrEqual(0);
+                            expect(v[i]).toBeLessThanOrEqual(size - 1);
+                        }
+                    }
+                }, 25);
+        });
+
+    it('merging reduces the box count and the mesh size', () => {
+        check(twoSphereArb, (voxels) => {
+            const fine = new AdaptiveSkeletonClimbing3(N, voxels);
+            const fineResult = fine.extract(0.5, N);
+            fine.makeUnique(fineResult.vertices, fineResult.triangles);
+            const fineBoxes = fine.getNumBoxes();
+
+            let previousBoxes = fineBoxes;
+            for (let depth = N - 1; depth >= 1; --depth) {
+                const asc = new AdaptiveSkeletonClimbing3(N, voxels);
+                const result = asc.extract(0.5, depth);
+                asc.makeUnique(result.vertices, result.triangles);
+                // Allowing more merging never adds boxes.
+                expect(asc.getNumBoxes()).toBeLessThanOrEqual(previousBoxes);
+                expect(result.vertices.length)
+                    .toBeLessThanOrEqual(fineResult.vertices.length);
+                previousBoxes = asc.getNumBoxes();
+            }
+            // The two-sphere field has large monotone regions, so the
+            // coarsest allowed depth really does merge.
+            expect(previousBoxes).toBeLessThan(fineBoxes);
+        }, 20);
+    });
+
+    it('extracts closed manifold spheres at every depth', () => {
+        check(fc.tuple(fc.integer({ min: 3, max: 5 }),
+            fc.integer({ min: 1, max: N })), ([r2, depth]) => {
+            const center = (size - 1) / 2;
+            const voxels = makeImage(N, (x, y, z) =>
+                r2 - ((x - center) ** 2 + (y - center) ** 2
+                    + (z - center) ** 2));
+            const asc = new AdaptiveSkeletonClimbing3(N, voxels);
+            const result = asc.extract(0.5, depth);
+            asc.makeUnique(result.vertices, result.triangles);
+            expect(result.triangles.length).toBeGreaterThan(0);
+
+            const counts = edgeUseCounts(result.triangles);
+            for (const count of counts.values()) {
+                expect(count).toBe(2);
+            }
+            // A single closed sphere: V - E + F = 2.
+            expect(result.vertices.length - counts.size
+                + result.triangles.length).toBe(2);
+            // After a consistent orientation the mesh encloses a positive
+            // volume inside the image. The merged boxes make the coarse
+            // meshes much smaller than the true sphere, so only the sign and
+            // the containment are asserted here; the deterministic test
+            // above pins the volume at full resolution.
+            asc.orientTriangles(result.vertices, result.triangles, false);
+            const volume = Math.abs(signedVolume(result.vertices,
+                result.triangles));
+            expect(volume).toBeGreaterThan(0);
+            expect(volume).toBeLessThan((size - 1) ** 3);
+        }, 25);
+    });
+
+    it('reuse leaves no stale merge-tree or box state', () => {
+        check(fc.tuple(twoSphereArb, fc.integer({ min: 1, max: N })),
+            ([voxels, depth]) => {
+                const shared = new AdaptiveSkeletonClimbing3(N, voxels);
+                const first = shared.extract(0.5, depth);
+                const boxes = shared.getNumBoxes();
+                shared.makeUnique(first.vertices, first.triangles);
+
+                // Interleave a different extraction.
+                shared.extract(-0.5, 1);
+                shared.extract(1000.5, N);
+
+                const second = shared.extract(0.5, depth);
+                expect(shared.getNumBoxes()).toBe(boxes);
+                shared.makeUnique(second.vertices, second.triangles);
+                expect(second.vertices).toEqual(first.vertices);
+                expect(second.triangles.map((t) => t.V.join(',')))
+                    .toEqual(first.triangles.map((t) => t.V.join(',')));
+
+                // A fresh extractor must agree with the reused one.
+                const fresh = new AdaptiveSkeletonClimbing3(N, voxels);
+                const result = fresh.extract(0.5, depth);
+                fresh.makeUnique(result.vertices, result.triangles);
+                expect(result.vertices).toEqual(first.vertices);
+            }, 20);
+    });
+
+    it('makeUnique packs first-encounter order and is idempotent', () => {
+        check(fc.tuple(twoSphereArb, fc.integer({ min: 1, max: N })),
+            ([voxels, depth]) => {
+                const asc = new AdaptiveSkeletonClimbing3(N, voxels);
+                const result = asc.extract(0.5, depth);
+                const raw = result.vertices.map((v) => v.join(','));
+                const rawTriangles = result.triangles.length;
+
+                asc.makeUnique(result.vertices, result.triangles);
+
+                // The packed vertices are the distinct raw positions in
+                // first-encounter order, exactly as the upstream std::map
+                // insertion indices give (this mirrors the 2D sibling).
+                const expected: string[] = [];
+                const seen = new Set<string>();
+                for (const key of raw) {
+                    if (!seen.has(key)) {
+                        seen.add(key);
+                        expected.push(key);
+                    }
+                }
+                expect(result.vertices.map((v) => v.join(','))).toEqual(
+                    expected);
+                expect(result.triangles.length)
+                    .toBeLessThanOrEqual(rawTriangles);
+                checkIndices(result.vertices, result.triangles);
+
+                // A second call changes nothing.
+                const vertices = result.vertices.map((v) =>
+                    [...v] as Vertex);
+                const triangles = result.triangles.map((t) => t.V.join(','));
+                asc.makeUnique(result.vertices, result.triangles);
+                expect(result.vertices).toEqual(vertices);
+                expect(result.triangles.map((t) => t.V.join(',')))
+                    .toEqual(triangles);
+            }, 20);
+    });
+
+    it('orientTriangles aligns every normal with the image gradient', () => {
+        check(twoSphereArb, (voxels) => {
+            const asc = new AdaptiveSkeletonClimbing3(N, voxels);
+            const result = asc.extract(0.5, N);
+            asc.makeUnique(result.vertices, result.triangles);
+            const before = result.triangles.map((t) =>
+                [...t.V].sort((a, b) => a - b).join(','));
+            const gradient = (p: Vertex) => (asc as unknown as {
+                getGradient(q: Vertex): Vertex;
+            }).getGradient(p);
+
+            // The dot product of the triangle normal with the average image
+            // gradient at its vertices, the quantity orientTriangles tests.
+            const dotWithGradient = (t: TriangleKey) => {
+                const v = [result.vertices[t.V[0]], result.vertices[t.V[1]],
+                    result.vertices[t.V[2]]];
+                const e1 = [0, 1, 2].map((k) => v[1][k] - v[0][k]);
+                const e2 = [0, 1, 2].map((k) => v[2][k] - v[0][k]);
+                const n = [e1[1] * e2[2] - e1[2] * e2[1],
+                    e1[2] * e2[0] - e1[0] * e2[2],
+                    e1[0] * e2[1] - e1[1] * e2[0]];
+                const g = v.map(gradient);
+                const avr = [0, 1, 2].map((k) =>
+                    (g[0][k] + g[1][k] + g[2][k]) / 3);
+                return avr[0] * n[0] + avr[1] * n[1] + avr[2] * n[2];
+            };
+
+            asc.orientTriangles(result.vertices, result.triangles, true);
+            const same = result.triangles.map((t) => t.V.join(','));
+            for (const t of result.triangles) {
+                expect(dotWithGradient(t)).toBeGreaterThanOrEqual(0);
+            }
+            // Reorienting an already oriented mesh is a no-op.
+            asc.orientTriangles(result.vertices, result.triangles, true);
+            expect(result.triangles.map((t) => t.V.join(','))).toEqual(same);
+
+            asc.orientTriangles(result.vertices, result.triangles, false);
+            for (const t of result.triangles) {
+                expect(dotWithGradient(t)).toBeLessThanOrEqual(0);
+            }
+            const opposite = result.triangles.map((t) => t.V.join(','));
+            asc.orientTriangles(result.vertices, result.triangles, false);
+            expect(result.triangles.map((t) => t.V.join(','))).toEqual(
+                opposite);
+
+            for (let i = 0; i < same.length; ++i) {
+                const a = same[i].split(',');
+                // Each triangle either keeps its winding, when the dot
+                // product is exactly zero and neither branch swaps, or has
+                // its last two indices exchanged.
+                expect([same[i], [a[0], a[2], a[1]].join(',')])
+                    .toContain(opposite[i]);
+            }
+            // The winding changes but the vertex set of each triangle does
+            // not.
+            expect(result.triangles.map((t) =>
+                [...t.V].sort((a, b) => a - b).join(','))).toEqual(before);
+        }, 20);
+    });
+
+    it('computeNormals returns unit normals, or zero for unused vertices',
+        () => {
+            check(twoSphereArb, (voxels) => {
+                const asc = new AdaptiveSkeletonClimbing3(N, voxels);
+                const result = asc.extract(0.5, N);
+                asc.makeUnique(result.vertices, result.triangles);
+                asc.orientTriangles(result.vertices, result.triangles, true);
+                const normals = asc.computeNormals(result.vertices,
+                    result.triangles);
+                expect(normals.length).toBe(result.vertices.length);
+                for (const n of normals) {
+                    const length = Math.sqrt(n[0] ** 2 + n[1] ** 2 + n[2] ** 2);
+                    expect(Number.isFinite(length)).toBe(true);
+                    expect(length === 0 || Math.abs(length - 1) < 1e-12)
+                        .toBe(true);
+                }
+            }, 20);
+        });
+
+    it('the face determinant is exact for large voxel values', () => {
+        // The upstream disambiguation computes the int64_t determinant
+        // f00 * f11 - f01 * f10 of the four face values. The port uses
+        // bigint: for voxel magnitudes near 2^30 the two products exceed
+        // 2^53 and a double computation loses the difference completely.
+        const a = 2 ** 30 + 1;
+        const b = 2 ** 30 + 2;
+        const c = 2 ** 30;
+        // The exact determinant is a*a - c*b = 1, but in doubles it is 0.
+        expect(a * a - c * b).toBe(0);
+
+        // The zmin face of the box at the origin has the four corner values
+        // (f00, f10, f11, f01) = (a, -b, a, -c), so all four of its edges
+        // are crossed and the determinant is the tiny positive number above.
+        // The exact sign selects the disjoint hyperbolic pairing; a
+        // determinant of zero would instead insert a face branch point.
+        const voxels = makeImage(1, (x, y, z) => {
+            if (z > 0 || x > 1 || y > 1) {
+                return -1;
+            }
+            if (x === 0 && y === 0) {
+                return a;
+            }
+            if (x === 1 && y === 0) {
+                return -b;
+            }
+            if (x === 1 && y === 1) {
+                return a;
+            }
+            return -c;   // (0,1,0)
+        });
+
+        const asc = new AdaptiveSkeletonClimbing3(1, voxels);
+        const result = asc.extract(0.5, 1);
+        asc.makeUnique(result.vertices, result.triangles);
+        checkIndices(result.vertices, result.triangles);
+        // No branch point: every vertex is on a grid edge.
+        expect(countCompositeVertices(result.vertices)).toBe(0);
+        expect(result.triangles.length).toBeGreaterThan(0);
+    });
+
+    it('getGradient is zero outside the voxels and trilinear inside', () => {
+        const voxels = makeImage(N, (x, y, z) => 2 * x + 3 * y + 5 * z);
+        const asc = new AdaptiveSkeletonClimbing3(N, voxels);
+        const gradient = (p: Vertex) => (asc as unknown as {
+            getGradient(q: Vertex): Vertex;
+        }).getGradient(p);
+
+        // A linear field is reproduced exactly by trilinear interpolation.
+        expect(gradient([0.5, 0.5, 0.5])).toEqual([2, 3, 5]);
+        expect(gradient([1.25, 2.75, 7.5])).toEqual([2, 3, 5]);
+
+        // Outside the voxels of the image the gradient is zero. Upstream
+        // truncates toward zero and rejects only strictly negative integer
+        // parts, so a position in (-1, 0) still extrapolates from the first
+        // voxel; the port keeps that.
+        expect(gradient([-1.5, 0.5, 0.5])).toEqual([0, 0, 0]);
+        expect(gradient([0.5, -1.5, 0.5])).toEqual([0, 0, 0]);
+        expect(gradient([0.5, 0.5, -1.5])).toEqual([0, 0, 0]);
+        expect(gradient([-0.5, 0.5, 0.5])).toEqual([2, 3, 5]);
+        expect(gradient([size - 1, 0.5, 0.5])).toEqual([0, 0, 0]);
+        expect(gradient([0.5, size - 1, 0.5])).toEqual([0, 0, 0]);
+        expect(gradient([0.5, 0.5, size - 1])).toEqual([0, 0, 0]);
+    });
+
+    it('accepts a typed-array image and gives the same mesh as an array',
+        () => {
+            check(twoSphereArb, (voxels) => {
+                const typed = Int32Array.from(voxels);
+                const fromArray = new AdaptiveSkeletonClimbing3(N, voxels)
+                    .extract(0.5, N);
+                const fromTyped = new AdaptiveSkeletonClimbing3(N, typed)
+                    .extract(0.5, N);
+                expect(fromTyped.vertices).toEqual(fromArray.vertices);
+                expect(fromTyped.triangles.map((t) => t.V.join(',')))
+                    .toEqual(fromArray.triangles.map((t) => t.V.join(',')));
+            }, 20);
+        });
 });

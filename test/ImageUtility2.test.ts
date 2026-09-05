@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { Image2 } from '../src/Image2.js';
 import { ImageUtility2 } from '../src/ImageUtility2.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 // Build an Image2<number> of the given size whose pixels are 1 exactly at the
 // listed (x,y) coordinates.
@@ -656,5 +657,489 @@ describe('ImageUtility2 drawing primitives', () => {
         const visited = new Set<string>();
         ImageUtility2.drawEllipse(0, 0, 4, 0, (x, y) => visited.add(`${x},${y}`));
         expect([...visited].sort()).toEqual(['-4,0', '0,0', '4,0']);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V26): property-based cross-checks against the upstream
+// header ImageUtility2.h.
+// ---------------------------------------------------------------------------
+
+describe('ImageUtility2 verification', () => {
+    const D0 = 9;
+    const D1 = 8;
+
+    // The number of 8-connected components of the nonzero pixels.
+    const componentCount = (image: Image2<number>): number => {
+        const pixels = [...image.getPixels()];
+        const seen = new Array<boolean>(pixels.length).fill(false);
+        let count = 0;
+        for (let i = 0; i < pixels.length; ++i) {
+            if (pixels[i] === 0 || seen[i]) {
+                continue;
+            }
+            ++count;
+            const stack = [i];
+            seen[i] = true;
+            while (stack.length > 0) {
+                const v = stack.pop() as number;
+                const x = v % D0;
+                const y = Math.floor(v / D0);
+                for (let dy = -1; dy <= 1; ++dy) {
+                    for (let dx = -1; dx <= 1; ++dx) {
+                        const nx = x + dx;
+                        const ny = y + dy;
+                        if (0 <= nx && nx < D0 && 0 <= ny && ny < D1) {
+                            const w = nx + D0 * ny;
+                            if (pixels[w] !== 0 && !seen[w]) {
+                                seen[w] = true;
+                                stack.push(w);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return count;
+    };
+
+    // A binary image with zeros on the boundary, as required by the header
+    // for every operation except dilation and erosion.
+    const borderedArb = fc.array(fc.integer({ min: 0, max: 1 }),
+        { minLength: D0 * D1, maxLength: D0 * D1 }).map((bits) => {
+        const image = new Image2<number>(D0, D1);
+        const pixels = image.getPixels();
+        for (let y = 1; y < D1 - 1; ++y) {
+            for (let x = 1; x < D0 - 1; ++x) {
+                pixels[x + D0 * y] = bits[x + D0 * y];
+            }
+        }
+        return image;
+    });
+
+    // The same bits with no boundary constraint; dilate and erode document
+    // that they do not need a zero boundary.
+    const freeArb = fc.array(fc.integer({ min: 0, max: 1 }),
+        { minLength: D0 * D1, maxLength: D0 * D1 }).map((bits) => {
+        const image = new Image2<number>(D0, D1);
+        const pixels = image.getPixels();
+        for (let i = 0; i < bits.length; ++i) {
+            pixels[i] = bits[i];
+        }
+        return image;
+    });
+
+    const foreground = (image: Image2<number>): Set<number> => {
+        const set = new Set<number>();
+        const pixels = image.getPixels();
+        for (let i = 0; i < pixels.length; ++i) {
+            if (pixels[i] === 1) {
+                set.add(i);
+            }
+        }
+        return set;
+    };
+
+    const complement = (image: Image2<number>): Image2<number> => {
+        const out = new Image2<number>(D0, D1);
+        const src = image.getPixels();
+        const dst = out.getPixels();
+        for (let i = 0; i < src.length; ++i) {
+            dst[i] = 1 - src[i];
+        }
+        return out;
+    };
+
+    it('dilation is extensive and erosion is anti-extensive', () => {
+        check(freeArb, (image) => {
+            const input = foreground(image);
+            for (const dilated of [ImageUtility2.dilate4(image),
+                ImageUtility2.dilate8(image)]) {
+                // outImage starts as a copy of inImage, so no foreground
+                // pixel is ever lost.
+                for (const i of input) {
+                    expect(foreground(dilated).has(i)).toBe(true);
+                }
+            }
+            for (const zeroExterior of [false, true]) {
+                for (const eroded of [
+                    ImageUtility2.erode4(image, zeroExterior),
+                    ImageUtility2.erode8(image, zeroExterior)]) {
+                    for (const i of foreground(eroded)) {
+                        expect(input.has(i)).toBe(true);
+                    }
+                }
+            }
+        }, 50);
+    });
+
+    it('the 8-neighborhood dominates the 4-neighborhood', () => {
+        check(freeArb, (image) => {
+            const d4 = foreground(ImageUtility2.dilate4(image));
+            const d8 = foreground(ImageUtility2.dilate8(image));
+            for (const i of d4) {
+                expect(d8.has(i)).toBe(true);
+            }
+            for (const zeroExterior of [false, true]) {
+                const e4 = foreground(ImageUtility2.erode4(image,
+                    zeroExterior));
+                const e8 = foreground(ImageUtility2.erode8(image,
+                    zeroExterior));
+                for (const i of e8) {
+                    expect(e4.has(i)).toBe(true);
+                }
+            }
+        }, 50);
+    });
+
+    it('dilation and erosion are dual under complementation', () => {
+        // Both neighborhoods are symmetric, and with zeroExterior false the
+        // erosion only looks at in-range neighbors, exactly as the dilation
+        // of the complement writes only in-range pixels.
+        check(freeArb, (image) => {
+            for (const [dilate, erode] of [
+                [ImageUtility2.dilate4, ImageUtility2.erode4],
+                [ImageUtility2.dilate8, ImageUtility2.erode8]] as const) {
+                const eroded = erode(image, false);
+                const dual = complement(dilate(complement(image)));
+                expect(nonzeroCoords(eroded)).toEqual(nonzeroCoords(dual));
+            }
+        }, 50);
+    });
+
+    it('dilation and erosion are monotone', () => {
+        check(fc.tuple(freeArb, freeArb), ([a, b]) => {
+            // Work with a <= union, which contains a.
+            const union = new Image2<number>(D0, D1);
+            const up = union.getPixels();
+            const ap = a.getPixels();
+            const bp = b.getPixels();
+            for (let i = 0; i < up.length; ++i) {
+                up[i] = (ap[i] === 1 || bp[i] === 1) ? 1 : 0;
+            }
+            const da = foreground(ImageUtility2.dilate8(a));
+            const du = foreground(ImageUtility2.dilate8(union));
+            for (const i of da) {
+                expect(du.has(i)).toBe(true);
+            }
+            const ea = foreground(ImageUtility2.erode8(a, true));
+            const eu = foreground(ImageUtility2.erode8(union, true));
+            for (const i of ea) {
+                expect(eu.has(i)).toBe(true);
+            }
+        }, 40);
+    });
+
+    it('getComponents partitions the foreground into maximal components',
+        () => {
+            const offsets4 = [[-1, 0], [1, 0], [0, -1], [0, 1]] as const;
+            const offsets8 = [[-1, 0], [1, 0], [0, -1], [0, 1],
+                [-1, -1], [1, -1], [-1, 1], [1, 1]] as const;
+            check(borderedArb, (image) => {
+                for (const [call, offsets] of [
+                    [ImageUtility2.getComponents4, offsets4],
+                    [ImageUtility2.getComponents8, offsets8]] as const) {
+                    const work = new Image2<number>(D0, D1);
+                    const src = image.getPixels();
+                    const dst = work.getPixels();
+                    for (let i = 0; i < src.length; ++i) {
+                        dst[i] = src[i];
+                    }
+                    const expected = referenceComponents([...src], D0, D1,
+                        offsets as unknown as readonly (readonly [number,
+                            number])[]);
+                    const actual = call(work);
+                    if (expected.length === 1) {
+                        // referenceComponents always has the unused slot 0.
+                        expect(actual.length).toBe(0);
+                        continue;
+                    }
+                    expect(actual.length).toBe(expected.length);
+                    // The depth-first labeling visits pixels in raster order,
+                    // so component k of one is component k of the other.
+                    for (let k = 1; k < expected.length; ++k) {
+                        expect([...actual[k]].sort((p, q) => p - q))
+                            .toEqual(expected[k]);
+                        // The image is relabeled in place with the component
+                        // index of each pixel.
+                        for (const i of actual[k]) {
+                            expect(work.get(i)).toBe(k);
+                        }
+                    }
+                }
+            }, 40);
+        });
+
+    it('floodFill4 fills exactly the 4-connected region of the seed', () => {
+        check(fc.tuple(borderedArb, fc.integer({ min: 1, max: D0 - 2 }),
+            fc.integer({ min: 1, max: D1 - 2 })), ([image, sx, sy]) => {
+            const before = image.get(sx, sy);
+            const filled = new Image2<number>(D0, D1);
+            const src = image.getPixels();
+            const dst = filled.getPixels();
+            for (let i = 0; i < src.length; ++i) {
+                dst[i] = src[i];
+            }
+            // Fill the region of pixels equal to 'before' with the marker 7.
+            ImageUtility2.floodFill4(filled, sx, sy, 7, before);
+
+            // Brute-force 4-connected component of the seed among the pixels
+            // that had the seed's value.
+            const region = new Set<number>();
+            const stack = [sx + D0 * sy];
+            region.add(stack[0]);
+            while (stack.length > 0) {
+                const v = stack.pop() as number;
+                const x = v % D0;
+                const y = Math.floor(v / D0);
+                for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+                    const nx = x + dx;
+                    const ny = y + dy;
+                    if (0 <= nx && nx < D0 && 0 <= ny && ny < D1) {
+                        const w = nx + D0 * ny;
+                        if (src[w] === before && !region.has(w)) {
+                            region.add(w);
+                            stack.push(w);
+                        }
+                    }
+                }
+            }
+
+            for (let i = 0; i < dst.length; ++i) {
+                if (region.has(i)) {
+                    expect(dst[i]).toBe(7);
+                } else {
+                    expect(dst[i]).toBe(src[i]);
+                }
+            }
+        }, 40);
+    });
+
+    it('getL1Distance is the city-block distance to the background', () => {
+        check(borderedArb, (image) => {
+            const src = [...image.getPixels()];
+            const { maxDistance, xMax, yMax } =
+                ImageUtility2.getL1Distance(image);
+
+            // Brute force: the Manhattan distance to the nearest 0-pixel.
+            let expectedMax = 0;
+            for (let y = 0; y < D1; ++y) {
+                for (let x = 0; x < D0; ++x) {
+                    let best = Number.MAX_VALUE;
+                    for (let qy = 0; qy < D1; ++qy) {
+                        for (let qx = 0; qx < D0; ++qx) {
+                            if (src[qx + D0 * qy] === 0) {
+                                best = Math.min(best,
+                                    Math.abs(x - qx) + Math.abs(y - qy));
+                            }
+                        }
+                    }
+                    expect(image.get(x, y)).toBe(best);
+                    expectedMax = Math.max(expectedMax, best);
+                }
+            }
+            if (expectedMax >= 2) {
+                // The reported maximum is the largest promoted value, and
+                // (xMax,yMax) is the last pixel promoted to it.
+                expect(maxDistance).toBe(expectedMax);
+                expect(image.get(xMax, yMax)).toBe(maxDistance);
+            } else {
+                // With no pixel two steps from the background the grass-fire
+                // makes no change on its very first pass, and the upstream
+                // post-decrement leaves maxDistance at 1.
+                expect(maxDistance).toBe(1);
+            }
+        }, 30);
+    });
+
+    it('getL2Distance is the Euclidean distance to the background', () => {
+        check(borderedArb, (image) => {
+            const src = [...image.getPixels()];
+            const { maxDistance, xMax, yMax, transform } =
+                ImageUtility2.getL2Distance(image);
+            // The input must not be modified.
+            expect([...image.getPixels()]).toEqual(src);
+
+            let expectedMax = 0;
+            for (let y = 0; y < D1; ++y) {
+                for (let x = 0; x < D0; ++x) {
+                    let best = Number.MAX_VALUE;
+                    for (let qy = 0; qy < D1; ++qy) {
+                        for (let qx = 0; qx < D0; ++qx) {
+                            if (src[qx + D0 * qy] === 0) {
+                                best = Math.min(best,
+                                    (x - qx) * (x - qx) + (y - qy) * (y - qy));
+                            }
+                        }
+                    }
+                    // The algorithm is documented to be exact below 100.
+                    expect(transform.get(x, y)).toBeCloseTo(Math.sqrt(best), 6);
+                    expectedMax = Math.max(expectedMax, best);
+                }
+            }
+            expect(maxDistance).toBeCloseTo(Math.sqrt(expectedMax), 6);
+            expect(transform.get(xMax, yMax)).toBe(maxDistance);
+        }, 20);
+    });
+
+    it('getSkeleton thins the image without adding pixels', () => {
+        check(borderedArb, (image) => {
+            const src = [...image.getPixels()];
+            ImageUtility2.getSkeleton(image);
+            const out = image.getPixels();
+            for (let i = 0; i < out.length; ++i) {
+                // The result is binary and contained in the input.
+                expect(out[i] === 0 || out[i] === 1).toBe(true);
+                if (out[i] === 1) {
+                    expect(src[i]).toBe(1);
+                }
+            }
+        }, 30);
+    });
+
+    it('getSkeleton never increases the number of 8-connected components',
+        () => {
+            // The trimming removes only pixels that are not articulation
+            // points, so a component is never split in two.
+            check(borderedArb, (image) => {
+                const before = componentCount(image);
+                ImageUtility2.getSkeleton(image);
+                expect(componentCount(image)).toBeLessThanOrEqual(before);
+            }, 40);
+        });
+
+    it('upstream: getSkeleton deletes a solid even-sided square entirely',
+        () => {
+            // The header claims that "at each step the connectivity and
+            // cycles of the object are preserved", but the final pass of the
+            // 2-phase removes every remaining 2-value that is not an
+            // articulation point, and for a solid square with an even side
+            // that is all of them. A 2x2 and a 4x4 block vanish; the odd
+            // sides leave the expected single center pixel.
+            const square = (side: number) => {
+                const image = new Image2<number>(9, 9);
+                for (let y = 2; y < 2 + side; ++y) {
+                    for (let x = 2; x < 2 + side; ++x) {
+                        image.set(x, y, 1);
+                    }
+                }
+                ImageUtility2.getSkeleton(image);
+                return nonzeroCoords(image);
+            };
+            expect(square(1)).toEqual(['2,2']);
+            expect(square(2)).toEqual([]);
+            expect(square(3)).toEqual(['3,3']);
+            expect(square(4)).toEqual([]);
+            expect(square(5)).toEqual(['4,4']);
+        });
+
+    it('extractBoundary walks 8-connected foreground pixels', () => {
+        check(fc.tuple(borderedArb, fc.integer({ min: 1, max: D0 - 2 }),
+            fc.integer({ min: 1, max: D1 - 2 })), ([image, sx, sy]) => {
+            const src = [...image.getPixels()];
+            const { success, boundary } = ImageUtility2.extractBoundary(sx, sy,
+                image);
+            if (!success) {
+                expect(boundary.length).toBe(0);
+                return;
+            }
+            expect(boundary.length).toBeGreaterThan(0);
+            for (const index of boundary) {
+                // Every visited pixel was foreground and is now marked 2.
+                expect(src[index]).not.toBe(0);
+                expect(image.getPixels()[index]).toBe(2);
+            }
+            // Consecutive boundary pixels are 8-neighbors.
+            for (let i = 1; i < boundary.length; ++i) {
+                const ax = boundary[i - 1] % D0;
+                const ay = Math.floor(boundary[i - 1] / D0);
+                const bx = boundary[i] % D0;
+                const by = Math.floor(boundary[i] / D0);
+                expect(Math.max(Math.abs(ax - bx), Math.abs(ay - by))).toBe(1);
+            }
+        }, 40);
+    });
+
+    it('drawLine visits a connected chain from (x0,y0) to (x1,y1)', () => {
+        const coord = fc.integer({ min: -5, max: 5 });
+        check(fc.tuple(coord, coord, coord, coord), ([x0, y0, x1, y1]) => {
+            const visited: [number, number][] = [];
+            ImageUtility2.drawLine(x0, y0, x1, y1,
+                (x, y) => visited.push([x, y]));
+            // Bresenham single-steps along the dominant direction.
+            expect(visited.length).toBe(
+                Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) + 1);
+            expect(visited[0]).toEqual([x0, y0]);
+            expect(visited[visited.length - 1]).toEqual([x1, y1]);
+            for (let i = 1; i < visited.length; ++i) {
+                const dx = Math.abs(visited[i][0] - visited[i - 1][0]);
+                const dy = Math.abs(visited[i][1] - visited[i - 1][1]);
+                expect(Math.max(dx, dy)).toBe(1);
+            }
+        }, 100);
+    });
+
+    it('drawCircle and drawEllipse are symmetric about their center', () => {
+        check(fc.tuple(fc.integer({ min: -4, max: 4 }),
+            fc.integer({ min: -4, max: 4 }),
+            fc.integer({ min: 0, max: 6 })), ([cx, cy, radius]) => {
+            const keys = new Set<string>();
+            ImageUtility2.drawCircle(cx, cy, radius, false,
+                (x, y) => keys.add((x - cx) + ',' + (y - cy)));
+            for (const key of keys) {
+                const [dx, dy] = key.split(',').map(Number);
+                // Bresenham's circle emits all eight octant reflections.
+                expect(keys.has((-dx) + ',' + dy)).toBe(true);
+                expect(keys.has(dx + ',' + (-dy))).toBe(true);
+                expect(keys.has(dy + ',' + dx)).toBe(true);
+            }
+
+            const eKeys = new Set<string>();
+            ImageUtility2.drawEllipse(cx, cy, radius, radius,
+                (x, y) => eKeys.add((x - cx) + ',' + (y - cy)));
+            for (const key of eKeys) {
+                const [dx, dy] = key.split(',').map(Number);
+                expect(eKeys.has((-dx) + ',' + dy)).toBe(true);
+                expect(eKeys.has(dx + ',' + (-dy))).toBe(true);
+            }
+        }, 60);
+    });
+
+    it('upstream: drawEllipse with two zero extents is the center point',
+        () => {
+            // Upstream loops forever here: the loop condition
+            // yExtSqr * x <= xExtSqr * y reads 0 <= 0 for every x. The port
+            // visits the degenerate ellipse -- the single center point --
+            // once and returns.
+            const visited: [number, number][] = [];
+            ImageUtility2.drawEllipse(3, -4, 0, 0,
+                (x, y) => visited.push([x, y]));
+            expect(visited).toEqual([[3, -4]]);
+        }, 5000);
+
+    it('drawRectangle outlines and fills the same rectangle', () => {
+        const coord = fc.integer({ min: -4, max: 4 });
+        check(fc.tuple(coord, coord, fc.integer({ min: 0, max: 5 }),
+            fc.integer({ min: 0, max: 5 })), ([xMin, yMin, dx, dy]) => {
+            const xMax = xMin + dx;
+            const yMax = yMin + dy;
+            const outline = new Set<string>();
+            ImageUtility2.drawRectangle(xMin, yMin, xMax, yMax, false,
+                (x, y) => outline.add(x + ',' + y));
+            const solid = new Set<string>();
+            ImageUtility2.drawRectangle(xMin, yMin, xMax, yMax, true,
+                (x, y) => solid.add(x + ',' + y));
+            expect(solid.size).toBe((dx + 1) * (dy + 1));
+            for (const key of outline) {
+                expect(solid.has(key)).toBe(true);
+            }
+            // The outline is exactly the boundary of the filled rectangle.
+            for (const key of solid) {
+                const [x, y] = key.split(',').map(Number);
+                const onBoundary = (x === xMin || x === xMax || y === yMin
+                    || y === yMax);
+                expect(outline.has(key)).toBe(onBoundary);
+            }
+        }, 60);
     });
 });
