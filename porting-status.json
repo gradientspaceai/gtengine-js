@@ -4,7 +4,8 @@
   "verified": 7
  },
  "ACosEstimate.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 23
  },
  "AdaptiveSkeletonClimbing2.h": {
   "status": "ported"
@@ -178,10 +179,12 @@
   "verified": 15
  },
  "ASinEstimate.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 23
  },
  "ATanEstimate.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 23
  },
  "AtomicMinMax.h": {
   "status": "omitted",
@@ -279,10 +282,12 @@
   "status": "ported"
  },
  "ChebyshevRatio.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 23
  },
  "ChebyshevRatioEstimate.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 23
  },
  "CholeskyDecomposition.h": {
   "status": "ported"
@@ -416,7 +421,8 @@
   "verified": 8
  },
  "CosEstimate.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 23
  },
  "CubicRootsQR.h": {
   "status": "ported"
@@ -787,10 +793,12 @@
   "verified": 1
  },
  "Exp2Estimate.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 23
  },
  "ExpEstimate.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 23
  },
  "ExtremalQuery3.h": {
   "status": "ported",
@@ -1348,7 +1356,8 @@
   "status": "ported"
  },
  "InvSqrtEstimate.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 23
  },
  "IsPlanarGraph.h": {
   "status": "ported"
@@ -1377,10 +1386,12 @@
   "status": "ported"
  },
  "Log2Estimate.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 23
  },
  "LogEstimate.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 23
  },
  "Logger.h": {
   "status": "ported",
@@ -1762,16 +1773,19 @@
   "notes": "C++ smart-pointer comparator, not applicable in TS"
  },
  "SinEstimate.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 23
  },
  "SingularValueDecomposition.h": {
   "status": "ported"
  },
  "Slerp.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 23
  },
  "SlerpEstimate.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 23
  },
  "SortPointsOnCircle.h": {
   "status": "ported",
@@ -1781,7 +1795,8 @@
   "status": "ported"
  },
  "SqrtEstimate.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 23
  },
  "StaticVETManifoldMesh2.h": {
   "status": "ported"
@@ -1822,7 +1837,8 @@
   "status": "ported"
  },
  "TanEstimate.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 23
  },
  "TCBSplineCurve.h": {
   "status": "ported",
