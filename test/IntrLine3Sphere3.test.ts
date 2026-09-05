@@ -8,6 +8,8 @@ import {
 import { Hypersphere } from '../src/Hypersphere.js';
 import { Line } from '../src/Line.js';
 import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
+import { length } from '../src/Vector.js';
+import { check, expectVectorClose, fc, positive, unitVector, wellScaled } from './helpers/arbitraries.js';
 
 const ti = new IntrLine3Sphere3TI();
 const fi = new IntrLine3Sphere3FI();
@@ -174,5 +176,124 @@ describe('IntrLine3Sphere3 consistency', () => {
                     .toBeLessThanOrEqual(fiResult.parameter[1]);
             }
         }
+    });
+});
+
+describe('IntrLine3Sphere3 verification', () => {
+    const sphereArb = fc.tuple(
+        fc.array(wellScaled(-5, 5), { minLength: 3, maxLength: 3 }),
+        positive(4)).map(([c, r]) =>
+            Hypersphere.fromCenterRadius(Vector.fromArray(c), r));
+    const lineArb = fc.tuple(
+        fc.array(wellScaled(-6, 6), { minLength: 3, maxLength: 3 }),
+        unitVector(3))
+        .map(([p, d]) => Line.fromOriginDirection(Vector.fromArray(p), d));
+
+    // Distance of the line from tangency, relative to the radius: the two
+    // roots are -a1 -+ sqrt(a1^2 - a0) and the square root loses half its
+    // digits as the discriminant goes to zero.
+    function transversality(l: Line, s: Hypersphere): number {
+        const diff = sub(l.origin, s.center);
+        const a1 = dot(l.direction, diff);
+        const a0 = dot(diff, diff) - s.radius * s.radius;
+        return Math.abs(a1 * a1 - a0) / (s.radius * s.radius);
+    }
+
+    it('TI and FI agree on intersect', () => {
+        check(fc.tuple(lineArb, sphereArb), ([l, s]) => {
+            expect(fi.find(l, s).intersect).toBe(ti.test(l, s).intersect);
+        });
+    });
+
+    it('reported points lie on the line and on the sphere', () => {
+        check(fc.tuple(lineArb, sphereArb), ([l, s]) => {
+            const r = fi.find(l, s);
+            if (!r.intersect) {
+                expect(r.numIntersections).toBe(0);
+                return;
+            }
+            expect(r.parameter[0]).toBeLessThanOrEqual(r.parameter[1]);
+            // Upstream fills both points whenever 'intersect' is true, and
+            // sets parameter[1] = parameter[0] in the tangent case.
+            for (let k = 0; k < 2; ++k) {
+                const p = r.point[k];
+                for (let i = 0; i < 3; ++i) {
+                    expect(Number.isFinite(p.values[i])).toBe(true);
+                }
+                expectVectorClose(p,
+                    add(l.origin, mul(r.parameter[k], l.direction)), 0, 0);
+            }
+            if (transversality(l, s) < 1e-6) {
+                return;    // near tangency: the root loses half its digits
+            }
+            const scale = 1 + length(l.origin) + length(s.center) + s.radius;
+            for (let k = 0; k < r.numIntersections; ++k) {
+                expect(Math.abs(length(sub(r.point[k], s.center)) - s.radius))
+                    .toBeLessThanOrEqual(1e-9 * scale);
+            }
+        });
+    });
+
+    it('the roots satisfy the quadratic they solve', () => {
+        check(fc.tuple(lineArb, sphereArb), ([l, s]) => {
+            const r = fi.find(l, s);
+            if (!r.intersect) {
+                return;
+            }
+            const diff = sub(l.origin, s.center);
+            const a1 = dot(l.direction, diff);
+            const a0 = dot(diff, diff) - s.radius * s.radius;
+            // Q(t) = t^2 + 2*a1*t + a0 has roots t0, t1 with
+            // t0 + t1 = -2*a1 and t0*t1 = a0. The sum is formed by exact
+            // cancellation of the two square roots, so it is tight; the
+            // product inherits the conditioning of the roots.
+            const t0 = r.parameter[0], t1 = r.parameter[1];
+            expect(t0 + t1).toBeCloseTo(-2 * a1, 9);
+            const scale = 1 + Math.abs(a0) + Math.abs(a1) * Math.abs(a1);
+            expect(Math.abs(t0 * t1 - a0)).toBeLessThanOrEqual(1e-7 * scale);
+        });
+    });
+
+    it('the reported interval matches a fine sweep of the line', () => {
+        const rnd = makeRandom(0x63b1ea);
+        check(fc.tuple(lineArb, sphereArb), ([l, s]) => {
+            const r = fi.find(l, s);
+            for (let k = 0; k < 400; ++k) {
+                const t = 24 * rnd() - 12;
+                const p = add(l.origin, mul(t, l.direction));
+                if (length(sub(p, s.center)) < s.radius * (1 - 1e-9)) {
+                    expect(r.intersect).toBe(true);
+                    expect(t).toBeGreaterThanOrEqual(r.parameter[0] - 1e-9);
+                    expect(t).toBeLessThanOrEqual(r.parameter[1] + 1e-9);
+                }
+            }
+        }, 60);
+    }, 30000);
+
+    it('a zero-radius sphere is met only by a line through its center', () => {
+        const s = Hypersphere.fromCenterRadius(v3(1, 2, 3), 0);
+        const through = makeLine(v3(0, 2, 3), v3(1, 0, 0));
+        const r = fi.find(through, s);
+        expect(r.intersect).toBe(true);
+        expect(r.numIntersections).toBe(1);
+        expectVectorClose(r.point[0], v3(1, 2, 3), 1e-12, 1e-12);
+        expect(fi.find(makeLine(v3(0, 5, 3), v3(1, 0, 0)), s).intersect)
+            .toBe(false);
+    });
+
+    it('the exported DoQuery reproduces the class result', () => {
+        check(fc.tuple(lineArb, sphereArb), ([l, s]) => {
+            const r = defaultIntrLine3Sphere3FIResult();
+            intrLine3Sphere3DoQuery(l.origin, l.direction, s, r);
+            const expected = fi.find(l, s);
+            expect(r.intersect).toBe(expected.intersect);
+            expect(r.numIntersections).toBe(expected.numIntersections);
+            expect(r.parameter[0]).toBe(expected.parameter[0]);
+            expect(r.parameter[1]).toBe(expected.parameter[1]);
+            // DoQuery leaves the points untouched; only find() fills them.
+            if (!expected.intersect) {
+                expect(r.point[0].values).toEqual([0, 0, 0]);
+            }
+        });
     });
 });

@@ -7,6 +7,9 @@ import { Line } from '../src/Line.js';
 import { Triangle } from '../src/Triangle.js';
 import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
 import { cross } from '../src/Vector3.js';
+import { length } from '../src/Vector.js';
+import { dotCross } from '../src/Vector3.js';
+import { check, expectVectorClose, fc, unitVector } from './helpers/arbitraries.js';
 
 const ti = new IntrLine3Triangle3TI();
 const fi = new IntrLine3Triangle3FI();
@@ -207,5 +210,138 @@ describe('IntrLine3Triangle3 consistency', () => {
             }
         }
         expect(hits).toBeGreaterThan(10);
+    });
+});
+
+describe('IntrLine3Triangle3 verification', () => {
+    // Integer vertices, origins and directions: DotCross is a small integer
+    // determinant, so the three sign tests the query branches on are exact
+    // and the edge/vertex hits are ordinary draws rather than accidents.
+    const latticeTri = fc.array(
+        fc.array(fc.integer({ min: -4, max: 4 }), { minLength: 3, maxLength: 3 }),
+        { minLength: 3, maxLength: 3 })
+        .map(vs => Triangle.fromVertices(Vector.fromArray(vs[0]),
+            Vector.fromArray(vs[1]), Vector.fromArray(vs[2])));
+    const latticeLine = fc.tuple(
+        fc.array(fc.integer({ min: -4, max: 4 }), { minLength: 3, maxLength: 3 }),
+        fc.array(fc.integer({ min: -3, max: 3 }), { minLength: 3, maxLength: 3 }))
+        .filter(([, d]) => d[0] !== 0 || d[1] !== 0 || d[2] !== 0)
+        .map(([p, d]) => Line.fromOriginDirection(Vector.fromArray(p),
+            Vector.fromArray(d)));
+
+    it('TI and FI agree, and match the exact sign classification', () => {
+        check(fc.tuple(latticeLine, latticeTri), ([l, t]) => {
+            const diff = sub(l.origin, t.v[0]);
+            const e1 = sub(t.v[1], t.v[0]);
+            const e2 = sub(t.v[2], t.v[0]);
+            const DdN = dot(l.direction, cross(e1, e2));
+            const sign = DdN > 0 ? 1 : (DdN < 0 ? -1 : 0);
+            let expected: boolean;
+            if (sign === 0) {
+                expected = false;
+            } else {
+                const b1 = sign * dotCross(l.direction, diff, e2);
+                const b2 = sign * dotCross(l.direction, e1, diff);
+                expected = b1 >= 0 && b2 >= 0 && b1 + b2 <= sign * DdN;
+            }
+            expect(ti.test(l, t).intersect).toBe(expected);
+            expect(fi.find(l, t).intersect).toBe(expected);
+        });
+    });
+
+    it('the barycentric coordinates reconstruct the reported point', () => {
+        check(fc.tuple(latticeLine, latticeTri), ([l, t]) => {
+            const r = fi.find(l, t);
+            if (!r.intersect) {
+                return;
+            }
+            const [b0, b1, b2] = r.triangleBary;
+            expect(Number.isFinite(r.parameter)).toBe(true);
+            expect(b0 + b1 + b2).toBeCloseTo(1, 12);
+            expect(b0).toBeGreaterThanOrEqual(-1e-12);
+            expect(b1).toBeGreaterThanOrEqual(0);
+            expect(b2).toBeGreaterThanOrEqual(0);
+            expectVectorClose(r.point,
+                add(l.origin, mul(r.parameter, l.direction)), 0, 0);
+            const fromBary = add(add(mul(b0, t.v[0]), mul(b1, t.v[1])),
+                mul(b2, t.v[2]));
+            // Both forms divide by the same exactly computed Dot(D,N), so
+            // the residual is a few ulps of the vertex magnitudes.
+            const scale = 1 + length(t.v[0]) + length(t.v[1]) + length(t.v[2])
+                + Math.abs(r.parameter);
+            expect(length(sub(r.point, fromBary)))
+                .toBeLessThanOrEqual(1e-11 * scale);
+        });
+    });
+
+    it('a line through a sampled interior point always hits', () => {
+        const rnd = makeRandom(0x51c07d);
+        check(fc.tuple(latticeTri, unitVector(3)), ([t, d]) => {
+            const n = cross(sub(t.v[1], t.v[0]), sub(t.v[2], t.v[0]));
+            if (length(n) < 1) {
+                return;    // degenerate lattice triangle
+            }
+            normalize(n);
+            if (Math.abs(dot(d, n)) < 1e-2) {
+                return;    // nearly parallel: upstream reports no hit
+            }
+            let a = rnd(), b = rnd();
+            if (a + b > 1) {
+                a = 1 - a; b = 1 - b;
+            }
+            a = 0.05 + 0.9 * a;
+            b = 0.05 + 0.9 * b;
+            if (a + b > 0.95) {
+                return;
+            }
+            const target = add(add(mul(1 - a - b, t.v[0]), mul(a, t.v[1])),
+                mul(b, t.v[2]));
+            const l = Line.fromOriginDirection(sub(target, mul(4, d)), d);
+            const r = fi.find(l, t);
+            expect(r.intersect).toBe(true);
+            expect(ti.test(l, t).intersect).toBe(true);
+            const scale = 1 + length(target);
+            expect(length(sub(r.point, target)))
+                .toBeLessThanOrEqual(1e-9 * scale);
+            expect(r.triangleBary[1]).toBeCloseTo(a, 8);
+            expect(r.triangleBary[2]).toBeCloseTo(b, 8);
+        });
+    });
+
+    it('reversing the line direction keeps the hit and negates the parameter', () => {
+        check(fc.tuple(latticeLine, latticeTri), ([l, t]) => {
+            const a = fi.find(l, t);
+            const b = fi.find(Line.fromOriginDirection(l.origin,
+                mul(-1, l.direction)), t);
+            expect(b.intersect).toBe(a.intersect);
+            if (!a.intersect) {
+                return;
+            }
+            expect(b.parameter).toBeCloseTo(-a.parameter, 9);
+            expectVectorClose(b.point, a.point, 1e-11, 1e-11);
+            for (let i = 0; i < 3; ++i) {
+                expect(b.triangleBary[i]).toBeCloseTo(a.triangleBary[i], 9);
+            }
+        });
+    });
+
+    it('a line in the plane of the triangle reports no intersection', () => {
+        // Upstream calls Dot(D,N) = 0 a "no intersection" even when the line
+        // is coplanar and crosses the triangle.
+        const l = makeLine(v3(-5, 0.25, 0), v3(1, 0, 0));
+        expect(ti.test(l, unitTriangle).intersect).toBe(false);
+        const r = fi.find(l, unitTriangle);
+        expect(r.intersect).toBe(false);
+        expect(r.parameter).toBe(0);
+        expect(r.triangleBary).toEqual([0, 0, 0]);
+        expect(r.point.values).toEqual([0, 0, 0]);
+    });
+
+    it('a degenerate triangle has a zero normal and never intersects', () => {
+        const degenerate = Triangle.fromVertices(v3(0, 0, 0), v3(1, 0, 0),
+            v3(2, 0, 0));
+        const l = makeLine(v3(0.5, 0, -1), v3(0, 0, 1));
+        expect(ti.test(l, degenerate).intersect).toBe(false);
+        expect(fi.find(l, degenerate).intersect).toBe(false);
     });
 });

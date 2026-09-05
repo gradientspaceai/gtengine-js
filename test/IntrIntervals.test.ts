@@ -4,6 +4,7 @@ import {
     IntrIntervalsFI,
     IntrIntervalsFIResultType
 } from '../src/IntrIntervals.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 const ti = new IntrIntervalsTI();
 const fi = new IntrIntervalsFI();
@@ -718,5 +719,172 @@ describe('IntrIntervalsFI dynamic query', () => {
         }
         // The random sample really exercised the separated-contact branch.
         expect(separatedContacts).toBeGreaterThan(20);
+    });
+});
+
+describe('IntrIntervals verification', () => {
+    // Closed lattice interval [a, a+len]; every comparison inside the queries
+    // is then exact, so the properties below need no tolerance.
+    const latticeInterval = fc.tuple(fc.integer({ min: -6, max: 6 }),
+        fc.integer({ min: 0, max: 6 }))
+        .map(([a, len]) => [a, a + len] as [number, number]);
+
+    it('static find equals the exact [max(lo), min(hi)] intersection', () => {
+        check(fc.tuple(latticeInterval, latticeInterval), ([i0, i1]) => {
+            const r = fi.find(i0, i1);
+            const lo = Math.max(i0[0], i1[0]);
+            const hi = Math.min(i0[1], i1[1]);
+            if (lo > hi) {
+                expect(r.intersect).toBe(false);
+                expect(r.numIntersections).toBe(0);
+                expect(r.type).toBe(IntrIntervalsFIResultType.isEmpty);
+                expect(r.overlap[0]).toBe(0);
+                expect(r.overlap[1]).toBe(0);
+            } else if (lo === hi) {
+                expect(r.intersect).toBe(true);
+                expect(r.numIntersections).toBe(1);
+                expect(r.type).toBe(IntrIntervalsFIResultType.isPoint);
+                expect(r.overlap[0]).toBe(lo);
+                expect(r.overlap[1]).toBe(lo);
+            } else {
+                expect(r.intersect).toBe(true);
+                expect(r.numIntersections).toBe(2);
+                expect(r.type).toBe(IntrIntervalsFIResultType.isFinite);
+                expect(r.overlap[0]).toBe(lo);
+                expect(r.overlap[1]).toBe(hi);
+            }
+            // The TI query must agree with the FI query on 'intersect'.
+            expect(ti.test(i0, i1).intersect).toBe(r.intersect);
+        });
+    });
+
+    it('static query is symmetric under argument swap', () => {
+        check(fc.tuple(latticeInterval, latticeInterval), ([i0, i1]) => {
+            const a = fi.find(i0, i1);
+            const b = fi.find(i1, i0);
+            expect(b.intersect).toBe(a.intersect);
+            expect(b.numIntersections).toBe(a.numIntersections);
+            expect(b.type).toBe(a.type);
+            expect(b.overlap[0]).toBe(a.overlap[0]);
+            expect(b.overlap[1]).toBe(a.overlap[1]);
+            expect(ti.test(i1, i0).intersect).toBe(ti.test(i0, i1).intersect);
+        });
+    });
+
+    // A semiinfinite interval is indistinguishable from a finite one whose far
+    // endpoint is beyond every other value in play, so the dedicated overloads
+    // must agree with the two-finite-interval query.
+    const BIG = 1000;
+
+    it('finite/semiinfinite queries match the finite query with a far endpoint', () => {
+        check(fc.tuple(latticeInterval, fc.integer({ min: -8, max: 8 }),
+            fc.boolean()), ([finite, a, isPositiveInfinite]) => {
+                const semi: [number, number] = isPositiveInfinite
+                    ? [a, BIG] : [-BIG, a];
+                const expected = fi.find(finite, semi);
+                const r = fi.findFiniteSemiInfinite(finite, a, isPositiveInfinite);
+                expect(r.intersect).toBe(expected.intersect);
+                expect(r.numIntersections).toBe(expected.numIntersections);
+                expect(r.type).toBe(expected.type);
+                expect(r.overlap[0]).toBe(expected.overlap[0]);
+                expect(r.overlap[1]).toBe(expected.overlap[1]);
+                expect(ti.testFiniteSemiInfinite(finite, a, isPositiveInfinite)
+                    .intersect).toBe(expected.intersect);
+            });
+    });
+
+    it('semiinfinite/semiinfinite queries agree with the finite query', () => {
+        check(fc.tuple(fc.integer({ min: -8, max: 8 }), fc.boolean(),
+            fc.integer({ min: -8, max: 8 }), fc.boolean()),
+            ([a0, pos0, a1, pos1]) => {
+                const r = fi.findSemiInfiniteSemiInfinite(a0, pos0, a1, pos1);
+                expect(ti.testSemiInfiniteSemiInfinite(a0, pos0, a1, pos1)
+                    .intersect).toBe(r.intersect);
+                if (pos0 === pos1) {
+                    // Two same-signed halflines always overlap in a halfline.
+                    expect(r.intersect).toBe(true);
+                    expect(r.numIntersections).toBe(1);
+                    if (pos0) {
+                        expect(r.type)
+                            .toBe(IntrIntervalsFIResultType.isPositiveInfinite);
+                        expect(r.overlap[0]).toBe(Math.max(a0, a1));
+                        expect(r.overlap[1]).toBe(1);
+                    } else {
+                        expect(r.type)
+                            .toBe(IntrIntervalsFIResultType.isNegativeInfinite);
+                        expect(r.overlap[0]).toBe(-1);
+                        expect(r.overlap[1]).toBe(Math.min(a0, a1));
+                    }
+                    return;
+                }
+                // Opposite signs: the intersection is a bounded interval and
+                // must match the finite query on the clamped representations.
+                const i0: [number, number] = pos0 ? [a0, BIG] : [-BIG, a0];
+                const i1: [number, number] = pos1 ? [a1, BIG] : [-BIG, a1];
+                const expected = fi.find(i0, i1);
+                expect(r.intersect).toBe(expected.intersect);
+                expect(r.numIntersections).toBe(expected.numIntersections);
+                expect(r.type).toBe(expected.type);
+                expect(r.overlap[0]).toBe(expected.overlap[0]);
+                expect(r.overlap[1]).toBe(expected.overlap[1]);
+            });
+    });
+
+    it('dynamic TI and FI agree and the overlap lies in both moved intervals', () => {
+        const speed = fc.integer({ min: -4, max: 4 });
+        check(fc.tuple(latticeInterval, speed, latticeInterval, speed,
+            fc.integer({ min: 1, max: 10 })),
+            ([i0, s0, i1, s1, maxTime]) => {
+                const f = fi.findDynamic(maxTime, i0, s0, i1, s1);
+                const t = ti.testDynamic(maxTime, i0, s0, i1, s1);
+                expect(f.intersect).toBe(t.intersect);
+                expect(f.firstTime).toBe(t.firstTime);
+                expect(f.lastTime).toBe(t.lastTime);
+                expect(f.type).toBe(IntrIntervalsFIResultType.isDynamicQuery);
+
+                // Every reported number must be a real number.
+                expect(Number.isFinite(f.firstTime)).toBe(true);
+                expect(Number.isFinite(f.lastTime)).toBe(true);
+                expect(Number.isFinite(f.overlap[0])).toBe(true);
+                expect(Number.isFinite(f.overlap[1])).toBe(true);
+
+                if (f.numIntersections === 0) {
+                    return;
+                }
+
+                // Move both intervals to the first contact time and check that
+                // the reported overlap really lies in both of them there. The
+                // endpoints are lattice values and the speeds are integers, so
+                // the only inexactness is the single division forming
+                // firstTime; 1e-9 covers it comfortably.
+                const tc = f.firstTime;
+                const a = [i0[0] + tc * s0, i0[1] + tc * s0];
+                const b = [i1[0] + tc * s1, i1[1] + tc * s1];
+                for (let k = 0; k < f.numIntersections; ++k) {
+                    const x = f.overlap[k];
+                    expect(x).toBeGreaterThanOrEqual(a[0] - 1e-9);
+                    expect(x).toBeLessThanOrEqual(a[1] + 1e-9);
+                    expect(x).toBeGreaterThanOrEqual(b[0] - 1e-9);
+                    expect(x).toBeLessThanOrEqual(b[1] + 1e-9);
+                }
+            });
+    });
+
+    it('dynamic query: separated intervals touch exactly at firstTime', () => {
+        // Upstream computes the left-approach contact point from the wrong
+        // endpoint of interval0; the port uses the endpoint that actually makes
+        // contact (see the file comments and upstream issue #62).
+        const r = fi.findDynamic(10, [0, 1], 2, [5, 7], 0);
+        expect(r.intersect).toBe(true);
+        expect(r.numIntersections).toBe(1);
+        expect(r.firstTime).toBeCloseTo(2, 12);
+        expect(r.overlap[0]).toBeCloseTo(5, 12);
+        expect(r.overlap[1]).toBe(r.overlap[0]);
+
+        // The mirrored configuration is the one upstream already gets right.
+        const m = fi.findDynamic(10, [5, 7], -2, [0, 1], 0);
+        expect(m.intersect).toBe(true);
+        expect(m.firstTime).toBeCloseTo(2, 12);
+        expect(m.overlap[0]).toBeCloseTo(1, 12);
     });
 });

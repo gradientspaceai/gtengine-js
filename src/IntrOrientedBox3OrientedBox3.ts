@@ -33,6 +33,13 @@
 // returned. If 'intersect' is true, the separating[] values are invalid
 // because there is no separation.
 //
+// NOTE (upstream inconsistency, preserved): the near-parallel test here is
+// 'absDot01[i][j] > cutoff', while the otherwise identical algorithm in
+// IntrAlignedBox3OrientedBox3.h spells it 'absDot01[i][j] >= cutoff'. With the
+// default epsilon = 0 the cutoff is exactly 1, so a pair of axes whose rounded
+// |Dot| lands on 1.0 is treated as parallel there but not here. Both
+// spellings are ported verbatim.
+//
 // Port notes (see IntrIntervals.ts for the Intr* precedent): upstream has
 // only the TIQuery specialization for this pair, which becomes the class
 // IntrOrientedBox3OrientedBox3TI with the result type

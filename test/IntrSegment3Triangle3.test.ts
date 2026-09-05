@@ -11,6 +11,8 @@ import { Segment } from '../src/Segment.js';
 import { Triangle } from '../src/Triangle.js';
 import { Vector, add, dot, mul, sub } from '../src/Vector.js';
 import { cross } from '../src/Vector3.js';
+import { length } from '../src/Vector.js';
+import { check, expectVectorClose, fc } from './helpers/arbitraries.js';
 
 const ti = new IntrSegment3Triangle3TI();
 const fi = new IntrSegment3Triangle3FI();
@@ -213,5 +215,157 @@ describe('IntrSegment3Triangle3 consistency', () => {
             }
         }
         expect(hits).toBeGreaterThan(10);
+    });
+});
+
+describe('IntrSegment3Triangle3 verification', () => {
+    // Integer vertices and endpoints. The query works on the centered form
+    // C + s*D with |s| <= e, where D is the normalized edge vector, so only
+    // the normalization is inexact; the triangle-side sign tests still come
+    // from small integer determinants.
+    const latticeTri = fc.array(
+        fc.array(fc.integer({ min: -4, max: 4 }), { minLength: 3, maxLength: 3 }),
+        { minLength: 3, maxLength: 3 })
+        .map(vs => Triangle.fromVertices(Vector.fromArray(vs[0]),
+            Vector.fromArray(vs[1]), Vector.fromArray(vs[2])));
+    const latticeSeg = fc.tuple(
+        fc.array(fc.integer({ min: -4, max: 4 }), { minLength: 3, maxLength: 3 }),
+        fc.array(fc.integer({ min: -4, max: 4 }), { minLength: 3, maxLength: 3 }))
+        .filter(([a, b]) => a[0] !== b[0] || a[1] !== b[1] || a[2] !== b[2])
+        .map(([a, b]) => Segment.fromEndpoints(Vector.fromArray(a),
+            Vector.fromArray(b)));
+
+    it('TI and FI agree on intersect', () => {
+        check(fc.tuple(latticeSeg, latticeTri), ([s, t]) => {
+            expect(fi.find(s, t).intersect).toBe(ti.test(s, t).intersect);
+        });
+    });
+
+    it('the reported parameter is the centered-form s with |s| <= extent', () => {
+        check(fc.tuple(latticeSeg, latticeTri), ([s, t]) => {
+            const r = fi.find(s, t);
+            if (!r.intersect) {
+                return;
+            }
+            const { center, direction, extent } = s.getCenteredForm();
+            // Upstream reports the parameter of C + s*D, not the [0,1]
+            // parameter of (1-u)*P0 + u*P1 (see the port's file comments).
+            expect(Number.isFinite(r.parameter)).toBe(true);
+            expect(Math.abs(r.parameter))
+                .toBeLessThanOrEqual(extent * (1 + 1e-12) + 1e-12);
+            expectVectorClose(r.point,
+                add(center, mul(r.parameter, direction)), 0, 0);
+            // The equivalent [0,1] parameter, for callers that need it.
+            const u = 0.5 + r.parameter / (2 * extent);
+            expect(u).toBeGreaterThanOrEqual(-1e-12);
+            expect(u).toBeLessThanOrEqual(1 + 1e-12);
+            const scale = 1 + length(s.p[0]) + length(s.p[1]);
+            expect(length(sub(r.point,
+                add(mul(1 - u, s.p[0]), mul(u, s.p[1])))))
+                .toBeLessThanOrEqual(1e-11 * scale);
+        });
+    });
+
+    it('the barycentric coordinates reconstruct the reported point', () => {
+        check(fc.tuple(latticeSeg, latticeTri), ([s, t]) => {
+            const r = fi.find(s, t);
+            if (!r.intersect) {
+                return;
+            }
+            const [b0, b1, b2] = r.triangleBary;
+            expect(b0 + b1 + b2).toBeCloseTo(1, 12);
+            expect(b1).toBeGreaterThanOrEqual(0);
+            expect(b2).toBeGreaterThanOrEqual(0);
+            expect(b0).toBeGreaterThanOrEqual(-1e-12);
+            const fromBary = add(add(mul(b0, t.v[0]), mul(b1, t.v[1])),
+                mul(b2, t.v[2]));
+            const scale = 1 + length(t.v[0]) + length(t.v[1]) + length(t.v[2]);
+            expect(length(sub(r.point, fromBary)))
+                .toBeLessThanOrEqual(1e-10 * scale);
+        });
+    });
+
+    it('a segment hit is a line hit whose parameter lies inside the segment', () => {
+        check(fc.tuple(latticeSeg, latticeTri), ([s, t]) => {
+            const { center, direction, extent } = s.getCenteredForm();
+            const lr = lineFI.find(
+                Line.fromOriginDirection(center, direction), t);
+            const sr = fi.find(s, t);
+            if (sr.intersect) {
+                expect(lr.intersect).toBe(true);
+                expect(sr.parameter).toBeCloseTo(lr.parameter, 9);
+            } else if (lr.intersect) {
+                expect(Math.abs(lr.parameter))
+                    .toBeGreaterThan(extent * (1 - 1e-9) - 1e-9);
+            }
+        });
+    });
+
+    it('reversing the endpoints negates the parameter and keeps the point', () => {
+        check(fc.tuple(latticeSeg, latticeTri), ([s, t]) => {
+            const a = fi.find(s, t);
+            const b = fi.find(Segment.fromEndpoints(s.p[1], s.p[0]), t);
+            expect(b.intersect).toBe(a.intersect);
+            if (!a.intersect) {
+                return;
+            }
+            expect(b.parameter).toBeCloseTo(-a.parameter, 9);
+            expectVectorClose(b.point, a.point, 1e-10, 1e-10);
+            for (let i = 0; i < 3; ++i) {
+                expect(b.triangleBary[i]).toBeCloseTo(a.triangleBary[i], 9);
+            }
+        });
+    });
+
+    it('a segment crossing a sampled interior point hits at the right place', () => {
+        const rnd = makeRandom(0x19fe32);
+        check(fc.tuple(latticeTri), ([t]) => {
+            const n = cross(sub(t.v[1], t.v[0]), sub(t.v[2], t.v[0]));
+            const nlen = Math.sqrt(dot(n, n));
+            if (nlen < 1) {
+                return;    // degenerate lattice triangle
+            }
+            const u = mul(1 / nlen, n);
+            let a = rnd(), b = rnd();
+            if (a + b > 1) {
+                a = 1 - a; b = 1 - b;
+            }
+            a = 0.05 + 0.9 * a;
+            b = 0.05 + 0.9 * b;
+            if (a + b > 0.95) {
+                return;
+            }
+            const target = add(add(mul(1 - a - b, t.v[0]), mul(a, t.v[1])),
+                mul(b, t.v[2]));
+            const s = Segment.fromEndpoints(sub(target, mul(2, u)),
+                add(target, mul(3, u)));
+            const r = fi.find(s, t);
+            expect(r.intersect).toBe(true);
+            expect(ti.test(s, t).intersect).toBe(true);
+            const scale = 1 + length(target);
+            expect(length(sub(r.point, target)))
+                .toBeLessThanOrEqual(1e-9 * scale);
+            // Shrinking the segment so it stops short of the plane must miss.
+            const short = Segment.fromEndpoints(sub(target, mul(2, u)),
+                sub(target, mul(0.5, u)));
+            expect(fi.find(short, t).intersect).toBe(false);
+        });
+    });
+
+    it('a segment in the plane of the triangle reports no intersection', () => {
+        const s = Segment.fromEndpoints(v3(-5, 0.25, 0), v3(5, 0.25, 0));
+        expect(ti.test(s, unitTriangle).intersect).toBe(false);
+        const r = fi.find(s, unitTriangle);
+        expect(r.intersect).toBe(false);
+        expect(r.parameter).toBe(0);
+        expect(r.triangleBary).toEqual([0, 0, 0]);
+    });
+
+    it('an endpoint exactly on the triangle is reported at |s| = extent', () => {
+        const s = Segment.fromEndpoints(v3(0.25, 0.25, 0), v3(0.25, 0.25, 4));
+        const r = fi.find(s, unitTriangle);
+        expect(r.intersect).toBe(true);
+        expect(r.parameter).toBeCloseTo(-2, 12);
+        expectVectorClose(r.point, v3(0.25, 0.25, 0), 1e-12, 1e-12);
     });
 });

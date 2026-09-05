@@ -5,6 +5,7 @@ import {
 import { OrientedBox } from '../src/OrientedBox.js';
 import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
 import { cross } from '../src/Vector3.js';
+import { check, fc, positive, rotationFrame, wellScaled } from './helpers/arbitraries.js';
 
 const ti = new IntrOrientedBox3OrientedBox3TI();
 
@@ -342,5 +343,142 @@ describe('IntrOrientedBox3OrientedBox3TI randomized cross-check', () => {
             }
         }
         expect(found).toBeGreaterThan(10);
+    });
+});
+
+describe('IntrOrientedBox3OrientedBox3 verification', () => {
+    const boxArb = fc.tuple(
+        fc.array(wellScaled(-4, 4), { minLength: 3, maxLength: 3 }),
+        rotationFrame(3),
+        fc.array(positive(3), { minLength: 3, maxLength: 3 }))
+        .map(([c, axes, ext]) => makeBox(Vector.fromArray(c), axes, ext));
+
+    it('matches the 15-axis oracle whenever the oracle is decisive', () => {
+        check(fc.tuple(boxArb, boxArb), ([box0, box1]) => {
+            const expected = oracleSeparated(box0, box1, 1e-9);
+            if (expected === null) {
+                return;
+            }
+            expect(ti.test(box0, box1).intersect).toBe(!expected);
+        });
+    });
+
+    it('is symmetric under argument swap away from the touching boundary', () => {
+        check(fc.tuple(boxArb, boxArb), ([box0, box1]) => {
+            if (oracleSeparated(box0, box1, 1e-9) === null) {
+                return;
+            }
+            expect(ti.test(box1, box0).intersect)
+                .toBe(ti.test(box0, box1).intersect);
+        });
+    });
+
+    it('the reported separating axis really separates the two boxes', () => {
+        check(fc.tuple(boxArb, boxArb), ([box0, box1]) => {
+            const r = ti.test(box0, box1);
+            if (r.intersect) {
+                return;
+            }
+            const [i0, i1] = r.separating;
+            let axis: Vector;
+            if (i1 < 0) {
+                axis = box0.axis[i0];
+            } else if (i0 < 0) {
+                axis = box1.axis[i1];
+            } else {
+                axis = cross(box0.axis[i0], box1.axis[i1]);
+                if (Math.sqrt(dot(axis, axis)) < 1e-8) {
+                    // A degenerate edge-edge axis cannot report separation
+                    // (both sides of the test are zero), so nothing to check.
+                    return;
+                }
+                normalize(axis);
+            }
+            const c0 = dot(box0.center, axis), c1 = dot(box1.center, axis);
+            const r0 = radius(box0, axis), r1 = radius(box1, axis);
+            const scale = 1 + Math.abs(c0) + Math.abs(c1) + r0 + r1;
+            expect(Math.abs(c1 - c0)).toBeGreaterThan(r0 + r1 - 1e-11 * scale);
+        });
+    });
+
+    it('a point common to both boxes forces intersect = true', () => {
+        const rnd = makeRandom(0x51ed270b);
+        check(fc.tuple(boxArb, boxArb), ([box0, box1]) => {
+            if (ti.test(box0, box1).intersect) {
+                return;
+            }
+            const e = box1.extent.values;
+            for (let k = 0; k < 150; ++k) {
+                const s = [(2 * rnd() - 1) * e[0], (2 * rnd() - 1) * e[1],
+                    (2 * rnd() - 1) * e[2]];
+                let p = box1.center.clone();
+                for (let d = 0; d < 3; ++d) {
+                    p = add(p, mul(s[d], box1.axis[d]));
+                }
+                const delta = sub(p, box0.center);
+                let inside = true;
+                for (let d = 0; d < 3; ++d) {
+                    if (Math.abs(dot(delta, box0.axis[d]))
+                        > box0.extent.values[d]) {
+                        inside = false;
+                        break;
+                    }
+                }
+                expect(inside).toBe(false);
+            }
+        }, 50);
+    }, 30000);
+
+    it('is equivariant under a rigid motion applied to both boxes', () => {
+        check(fc.tuple(boxArb, boxArb, rotationFrame(3),
+            fc.array(wellScaled(-3, 3), { minLength: 3, maxLength: 3 })),
+            ([box0, box1, R, t]) => {
+                if (oracleSeparated(box0, box1, 1e-8) === null) {
+                    return;
+                }
+                const move = (b: OrientedBox): OrientedBox => {
+                    const apply = (v: Vector): Vector => {
+                        const out = [0, 0, 0];
+                        for (let d = 0; d < 3; ++d) {
+                            out[d] = R[0].values[d] * v.values[0]
+                                + R[1].values[d] * v.values[1]
+                                + R[2].values[d] * v.values[2];
+                        }
+                        return Vector.fromArray(out);
+                    };
+                    const c = apply(b.center);
+                    return makeBox(
+                        Vector.fromArray([c.values[0] + t[0],
+                            c.values[1] + t[1], c.values[2] + t[2]]),
+                        [apply(b.axis[0]), apply(b.axis[1]), apply(b.axis[2])],
+                        [...b.extent.values]);
+                };
+                expect(ti.test(move(box0), move(box1)).intersect)
+                    .toBe(ti.test(box0, box1).intersect);
+            });
+    });
+
+    it('a negative epsilon is clamped to zero', () => {
+        const b0 = makeBox(v3(0, 0, 0), stdAxes, [1, 1, 0.1]);
+        const axes = rotationAxes(0, 0, Math.PI / 4);
+        const b1 = makeBox(v3(0, 0, 0.3), axes, [1, 1, 0.1]);
+        const zero = ti.test(b0, b1, 0).intersect;
+        expect(ti.test(b0, b1, -1).intersect).toBe(zero);
+        expect(ti.test(b0, b1, -1e-12).intersect).toBe(zero);
+    });
+
+    it('a large epsilon restricts separation to the six face normals', () => {
+        const rnd = makeRandom(0xbeef1234);
+        for (let trial = 0; trial < 400; ++trial) {
+            const b0 = makeBox(v3(0, 0, 0), rotationAxes(2 * rnd(), 2 * rnd(),
+                2 * rnd()), [1, 1, 1]);
+            const b1 = makeBox(v3(6 * rnd() - 3, 6 * rnd() - 3, 6 * rnd() - 3),
+                rotationAxes(2 * rnd(), 2 * rnd(), 2 * rnd()),
+                [1 + rnd(), 1 + rnd(), 1 + rnd()]);
+            const r = ti.test(b0, b1, 2);
+            if (!r.intersect) {
+                expect(r.separating[0] < 0 || r.separating[1] < 0).toBe(true);
+            }
+        }
     });
 });

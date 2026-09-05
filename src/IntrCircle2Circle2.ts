@@ -54,6 +54,14 @@ function defaultFIResult(): IntrCircle2Circle2FIResult {
     };
 }
 
+// Test-intersection query for two circles in 2D.
+//
+// NOTE (upstream behavior, preserved): this query tests whether the two
+// *solid disks* overlap, |C0-C1| <= R0+R1, while IntrCircle2Circle2FI
+// intersects the two *curves*. The two therefore disagree when one circle is
+// nested inside the other without touching: 'test' reports intersect = true
+// and 'find' reports intersect = false with numIntersections = 0. The same
+// split exists upstream in IntrSphere3Sphere3.h.
 export class IntrCircle2Circle2TI implements
     TIQuery<Hypersphere, Hypersphere, IntrCircle2Circle2TIResult> {
 

@@ -5,6 +5,7 @@ import {
 } from '../src/IntrOrientedBox2OrientedBox2.js';
 import { OrientedBox } from '../src/OrientedBox.js';
 import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { check, expectVectorClose, fc, positive, wellScaled } from './helpers/arbitraries.js';
 
 const ti = new IntrOrientedBox2OrientedBox2TI();
 const fi = new IntrOrientedBox2OrientedBox2FI();
@@ -255,5 +256,119 @@ describe('IntrOrientedBox2OrientedBox2 consistency', () => {
             }
         }
         expect(polygons).toBeGreaterThan(20);
+    });
+});
+
+describe('IntrOrientedBox2OrientedBox2 verification', () => {
+    const boxArb = fc.tuple(wellScaled(-4, 4), wellScaled(-4, 4),
+        wellScaled(-Math.PI, Math.PI), positive(3), positive(3))
+        .map(([x, y, a, e0, e1]) => makeBox(v2(x, y), a, [e0, e1]));
+
+    // An independent 2D separating-axis oracle over the four edge normals.
+    // It returns null for borderline configurations, where the query's own
+    // round-off can legitimately fall on either side.
+    function oracle2(box0: OrientedBox, box1: OrientedBox,
+        tolerance: number): boolean | null {
+        const v0 = box0.getVertices();
+        const v1 = box1.getVertices();
+        const axes = [box0.axis[0], box0.axis[1], box1.axis[0], box1.axis[1]];
+        let separated = false, borderline = false;
+        for (const axis of axes) {
+            let lo0 = Infinity, hi0 = -Infinity, lo1 = Infinity, hi1 = -Infinity;
+            for (const p of v0) {
+                const d = dot(p, axis);
+                lo0 = Math.min(lo0, d); hi0 = Math.max(hi0, d);
+            }
+            for (const p of v1) {
+                const d = dot(p, axis);
+                lo1 = Math.min(lo1, d); hi1 = Math.max(hi1, d);
+            }
+            const gap = Math.max(lo0 - hi1, lo1 - hi0);
+            if (Math.abs(gap) < tolerance) {
+                borderline = true;
+            }
+            if (gap > 0) {
+                separated = true;
+            }
+        }
+        return borderline ? null : separated;
+    }
+
+    it('TI matches an independent separating-axis oracle', () => {
+        check(fc.tuple(boxArb, boxArb), ([box0, box1]) => {
+            const expected = oracle2(box0, box1, 1e-9);
+            if (expected === null) {
+                return;
+            }
+            expect(ti.test(box0, box1).intersect).toBe(!expected);
+        });
+    });
+
+    it('TI is symmetric under argument swap', () => {
+        check(fc.tuple(boxArb, boxArb), ([box0, box1]) => {
+            // Swapping the arguments permutes the four axis tests without
+            // changing any of them, so 'intersect' agrees exactly.
+            expect(ti.test(box1, box0).intersect)
+                .toBe(ti.test(box0, box1).intersect);
+        });
+    });
+
+    it('FI polygon vertices lie in both boxes and enclose a positive area', () => {
+        check(fc.tuple(boxArb, boxArb), ([box0, box1]) => {
+            const r = fi.find(box0, box1);
+            if (!r.intersect) {
+                expect(r.polygon.length).toBe(0);
+                return;
+            }
+            expect(r.polygon.length).toBeGreaterThanOrEqual(3);
+            const scale = 1 + Math.abs(box0.center.values[0])
+                + Math.abs(box0.center.values[1])
+                + Math.abs(box1.center.values[0])
+                + Math.abs(box1.center.values[1]);
+            for (const p of r.polygon) {
+                expect(Number.isFinite(p.values[0])).toBe(true);
+                expect(Number.isFinite(p.values[1])).toBe(true);
+                // Clip vertices are convex combinations of box0 corners, so
+                // the residual is a few ulps of the coordinate magnitude.
+                expect(inBox(p, box0, 1e-9 * scale)).toBe(true);
+                expect(inBox(p, box1, 1e-9 * scale)).toBe(true);
+            }
+            // The clip keeps the counterclockwise order of box0's corners.
+            expect(signedArea(r.polygon)).toBeGreaterThanOrEqual(-1e-12);
+        });
+    });
+
+    it('FI intersect implies TI intersect', () => {
+        check(fc.tuple(boxArb, boxArb), ([box0, box1]) => {
+            if (fi.find(box0, box1).intersect) {
+                expect(ti.test(box0, box1).intersect).toBe(true);
+            }
+        });
+    });
+
+    it('TI and FI disagree on edge-touching boxes (upstream behavior)', () => {
+        // TI uses closed-box separation ('>' on the radius sum) so touching
+        // boxes intersect; the FI 'Outside' helper needs a strictly positive
+        // vertex distance, so the same pair reports no intersection with an
+        // empty polygon. See upstream issue #141.
+        const a = makeBox(v2(0, 0), 0, [1, 1]);
+        const b = makeBox(v2(2, 0), 0, [1, 1]);
+        expect(ti.test(a, b).intersect).toBe(true);
+        const r = fi.find(a, b);
+        expect(r.intersect).toBe(false);
+        expect(r.polygon.length).toBe(0);
+    });
+
+    it('a contained box is returned unchanged by the FI query', () => {
+        const outer = makeBox(v2(0, 0), 0.3, [3, 3]);
+        const inner = makeBox(v2(0.1, -0.2), 1.1, [0.4, 0.5]);
+        const r = fi.find(inner, outer);
+        expect(r.intersect).toBe(true);
+        expect(r.polygon.length).toBe(4);
+        const verts = inner.getVertices();
+        const expected = [verts[0], verts[1], verts[3], verts[2]];
+        for (let i = 0; i < 4; ++i) {
+            expectVectorClose(r.polygon[i], expected[i], 1e-12, 1e-12);
+        }
     });
 });

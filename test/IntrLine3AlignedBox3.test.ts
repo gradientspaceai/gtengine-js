@@ -12,6 +12,8 @@ import {
     defaultIntrLine3AlignedBox3TIResult,
     defaultIntrLine3AlignedBox3FIResult
 } from '../src/IntrLine3AlignedBox3.js';
+import { add, mul, sub } from '../src/Vector.js';
+import { check, expectVectorClose, fc, positive, seededRandom, unitVector, wellScaled } from './helpers/arbitraries.js';
 
 function box(min: number[], max: number[]): AlignedBox {
     return AlignedBox.fromMinMax(Vector.fromArray(min), Vector.fromArray(max));
@@ -208,5 +210,152 @@ describe('intrLine3AlignedBox3 DoQuery helpers', () => {
             Vector.fromArray([1, 0, 0]), extent, result);
         expect(result.intersect).toBe(false);
         expect(result.numIntersections).toBe(0);
+    });
+});
+
+describe('IntrLine3AlignedBox3 verification', () => {
+    const ti = new IntrLine3AlignedBox3TI();
+    const fi = new IntrLine3AlignedBox3FI();
+
+    const boxArb = fc.tuple(
+        fc.array(wellScaled(-4, 4), { minLength: 3, maxLength: 3 }),
+        fc.array(positive(4), { minLength: 3, maxLength: 3 }))
+        .map(([lo, e]) => box(lo, [lo[0] + e[0], lo[1] + e[1], lo[2] + e[2]]));
+    const lineArb = fc.tuple(
+        fc.array(wellScaled(-6, 6), { minLength: 3, maxLength: 3 }),
+        unitVector(3))
+        .map(([p, d]) => line(p, [...d.values]));
+
+    function inBox(p: Vector, b: AlignedBox, tol: number): boolean {
+        for (let i = 0; i < 3; ++i) {
+            if (p.values[i] < b.min.values[i] - tol
+                || p.values[i] > b.max.values[i] + tol) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    it('TI and FI agree on intersect', () => {
+        check(fc.tuple(lineArb, boxArb), ([l, b]) => {
+            expect(fi.find(l, b).intersect).toBe(ti.test(l, b).intersect);
+        });
+    });
+
+    it('FI parameters are ordered and their points lie on the line and in the box', () => {
+        check(fc.tuple(lineArb, boxArb), ([l, b]) => {
+            const r = fi.find(l, b);
+            if (!r.intersect) {
+                expect(r.numIntersections).toBe(0);
+                return;
+            }
+            expect(r.parameter[0]).toBeLessThanOrEqual(r.parameter[1]);
+            if (r.numIntersections === 1) {
+                expect(r.parameter[1]).toBe(r.parameter[0]);
+            }
+            let scale = 1;
+            for (let i = 0; i < 3; ++i) {
+                scale += Math.abs(b.min.values[i]) + Math.abs(b.max.values[i]);
+            }
+            // Upstream fills both points whenever 'intersect' is true, even
+            // for the single-point case (parameter[1] == parameter[0]).
+            for (let k = 0; k < 2; ++k) {
+                const p = r.point[k];
+                expectVectorClose(p,
+                    add(l.origin, mul(r.parameter[k], l.direction)), 0, 0);
+                expect(inBox(p, b, 1e-12 * scale)).toBe(true);
+            }
+        });
+    });
+
+    it('the reported [t0,t1] contains every line parameter strictly inside the box', () => {
+        const rnd = seededRandom(0x77c3ae1);
+        check(fc.tuple(lineArb, boxArb), ([l, b]) => {
+            const r = fi.find(l, b);
+            let scale = 1;
+            for (let i = 0; i < 3; ++i) {
+                scale += Math.abs(b.min.values[i]) + Math.abs(b.max.values[i]);
+            }
+            for (let k = 0; k < 400; ++k) {
+                const t = 24 * rnd() - 12;
+                const p = add(l.origin, mul(t, l.direction));
+                if (inBox(p, b, -1e-9 * scale)) {
+                    expect(r.intersect).toBe(true);
+                    expect(t).toBeGreaterThanOrEqual(r.parameter[0] - 1e-9 * scale);
+                    expect(t).toBeLessThanOrEqual(r.parameter[1] + 1e-9 * scale);
+                }
+            }
+        }, 60);
+    }, 30000);
+
+    it('a robustly interior hit survives a translation of line and box', () => {
+        check(fc.tuple(lineArb, boxArb,
+            fc.array(wellScaled(-5, 5), { minLength: 3, maxLength: 3 })),
+            ([l, b, t]) => {
+                const a = fi.find(l, b);
+                if (!a.intersect || a.numIntersections !== 2) {
+                    return;
+                }
+                // The clip is done in the box-centered form, so a translation
+                // perturbs every difference it forms. Only a hit that passes
+                // strictly through the interior is guaranteed to survive; the
+                // margin below rejects lines that merely graze a face, which
+                // legitimately flip under an arbitrarily small perturbation.
+                let scale = 1;
+                for (let i = 0; i < 3; ++i) {
+                    scale += Math.abs(b.min.values[i]) + Math.abs(b.max.values[i])
+                        + Math.abs(t[i]);
+                }
+                const mid = add(l.origin,
+                    mul(0.5 * (a.parameter[0] + a.parameter[1]), l.direction));
+                let margin = Infinity;
+                for (let i = 0; i < 3; ++i) {
+                    margin = Math.min(margin, mid.values[i] - b.min.values[i],
+                        b.max.values[i] - mid.values[i]);
+                }
+                if (margin <= 1e-6 * scale) {
+                    return;
+                }
+                const shift = (v: Vector): Vector => Vector.fromArray(
+                    [v.values[0] + t[0], v.values[1] + t[1], v.values[2] + t[2]]);
+                const c = fi.find(
+                    Line.fromOriginDirection(shift(l.origin), l.direction),
+                    AlignedBox.fromMinMax(shift(b.min), shift(b.max)));
+                expect(c.intersect).toBe(true);
+                expect(Math.abs(a.parameter[0] - c.parameter[0]))
+                    .toBeLessThanOrEqual(1e-9 * scale);
+                expect(Math.abs(a.parameter[1] - c.parameter[1]))
+                    .toBeLessThanOrEqual(1e-9 * scale);
+            });
+    });
+
+    it('a line grazing a box corner reports a single point', () => {
+        const b = box([0, 0, 0], [2, 2, 2]);
+        const d = Vector.fromArray([1, 1, 0]);
+        normalize(d);
+        const r = fi.find(
+            Line.fromOriginDirection(Vector.fromArray([2, 0, 1]), d), b);
+        expect(r.intersect).toBe(true);
+        expect(r.numIntersections).toBe(1);
+        expect(r.parameter[0]).toBe(r.parameter[1]);
+        expectVectorClose(r.point[0], r.point[1], 0, 0);
+    });
+
+    it('the exported DoQuery helpers reproduce the class results', () => {
+        check(fc.tuple(lineArb, boxArb), ([l, b]) => {
+            const { center, extent } = b.getCenteredForm();
+            const origin = sub(l.origin, center);
+            const tr = defaultIntrLine3AlignedBox3TIResult();
+            intrLine3AlignedBox3TIDoQuery(origin, l.direction, extent, tr);
+            expect(tr.intersect).toBe(ti.test(l, b).intersect);
+
+            const fr = defaultIntrLine3AlignedBox3FIResult();
+            intrLine3AlignedBox3FIDoQuery(origin, l.direction, extent, fr);
+            const expected = fi.find(l, b);
+            expect(fr.intersect).toBe(expected.intersect);
+            expect(fr.numIntersections).toBe(expected.numIntersections);
+            expect(fr.parameter[0]).toBe(expected.parameter[0]);
+            expect(fr.parameter[1]).toBe(expected.parameter[1]);
+        });
     });
 });
