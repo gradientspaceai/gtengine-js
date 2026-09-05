@@ -1069,16 +1069,19 @@
   "status": "ported"
  },
  "IntrAlignedBox2AlignedBox2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 30
  },
  "IntrAlignedBox2Circle2.h": {
   "status": "ported"
  },
  "IntrAlignedBox2OrientedBox2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 30
  },
  "IntrAlignedBox3AlignedBox3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 30
  },
  "IntrAlignedBox3Cone3.h": {
   "status": "ported"
@@ -1087,7 +1090,8 @@
   "status": "ported"
  },
  "IntrAlignedBox3OrientedBox3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 30
  },
  "IntrAlignedBox3Sphere3.h": {
   "status": "ported"
@@ -1108,7 +1112,8 @@
   "status": "ported"
  },
  "IntrCircle2Circle2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 30
  },
  "IntrConvexMesh3Plane3.h": {
   "status": "ported"
@@ -1129,7 +1134,8 @@
   "status": "ported"
  },
  "IntrHalfspace2Polygon2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 30
  },
  "IntrHalfspace3Capsule3.h": {
   "status": "ported"
@@ -1141,22 +1147,28 @@
   "status": "ported"
  },
  "IntrHalfspace3OrientedBox3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 30
  },
  "IntrHalfspace3Segment3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 30
  },
  "IntrHalfspace3Sphere3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 30
  },
  "IntrHalfspace3Triangle3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 30
  },
  "IntrIntervals.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 30
  },
  "IntrLine2AlignedBox2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 30
  },
  "IntrLine2Arc2.h": {
   "status": "ported"
@@ -1165,7 +1177,8 @@
   "status": "ported"
  },
  "IntrLine2Line2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 30
  },
  "IntrLine2OrientedBox2.h": {
   "status": "ported"
@@ -1180,10 +1193,12 @@
   "status": "ported"
  },
  "IntrLine2Triangle2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 30
  },
  "IntrLine3AlignedBox3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 30
  },
  "IntrLine3Capsule3.h": {
   "status": "ported"
@@ -1204,16 +1219,19 @@
   "status": "ported"
  },
  "IntrLine3Rectangle3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 30
  },
  "IntrLine3Sphere3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 30
  },
  "IntrLine3Torus3.h": {
   "status": "ported"
  },
  "IntrLine3Triangle3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 30
  },
  "IntrOrientedBox2Circle2.h": {
   "status": "ported"
@@ -1222,7 +1240,8 @@
   "status": "ported"
  },
  "IntrOrientedBox2OrientedBox2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 30
  },
  "IntrOrientedBox2Sector2.h": {
   "status": "ported"
@@ -1237,7 +1256,8 @@
   "status": "ported"
  },
  "IntrOrientedBox3OrientedBox3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 30
  },
  "IntrOrientedBox3Sphere3.h": {
   "status": "ported"
@@ -1318,7 +1338,8 @@
   "status": "ported"
  },
  "IntrRay3Triangle3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 30
  },
  "IntrSegment2AlignedBox2.h": {
   "status": "ported"
@@ -1369,7 +1390,8 @@
   "status": "ported"
  },
  "IntrSegment3Triangle3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 30
  },
  "IntrSphere3Cone3.h": {
   "status": "ported"
