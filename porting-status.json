@@ -482,7 +482,8 @@
   "verified": 8
  },
  "DistAlignedBox3OrientedBox3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 22
  },
  "DistAlignedBoxAlignedBox.h": {
   "status": "ported",
@@ -493,7 +494,8 @@
   "verified": 19
  },
  "DistCircle3Circle3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 22
  },
  "DistLine2AlignedBox2.h": {
   "status": "ported",
@@ -552,20 +554,24 @@
   "verified": 19
  },
  "DistOrientedBox3Cone3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 22
  },
  "DistOrientedBox3OrientedBox3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 22
  },
  "DistPlane3AlignedBox3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 22
  },
  "DistPlane3CanonicalBox3.h": {
   "status": "ported",
   "verified": 21
  },
  "DistPlane3OrientedBox3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 22
  },
  "DistPoint2Arc2.h": {
   "status": "ported",
@@ -596,10 +602,12 @@
   "verified": 20
  },
  "DistPoint3Parallelepiped3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 22
  },
  "DistPoint3Tetrahedron3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 22
  },
  "DistPointAlignedBox.h": {
   "status": "ported",
@@ -694,16 +702,20 @@
   "verified": 19
  },
  "DistRectangle3AlignedBox3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 22
  },
  "DistRectangle3CanonicalBox3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 22
  },
  "DistRectangle3OrientedBox3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 22
  },
  "DistRectangle3Rectangle3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 22
  },
  "DistSegment2AlignedBox2.h": {
   "status": "ported",
@@ -754,22 +766,28 @@
   "verified": 19
  },
  "DistTetrahedron3Tetrahedron3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 22
  },
  "DistTriangle3AlignedBox3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 22
  },
  "DistTriangle3CanonicalBox3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 22
  },
  "DistTriangle3OrientedBox3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 22
  },
  "DistTriangle3Rectangle3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 22
  },
  "DistTriangle3Triangle3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 22
  },
  "EdgeKey.h": {
   "status": "ported"
