@@ -11,13 +11,21 @@
 //
 // Port notes: upstream the mesh is a template parameter constrained only by
 // a duck-typed interface, so the port declares that interface explicitly as
-// IntpLinearNonuniform2TriangleMesh. Any object satisfying it (a Delaunay2
-// triangulation, a planar mesh, or a hand-built mesh) can be used. The C++
+// IntpLinearNonuniform2TriangleMesh. Any object satisfying it (a
+// Delaunay2Mesh, a PlanarMesh, or a hand-built mesh) can be used. The C++
 // methods that return 'bool' and write to a reference parameter become
 // methods that return the value or null:
-//   bool GetIndices(int32_t, std::array<int32_t, 3>&) -> getIndices
+//   bool GetIndices(int32_t, std::array<int32_t, 3>&) -> getTriangleIndices
 //   bool GetBarycentrics(int32_t, Vector2 const&, std::array<Real, 3>&)
 //       -> getBarycentrics
+// The per-triangle accessor is named getTriangleIndices, not getIndices,
+// because Delaunay2Mesh and PlanarMesh (the meshes the upstream header
+// documents as the sources of the triangulation) reserve getIndices() for
+// the whole flat index array. TypeScript's parameter-arity assignability
+// makes their zero-argument getIndices() structurally satisfy a
+// getIndices(t) requirement, so the earlier name silently blended the first
+// triangle's samples for every query point. The name now matches
+// Delaunay2Mesh, PlanarMesh and IntpQuadraticNonuniform2.
 // 'operator()(P, F&) -> bool' becomes evaluate(P) returning
 // { valid, F }; when valid is false the F value is meaningless (upstream
 // leaves the caller's F untouched in that case). Upstream ignores the
@@ -34,7 +42,7 @@ export interface IntpLinearNonuniform2TriangleMesh {
     getContainingTriangle(P: Vector): number;
 
     // The three vertex indices of triangle t, or null on failure.
-    getIndices(t: number): readonly number[] | null;
+    getTriangleIndices(t: number): readonly number[] | null;
 
     // The barycentric coordinates of P with respect to triangle t, or null
     // when the triangle is degenerate.
@@ -78,7 +86,7 @@ export class IntpLinearNonuniform2 {
         }
 
         // The result is a barycentric combination of function values.
-        const indices = this.mMesh.getIndices(t);
+        const indices = this.mMesh.getTriangleIndices(t);
         if (indices === null) {
             return { valid: false, F: 0 };
         }

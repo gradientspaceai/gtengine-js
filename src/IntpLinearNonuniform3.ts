@@ -12,12 +12,20 @@
 // Port notes: upstream the mesh is a template parameter constrained only by
 // a duck-typed interface, so the port declares that interface explicitly as
 // IntpLinearNonuniform3TetrahedronMesh. Any object satisfying it (a
-// Delaunay3 tetrahedralization or a hand-built mesh) can be used. The C++
-// methods that return 'bool' and write to a reference parameter become
-// methods that return the value or null:
-//   bool GetIndices(int32_t, std::array<int32_t, 4>&) -> getIndices
+// Delaunay3Mesh or a hand-built mesh) can be used. The C++ methods that
+// return 'bool' and write to a reference parameter become methods that
+// return the value or null:
+//   bool GetIndices(int32_t, std::array<int32_t, 4>&) ->
+//       getTetrahedronIndices
 //   bool GetBarycentrics(int32_t, Vector3 const&, Real[4]) ->
 //       getBarycentrics
+// The per-tetrahedron accessor is named getTetrahedronIndices, not
+// getIndices, because Delaunay3Mesh (the mesh the upstream header documents
+// as the source of the tetrahedralization) reserves getIndices() for the
+// whole flat index array. TypeScript's parameter-arity assignability makes
+// its zero-argument getIndices() structurally satisfy a getIndices(t)
+// requirement, so the earlier name silently blended the first tetrahedron's
+// samples for every query point. The name now matches Delaunay3Mesh.
 // 'operator()(P, F&) -> bool' becomes evaluate(P) returning
 // { valid, F }; when valid is false the F value is meaningless (upstream
 // leaves the caller's F untouched in that case). Upstream ignores the
@@ -34,7 +42,7 @@ export interface IntpLinearNonuniform3TetrahedronMesh {
     getContainingTetrahedron(P: Vector): number;
 
     // The four vertex indices of tetrahedron t, or null on failure.
-    getIndices(t: number): readonly number[] | null;
+    getTetrahedronIndices(t: number): readonly number[] | null;
 
     // The barycentric coordinates of P with respect to tetrahedron t, or
     // null when the tetrahedron is degenerate.
@@ -79,7 +87,7 @@ export class IntpLinearNonuniform3 {
         }
 
         // The result is a barycentric combination of function values.
-        const indices = this.mMesh.getIndices(t);
+        const indices = this.mMesh.getTetrahedronIndices(t);
         if (indices === null) {
             return { valid: false, F: 0 };
         }
