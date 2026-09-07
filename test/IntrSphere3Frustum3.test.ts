@@ -213,3 +213,203 @@ describe('IntrSphere3Frustum3', () => {
         }
     });
 });
+
+// ---------------------------------------------------------------------------
+// Verification (V33): property-based cross-checks against upstream
+// IntrSphere3Frustum3.h.
+// ---------------------------------------------------------------------------
+
+import {
+    check, fc, expectClose, seededRandom, wellScaled
+} from './helpers/arbitraries.js';
+import { dot, length, sub } from '../src/Vector.js';
+
+// wellScaled snaps |a| < 1e-3 to exactly zero, so no frame component is a
+// subnormal that would underflow when squared.
+const angleF = () => wellScaled(-Math.PI, Math.PI);
+
+// R = Rz(a)*Ry(b)*Rx(c); the columns are an orthonormal frame.
+function rotFrameF(a: number, b: number, c: number): Vector[] {
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const cb = Math.cos(b), sb = Math.sin(b);
+    const cc = Math.cos(c), sc = Math.sin(c);
+    return [
+        vec(ca * cb, sa * cb, -sb),
+        vec(ca * sb * sc - sa * cc, sa * sb * sc + ca * cc, cb * sc),
+        vec(ca * sb * cc + sa * sc, sa * sb * cc - ca * sc, cb * cc)];
+}
+
+// A point of the solid frustum at depth d in [dMin, dMax] and normalized
+// bounds (u, r) in [-1, 1]. The frustum widens linearly with depth.
+function frustumPoint(f: Frustum3, d: number, u: number, r: number): Vector {
+    const s = d / f.dMin;
+    return add(f.origin, add(mul(d, f.dVector),
+        add(mul(u * s * f.uBound, f.uVector),
+            mul(r * s * f.rBound, f.rVector))));
+}
+
+// Membership in the solid frustum, from the definition in Frustum3.h. The
+// tolerance matters because both callers below feed it points that are on the
+// boundary by construction (a sampled face point, or the closest frustum
+// point of the distance query), where an exact comparison is a coin flip.
+function inFrustum(f: Frustum3, p: Vector, eps = 0): boolean {
+    const diff = sub(p, f.origin);
+    const d = dot(diff, f.dVector);
+    if (d < f.dMin - eps || d > f.dMax + eps) { return false; }
+    const s = Math.max(d, f.dMin) / f.dMin;
+    return Math.abs(dot(diff, f.uVector)) <= s * f.uBound + eps
+        && Math.abs(dot(diff, f.rVector)) <= s * f.rBound + eps;
+}
+
+const frustumArb = fc.tuple(
+    wellScaled(-3, 3), wellScaled(-3, 3), wellScaled(-3, 3),
+    angleF(), angleF(), angleF(),
+    fc.double({ min: 0.3, max: 2, noNaN: true, noDefaultInfinity: true }),
+    fc.double({ min: 1.2, max: 5, noNaN: true, noDefaultInfinity: true }),
+    fc.double({ min: 0.2, max: 2, noNaN: true, noDefaultInfinity: true }),
+    fc.double({ min: 0.2, max: 2, noNaN: true, noDefaultInfinity: true })
+).map(([ox, oy, oz, a, b, c, dMin, dSpan, u, r]) => {
+    const fr = rotFrameF(a, b, c);
+    return Frustum3.fromParameters(vec(ox, oy, oz), fr[0], fr[1], fr[2],
+        dMin, dMin + dSpan, u, r);
+});
+
+const sphereFrustum = fc.tuple(frustumArb,
+    wellScaled(-6, 6), wellScaled(-6, 6), wellScaled(-6, 6),
+    fc.double({ min: 0, max: 3, noNaN: true, noDefaultInfinity: true }))
+    .map(([f, cx, cy, cz, rad]) => ({
+        frustum: f,
+        sphere: Hypersphere.fromCenterRadius(vec(cx, cy, cz), rad)
+    }));
+
+describe('IntrSphere3Frustum3 verification', () => {
+    const q = new IntrSphere3Frustum3TI();
+    const dq = new DistPoint3Frustum3();
+
+    it('agrees with the point-frustum distance it is defined by', () => {
+        check(sphereFrustum, ({ frustum: f, sphere: s }) => {
+            const d = dq.compute(s.center, f);
+            expect(q.test(s, f).intersect).toBe(d.distance <= s.radius);
+            // The closest point really is in the frustum and at the reported
+            // distance from the sphere center.
+            expect(inFrustum(f, d.closest[1], 1e-9)
+                || Math.abs(d.distance) < 1e-9).toBe(true);
+            expectClose(length(sub(d.closest[1], s.center)), d.distance,
+                1e-8, 1e-9);
+        });
+    });
+
+    it('a sphere centred on a sampled frustum point always intersects', () => {
+        // The sample is kept strictly interior (a 5% margin on each of the
+        // three frustum coordinates): a point exactly on a face or corner
+        // with radius 0 is a knife edge, where the distance query can return
+        // a few-ulp positive distance and the answer is genuinely ambiguous.
+        check(fc.tuple(frustumArb,
+            fc.double({ min: 0.05, max: 0.95, noNaN: true,
+                noDefaultInfinity: true }),
+            fc.double({ min: -0.95, max: 0.95, noNaN: true,
+                noDefaultInfinity: true }),
+            fc.double({ min: -0.95, max: 0.95, noNaN: true,
+                noDefaultInfinity: true }),
+            fc.double({ min: 0, max: 2, noNaN: true,
+                noDefaultInfinity: true })),
+        ([f, t, u, r, rad]) => {
+            const d = f.dMin + t * (f.dMax - f.dMin);
+            const p = frustumPoint(f, d, u, r);
+            expect(inFrustum(f, p, 1e-9)).toBe(true);
+            expect(q.test(sphere(p, rad), f).intersect).toBe(true);
+        });
+    });
+
+    it('any sampled frustum point inside the sphere forces intersect', () => {
+        const rnd = seededRandom(0x5f30ab1);
+        let witnessed = 0;
+        for (let trial = 0; trial < 300; ++trial) {
+            const fr = rotFrameF(rnd() * 6, rnd() * 6, rnd() * 6);
+            const dMin = 0.3 + rnd() * 1.5;
+            const f = Frustum3.fromParameters(
+                vec(rnd() * 4 - 2, rnd() * 4 - 2, rnd() * 4 - 2),
+                fr[0], fr[1], fr[2], dMin, dMin + 0.5 + rnd() * 3,
+                0.2 + rnd() * 1.5, 0.2 + rnd() * 1.5);
+            const s = Hypersphere.fromCenterRadius(
+                vec(rnd() * 8 - 4, rnd() * 8 - 4, rnd() * 8 - 4),
+                0.2 + rnd() * 2);
+            let common = false;
+            for (let k = 0; k < 300 && !common; ++k) {
+                const p = frustumPoint(f, f.dMin + rnd() * (f.dMax - f.dMin),
+                    2 * rnd() - 1, 2 * rnd() - 1);
+                if (length(sub(p, s.center)) <= s.radius) { common = true; }
+            }
+            if (common) {
+                expect(q.test(s, f).intersect).toBe(true);
+                ++witnessed;
+            }
+        }
+        expect(witnessed).toBeGreaterThan(20);
+    }, 60000);
+
+    it('is equivariant under a rigid motion', () => {
+        check(fc.tuple(sphereFrustum, angleF(), angleF(), angleF(),
+            wellScaled(-3, 3), wellScaled(-3, 3), wellScaled(-3, 3)),
+        ([{ frustum: f, sphere: s }, a1, a2, a3, tx, ty, tz]) => {
+            const fr = rotFrameF(a1, a2, a3);
+            const rot = (v: Vector): Vector => add(mul(v.get(0), fr[0]),
+                add(mul(v.get(1), fr[1]), mul(v.get(2), fr[2])));
+            const t = vec(tx, ty, tz);
+            const xf = (v: Vector): Vector => add(rot(v), t);
+            const f2 = Frustum3.fromParameters(xf(f.origin), rot(f.dVector),
+                rot(f.uVector), rot(f.rVector), f.dMin, f.dMax, f.uBound,
+                f.rBound);
+            const s2 = Hypersphere.fromCenterRadius(xf(s.center), s.radius);
+            const a = q.test(s, f).intersect;
+            const b = q.test(s2, f2).intersect;
+            if (a === b) { return; }
+            // Only a grazing sphere may flip: shrinking and growing the
+            // radius by 1e-6 must change the original answer too.
+            const d = dq.compute(s.center, f).distance;
+            expect(Math.abs(d - s.radius)).toBeLessThan(1e-6);
+        });
+    });
+
+    it('never intersects a sphere entirely behind the near plane', () => {
+        check(fc.tuple(frustumArb,
+            fc.double({ min: 0.05, max: 3, noNaN: true,
+                noDefaultInfinity: true }),
+            fc.double({ min: 0, max: 0.5, noNaN: true,
+                noDefaultInfinity: true })),
+        ([f, gap, rad]) => {
+            // A center at depth dMin - gap - rad along -D from the near
+            // plane, on the frustum axis: its whole ball is at depth below
+            // dMin, so it cannot meet the solid frustum.
+            const depth = f.dMin - gap - rad;
+            const c = add(f.origin, mul(depth, f.dVector));
+            const s = Hypersphere.fromCenterRadius(c, rad);
+            expect(q.test(s, f).intersect).toBe(false);
+        });
+    });
+
+    it('a sphere large enough to swallow the frustum always intersects',
+        () => {
+            check(sphereFrustum, ({ frustum: f, sphere: s }) => {
+                let far = 0;
+                for (const v of f.computeVertices()) {
+                    const d = length(sub(v, s.center));
+                    if (d > far) { far = d; }
+                }
+                const big = Hypersphere.fromCenterRadius(s.center, far + 1);
+                expect(q.test(big, f).intersect).toBe(true);
+            });
+        });
+
+    it('a zero-radius sphere is the frustum containment test', () => {
+        check(fc.tuple(frustumArb, wellScaled(-6, 6), wellScaled(-6, 6),
+            wellScaled(-6, 6)),
+        ([f, cx, cy, cz]) => {
+            const p = vec(cx, cy, cz);
+            const inside = inFrustum(f, p);
+            const d = dq.compute(p, f).distance;
+            if (Math.abs(d) < 1e-9) { return; }   // on the boundary
+            expect(q.test(sphere(p, 0), f).intersect).toBe(inside);
+        });
+    });
+});

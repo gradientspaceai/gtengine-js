@@ -261,3 +261,287 @@ describe('IntrEllipsoid3Ellipsoid3TI', () => {
         expect(numTested).toBeGreaterThan(20);
     });
 });
+
+// ---------------------------------------------------------------------------
+// Verification (V33): property-based cross-checks against upstream
+// IntrEllipsoid3Ellipsoid3.h.
+// ---------------------------------------------------------------------------
+
+import {
+    check, fc, seededRandom, wellScaled
+} from './helpers/arbitraries.js';
+
+// wellScaled snaps |a| < 1e-3 to exactly zero, so no frame component is a
+// subnormal that would underflow when squared.
+const angleQ = () => wellScaled(-Math.PI, Math.PI);
+const extentQ = () => fc.double(
+    { min: 0.4, max: 2.5, noNaN: true, noDefaultInfinity: true });
+
+// R = Rz(a)*Ry(b)*Rx(c); the columns are the ellipsoid axes.
+function rotFrameQ(a: number, b: number, c: number): Vector[] {
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const cb = Math.cos(b), sb = Math.sin(b);
+    const cc = Math.cos(c), sc = Math.sin(c);
+    return [
+        vec(ca * cb, sa * cb, -sb),
+        vec(ca * sb * sc - sa * cc, sa * sb * sc + ca * cc, cb * sc),
+        vec(ca * sb * cc + sa * sc, sa * sb * cc - ca * sc, cb * cc)];
+}
+
+const ellipsoidArb = (span: number) => fc.tuple(
+    wellScaled(-span, span), wellScaled(-span, span), wellScaled(-span, span),
+    angleQ(), angleQ(), angleQ(), extentQ(), extentQ(), extentQ()
+).map(([cx, cy, cz, a, b, c, e0, e1, e2]) =>
+    Hyperellipsoid.fromCenterAxisExtent(vec(cx, cy, cz),
+        rotFrameQ(a, b, c), vec(e0, e1, e2)));
+
+const ellipsoidPair = fc.tuple(ellipsoidArb(2.5), ellipsoidArb(2.5))
+    .map(([e0, e1]) => ({ e0, e1 }));
+
+// A dense sampling of the surface of 'e'.
+function surfaceSamples(e: Hyperellipsoid, n = 96): Vector[] {
+    const out: Vector[] = [];
+    for (let i = 0; i < n; ++i) {
+        const th = (2 * Math.PI * i) / n;
+        for (let j = 0; j <= n; ++j) {
+            const ph = (Math.PI * j) / n;
+            const u = [Math.sin(ph) * Math.cos(th), Math.sin(ph) * Math.sin(th),
+                Math.cos(ph)];
+            let x = e.center.clone();
+            for (let d = 0; d < 3; ++d) {
+                x = add(x, mul(e.extent.values[d] * u[d], e.axis[d]));
+            }
+            out.push(x);
+        }
+    }
+    return out;
+}
+
+// The independent classification: sample the surface of e1 and look at the
+// sign of the quadratic of e0 there, then break the "all outside" tie by
+// asking whether the center of e0 is inside e1.
+//   max < 0            -> e0 contains e1
+//   min > 0, C0 inside e1 -> e1 contains e0
+//   min > 0, otherwise -> separated
+//   min < 0 < max      -> intersecting
+// 'margin' is the smallest |value| seen, which says how close the decision is
+// to a tie.
+function referenceClassify(e0: Hyperellipsoid, e1: Hyperellipsoid):
+    { kind: C, margin: number } {
+    let lo = Number.MAX_VALUE, hi = -Number.MAX_VALUE;
+    for (const x of surfaceSamples(e1)) {
+        const q = quadratic(e0, x);
+        if (q < lo) { lo = q; }
+        if (q > hi) { hi = q; }
+    }
+    const margin = Math.min(Math.abs(lo), Math.abs(hi));
+    if (hi < 0) { return { kind: C.ELLIPSOID0_CONTAINS_ELLIPSOID1, margin }; }
+    if (lo > 0) {
+        const inside = quadratic(e1, e0.center) < 0;
+        return {
+            kind: inside ? C.ELLIPSOID1_CONTAINS_ELLIPSOID0
+                : C.ELLIPSOIDS_SEPARATED,
+            margin: Math.min(margin, Math.abs(quadratic(e1, e0.center)))
+        };
+    }
+    return { kind: C.ELLIPSOIDS_INTERSECTING, margin };
+}
+
+describe('IntrEllipsoid3Ellipsoid3 verification', () => {
+    const query = new IntrEllipsoid3Ellipsoid3TI();
+
+    // Upstream's GetRoots isolates the roots of f(s) with brackets built from
+    // an ad-hoc epsilon = 0.001 (its own comment asks "What role does epsilon
+    // play?") and guards them with LogAssert on the sign of F at the bracket
+    // endpoints. Those asserts are reachable for perfectly ordinary input --
+    // see the pinned regression below -- so the randomized properties skip a
+    // case that throws instead of pretending the query answered it.
+    function tryTest(a: Hyperellipsoid, b: Hyperellipsoid):
+        { intersect: boolean, classification: C } | null {
+        try {
+            return query.test(a, b);
+        }
+        catch {
+            return null;
+        }
+    }
+
+    it('pins the reachable GetRoots bracketing assert', () => {
+        // Two ordinary ellipsoids: a ball of radius 0.4 at the origin and an
+        // ellipsoid of extents (0.49, 0.41, 0.91) whose center is 0.001 away
+        // and whose frame is a near-180-degree rotation about x. Upstream
+        // (and therefore the port) throws instead of classifying. The failure
+        // is erratic in the center offset: 0.002 and 0.0001 classify, 0.001
+        // and 1e-6 throw.
+        const e0 = ellipsoid([0, 0, 0], unitAxes, [0.4, 0.4, 0.4]);
+        const frame = [
+            vec(0.9999995000000417, 0, -0.0009999998333333417),
+            vec(8.586571855778066e-11, -0.9999999999999963,
+                8.586568993587257e-8),
+            vec(-0.000999999833333338, -8.586573286873543e-8,
+                -0.999999500000038)];
+        const e1 = ellipsoid([0.001, 0, 0], frame,
+            [0.4904589041303176, 0.41139783664312857, 0.9127878433790204]);
+        expect(() => query.test(e0, e1)).toThrow('Unexpected condition.');
+    });
+
+    it('matches a brute-force surface sampling classification', () => {
+        const rnd = seededRandom(0x2b71fa9);
+        let checked = 0;
+        for (let trial = 0; trial < 120; ++trial) {
+            const mk = (span: number): Hyperellipsoid =>
+                Hyperellipsoid.fromCenterAxisExtent(
+                    vec(rnd() * 2 * span - span, rnd() * 2 * span - span,
+                        rnd() * 2 * span - span),
+                    rotFrameQ(rnd() * 6, rnd() * 6, rnd() * 6),
+                    vec(0.4 + rnd() * 2, 0.4 + rnd() * 2, 0.4 + rnd() * 2));
+            const e0 = mk(2), e1 = mk(2);
+            const ref = referenceClassify(e0, e1);
+            // The sampled extremes are only as accurate as the 96x97 grid, so
+            // a decision that hinges on a value within 1e-2 of zero is a
+            // near-tangency the sampling cannot resolve.
+            if (ref.margin < 1e-2) { continue; }
+            const r = tryTest(e0, e1);
+            if (r === null) { continue; }
+            expect(r.classification).toBe(ref.kind);
+            expect(r.intersect).toBe(ref.kind !== C.ELLIPSOIDS_SEPARATED);
+            ++checked;
+        }
+        expect(checked).toBeGreaterThan(60);
+    }, 60000);
+
+    it('never reports INVALID and keeps intersect consistent', () => {
+        check(ellipsoidPair, ({ e0, e1 }) => {
+            const r = tryTest(e0, e1);
+            if (r === null) { return; }
+            expect(r.classification).not.toBe(C.INVALID);
+            expect(r.intersect)
+                .toBe(r.classification !== C.ELLIPSOIDS_SEPARATED);
+        }, 60);
+    });
+
+    it('classifies a swapped pair with the containment roles exchanged',
+        () => {
+            const rnd = seededRandom(0x515c0de);
+            for (let trial = 0; trial < 120; ++trial) {
+                const mk = (): Hyperellipsoid =>
+                    Hyperellipsoid.fromCenterAxisExtent(
+                        vec(rnd() * 4 - 2, rnd() * 4 - 2, rnd() * 4 - 2),
+                        rotFrameQ(rnd() * 6, rnd() * 6, rnd() * 6),
+                        vec(0.4 + rnd() * 2, 0.4 + rnd() * 2, 0.4 + rnd() * 2));
+                const e0 = mk(), e1 = mk();
+                const ref = referenceClassify(e0, e1);
+                if (ref.margin < 1e-2) { continue; }
+                const ra = tryTest(e0, e1), rb = tryTest(e1, e0);
+                if (ra === null || rb === null) { continue; }
+                const a = ra.classification;
+                const b = rb.classification;
+                const flip = (k: C): C =>
+                    k === C.ELLIPSOID0_CONTAINS_ELLIPSOID1
+                        ? C.ELLIPSOID1_CONTAINS_ELLIPSOID0
+                        : (k === C.ELLIPSOID1_CONTAINS_ELLIPSOID0
+                            ? C.ELLIPSOID0_CONTAINS_ELLIPSOID1 : k);
+                expect(b).toBe(flip(a));
+            }
+        }, 60000);
+
+    it('is equivariant under a rigid motion', () => {
+        const rnd = seededRandom(0x77e1a3);
+        for (let trial = 0; trial < 150; ++trial) {
+            const mk = (): Hyperellipsoid =>
+                Hyperellipsoid.fromCenterAxisExtent(
+                    vec(rnd() * 4 - 2, rnd() * 4 - 2, rnd() * 4 - 2),
+                    rotFrameQ(rnd() * 6, rnd() * 6, rnd() * 6),
+                    vec(0.4 + rnd() * 2, 0.4 + rnd() * 2, 0.4 + rnd() * 2));
+            const e0 = mk(), e1 = mk();
+            const fr = rotFrameQ(rnd() * 6, rnd() * 6, rnd() * 6);
+            const t = vec(rnd() * 4 - 2, rnd() * 4 - 2, rnd() * 4 - 2);
+            const rot = (v: Vector): Vector => add(mul(v.get(0), fr[0]),
+                add(mul(v.get(1), fr[1]), mul(v.get(2), fr[2])));
+            const xf = (e: Hyperellipsoid): Hyperellipsoid =>
+                Hyperellipsoid.fromCenterAxisExtent(add(rot(e.center), t),
+                    [rot(e.axis[0]), rot(e.axis[1]), rot(e.axis[2])],
+                    e.extent);
+            const a = tryTest(e0, e1);
+            const b = tryTest(xf(e0), xf(e1));
+            if (a === null || b === null) { continue; }
+            expect(b.intersect).toBe(a.intersect);
+            expect(b.classification).toBe(a.classification);
+        }
+    }, 30000);
+
+    it('is equivariant under a uniform scale about the origin', () => {
+        const rnd = seededRandom(0x9c02f1);
+        for (let trial = 0; trial < 150; ++trial) {
+            const mk = (): Hyperellipsoid =>
+                Hyperellipsoid.fromCenterAxisExtent(
+                    vec(rnd() * 4 - 2, rnd() * 4 - 2, rnd() * 4 - 2),
+                    rotFrameQ(rnd() * 6, rnd() * 6, rnd() * 6),
+                    vec(0.4 + rnd() * 2, 0.4 + rnd() * 2, 0.4 + rnd() * 2));
+            const e0 = mk(), e1 = mk();
+            const s = 0.25 + 3 * rnd();
+            const scale = (e: Hyperellipsoid): Hyperellipsoid =>
+                Hyperellipsoid.fromCenterAxisExtent(mul(s, e.center),
+                    [e.axis[0], e.axis[1], e.axis[2]], mul(s, e.extent));
+            const a = tryTest(e0, e1);
+            const b = tryTest(scale(e0), scale(e1));
+            if (a === null || b === null) { continue; }
+            expect(b.intersect).toBe(a.intersect);
+            expect(b.classification).toBe(a.classification);
+        }
+    }, 30000);
+
+    it('never separates ellipsoids that share a center', () => {
+        check(fc.tuple(wellScaled(-3, 3), wellScaled(-3, 3), wellScaled(-3, 3),
+            angleQ(), angleQ(), angleQ(), extentQ(), extentQ(), extentQ(),
+            angleQ(), angleQ(), angleQ(), extentQ(), extentQ(), extentQ()),
+        ([cx, cy, cz, a0, b0, c0, x0, y0, z0, a1, b1, c1, x1, y1, z1]) => {
+            const centre = vec(cx, cy, cz);
+            const e0 = Hyperellipsoid.fromCenterAxisExtent(centre,
+                rotFrameQ(a0, b0, c0), vec(x0, y0, z0));
+            const e1 = Hyperellipsoid.fromCenterAxisExtent(centre.clone(),
+                rotFrameQ(a1, b1, c1), vec(x1, y1, z1));
+            const r = tryTest(e0, e1);
+            if (r === null) { return; }
+            expect(r.intersect).toBe(true);
+            expect(r.classification).not.toBe(C.ELLIPSOIDS_SEPARATED);
+            expect(r.classification).not.toBe(C.INVALID);
+        }, 100);
+    });
+
+    it('never separates two copies of the same ellipsoid', () => {
+        // Coincident centers take the K == 0 branch, where the decision is
+        // maxSqrDistance < 1 versus minSqrDistance > 1 with every eigenvalue
+        // of M2 equal to 1 in exact arithmetic. Round-off in the eigensolver
+        // puts them a few ulps either side of 1, so the exact-coincidence
+        // answer is a knife edge between INTERSECTING and a containment; only
+        // "not separated" is stable.
+        check(ellipsoidArb(2), e => {
+            const r = tryTest(e, e.clone());
+            if (r === null) { return; }
+            expect(r.intersect).toBe(true);
+            expect(r.classification).not.toBe(C.ELLIPSOIDS_SEPARATED);
+            expect(r.classification).not.toBe(C.INVALID);
+        }, 100);
+    });
+
+    it('separates ellipsoids moved beyond their combined reach', () => {
+        check(fc.tuple(ellipsoidArb(1), ellipsoidArb(1)), ([e0, e1]) => {
+            const far = Hyperellipsoid.fromCenterAxisExtent(
+                add(e1.center, vec(100, 0, 0)),
+                [e1.axis[0], e1.axis[1], e1.axis[2]], e1.extent);
+            const r = tryTest(e0, far);
+            if (r === null) { return; }
+            expect(r.intersect).toBe(false);
+            expect(r.classification).toBe(C.ELLIPSOIDS_SEPARATED);
+        }, 100);
+    });
+
+    it('rejects non-3D ellipsoids', () => {
+        const e2 = Hyperellipsoid.fromCenterAxisExtent(
+            Vector.fromArray([0, 0]),
+            [Vector.fromArray([1, 0]), Vector.fromArray([0, 1])],
+            Vector.fromArray([1, 1]));
+        expect(() => query.test(e2, e2)).toThrow();
+    });
+});
