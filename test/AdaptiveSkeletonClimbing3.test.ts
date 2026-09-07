@@ -774,7 +774,7 @@ describe('AdaptiveSkeletonClimbing3 verification', () => {
                 }, 25);
         });
 
-    it('merging reduces the box count and the mesh size', () => {
+    it('merging reduces the box count monotonically', () => {
         check(twoSphereArb, (voxels) => {
             const fine = new AdaptiveSkeletonClimbing3(N, voxels);
             const fineResult = fine.extract(0.5, N);
@@ -786,10 +786,13 @@ describe('AdaptiveSkeletonClimbing3 verification', () => {
                 const asc = new AdaptiveSkeletonClimbing3(N, voxels);
                 const result = asc.extract(0.5, depth);
                 asc.makeUnique(result.vertices, result.triangles);
-                // Allowing more merging never adds boxes.
+                // Allowing more merging never adds boxes. It CAN add mesh
+                // vertices: a merged box's faces carry every edge crossing of
+                // the finer boxes it replaced plus the polygon vertices needed
+                // to stitch them (observed 157 vs 149 on a perturbed bowl), so
+                // only the box count is monotone.
                 expect(asc.getNumBoxes()).toBeLessThanOrEqual(previousBoxes);
-                expect(result.vertices.length)
-                    .toBeLessThanOrEqual(fineResult.vertices.length);
+                expect(result.vertices.length).toBeGreaterThan(0);
                 previousBoxes = asc.getNumBoxes();
             }
             // The two-sphere field has large monotone regions, so the
