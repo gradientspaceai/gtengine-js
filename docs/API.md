@@ -86,8 +86,12 @@ class per query and names `operator()` by kind:
   intersects the curves, so nested circles give TI `true` and FI
   `numIntersections = 0` (`IntrSphere3Sphere3`'s FI reports containment as
   `intersect = true`, so spheres agree). `IntrRay2Ray2` TI/FI differ in
-  `numIntersections` for collinear opposite rays. The affected TI classes
-  say so in their doc comments.
+  `numIntersections` for collinear opposite rays. `IntrSphere3Cone3`'s TI
+  honours the cone height range while its FI always uses the infinite cone.
+  Measure-zero contact (touching) counts as *separated* for the SAT-based
+  tests (`IntrTriangle2Triangle2`, `IntrTetrahedron3Tetrahedron3`, the box
+  tests), so only `TI => FI nonempty` and `area(FI) > 0 => TI` are safe
+  implications. The affected TI classes say so in their doc comments.
 - Line-family FI results differ in how many `point[]` entries they fill:
   some fill only `i < numIntersections`, others fill both slots whenever
   `intersect` is true (faithful to upstream). Read only
