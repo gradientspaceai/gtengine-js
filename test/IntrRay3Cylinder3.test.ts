@@ -138,3 +138,217 @@ describe('IntrRay3Cylinder3FI', () => {
         }
     });
 });
+
+// ---------------------------------------------------------------------------
+// Verification (V33): property-based cross-checks against upstream
+// IntrRay3Cylinder3.h.
+// ---------------------------------------------------------------------------
+
+import {
+    check, fc, expectClose, expectVectorClose, seededRandom, wellScaled
+} from './helpers/arbitraries.js';
+import { IntrLine3Cylinder3FI } from '../src/IntrLine3Cylinder3.js';
+
+// wellScaled snaps |a| < 1e-3 to exactly zero, so no direction component is a
+// subnormal that would underflow when squared.
+const angle3 = () => wellScaled(-Math.PI, Math.PI);
+
+function unitDir3(th: number, ph: number): Vector {
+    const d = vec(Math.cos(th) * Math.cos(ph), Math.sin(th) * Math.cos(ph),
+        Math.sin(ph));
+    normalize(d);
+    return d;
+}
+
+const rayCylinder = fc.tuple(
+    wellScaled(-5, 5), wellScaled(-5, 5), wellScaled(-5, 5),
+    angle3(), angle3(),
+    wellScaled(-2, 2), wellScaled(-2, 2), wellScaled(-2, 2),
+    angle3(), angle3(),
+    fc.double({ min: 0.25, max: 2, noNaN: true, noDefaultInfinity: true }),
+    fc.double({ min: 0.5, max: 5, noNaN: true, noDefaultInfinity: true })
+).map(([ox, oy, oz, th, ph, cx, cy, cz, ath, aph, r, h]) => ({
+    ray: Ray.fromOriginDirection(vec(ox, oy, oz), unitDir3(th, ph)),
+    cylinder: Cylinder3.fromAxisRadiusHeight(
+        Line.fromOriginDirection(vec(cx, cy, cz), unitDir3(ath, aph)), r, h)
+}));
+
+// cylinderSignedDepth is a maximum of convex functions, hence convex along
+// the ray; a ternary search finds its minimum reliably.
+function minRayCylDepth(c: Cylinder3, r: Ray, tMax = 40): number {
+    let lo = 0, hi = tMax;
+    for (let k = 0; k < 200; ++k) {
+        const p = lo + (hi - lo) / 3, q = hi - (hi - lo) / 3;
+        const fp = cylinderSignedDepth(c, add(r.origin, mul(p, r.direction)));
+        const fq = cylinderSignedDepth(c, add(r.origin, mul(q, r.direction)));
+        if (fp < fq) { hi = q; } else { lo = p; }
+    }
+    return cylinderSignedDepth(c,
+        add(r.origin, mul(0.5 * (lo + hi), r.direction)));
+}
+
+describe('IntrRay3Cylinder3 verification', () => {
+    const fiq = new IntrRay3Cylinder3FI();
+    const lcq = new IntrLine3Cylinder3FI();
+
+    it('the ray hit is the line hit clipped to t >= 0', () => {
+        check(rayCylinder, ({ ray: r, cylinder: c }) => {
+            const line = Line.fromOriginDirection(r.origin, r.direction);
+            const lc = lcq.find(line, c);
+            const f = fiq.find(r, c);
+            if (!lc.intersect) {
+                expect(f.intersect).toBe(false);
+                return;
+            }
+            const t0 = Math.max(lc.parameter[0], 0);
+            const t1 = lc.parameter[1];
+            if (t1 < 0) {
+                expect(f.intersect).toBe(false);
+                return;
+            }
+            expect(f.intersect).toBe(true);
+            expect(f.numIntersections).toBe(t0 < t1 ? 2 : 1);
+            // Normalize the -0/+0 tie (toBe uses Object.is).
+            expect(f.parameter[0] + 0).toBe(t0 + 0);
+        });
+    });
+
+    it('reported points lie on the ray and on the cylinder boundary', () => {
+        check(rayCylinder, ({ ray: r, cylinder: c }) => {
+            const f = fiq.find(r, c);
+            if (!f.intersect) {
+                expect(f.numIntersections).toBe(0);
+                expect(f.point[0].values).toEqual([0, 0, 0]);
+                expect(f.point[1].values).toEqual([0, 0, 0]);
+                return;
+            }
+            // Upstream fills both entries whenever intersect is true.
+            for (let i = 0; i < 2; ++i) {
+                expect(f.parameter[i]).toBeGreaterThanOrEqual(0);
+                expect(Number.isFinite(f.parameter[i])).toBe(true);
+                expectVectorClose(f.point[i],
+                    add(r.origin, mul(f.parameter[i], r.direction)), 0, 0);
+                const depth = cylinderSignedDepth(c, f.point[i]);
+                if (f.parameter[i] > 0) {
+                    expectClose(depth, 0, 1e-7, 1e-8);
+                }
+                else {
+                    expect(depth).toBeLessThanOrEqual(1e-7);
+                }
+            }
+        });
+    });
+
+    it('a fine sweep of the ray agrees with the reported interval', () => {
+        const rnd = seededRandom(0x77af31b);
+        for (let trial = 0; trial < 150; ++trial) {
+            const axis = vec(rnd() * 2 - 1, rnd() * 2 - 1, rnd() * 2 - 1);
+            if (dot(axis, axis) < 1e-4) { continue; }
+            normalize(axis);
+            const c = Cylinder3.fromAxisRadiusHeight(
+                Line.fromOriginDirection(
+                    vec(rnd() * 3 - 1.5, rnd() * 3 - 1.5, rnd() * 3 - 1.5),
+                    axis),
+                0.3 + rnd() * 1.5, 0.5 + rnd() * 4);
+            const d = vec(rnd() * 2 - 1, rnd() * 2 - 1, rnd() * 2 - 1);
+            if (dot(d, d) < 1e-4) { continue; }
+            normalize(d);
+            const r = Ray.fromOriginDirection(
+                vec(rnd() * 10 - 5, rnd() * 10 - 5, rnd() * 10 - 5), d);
+            const f = fiq.find(r, c);
+            for (let k = 0; k <= 500; ++k) {
+                const t = (18 * k) / 500;
+                if (cylinderSignedDepth(c, add(r.origin, mul(t, d))) < -1e-7) {
+                    expect(f.intersect).toBe(true);
+                    expect(t).toBeGreaterThanOrEqual(f.parameter[0] - 1e-7);
+                    expect(t).toBeLessThanOrEqual(f.parameter[1] + 1e-7);
+                }
+            }
+        }
+    }, 30000);
+
+    it('a ray whose origin is inside the cylinder starts at parameter 0',
+        () => {
+            check(fc.tuple(wellScaled(-2, 2), wellScaled(-2, 2),
+                wellScaled(-2, 2), angle3(), angle3(),
+                fc.double({ min: 0.25, max: 2, noNaN: true,
+                    noDefaultInfinity: true }),
+                fc.double({ min: 0.5, max: 5, noNaN: true,
+                    noDefaultInfinity: true }),
+                fc.double({ min: -0.8, max: 0.8, noNaN: true,
+                    noDefaultInfinity: true }),
+                angle3(), angle3()),
+            ([cx, cy, cz, ath, aph, r, h, u, th, ph]) => {
+                const axis = unitDir3(ath, aph);
+                const c = Cylinder3.fromAxisRadiusHeight(
+                    Line.fromOriginDirection(vec(cx, cy, cz), axis), r, h);
+                // A point on the axis, strictly between the end disks.
+                const o = add(c.axis.origin, mul(u * 0.5 * h, axis));
+                const f = fiq.find(
+                    Ray.fromOriginDirection(o, unitDir3(th, ph)), c);
+                expect(f.intersect).toBe(true);
+                expect(f.parameter[0]).toBe(0);
+                expect(f.numIntersections).toBe(2);
+                expectClose(cylinderSignedDepth(c, f.point[1]), 0, 1e-7, 1e-8);
+            });
+        });
+
+    it('the exported DoQuery reproduces the class result', () => {
+        check(rayCylinder, ({ ray: r, cylinder: c }) => {
+            const result = defaultIntrRay3Cylinder3FIResult();
+            intrRay3Cylinder3FIDoQuery(r.origin, r.direction, c, result);
+            const f = fiq.find(r, c);
+            expect(result.intersect).toBe(f.intersect);
+            expect(result.numIntersections).toBe(f.numIntersections);
+            expect(result.parameter).toEqual(f.parameter);
+            expect(result.point[0].values).toEqual([0, 0, 0]);
+            expect(result.point[1].values).toEqual([0, 0, 0]);
+        });
+    });
+
+    it('is equivariant under a rigid motion', () => {
+        check(fc.tuple(rayCylinder, angle3(), angle3(), angle3(),
+            wellScaled(-2, 2), wellScaled(-2, 2), wellScaled(-2, 2)),
+        ([{ ray: r, cylinder: c }, a1, a2, a3, tx, ty, tz]) => {
+            if (Math.abs(minRayCylDepth(c, r)) < 1e-6) {
+                return;   // grazing the wall or a rim
+            }
+            const ca = Math.cos(a1), sa = Math.sin(a1);
+            const cb = Math.cos(a2), sb = Math.sin(a2);
+            const cc = Math.cos(a3), sc = Math.sin(a3);
+            const f0v = vec(ca * cb, sa * cb, -sb);
+            const f1v = vec(ca * sb * sc - sa * cc, sa * sb * sc + ca * cc,
+                cb * sc);
+            const f2v = vec(ca * sb * cc + sa * sc, sa * sb * cc - ca * sc,
+                cb * cc);
+            const rot = (v: Vector): Vector => add(mul(v.get(0), f0v),
+                add(mul(v.get(1), f1v), mul(v.get(2), f2v)));
+            const xf = (v: Vector): Vector => add(rot(v), vec(tx, ty, tz));
+            const r2 = Ray.fromOriginDirection(xf(r.origin), rot(r.direction));
+            const c2 = Cylinder3.fromAxisRadiusHeight(
+                Line.fromOriginDirection(xf(c.axis.origin),
+                    rot(c.axis.direction)), c.radius, c.height);
+            const g0 = fiq.find(r, c);
+            const g1 = fiq.find(r2, c2);
+            expect(g1.intersect).toBe(g0.intersect);
+            if (!g0.intersect) { return; }
+            expect(g1.numIntersections).toBe(g0.numIntersections);
+            for (let i = 0; i < 2; ++i) {
+                expectClose(g1.parameter[i], g0.parameter[i], 1e-6, 1e-7);
+                expectVectorClose(g1.point[i], xf(g0.point[i]), 1e-6, 1e-7);
+            }
+        });
+    });
+
+    it('rejects an infinite cylinder', () => {
+        // Port deviation, documented in the source: upstream reads
+        // cylinder.height directly and would compute nonsense for the
+        // height = -1 infinite sentinel.
+        const c = Cylinder3.fromAxisRadiusHeight(
+            Line.fromOriginDirection(vec(0, 0, 0), vec(0, 0, 1)), 1, 4);
+        c.makeInfiniteCylinder();
+        expect(c.isFinite()).toBe(false);
+        expect(() => fiq.find(ray([-5, 0, 0], [1, 0, 0]), c)).toThrow(
+            'Infinite cylinders are not yet supported.');
+    });
+});

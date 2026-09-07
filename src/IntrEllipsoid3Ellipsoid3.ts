@@ -14,6 +14,17 @@
 // overloads (distinguished in C++ by arity) become the module-private
 // functions getRoots1, getRoots2 and getRoots3, each returning the array of
 // roots rather than filling a caller-supplied buffer.
+//
+// NOTE (upstream defect, preserved): getRoots2/getRoots3 bracket the roots of
+// f(s) with an ad-hoc epsilon = 0.001 -- upstream's own comment asks "What
+// role does epsilon play?" -- and guard each bracket with a LogAssert on the
+// sign of F at its endpoints. Those asserts are reachable for perfectly
+// ordinary input: when the two centers are close, c_i = K_i^2 is tiny and
+// d_i*s - 1 at the bracket endpoint is dominated by round-off, so F does not
+// have the assumed sign and the query throws instead of classifying. The
+// failure is erratic in the center offset. Preserved exactly (see upstream
+// issue #255 item 6, now confirmed); test/IntrEllipsoid3Ellipsoid3.test.ts
+// pins a reproduction.
 
 import type { Ellipsoid3 } from './Hyperellipsoid.js';
 import { logAssert, logError } from './Logger.js';

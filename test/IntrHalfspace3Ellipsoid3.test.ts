@@ -139,3 +139,169 @@ describe('IntrHalfspace3Ellipsoid3TI', () => {
         }
     });
 });
+
+// ---------------------------------------------------------------------------
+// Verification (V33): property-based cross-checks against upstream
+// IntrHalfspace3Ellipsoid3.h.
+// ---------------------------------------------------------------------------
+
+import {
+    check, fc, expectClose, seededRandom, wellScaled
+} from './helpers/arbitraries.js';
+import { sub } from '../src/Vector.js';
+
+function unitAxes3(): Vector[] {
+    return [vec(1, 0, 0), vec(0, 1, 0), vec(0, 0, 1)];
+}
+
+// wellScaled snaps |a| < 1e-3 to exactly zero, so no frame component is a
+// subnormal that would underflow when squared.
+const angleH = () => wellScaled(-Math.PI, Math.PI);
+const extentH = () => fc.double(
+    { min: 0.3, max: 3, noNaN: true, noDefaultInfinity: true });
+
+// R = Rz(a)*Ry(b)*Rx(c); the columns are the ellipsoid axes.
+function rotFrameH(a: number, b: number, c: number): Vector[] {
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const cb = Math.cos(b), sb = Math.sin(b);
+    const cc = Math.cos(c), sc = Math.sin(c);
+    return [
+        vec(ca * cb, sa * cb, -sb),
+        vec(ca * sb * sc - sa * cc, sa * sb * sc + ca * cc, cb * sc),
+        vec(ca * sb * cc + sa * sc, sa * sb * cc - ca * sc, cb * cc)];
+}
+
+function unitDirH(th: number, ph: number): Vector {
+    const d = vec(Math.cos(th) * Math.cos(ph), Math.sin(th) * Math.cos(ph),
+        Math.sin(ph));
+    normalize(d);
+    return d;
+}
+
+const halfspaceEllipsoid = fc.tuple(
+    angleH(), angleH(), wellScaled(-4, 4),
+    wellScaled(-3, 3), wellScaled(-3, 3), wellScaled(-3, 3),
+    angleH(), angleH(), angleH(),
+    extentH(), extentH(), extentH()
+).map(([th, ph, k, cx, cy, cz, a, b, c, e0, e1, e2]) => ({
+    halfspace: Halfspace.fromNormalConstant(unitDirH(th, ph), k),
+    ellipsoid: Hyperellipsoid.fromCenterAxisExtent(vec(cx, cy, cz),
+        rotFrameH(a, b, c), vec(e0, e1, e2))
+}));
+
+// The exact support value: max over the ellipsoid surface of Dot(N,X) - c is
+// Dot(N,C) - c + sqrt(sum_i (e_i * Dot(N,U_i))^2). The query computes the
+// same quantity through M^{-1}; this is an independent derivation.
+function supportValue(h: Halfspace, e: Hyperellipsoid): number {
+    let sum = 0;
+    for (let d = 0; d < 3; ++d) {
+        const t = e.extent.values[d] * dot(h.normal, e.axis[d]);
+        sum += t * t;
+    }
+    return dot(h.normal, e.center) - h.constant + Math.sqrt(sum);
+}
+
+describe('IntrHalfspace3Ellipsoid3 verification', () => {
+    const tiq = new IntrHalfspace3Ellipsoid3TI();
+
+    it('agrees with the closed-form support value', () => {
+        check(halfspaceEllipsoid, ({ halfspace: h, ellipsoid: e }) => {
+            const s = supportValue(h, e);
+            if (Math.abs(s) < 1e-9) {
+                return;   // exactly on the plane; the two forms may round
+            }
+            expect(tiq.test(h, e).intersect).toBe(s >= 0);
+        });
+    });
+
+    it('agrees with a dense sampling of the ellipsoid surface', () => {
+        const rnd = seededRandom(0x1a97c3);
+        for (let trial = 0; trial < 60; ++trial) {
+            const e = Hyperellipsoid.fromCenterAxisExtent(
+                vec(rnd() * 4 - 2, rnd() * 4 - 2, rnd() * 4 - 2),
+                rotFrameH(rnd() * 6, rnd() * 6, rnd() * 6),
+                vec(0.4 + rnd() * 2, 0.4 + rnd() * 2, 0.4 + rnd() * 2));
+            const h = Halfspace.fromNormalConstant(
+                unitDirH(rnd() * 6, rnd() * 6 - 3), rnd() * 8 - 4);
+            const support = supportValue(h, e);
+            if (Math.abs(support) < 1e-3) { continue; }
+
+            // The sampled maximum is a lower bound on the true support; when
+            // the true support is comfortably positive the sampling finds a
+            // point in the halfspace, and when it is comfortably negative no
+            // sample can be in it.
+            let best = -Number.MAX_VALUE;
+            const n = 120;
+            for (let i = 0; i <= n; ++i) {
+                const th = (2 * Math.PI * i) / n;
+                for (let j = 0; j <= n; ++j) {
+                    const ph = -Math.PI / 2 + (Math.PI * j) / n;
+                    const u = vec(
+                        e.extent.values[0] * Math.cos(th) * Math.cos(ph),
+                        e.extent.values[1] * Math.sin(th) * Math.cos(ph),
+                        e.extent.values[2] * Math.sin(ph));
+                    const p = add(e.center, add(mul(u.get(0), e.axis[0]),
+                        add(mul(u.get(1), e.axis[1]),
+                            mul(u.get(2), e.axis[2]))));
+                    const value = dot(h.normal, p) - h.constant;
+                    if (value > best) { best = value; }
+                }
+            }
+            const intersect = tiq.test(h, e).intersect;
+            if (best >= 0) {
+                expect(intersect).toBe(true);
+            }
+            if (support < 0) {
+                expect(intersect).toBe(false);
+                expect(best).toBeLessThan(0);
+            }
+            expectClose(best, support, 2e-3, 2e-3);
+        }
+    }, 30000);
+
+    it('is equivariant under a rigid motion', () => {
+        check(fc.tuple(halfspaceEllipsoid, angleH(), angleH(), angleH(),
+            wellScaled(-2, 2), wellScaled(-2, 2), wellScaled(-2, 2)),
+        ([{ halfspace: h, ellipsoid: e }, a1, a2, a3, tx, ty, tz]) => {
+            if (Math.abs(supportValue(h, e)) < 1e-6) { return; }
+            const fr = rotFrameH(a1, a2, a3);
+            const rot = (v: Vector): Vector => add(mul(v.get(0), fr[0]),
+                add(mul(v.get(1), fr[1]), mul(v.get(2), fr[2])));
+            const t = vec(tx, ty, tz);
+            const xf = (v: Vector): Vector => add(rot(v), t);
+            const n2 = rot(h.normal);
+            // Dot(N', X') = Dot(N, X) + Dot(N', T), so the constant shifts.
+            const h2 = Halfspace.fromNormalConstant(n2,
+                h.constant + dot(n2, t));
+            const e2 = Hyperellipsoid.fromCenterAxisExtent(xf(e.center),
+                [rot(e.axis[0]), rot(e.axis[1]), rot(e.axis[2])], e.extent);
+            expect(tiq.test(h2, e2).intersect).toBe(tiq.test(h, e).intersect);
+        });
+    });
+
+    it('a degenerate ellipsoid is not supported (zero extents divide by 0)',
+        () => {
+            // Hyperellipsoid requires positive extents for GetMInverse to be
+            // meaningful; a zero extent collapses the ellipsoid to a disk and
+            // the support radius along that axis is zero.
+            const e = ellipsoid(vec(0, 0, 0), unitAxes3(), vec(2, 3, 1e-8));
+            // The plane z = 0.5 misses the (essentially flat) ellipsoid only
+            // if its support along z is below 0.5.
+            expect(tiq.test(halfspace([0, 0, 1], 0.5), e).intersect)
+                .toBe(false);
+            expect(tiq.test(halfspace([0, 0, 1], -0.5), e).intersect)
+                .toBe(true);
+            expect(tiq.test(halfspace([1, 0, 0], 1.5), e).intersect)
+                .toBe(true);
+            expect(tiq.test(halfspace([1, 0, 0], 2.5), e).intersect)
+                .toBe(false);
+        });
+
+    it('rejects mismatched dimensions', () => {
+        const e2 = Hyperellipsoid.fromCenterAxisExtent(
+            Vector.fromArray([0, 0]),
+            [Vector.fromArray([1, 0]), Vector.fromArray([0, 1])],
+            Vector.fromArray([1, 1]));
+        expect(() => tiq.test(halfspace([0, 0, 1], 0), e2)).toThrow();
+    });
+});
