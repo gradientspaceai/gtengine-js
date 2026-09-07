@@ -291,3 +291,228 @@ describe('IntrSegment3OrientedBox3', () => {
             expect(intersections).toBeGreaterThan(20);
         });
 });
+
+// ---------------------------------------------------------------------------
+// Verification (V33): property-based cross-checks against upstream
+// IntrSegment3OrientedBox3.h.
+// ---------------------------------------------------------------------------
+
+import {
+    check, fc, expectClose, expectVectorClose, seededRandom, wellScaled
+} from './helpers/arbitraries.js';
+import { IntrLine3OrientedBox3FI } from '../src/IntrLine3OrientedBox3.js';
+import { Line } from '../src/Line.js';
+import { length, normalize } from '../src/Vector.js';
+
+// wellScaled snaps |a| < 1e-3 to exactly zero, so no frame component is a
+// subnormal that would underflow when squared.
+const angle3 = () => wellScaled(-Math.PI, Math.PI);
+const extent3 = () => fc.double(
+    { min: 0.25, max: 3, noNaN: true, noDefaultInfinity: true });
+
+// R = Rz(a)*Ry(b)*Rx(c); the columns are the box axes.
+function rotFrame3(a: number, b: number, c: number): Vector[] {
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const cb = Math.cos(b), sb = Math.sin(b);
+    const cc = Math.cos(c), sc = Math.sin(c);
+    return [
+        vec(ca * cb, sa * cb, -sb),
+        vec(ca * sb * sc - sa * cc, sa * sb * sc + ca * cc, cb * sc),
+        vec(ca * sb * cc + sa * sc, sa * sb * cc - ca * sc, cb * cc)];
+}
+
+const segBox3 = fc.tuple(
+    wellScaled(-5, 5), wellScaled(-5, 5), wellScaled(-5, 5),
+    wellScaled(-5, 5), wellScaled(-5, 5), wellScaled(-5, 5),
+    wellScaled(-3, 3), wellScaled(-3, 3), wellScaled(-3, 3),
+    angle3(), angle3(), angle3(),
+    extent3(), extent3(), extent3()
+).filter(([x0, y0, z0, x1, y1, z1]) =>
+    (x1 - x0) ** 2 + (y1 - y0) ** 2 + (z1 - z0) ** 2 > 1e-4)
+    .map(([x0, y0, z0, x1, y1, z1, cx, cy, cz, a, b, c, e0, e1, e2]) => ({
+        segment: Segment.fromEndpoints(vec(x0, y0, z0), vec(x1, y1, z1)),
+        box: OrientedBox.fromCenterAxisExtent(vec(cx, cy, cz),
+            rotFrame3(a, b, c), vec(e0, e1, e2))
+    }));
+
+// boxSignedDepth is a maximum of convex functions, hence convex along the
+// segment; a ternary search finds its minimum reliably. A value near zero
+// means the segment grazes the box, where the TI separating-axis test and the
+// FI interval clip round differently.
+function minSegBoxDepth(box: OrientedBox, s: Segment): number {
+    const e = sub(s.p[1], s.p[0]);
+    let lo = 0, hi = 1;
+    for (let k = 0; k < 200; ++k) {
+        const p = lo + (hi - lo) / 3, q = hi - (hi - lo) / 3;
+        const fp = boxSignedDepth(add(s.p[0], mul(p, e)), box);
+        const fq = boxSignedDepth(add(s.p[0], mul(q, e)), box);
+        if (fp < fq) { hi = q; } else { lo = p; }
+    }
+    return boxSignedDepth(add(s.p[0], mul(0.5 * (lo + hi), e)), box);
+}
+
+describe('IntrSegment3OrientedBox3 verification', () => {
+    const tiq = new IntrSegment3OrientedBox3TI();
+    const fiq = new IntrSegment3OrientedBox3FI();
+    const lbq = new IntrLine3OrientedBox3FI();
+
+    it('TI and FI agree away from grazing configurations', () => {
+        check(segBox3, ({ segment: s, box: b }) => {
+            if (Math.abs(minSegBoxDepth(b, s)) < 1e-6) {
+                return;
+            }
+            expect(tiq.test(s, b).intersect).toBe(fiq.find(s, b).intersect);
+        });
+    });
+
+    it('the segment hit is the line hit clipped to |t| <= extent', () => {
+        check(segBox3, ({ segment: s, box: b }) => {
+            const cf = s.getCenteredForm();
+            const line = Line.fromOriginDirection(cf.center, cf.direction);
+            const lb = lbq.find(line, b);
+            const f = fiq.find(s, b);
+            if (!lb.intersect) {
+                expect(f.intersect).toBe(false);
+                return;
+            }
+            const t0 = Math.max(lb.parameter[0], -cf.extent);
+            const t1 = Math.min(lb.parameter[1], cf.extent);
+            if (t0 > t1) {
+                expect(f.intersect).toBe(false);
+                return;
+            }
+            expect(f.intersect).toBe(true);
+            expect(f.numIntersections).toBe(t0 < t1 ? 2 : 1);
+            // Normalize the -0/+0 tie (toBe uses Object.is).
+            expect(f.parameter[0] + 0).toBe(t0 + 0);
+        });
+    });
+
+    it('reported points lie on the segment and in the closed box', () => {
+        check(segBox3, ({ segment: s, box: b }) => {
+            const cf = s.getCenteredForm();
+            const f = fiq.find(s, b);
+            if (!f.intersect) {
+                expect(f.point[0].values).toEqual([0, 0, 0]);
+                expect(f.point[1].values).toEqual([0, 0, 0]);
+                return;
+            }
+            // Upstream fills both entries whenever intersect is true.
+            for (let i = 0; i < 2; ++i) {
+                // The parameter is in the centered convention, C + t*D with
+                // |t| <= e.
+                expect(Math.abs(f.parameter[i]))
+                    .toBeLessThanOrEqual(cf.extent + 1e-12);
+                // The point is the world-space evaluation of the centered
+                // form; upstream reconstructs it through the box frame, which
+                // must agree.
+                expectVectorClose(f.point[i],
+                    add(cf.center, mul(f.parameter[i], cf.direction)),
+                    1e-9, 1e-9);
+                expect(boxSignedDepth(f.point[i], b)).toBeLessThanOrEqual(1e-8);
+            }
+        });
+    });
+
+    it('a segment strictly inside the box is clipped to its own endpoints',
+        () => {
+            check(fc.tuple(wellScaled(-3, 3), wellScaled(-3, 3),
+                wellScaled(-3, 3), angle3(), angle3(), angle3(),
+                extent3(), extent3(), extent3(),
+                fc.array(fc.double({ min: -0.8, max: 0.8, noNaN: true,
+                    noDefaultInfinity: true }), { minLength: 6, maxLength: 6 })),
+            ([cx, cy, cz, a, b, c, e0, e1, e2, u]) => {
+                const box = OrientedBox.fromCenterAxisExtent(vec(cx, cy, cz),
+                    rotFrame3(a, b, c), vec(e0, e1, e2));
+                const at = (i: number): Vector => add(box.center,
+                    add(mul(u[i] * e0, box.axis[0]),
+                        add(mul(u[i + 1] * e1, box.axis[1]),
+                            mul(u[i + 2] * e2, box.axis[2]))));
+                const p0 = at(0), p1 = at(3);
+                if (length(sub(p1, p0)) < 1e-3) { return; }
+                const s = Segment.fromEndpoints(p0, p1);
+                const cf = s.getCenteredForm();
+                expect(tiq.test(s, box).intersect).toBe(true);
+                const f = fiq.find(s, box);
+                expect(f.intersect).toBe(true);
+                expect(f.numIntersections).toBe(2);
+                expectClose(f.parameter[0], -cf.extent, 1e-12, 1e-12);
+                expectClose(f.parameter[1], cf.extent, 1e-12, 1e-12);
+                expectVectorClose(f.point[0], p0, 1e-8, 1e-9);
+                expectVectorClose(f.point[1], p1, 1e-8, 1e-9);
+            });
+        });
+
+    it('a fine sweep of the segment agrees with the reported interval', () => {
+        const rnd = seededRandom(0x6b1de44);
+        for (let trial = 0; trial < 150; ++trial) {
+            const box = OrientedBox.fromCenterAxisExtent(
+                vec(rnd() * 4 - 2, rnd() * 4 - 2, rnd() * 4 - 2),
+                rotFrame3(rnd() * 6, rnd() * 6, rnd() * 6),
+                vec(0.3 + rnd() * 2, 0.3 + rnd() * 2, 0.3 + rnd() * 2));
+            const s = Segment.fromEndpoints(
+                vec(rnd() * 10 - 5, rnd() * 10 - 5, rnd() * 10 - 5),
+                vec(rnd() * 10 - 5, rnd() * 10 - 5, rnd() * 10 - 5));
+            if (length(sub(s.p[1], s.p[0])) < 1e-2) { continue; }
+            const cf = s.getCenteredForm();
+            const f = fiq.find(s, box);
+            for (let k = 0; k <= 500; ++k) {
+                const t = -cf.extent + (2 * cf.extent * k) / 500;
+                const p = add(cf.center, mul(t, cf.direction));
+                if (boxSignedDepth(p, box) < -1e-7) {
+                    expect(f.intersect).toBe(true);
+                    expect(t).toBeGreaterThanOrEqual(f.parameter[0] - 1e-7);
+                    expect(t).toBeLessThanOrEqual(f.parameter[1] + 1e-7);
+                }
+            }
+        }
+    }, 30000);
+
+    it('is equivariant under a rigid motion', () => {
+        check(fc.tuple(segBox3, angle3(), angle3(), angle3(),
+            wellScaled(-2, 2), wellScaled(-2, 2), wellScaled(-2, 2)),
+        ([{ segment: s, box: b }, a1, a2, a3, tx, ty, tz]) => {
+            if (Math.abs(minSegBoxDepth(b, s)) < 1e-6) {
+                return;   // grazing face, edge or corner
+            }
+            const fr = rotFrame3(a1, a2, a3);
+            const rot = (v: Vector): Vector => add(mul(v.get(0), fr[0]),
+                add(mul(v.get(1), fr[1]), mul(v.get(2), fr[2])));
+            const xf = (v: Vector): Vector => add(rot(v), vec(tx, ty, tz));
+            const s2 = Segment.fromEndpoints(xf(s.p[0]), xf(s.p[1]));
+            const b2 = OrientedBox.fromCenterAxisExtent(xf(b.center),
+                [rot(b.axis[0]), rot(b.axis[1]), rot(b.axis[2])], b.extent);
+            const f0 = fiq.find(s, b);
+            const f1 = fiq.find(s2, b2);
+            expect(f1.intersect).toBe(f0.intersect);
+            if (!f0.intersect) { return; }
+            expect(f1.numIntersections).toBe(f0.numIntersections);
+            for (let i = 0; i < 2; ++i) {
+                expectVectorClose(f1.point[i], xf(f0.point[i]), 1e-7, 1e-8);
+            }
+        });
+    });
+
+    it('reconstructs world-space points for every rotation of the box', () => {
+        // The query evaluates the intersection in the box frame and rotates
+        // it back through the axes; a shot through the box center must come
+        // back on the box boundary in world space.
+        check(fc.tuple(angle3(), angle3(), angle3(),
+            wellScaled(-2, 2), wellScaled(-2, 2), wellScaled(-2, 2),
+            extent3(), extent3(), extent3(), angle3(), angle3()),
+        ([a, b, c, cx, cy, cz, e0, e1, e2, th, ph]) => {
+            const box = OrientedBox.fromCenterAxisExtent(vec(cx, cy, cz),
+                rotFrame3(a, b, c), vec(e0, e1, e2));
+            const d = vec(Math.cos(th) * Math.cos(ph),
+                Math.sin(th) * Math.cos(ph), Math.sin(ph));
+            normalize(d);
+            const s = Segment.fromEndpoints(sub(box.center, mul(30, d)),
+                add(box.center, mul(30, d)));
+            const f = fiq.find(s, box);
+            expect(f.intersect).toBe(true);
+            for (let i = 0; i < 2; ++i) {
+                expectClose(boxSignedDepth(f.point[i], box), 0, 1e-8, 1e-9);
+            }
+        });
+    });
+});
