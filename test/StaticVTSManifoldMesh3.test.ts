@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { StaticVTSManifoldMesh3 } from '../src/StaticVTSManifoldMesh3.js';
+import {
+    TSManifoldMesh, TSManifoldMeshTriangle, TSManifoldMeshTetrahedron
+} from '../src/TSManifoldMesh.js';
+import { TriangleKey } from '../src/TriangleKey.js';
+import { TetrahedronKey } from '../src/TetrahedronKey.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 const invalid = StaticVTSManifoldMesh3.invalid;
 
@@ -320,5 +326,353 @@ describe('StaticVTSManifoldMesh3 on a tetrahedralized cube', () => {
         }
         // Every tetrahedron contributes exactly four outgoing faces.
         expect(totalFaces).toBe(4 * tetrahedra.length);
+    });
+});
+
+describe('StaticVTSManifoldMesh3 verification', () => {
+    // Kuhn's subdivision of an n x n x n grid of cubes, with each tetrahedron
+    // reordered if necessary so that all have positive signed volume (the
+    // consistent chirality the class requires).
+    const kuhnGrid = (n: number): {
+        numVertices: number;
+        positions: P3[];
+        tetrahedra: [number, number, number, number][];
+    } => {
+        const positions: P3[] = [];
+        const index = (x: number, y: number, z: number): number =>
+            x + (n + 1) * (y + (n + 1) * z);
+        for (let z = 0; z <= n; ++z) {
+            for (let y = 0; y <= n; ++y) {
+                for (let x = 0; x <= n; ++x) {
+                    positions[index(x, y, z)] = [x, y, z];
+                }
+            }
+        }
+
+        const permutations3 = [
+            [0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]
+        ];
+        const tetrahedra: [number, number, number, number][] = [];
+        for (let k = 0; k < n; ++k) {
+            for (let j = 0; j < n; ++j) {
+                for (let i = 0; i < n; ++i) {
+                    for (const p of permutations3) {
+                        const c = [i, j, k];
+                        const vs = [index(c[0], c[1], c[2])];
+                        for (const axis of p) {
+                            c[axis] += 1;
+                            vs.push(index(c[0], c[1], c[2]));
+                        }
+                        const tetra = vs as [number, number, number, number];
+                        tetrahedra.push(signedVolume(positions, tetra) < 0
+                            ? [tetra[0], tetra[2], tetra[1], tetra[3]]
+                            : tetra);
+                    }
+                }
+            }
+        }
+        return { numVertices: positions.length, positions, tetrahedra };
+    };
+
+    const meshArb = fc.integer({ min: 1, max: 2 }).chain((n) => {
+        const grid = kuhnGrid(n);
+        return fc.array(fc.boolean(), {
+            minLength: grid.tetrahedra.length,
+            maxLength: grid.tetrahedra.length
+        }).map((mask) => ({
+            numVertices: grid.numVertices,
+            positions: grid.positions,
+            tetrahedra: grid.tetrahedra.filter((_, i) => mask[i])
+        }));
+    }).filter(({ tetrahedra }) => tetrahedra.length > 0);
+
+    // The sorted (outgoing) orientation of every face of a tetrahedron and
+    // the tetrahedron that owns it.
+    const outgoingFaces = (tetrahedra: readonly (readonly number[])[]):
+        Map<string, number> => {
+        const owner = new Map<string, number>();
+        for (let t = 0; t < tetrahedra.length; ++t) {
+            for (const f of StaticVTSManifoldMesh3.face) {
+                const u = StaticVTSManifoldMesh3.sortFace(
+                    tetrahedra[t][f[0]], tetrahedra[t][f[1]],
+                    tetrahedra[t][f[2]]);
+                owner.set(u.join(','), t);
+            }
+        }
+        return owner;
+    };
+
+    it('all generated tetrahedra have the canonical chirality', () => {
+        check(fc.integer({ min: 1, max: 2 }), (n) => {
+            const { positions, tetrahedra } = kuhnGrid(n);
+            for (const tetra of tetrahedra) {
+                expect(signedVolume(positions, tetra)).toBeGreaterThan(0);
+            }
+            // Six tetrahedra per cube, and every face orientation is unique
+            // (that is the manifold condition the class assumes).
+            expect(tetrahedra.length).toBe(6 * n * n * n);
+            expect(outgoingFaces(tetrahedra).size).toBe(4 * tetrahedra.length);
+        });
+    });
+
+    it('agrees with TSManifoldMesh on faces and adjacency', () => {
+        check(meshArb, ({ numVertices, tetrahedra }) => {
+            const stat = new StaticVTSManifoldMesh3(numVertices, tetrahedra);
+            const dyn = new TSManifoldMesh();
+            for (const s of tetrahedra) {
+                expect(dyn.insert(s[0], s[1], s[2], s[3])).not.toBeNull();
+            }
+
+            // The same unordered faces.
+            const dynFaces = new Set(dyn.getTriangleKeys().map((k) => k.mapKey()));
+            const statFaces = new Set<string>();
+            for (const s of tetrahedra) {
+                for (const f of StaticVTSManifoldMesh3.face) {
+                    statFaces.add(new TriangleKey(false, s[f[0]], s[f[1]],
+                        s[f[2]]).mapKey());
+                    expect(stat.faceExists(s[f[0]], s[f[1]], s[f[2]])).toBe(true);
+                    // Any orientation of the face is found.
+                    expect(stat.faceExists(s[f[2]], s[f[1]], s[f[0]])).toBe(true);
+                }
+            }
+            expect(statFaces).toEqual(dynFaces);
+
+            // The same tetrahedron-tetrahedron adjacency. The two classes
+            // index the adjacency differently (StaticVTSManifoldMesh3.face[i]
+            // versus TetrahedronKey.getOppositeFace()[i]), so compare through
+            // the face vertices.
+            const adjacents = stat.getAdjacents();
+            const skey = (s: readonly number[]): string =>
+                new TetrahedronKey(true, s[0], s[1], s[2], s[3]).mapKey();
+            for (let t = 0; t < tetrahedra.length; ++t) {
+                const s = tetrahedra[t];
+                const dynTetra = dyn.getTetrahedron(s[0], s[1], s[2], s[3]);
+                expect(dynTetra).not.toBeNull();
+                for (let i = 0; i < 4; ++i) {
+                    const f = StaticVTSManifoldMesh3.face[i];
+                    const faceKey = new TriangleKey(false, s[f[0]], s[f[1]],
+                        s[f[2]]).mapKey();
+                    // Find the dynamic mesh's adjacency across that face.
+                    const dynFace = dyn.getTriangle(s[f[0]], s[f[1]], s[f[2]]);
+                    expect(dynFace).not.toBeNull();
+                    const face = dynFace as TSManifoldMeshTriangle;
+                    expect(new TriangleKey(false, face.V[0], face.V[1],
+                        face.V[2]).mapKey()).toBe(faceKey);
+                    const other = face.S[0] === dynTetra ? face.S[1] : face.S[0];
+                    if (adjacents[t][i] === invalid) {
+                        expect(other).toBeNull();
+                    } else {
+                        expect(other).not.toBeNull();
+                        expect(skey(tetrahedra[adjacents[t][i]]))
+                            .toBe(skey((other as TSManifoldMeshTetrahedron).V));
+                    }
+                }
+            }
+        }, 30);
+    });
+
+    it('the packed vertex storage decodes to the mesh adjacency', () => {
+        check(meshArb, ({ numVertices, tetrahedra }) => {
+            const stat = new StaticVTSManifoldMesh3(numVertices, tetrahedra);
+            const vertices = stat.getVertices();
+            expect(vertices.length).toBe(numVertices);
+
+            const counts: number[] = new Array<number>(numVertices).fill(0);
+            const neighbors: Set<number>[] = [];
+            for (let v = 0; v < numVertices; ++v) {
+                neighbors.push(new Set<number>());
+            }
+            for (const s of tetrahedra) {
+                for (let i = 0; i < 4; ++i) {
+                    ++counts[s[i]];
+                    for (let j = 0; j < 4; ++j) {
+                        if (j !== i) {
+                            neighbors[s[i]].add(s[j]);
+                        }
+                    }
+                }
+            }
+            expect(stat.getMinNumTetrahedraAtVertex()).toBe(Math.min(...counts));
+            expect(stat.getMaxNumTetrahedraAtVertex()).toBe(Math.max(...counts));
+
+            const owner = outgoingFaces(tetrahedra);
+            for (let v = 0; v < numVertices; ++v) {
+                const vertex = vertices[v];
+                expect(vertex.getNumSAdjacents()).toBe(counts[v]);
+                expect(new Set(vertex.getVAdjacents())).toEqual(neighbors[v]);
+                expect(vertex.getNumVAdjacents())
+                    .toBeLessThanOrEqual(3 * vertex.getNumSAdjacents());
+                expect(vertex.getNumFAdjacents())
+                    .toBeLessThanOrEqual(3 * vertex.getNumSAdjacents());
+
+                const quads = vertex.getFAdjacents();
+                // Every outgoing face whose minimum vertex is v is stored
+                // exactly once here.
+                const expected = Array.from(owner.keys())
+                    .filter((k) => Number(k.split(',')[0]) === v);
+                expect(quads.length).toBe(expected.length);
+                for (let j = 0; j < quads.length; ++j) {
+                    const [av0, av1, ls, rs] = quads[j];
+                    expect(v).toBeLessThan(av0);
+                    expect(v).toBeLessThan(av1);
+                    // LS owns the outgoing face <v,av0,av1>.
+                    expect(ls).toBe(owner.get([v, av0, av1].join(',')));
+                    // RS owns the opposite orientation, or is 'invalid'.
+                    const reverse = owner.get([v, av1, av0].join(','));
+                    expect(rs).toBe(reverse === undefined ? invalid : reverse);
+                    expect(vertex.getFAdjacent(j)).toEqual(quads[j]);
+                }
+            }
+        }, 30);
+    });
+
+    it('getAdjacentTetrahedra reports the documented four cases', () => {
+        check(meshArb, ({ numVertices, tetrahedra }) => {
+            const stat = new StaticVTSManifoldMesh3(numVertices, tetrahedra);
+            const owner = outgoingFaces(tetrahedra);
+
+            // Query every face of the mesh in all six vertex orders, plus a
+            // few triples that are not faces.
+            for (const s of tetrahedra) {
+                for (const f of StaticVTSManifoldMesh3.face) {
+                    const v = [s[f[0]], s[f[1]], s[f[2]]];
+                    const cyclic = [[0, 1, 2], [1, 2, 0], [2, 0, 1]];
+                    const anticyclic = [[0, 2, 1], [2, 1, 0], [1, 0, 2]];
+                    const u = StaticVTSManifoldMesh3.sortFace(v[0], v[1], v[2]);
+                    const forward = owner.get(u.join(','));
+                    const backward = owner.get([u[0], u[2], u[1]].join(','));
+                    const expected = {
+                        exists: true,
+                        adj0: forward === undefined ? invalid : forward,
+                        adj1: backward === undefined ? invalid : backward
+                    };
+                    for (const p of cyclic) {
+                        expect(stat.getAdjacentTetrahedra(v[p[0]], v[p[1]],
+                            v[p[2]])).toEqual(expected);
+                    }
+                    // Reversing the face orientation swaps the two results.
+                    for (const p of anticyclic) {
+                        expect(stat.getAdjacentTetrahedra(v[p[0]], v[p[1]],
+                            v[p[2]])).toEqual({
+                            exists: true,
+                            adj0: expected.adj1,
+                            adj1: expected.adj0
+                        });
+                    }
+                    // The queried face always exists, and the L-tetrahedron
+                    // of the outgoing orientation is a real tetrahedron.
+                    expect(stat.faceExists(v[0], v[1], v[2])).toBe(true);
+                    expect(expected.adj0 !== invalid ||
+                        expected.adj1 !== invalid).toBe(true);
+                }
+            }
+
+            // Degenerate and out-of-range queries are case 4.
+            const none = { exists: false, adj0: invalid, adj1: invalid };
+            expect(stat.getAdjacentTetrahedra(0, 0, 1)).toEqual(none);
+            expect(stat.getAdjacentTetrahedra(0, 1, 1)).toEqual(none);
+            expect(stat.getAdjacentTetrahedra(-1, 0, 1)).toEqual(none);
+            expect(stat.getAdjacentTetrahedra(0, 1, numVertices)).toEqual(none);
+            expect(stat.faceExists(-1, 0, 1)).toBe(false);
+        }, 30);
+    });
+
+    it('a boundary face reports exactly one adjacent tetrahedron', () => {
+        check(meshArb, ({ numVertices, tetrahedra }) => {
+            const stat = new StaticVTSManifoldMesh3(numVertices, tetrahedra);
+            const adjacents = stat.getAdjacents();
+            for (let t = 0; t < tetrahedra.length; ++t) {
+                for (let i = 0; i < 4; ++i) {
+                    const f = StaticVTSManifoldMesh3.face[i];
+                    const s = tetrahedra[t];
+                    const result = stat.getAdjacentTetrahedra(s[f[0]], s[f[1]],
+                        s[f[2]]);
+                    // The queried orientation is this tetrahedron's outgoing
+                    // face, so adj0 is t itself.
+                    expect(result.adj0).toBe(t);
+                    expect(result.adj1).toBe(adjacents[t][i]);
+                    if (adjacents[t][i] === invalid) {
+                        // Case 2: a boundary face.
+                        expect(result.adj1).toBe(invalid);
+                    }
+                }
+            }
+        }, 30);
+    });
+
+    it('the tetrahedron order does not change the mesh relations', () => {
+        check(fc.tuple(meshArb, fc.array(fc.nat(), { maxLength: 12 })),
+            ([{ numVertices, tetrahedra }, shuffle]) => {
+                const permuted = tetrahedra.slice();
+                for (let k = 0; k < shuffle.length; ++k) {
+                    const i = shuffle[k] % permuted.length;
+                    const j = (shuffle[k] * 5 + k) % permuted.length;
+                    const t = permuted[i];
+                    permuted[i] = permuted[j];
+                    permuted[j] = t;
+                }
+                const a = new StaticVTSManifoldMesh3(numVertices, tetrahedra);
+                const b = new StaticVTSManifoldMesh3(numVertices, permuted);
+                expect(b.getMinNumTetrahedraAtVertex())
+                    .toBe(a.getMinNumTetrahedraAtVertex());
+                expect(b.getMaxNumTetrahedraAtVertex())
+                    .toBe(a.getMaxNumTetrahedraAtVertex());
+
+                const name = (source: readonly (readonly number[])[]) =>
+                    (i: number): string => (i === invalid ? 'none'
+                        : new TetrahedronKey(true, source[i][0], source[i][1],
+                            source[i][2], source[i][3]).mapKey());
+                for (const s of tetrahedra) {
+                    for (const f of StaticVTSManifoldMesh3.face) {
+                        const v = [s[f[0]], s[f[1]], s[f[2]]];
+                        const ra = a.getAdjacentTetrahedra(v[0], v[1], v[2]);
+                        const rb = b.getAdjacentTetrahedra(v[0], v[1], v[2]);
+                        expect(rb.exists).toBe(ra.exists);
+                        expect(name(permuted)(rb.adj0))
+                            .toBe(name(tetrahedra)(ra.adj0));
+                        expect(name(permuted)(rb.adj1))
+                            .toBe(name(tetrahedra)(ra.adj1));
+                    }
+                }
+            }, 20);
+    });
+
+    it('the numThreads argument does not change the result', () => {
+        check(fc.tuple(meshArb, fc.integer({ min: 0, max: 8 })),
+            ([{ numVertices, tetrahedra }, numThreads]) => {
+                const a = new StaticVTSManifoldMesh3(numVertices, tetrahedra, 0);
+                const b = new StaticVTSManifoldMesh3(numVertices, tetrahedra,
+                    numThreads);
+                expect(b.getAdjacents()).toEqual(a.getAdjacents());
+                expect(b.getVertices().map((v) => v.getFAdjacents()))
+                    .toEqual(a.getVertices().map((v) => v.getFAdjacents()));
+            }, 20);
+    });
+
+    it('sortFace keeps the minimum first and the cyclic order', () => {
+        check(fc.uniqueArray(fc.integer({ min: 0, max: 20 }),
+            { minLength: 3, maxLength: 3 }), (v) => {
+            const u = StaticVTSManifoldMesh3.sortFace(v[0], v[1], v[2]);
+            expect(u[0]).toBe(Math.min(v[0], v[1], v[2]));
+            const rotations = [
+                [v[0], v[1], v[2]], [v[1], v[2], v[0]], [v[2], v[0], v[1]]
+            ];
+            expect(rotations.map((r) => r.join(','))).toContain(u.join(','));
+            // Every cyclic rotation of the input sorts to the same triple.
+            for (const r of rotations) {
+                expect(StaticVTSManifoldMesh3.sortFace(r[0], r[1], r[2]))
+                    .toEqual(u);
+            }
+            // The reversed face sorts to the reversed triple.
+            const reversed = StaticVTSManifoldMesh3.sortFace(v[2], v[1], v[0]);
+            expect(reversed).toEqual([u[0], u[2], u[1]]);
+        });
+    });
+
+    it('the constructor copies the caller tetrahedron array', () => {
+        const tetrahedra: [number, number, number, number][] = [[0, 1, 2, 3]];
+        const mesh = new StaticVTSManifoldMesh3(4, tetrahedra);
+        tetrahedra[0][0] = 99;
+        expect(mesh.getTetrahedra()[0]).toEqual([0, 1, 2, 3]);
     });
 });
