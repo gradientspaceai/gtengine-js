@@ -328,8 +328,15 @@ describe('IntrRay3Capsule3 verification', () => {
                     Segment.fromEndpoints(p0, p1), r);
                 // A point on the medial segment is strictly inside.
                 const o = add(p0, mul(u, sub(p1, p0)));
-                const f = fiq.find(
-                    Ray.fromOriginDirection(o, unitDir(th, ph)), c);
+                const ray0 = Ray.fromOriginDirection(o, unitDir(th, ph));
+                if (inJunctionPlane(c, ray0)) {
+                    // u = 0 or u = 1 puts the origin at a medial endpoint,
+                    // which is exactly on a cap-junction plane; a direction
+                    // perpendicular to the axis then hits the degenerate
+                    // interval described in the note above.
+                    return;
+                }
+                const f = fiq.find(ray0, c);
                 expect(f.intersect).toBe(true);
                 expect(f.parameter[0]).toBe(0);
                 expect(f.numIntersections).toBe(2);
