@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { Hyperellipsoid } from '../src/Hyperellipsoid.js';
-import { Vector } from '../src/Vector.js';
+import { Vector, mul } from '../src/Vector.js';
+import { expectClose, seededRandom } from './helpers/arbitraries.js';
 import {
     AreaEllipse2Ellipse2,
     AreaEllipse2Ellipse2Configuration as Cfg,
@@ -246,5 +247,248 @@ describe('IntrAreaEllipse2Ellipse2', () => {
         const query = new AreaEllipse2Ellipse2();
         const e3 = new Hyperellipsoid(3);
         expect(() => query.compute(e3, e3)).toThrow();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification group V34: property-based re-verification against
+// GTE/Mathematics/IntrAreaEllipse2Ellipse2.h at commit d29e7758ae26.
+// ---------------------------------------------------------------------------
+
+describe('AreaEllipse2Ellipse2 verification', () => {
+    const q = new AreaEllipse2Ellipse2();
+
+    it('uses initialized constants (upstream leaves five members unset)', () => {
+        // Upstream declares 'T mZero, mOne, mTwo, mPi, mTwoPi;' with no
+        // constructor and never assigns them, so every area, every pi scaling
+        // and the 'dtheta <= mPi' branch read indeterminate values
+        // (gtengine-js #301 item 1). The port uses literals and the shared
+        // pi constants; these exact values pin them.
+        const unit = circle(0, 0, 1);
+        const same = q.compute(unit, circle(0, 0, 1));
+        expect(same.configuration).toBe(Cfg.ELLIPSES_ARE_EQUAL);
+        expect(same.area).toBe(Math.PI);
+
+        const inner = circle(0, 0, 0.5);
+        const contained = q.compute(unit, inner);
+        expect(contained.configuration).toBe(Cfg.E0_CONTAINS_E1);
+        expect(contained.area).toBe(Math.PI * 0.25);
+
+        const away = q.compute(unit, circle(10, 0, 1));
+        expect(away.configuration).toBe(Cfg.ELLIPSES_ARE_SEPARATED);
+        expect(away.area).toBe(0);
+
+        // A half-overlap of two unit circles whose centers are 1 apart has the
+        // closed-form lens area; the constant 2*pi enters through the angle
+        // wrapping of ComputeAreaChordRegion.
+        const lens = q.compute(unit, circle(1, 0, 1));
+        expect(lens.configuration).toBe(Cfg.ONE_CHORD_REGION);
+        expectClose(lens.area, lensArea(1, 1, 1), 1e-12, 1e-12);
+    });
+
+    it('matches numeric integration over many random pairs', () => {
+        const rnd = seededRandom(0xa2ea11);
+        const counts = new Map<number, number>();
+        let compared = 0;
+        for (let iter = 0; iter < 220; ++iter) {
+            const e0 = ellipse(rnd() * 2 - 1, rnd() * 2 - 1, rnd() * Math.PI,
+                0.5 + rnd() * 1.5, 0.5 + rnd() * 1.5);
+            const e1 = ellipse(rnd() * 2 - 1, rnd() * 2 - 1, rnd() * Math.PI,
+                0.5 + rnd() * 1.5, 0.5 + rnd() * 1.5);
+            let result;
+            try {
+                result = q.compute(e0, e1);
+            } catch {
+                // IntrEllipse2Ellipse2 throws "Unexpected condition." for
+                // nearly concentric ellipses (gtengine-js #458 item 6);
+                // preserved from upstream.
+                continue;
+            }
+            counts.set(result.configuration,
+                (counts.get(result.configuration) ?? 0) + 1);
+            const reference = numericArea(e0, e1, 20000);
+            // The chord integrand has a square-root singularity at the ends
+            // of the x-range, so the trapezoid rule converges like h^1.5; at
+            // 20000 samples over a range of at most 6 that is a few 1e-5.
+            expectClose(result.area, reference, 3e-4, 3e-4);
+            ++compared;
+        }
+        expect(compared).toBeGreaterThan(180);
+        // Every branch of AreaDispatch is exercised.
+        expect(counts.get(Cfg.ONE_CHORD_REGION) ?? 0).toBeGreaterThan(20);
+        expect(counts.get(Cfg.FOUR_CHORD_REGION) ?? 0).toBeGreaterThan(5);
+        expect((counts.get(Cfg.E0_CONTAINS_E1) ?? 0)
+            + (counts.get(Cfg.E1_CONTAINS_E0) ?? 0)
+            + (counts.get(Cfg.ELLIPSES_ARE_SEPARATED) ?? 0))
+            .toBeGreaterThan(12);
+    }, 60000);
+
+    it('the reported configuration matches the geometry', () => {
+        const rnd = seededRandom(0xc0f16);
+        for (let iter = 0; iter < 250; ++iter) {
+            const e0 = ellipse(rnd() * 3 - 1.5, rnd() * 3 - 1.5,
+                rnd() * Math.PI, 0.4 + rnd() * 1.6, 0.4 + rnd() * 1.6);
+            const e1 = ellipse(rnd() * 3 - 1.5, rnd() * 3 - 1.5,
+                rnd() * Math.PI, 0.4 + rnd() * 1.6, 0.4 + rnd() * 1.6);
+            let r;
+            try {
+                r = q.compute(e0, e1);
+            } catch {
+                continue;
+            }
+            const area0 = Math.PI * e0.extent.values[0] * e0.extent.values[1];
+            const area1 = Math.PI * e1.extent.values[0] * e1.extent.values[1];
+            switch (r.configuration) {
+                case Cfg.ELLIPSES_ARE_SEPARATED:
+                    expect(r.area).toBe(0);
+                    expectClose(numericArea(e0, e1, 4000), 0, 1e-6, 1e-6);
+                    break;
+                case Cfg.E0_CONTAINS_E1:
+                    expectClose(r.area, area1, 1e-12, 1e-12);
+                    expect(area1).toBeLessThanOrEqual(area0 * (1 + 1e-12));
+                    break;
+                case Cfg.E1_CONTAINS_E0:
+                    expectClose(r.area, area0, 1e-12, 1e-12);
+                    expect(area0).toBeLessThanOrEqual(area1 * (1 + 1e-12));
+                    break;
+                case Cfg.ELLIPSES_ARE_EQUAL:
+                    expectClose(r.area, area0, 1e-12, 1e-12);
+                    break;
+                default:
+                    // A chord region: the area is strictly between 0 and the
+                    // area of the smaller ellipse.
+                    expect(r.area).toBeGreaterThan(-1e-12);
+                    expect(r.area).toBeLessThanOrEqual(
+                        Math.min(area0, area1) * (1 + 1e-9));
+                    break;
+            }
+            expect(Number.isNaN(r.area)).toBe(false);
+        }
+    }, 30000);
+
+    it('is symmetric under swapping the ellipses', () => {
+        const rnd = seededRandom(0x5a11);
+        for (let iter = 0; iter < 200; ++iter) {
+            const e0 = ellipse(rnd() * 2 - 1, rnd() * 2 - 1, rnd() * Math.PI,
+                0.5 + rnd(), 0.5 + rnd());
+            const e1 = ellipse(rnd() * 2 - 1, rnd() * 2 - 1, rnd() * Math.PI,
+                0.5 + rnd(), 0.5 + rnd());
+            let a;
+            let b;
+            try {
+                a = q.compute(e0, e1);
+                b = q.compute(e1, e0);
+            } catch {
+                continue;
+            }
+            expectClose(a.area, b.area, 1e-9, 1e-9);
+        }
+    }, 30000);
+
+    it('is invariant when the ellipse axes are not unit length', () => {
+        // Upstream's operator() comment says "The ellipse axes are not
+        // required to be normalized", but the polar angles used by Area4 and
+        // ComputeAreaChordRegion are not length invariant. The port
+        // normalizes private copies of the axes, which makes the documented
+        // contract true (gtengine-js #301 item 2).
+        //
+        // The invariance holds for a COMMON scale of the two axes. The
+        // FIQuery this class consumes builds its standard form as
+        // (U*U^T/a^2 + V*V^T/b^2) / |U|^2, which divides both terms by the
+        // squared length of the FIRST axis, so independently scaled axes
+        // are not supported by the query pipeline as a whole.
+        const rnd = seededRandom(0x5ca1e);
+        for (let iter = 0; iter < 120; ++iter) {
+            const e0 = ellipse(rnd() * 2 - 1, rnd() * 2 - 1, rnd() * Math.PI,
+                0.5 + rnd(), 0.5 + rnd());
+            const e1 = ellipse(rnd() * 2 - 1, rnd() * 2 - 1, rnd() * Math.PI,
+                0.5 + rnd(), 0.5 + rnd());
+            let base;
+            try {
+                base = q.compute(e0, e1);
+            } catch {
+                continue;
+            }
+            const scale = 0.25 + rnd() * 4;
+            const scaled = Hyperellipsoid.fromCenterAxisExtent(e0.center,
+                [mul(scale, e0.axis[0]), mul(scale, e0.axis[1])],
+                e0.extent);
+            const scaledResult = q.compute(scaled, e1);
+            expect(scaledResult.configuration).toBe(base.configuration);
+            expectClose(scaledResult.area, base.area, 1e-9, 1e-9);
+        }
+    }, 30000);
+
+    it('is equivariant under a rigid motion of both ellipses', () => {
+        const rnd = seededRandom(0x8181d);
+        for (let iter = 0; iter < 150; ++iter) {
+            const e0 = ellipse(rnd() * 2 - 1, rnd() * 2 - 1, rnd() * Math.PI,
+                0.5 + rnd(), 0.5 + rnd());
+            const e1 = ellipse(rnd() * 2 - 1, rnd() * 2 - 1, rnd() * Math.PI,
+                0.5 + rnd(), 0.5 + rnd());
+            let base;
+            try {
+                base = q.compute(e0, e1);
+            } catch {
+                continue;
+            }
+            const a = rnd() * 2 * Math.PI;
+            const ca = Math.cos(a);
+            const sa = Math.sin(a);
+            const tx = rnd() * 4 - 2;
+            const ty = rnd() * 4 - 2;
+            const map = (p: Vector) => v2(
+                ca * p.values[0] - sa * p.values[1] + tx,
+                sa * p.values[0] + ca * p.values[1] + ty);
+            const rot = (p: Vector) => v2(
+                ca * p.values[0] - sa * p.values[1],
+                sa * p.values[0] + ca * p.values[1]);
+            const move = (e: Hyperellipsoid) =>
+                Hyperellipsoid.fromCenterAxisExtent(map(e.center),
+                    [rot(e.axis[0]), rot(e.axis[1])], e.extent);
+            let moved;
+            try {
+                moved = q.compute(move(e0), move(e1));
+            } catch {
+                continue;
+            }
+            // The chord-region areas are sums of elliptic sector integrals
+            // whose arguments drift under the rotation.
+            expectClose(moved.area, base.area, 1e-7, 1e-7);
+        }
+    }, 30000);
+
+    it('reports containment for concentric ellipses of different sizes', () => {
+        const outer = ellipse(0.25, -0.5, 0.4, 2, 1);
+        const inner = ellipse(0.25, -0.5, 0.4, 1, 0.5);
+        const r = q.compute(outer, inner);
+        expect(r.configuration).toBe(Cfg.E0_CONTAINS_E1);
+        expect(r.area).toBe(Math.PI * 0.5);
+        const swapped = q.compute(inner, outer);
+        expect(swapped.configuration).toBe(Cfg.E1_CONTAINS_E0);
+        expect(swapped.area).toBe(Math.PI * 0.5);
+    });
+
+    it('consumes the four-point FI result in counterclockwise order', () => {
+        // Two congruent ellipses rotated 90 degrees about a common center
+        // cross in four points; the FOUR_CHORD_REGION branch orders them by
+        // the polar angle in the frame of E0 (a std::multimap upstream, a
+        // stable sort here).
+        const e0 = ellipse(0, 0, 0, 2, 1);
+        const e1 = ellipse(0, 0, Math.PI / 2, 2, 1);
+        const r = q.compute(e0, e1);
+        expect(r.configuration).toBe(Cfg.FOUR_CHORD_REGION);
+        expect(r.findResult.numPoints).toBe(4);
+        expectClose(r.area, numericArea(e0, e1, 400000), 1e-7, 1e-7);
+        // The four crossings are at (+-t, +-t) with t = 2/sqrt(5).
+        const t = 2 / Math.sqrt(5);
+        for (let i = 0; i < 4; ++i) {
+            // The quartic solver of IntrEllipse2Ellipse2 places the four
+            // crossings to about 1e-8 for this symmetric configuration.
+            expectClose(Math.abs(r.findResult.points[i].values[0]), t, 1e-7,
+                1e-7);
+            expectClose(Math.abs(r.findResult.points[i].values[1]), t, 1e-7,
+                1e-7);
+        }
     });
 });

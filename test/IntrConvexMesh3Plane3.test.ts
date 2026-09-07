@@ -5,6 +5,9 @@ import { Hyperplane } from '../src/Hyperplane.js';
 import { Vector, dot, sub } from '../src/Vector.js';
 import { cross } from '../src/Vector3.js';
 import {
+    check, expectClose, fc, rotationFrame, unitVector, wellScaledVector
+} from './helpers/arbitraries.js';
+import {
     IntrConvexMesh3Plane3FI,
     defaultIntrConvexMesh3Plane3FIResult
 } from '../src/IntrConvexMesh3Plane3.js';
@@ -430,5 +433,371 @@ describe('IntrConvexMesh3Plane3', () => {
         const plane = Hyperplane.fromNormalConstant(v3(0, 0, 1), 0);
         const query = new Q();
         expect(() => query.find(mesh, plane, Q.REQ_ALL)).toThrow();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification group V34: property-based re-verification against
+// GTE/Mathematics/IntrConvexMesh3Plane3.h at commit d29e7758ae26.
+// ---------------------------------------------------------------------------
+
+describe('IntrConvexMesh3Plane3 verification', () => {
+    // Is the mesh a closed manifold? Every directed edge must appear exactly
+    // once, and its reverse must appear exactly once.
+    function expectClosedManifold(mesh: ConvexMesh3): void {
+        const seen = new Map<string, number>();
+        for (const t of mesh.triangles) {
+            for (let j0 = 2, j1 = 0; j1 < 3; j0 = j1++) {
+                const key = t[j0] + '->' + t[j1];
+                seen.set(key, (seen.get(key) ?? 0) + 1);
+            }
+        }
+        for (const [key, count] of seen) {
+            expect(count).toBe(1);
+            const [a, b] = key.split('->');
+            expect(seen.get(b + '->' + a)).toBe(1);
+        }
+        // Euler characteristic of a sphere: V - E + F = 2.
+        const used = new Set<number>();
+        for (const t of mesh.triangles) {
+            used.add(t[0]);
+            used.add(t[1]);
+            used.add(t[2]);
+        }
+        const numE = seen.size / 2;
+        expect(used.size - numE + mesh.triangles.length).toBe(2);
+    }
+
+    // The convexity/simplicity assertions need a nondegenerate cut: a plane
+    // that grazes a cube corner produces a polygon with a vanishing edge.
+    function minEdgeLength(polygon: readonly Vector[]): number {
+        let m = Number.POSITIVE_INFINITY;
+        for (let i = 0; i < polygon.length; ++i) {
+            const a = polygon[i];
+            const b = polygon[(i + 1) % polygon.length];
+            m = Math.min(m, Math.sqrt(dot(sub(b, a), sub(b, a))));
+        }
+        return m;
+    }
+
+    const arbPlaneThroughCube = fc.tuple(
+        unitVector(3),
+        fc.double({ min: -0.6, max: 0.6, noNaN: true }),
+        fc.double({ min: -0.6, max: 0.6, noNaN: true }),
+        fc.double({ min: -0.6, max: 0.6, noNaN: true }))
+        .map(([n, x, y, z]) => Hyperplane.fromNormalOrigin(n,
+            v3(0.5 + x, 0.5 + y, 0.5 + z)));
+
+    it('splits the cube into two closed manifolds that conserve volume', () => {
+        const query = new Q();
+        check(arbPlaneThroughCube, plane => {
+            const cube = unitCube();
+            const result = query.find(cube, plane, Q.REQ_ALL);
+            if (result.configuration !== Q.CFG_SPLIT) { return; }
+            // Upstream requires exact arithmetic (its static_assert); with
+            // binary64 a plane that passes within rounding of a mesh vertex
+            // splits an edge at a distance of ~1e-16 from it, and the split
+            // meshes then carry degenerate triangles. Those cuts are excluded
+            // from the manifold assertions and pinned separately.
+            if (minEdgeLength(result.intersectionPolygon) < 1e-6) { return; }
+            expectClosedManifold(result.positivePolyhedron);
+            expectClosedManifold(result.negativePolyhedron);
+            expectClose(volume(result.positivePolyhedron)
+                + volume(result.negativePolyhedron), 1, 1e-9, 1e-9);
+            expect(volume(result.positivePolyhedron)).toBeGreaterThan(-1e-12);
+            expect(volume(result.negativePolyhedron)).toBeGreaterThan(-1e-12);
+            expectOnSide(result.positivePolyhedron, plane, +1);
+            expectOnSide(result.negativePolyhedron, plane, -1);
+        }, 100);
+    });
+
+    it('the cut polygon is planar, convex and closes the two halves', () => {
+        const query = new Q();
+        check(arbPlaneThroughCube, plane => {
+            const cube = unitCube();
+            const result = query.find(cube, plane, Q.REQ_ALL);
+            if (result.configuration !== Q.CFG_SPLIT) { return; }
+            if (minEdgeLength(result.intersectionPolygon) < 1e-6) { return; }
+            expectSimpleConvexPolygon(result.intersectionPolygon, plane);
+            // Every polygon vertex is a vertex of both split polyhedra.
+            for (const p of result.intersectionPolygon) {
+                const inPos = result.positivePolyhedron.vertices.some(
+                    v => Math.abs(v.values[0] - p.values[0]) < 1e-12
+                        && Math.abs(v.values[1] - p.values[1]) < 1e-12
+                        && Math.abs(v.values[2] - p.values[2]) < 1e-12);
+                const inNeg = result.negativePolyhedron.vertices.some(
+                    v => Math.abs(v.values[0] - p.values[0]) < 1e-12
+                        && Math.abs(v.values[1] - p.values[1]) < 1e-12
+                        && Math.abs(v.values[2] - p.values[2]) < 1e-12);
+                expect(inPos).toBe(true);
+                expect(inNeg).toBe(true);
+            }
+            // The triangulated intersection mesh has the same area as the
+            // polygon and lies in the plane.
+            let meshArea = 0;
+            for (const t of result.intersectionMesh.triangles) {
+                const a = result.intersectionMesh.vertices[t[0]];
+                const b = result.intersectionMesh.vertices[t[1]];
+                const c = result.intersectionMesh.vertices[t[2]];
+                meshArea += 0.5 * Math.sqrt(dot(cross(sub(b, a), sub(c, a)),
+                    cross(sub(b, a), sub(c, a))));
+            }
+            expectClose(meshArea, polygonArea(result.intersectionPolygon),
+                1e-9, 1e-9);
+            for (const v of result.intersectionMesh.vertices) {
+                expect(Math.abs(signedDistance(plane, v))).toBeLessThan(1e-11);
+            }
+        }, 100);
+    });
+
+    it('splits the octahedron the same way', () => {
+        const query = new Q();
+        check(fc.tuple(unitVector(3),
+            fc.double({ min: -0.5, max: 0.5, noNaN: true })),
+            ([n, c]) => {
+                const plane = Hyperplane.fromNormalConstant(n, c);
+                const mesh = octahedron();
+                const result = query.find(mesh, plane, Q.REQ_ALL);
+                if (result.configuration !== Q.CFG_SPLIT) { return; }
+                expectClosedManifold(result.positivePolyhedron);
+                expectClosedManifold(result.negativePolyhedron);
+                expectClose(volume(result.positivePolyhedron)
+                    + volume(result.negativePolyhedron), volume(mesh),
+                    1e-9, 1e-9);
+                if (minEdgeLength(result.intersectionPolygon) < 1e-6) {
+                    return;
+                }
+                expectSimpleConvexPolygon(result.intersectionPolygon, plane);
+            }, 100);
+    });
+
+    it('the split results do not alias the split-vertex pool or each other', () => {
+        // UniqueVerticesSimplices packs references to the vertices it is
+        // given, so the three output meshes would otherwise share Vector
+        // objects; upstream copies vertices by value.
+        const query = new Q();
+        const cube = unitCube();
+        const plane = Hyperplane.fromNormalConstant(v3(0, 0, 1), 0.4);
+        const result = query.find(cube, plane, Q.REQ_ALL);
+        expect(result.configuration).toBe(Q.CFG_SPLIT);
+
+        const posSet = new Set(result.positivePolyhedron.vertices);
+        for (const v of result.negativePolyhedron.vertices) {
+            expect(posSet.has(v)).toBe(false);
+        }
+        for (const v of result.intersectionMesh.vertices) {
+            expect(posSet.has(v)).toBe(false);
+        }
+        for (const v of result.intersectionPolygon) {
+            expect(posSet.has(v)).toBe(false);
+        }
+        // Mutating one mesh leaves the others (and the input) untouched.
+        const negBefore = result.negativePolyhedron.vertices.map(
+            v => v.values.slice());
+        const cubeBefore = cube.vertices.map(v => v.values.slice());
+        for (const v of result.positivePolyhedron.vertices) {
+            v.values[0] = 42;
+        }
+        expect(result.negativePolyhedron.vertices.map(v => v.values.slice()))
+            .toEqual(negBefore);
+        expect(cube.vertices.map(v => v.values.slice())).toEqual(cubeBefore);
+    });
+
+    it('the coplanar-face polygon does not alias the input mesh', () => {
+        const query = new Q();
+        const cube = unitCube();
+        const plane = Hyperplane.fromNormalConstant(v3(0, 0, 1), 1);
+        const result = query.find(cube, plane, Q.REQ_ALL);
+        expect(result.configuration).toBe(Q.CFG_NEG_SIDE_POLYGON);
+        const cubeSet = new Set(cube.vertices);
+        for (const v of result.intersectionMesh.vertices) {
+            expect(cubeSet.has(v)).toBe(false);
+        }
+        for (const v of result.intersectionPolygon) {
+            expect(cubeSet.has(v)).toBe(false);
+        }
+        const before = cube.vertices.map(v => v.values.slice());
+        for (const v of result.intersectionMesh.vertices) {
+            v.values[2] = -7;
+        }
+        expect(cube.vertices.map(v => v.values.slice())).toEqual(before);
+    });
+
+    it('places the triangulation apex at the reciprocal-scaled average', () => {
+        // Upstream divides the accumulated polygon-vertex sum with
+        // Vector::operator/=, which multiplies by the reciprocal of the
+        // vertex count; a componentwise division differs in the last bit for
+        // most sums. The cut below is a triangle whose x-coordinates sum to
+        // 5, and 5/3 !== 5*(1/3) in binary64.
+        expect(5 / 3).not.toBe(5 * (1 / 3));
+
+        const mesh = new ConvexMesh3();
+        mesh.configuration = ConvexMesh3.CFG_POLYHEDRON;
+        // A tetrahedron whose z = 0 cross-section is the triangle with
+        // vertices (1,0,0), (2.5,0,0) and (1.5,1.5,0): the x-coordinates sum
+        // to exactly 5.
+        mesh.vertices = [
+            v3(1, 0, -1), v3(4, 0, -1), v3(2, 3, -1), v3(1, 0, 1)
+        ];
+        mesh.triangles = [
+            [0, 2, 1], [0, 1, 3], [1, 2, 3], [2, 0, 3]
+        ];
+        const plane = Hyperplane.fromNormalConstant(v3(0, 0, 1), 0);
+        const result = new Q().find(mesh, plane, Q.REQ_ALL);
+        expect(result.configuration).toBe(Q.CFG_SPLIT);
+
+        const polygon = result.intersectionPolygon;
+        expect(polygon.length).toBe(3);
+        let sumX = 0;
+        let sumY = 0;
+        for (const p of polygon) {
+            sumX += p.values[0];
+            sumY += p.values[1];
+        }
+        expect(sumX).toBe(5);
+        const apexX = sumX * (1 / 3);
+        const apexY = sumY * (1 / 3);
+        // The apex is the extra vertex of the positive polyhedron that is on
+        // the plane but not on the polygon.
+        const apex = result.positivePolyhedron.vertices.filter(v =>
+            v.values[2] === 0 && !polygon.some(p =>
+                p.values[0] === v.values[0] && p.values[1] === v.values[1]));
+        expect(apex.length).toBe(1);
+        expect(apex[0].values[0]).toBe(apexX);
+        expect(apex[0].values[1]).toBe(apexY);
+        // The componentwise division would give a different last bit.
+        expect(apex[0].values[0]).not.toBe(sumX / 3);
+    });
+
+    it('the split is invariant under a relabeling of the input vertices', () => {
+        const query = new Q();
+        check(fc.tuple(arbPlaneThroughCube,
+            fc.constantFrom(
+                [0, 1, 2, 3, 4, 5, 6, 7],
+                [7, 6, 5, 4, 3, 2, 1, 0],
+                [2, 5, 0, 7, 4, 1, 6, 3],
+                [3, 0, 6, 1, 7, 2, 5, 4])),
+            ([plane, perm]) => {
+                const a = query.find(unitCube(), plane, Q.REQ_ALL);
+                const b = query.find(permuteVertices(unitCube(), perm), plane,
+                    Q.REQ_ALL);
+                expect(b.configuration).toBe(a.configuration);
+                if (a.configuration !== Q.CFG_SPLIT) { return; }
+                expectClose(volume(b.positivePolyhedron),
+                    volume(a.positivePolyhedron), 1e-9, 1e-9);
+                expectClose(volume(b.negativePolyhedron),
+                    volume(a.negativePolyhedron), 1e-9, 1e-9);
+                expect(b.intersectionPolygon.length)
+                    .toBe(a.intersectionPolygon.length);
+                expectClose(polygonArea(b.intersectionPolygon),
+                    polygonArea(a.intersectionPolygon), 1e-9, 1e-9);
+            }, 60);
+    });
+
+    it('is equivariant under a rigid motion of mesh and plane', () => {
+        const query = new Q();
+        check(fc.tuple(arbPlaneThroughCube, rotationFrame(3),
+            wellScaledVector(3, -2, 2)),
+            ([plane, R, t]) => {
+                const rot = (x: Vector) => Vector.fromArray([
+                    dot(R[0], x), dot(R[1], x), dot(R[2], x)]);
+                const map = (x: Vector) => Vector.fromArray([
+                    dot(R[0], x) + t.values[0], dot(R[1], x) + t.values[1],
+                    dot(R[2], x) + t.values[2]]);
+                const a = query.find(unitCube(), plane, Q.REQ_ALL);
+                const moved = new ConvexMesh3();
+                moved.configuration = ConvexMesh3.CFG_POLYHEDRON;
+                moved.vertices = unitCube().vertices.map(map);
+                moved.triangles = unitCube().triangles;
+                const plane2 = Hyperplane.fromNormalOrigin(rot(plane.normal),
+                    map(plane.origin));
+                const b = query.find(moved, plane2, Q.REQ_ALL);
+                if (a.configuration !== Q.CFG_SPLIT
+                    || b.configuration !== Q.CFG_SPLIT) {
+                    return;
+                }
+                expectClose(volume(b.positivePolyhedron),
+                    volume(a.positivePolyhedron), 1e-9, 1e-9);
+                expectClose(polygonArea(b.intersectionPolygon),
+                    polygonArea(a.intersectionPolygon), 1e-9, 1e-9);
+            }, 60);
+    });
+
+    it('reports the tangential configurations with the documented flags', () => {
+        const query = new Q();
+        const cube = unitCube();
+        // A face in the plane.
+        const face = query.find(cube,
+            Hyperplane.fromNormalConstant(v3(0, 0, 1), 0), Q.REQ_ALL);
+        expect(face.configuration).toBe(Q.CFG_POS_SIDE_POLYGON);
+        expect(face.intersectionPolygon.length).toBe(4);
+        expectSimpleConvexPolygon(face.intersectionPolygon,
+            Hyperplane.fromNormalConstant(v3(0, 0, 1), 0));
+        // The polygon has unit side lengths (the #301 cycle-order fix).
+        for (let i = 0; i < 4; ++i) {
+            const a = face.intersectionPolygon[i];
+            const b = face.intersectionPolygon[(i + 1) % 4];
+            expectClose(Math.sqrt(dot(sub(b, a), sub(b, a))), 1, 1e-12, 1e-12);
+        }
+
+        // A single edge in the plane.
+        const n = v3(1, 0, 1);
+        const edge = query.find(cube,
+            Hyperplane.fromNormalConstant(n, 0), Q.REQ_ALL);
+        expect(edge.configuration).toBe(Q.CFG_POS_SIDE_EDGE);
+        expect(edge.intersectionPolygon.length).toBe(2);
+
+        // A single vertex in the plane.
+        const vertexPlane = Hyperplane.fromNormalConstant(v3(1, 1, 1), 0);
+        const vertex = query.find(cube, vertexPlane, Q.REQ_ALL);
+        expect(vertex.configuration).toBe(Q.CFG_POS_SIDE_VERTEX);
+        expect(vertex.intersectionPolygon.length).toBe(1);
+        expect(vertex.intersectionPolygon[0].values).toEqual([0, 0, 0]);
+        // The reported vertex is a copy.
+        expect(vertex.intersectionPolygon[0]).not.toBe(cube.vertices[0]);
+    });
+
+    it('pins the floating-point degeneracy of a near-vertex cut', () => {
+        // Upstream static_asserts that Real is an arbitrary-precision type,
+        // because the classification Dot(N,X) - c > 0 / < 0 / == 0 must be
+        // exact. The port instantiates the query for 'number' (see the port
+        // notes in the source), so a plane that passes within rounding of a
+        // mesh vertex classifies that vertex strictly on one side and splits
+        // the incident edges a few 1e-17 away from it. The volumes stay
+        // right, but the split meshes carry degenerate triangles (a repeated
+        // index) and the polygon repeats a vertex. Pinned so the behaviour is
+        // visible rather than surprising.
+        const n = v3(-0.7071067811865476, 0, 0.7071067811865475);
+        const plane = Hyperplane.fromNormalConstant(n,
+            -5.551115123125783e-17);
+        // The cube diagonal plane z = x passes through four cube vertices.
+        for (const i of [0, 3, 5, 6]) {
+            expect(Math.abs(signedDistance(plane, unitCube().vertices[i])))
+                .toBeLessThan(1e-16);
+        }
+        const result = new Q().find(unitCube(), plane, Q.REQ_ALL);
+        expect(result.configuration).toBe(Q.CFG_SPLIT);
+        // The volumes are still exactly right.
+        expectClose(volume(result.positivePolyhedron), 0.5, 1e-12, 1e-12);
+        expectClose(volume(result.negativePolyhedron), 0.5, 1e-12, 1e-12);
+        // ... but the triangulation is degenerate.
+        const degenerate = result.positivePolyhedron.triangles.some(t =>
+            t[0] === t[1] || t[1] === t[2] || t[2] === t[0]);
+        expect(degenerate).toBe(true);
+        expect(minEdgeLength(result.intersectionPolygon)).toBe(0);
+    });
+
+    it('honors REQ_CONFIGURATION_ONLY without computing any geometry', () => {
+        const query = new Q();
+        check(arbPlaneThroughCube, plane => {
+            const full = query.find(unitCube(), plane, Q.REQ_ALL);
+            const only = query.find(unitCube(), plane,
+                Q.REQ_CONFIGURATION_ONLY);
+            expect(only.configuration).toBe(full.configuration);
+            expect(only.intersectionPolygon.length).toBe(0);
+            expect(only.intersectionMesh.vertices.length).toBe(0);
+            expect(only.positivePolyhedron.vertices.length).toBe(0);
+            expect(only.negativePolyhedron.vertices.length).toBe(0);
+        }, 60);
     });
 });

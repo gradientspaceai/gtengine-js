@@ -36,7 +36,7 @@ import type { FIQuery } from './FIQuery.js';
 import type { Hyperplane } from './Hyperplane.js';
 import { logAssert, logError } from './Logger.js';
 import { UniqueVerticesSimplices } from './UniqueVerticesSimplices.js';
-import { Vector, add, dot, mul } from './Vector.js';
+import { Vector, add, div, dot, mul } from './Vector.js';
 
 // The result of the find-intersection query.
 export interface IntrConvexMesh3Plane3FIResult {
@@ -413,7 +413,10 @@ function getIntersectionPolygonTangential(polyhedron: ConvexMesh3,
     }
 
     if (wantIntrMesh) {
-        result.intersectionMesh.vertices = outVertices;
+        // UniqueVerticesSimplices packs REFERENCES to the input vertices
+        // into its output, and the input here is the caller's mesh; upstream
+        // copies vertices by value, so the result must not alias the input.
+        result.intersectionMesh.vertices = outVertices.map(v => v.clone());
         result.intersectionMesh.triangles = outTriangles.map(triangle =>
             [triangle[0], triangle[1], triangle[2]] as ConvexMesh3Triangle);
     }
@@ -844,9 +847,10 @@ function getSplitPolyhedra(splitVertices: ConvexMesh3Vertex[],
     for (const i of polygon) {
         average = add(average, splitVertices[i]);
     }
-    for (let d = 0; d < 3; ++d) {
-        average.values[d] /= numVertices;
-    }
+    // Upstream divides with Vector::operator/=, which multiplies by the
+    // reciprocal (Vector.h); a componentwise division differs in the last
+    // bit, so the reciprocal is formed here as upstream does.
+    average = div(average, numVertices);
     const iAvrIndex = splitVertices.length;
     splitVertices.push(average);
 
@@ -871,7 +875,10 @@ function getSplitPolyhedra(splitVertices: ConvexMesh3Vertex[],
         result.positivePolyhedron.configuration = ConvexMesh3.CFG_POLYHEDRON;
         const out = uvt.removeDuplicateAndUnusedVerticesGrouped(splitVertices,
             posMesh);
-        result.positivePolyhedron.vertices = out.vertices;
+        // The three output meshes are built from the same splitVertices
+        // pool and UniqueVerticesSimplices returns references into it, so
+        // each mesh gets its own copies (upstream copies by value).
+        result.positivePolyhedron.vertices = out.vertices.map(v => v.clone());
         result.positivePolyhedron.triangles = out.simplices.map(triangle =>
             [triangle[0], triangle[1], triangle[2]] as ConvexMesh3Triangle);
     }
@@ -880,7 +887,7 @@ function getSplitPolyhedra(splitVertices: ConvexMesh3Vertex[],
         result.negativePolyhedron.configuration = ConvexMesh3.CFG_POLYHEDRON;
         const out = uvt.removeDuplicateAndUnusedVerticesGrouped(splitVertices,
             negMesh);
-        result.negativePolyhedron.vertices = out.vertices;
+        result.negativePolyhedron.vertices = out.vertices.map(v => v.clone());
         result.negativePolyhedron.triangles = out.simplices.map(triangle =>
             [triangle[0], triangle[1], triangle[2]] as ConvexMesh3Triangle);
     }
@@ -889,7 +896,7 @@ function getSplitPolyhedra(splitVertices: ConvexMesh3Vertex[],
         result.intersectionMesh.configuration = ConvexMesh3.CFG_POLYGON;
         const out = uvt.removeDuplicateAndUnusedVerticesGrouped(splitVertices,
             intrMesh);
-        result.intersectionMesh.vertices = out.vertices;
+        result.intersectionMesh.vertices = out.vertices.map(v => v.clone());
         result.intersectionMesh.triangles = out.simplices.map(triangle =>
             [triangle[0], triangle[1], triangle[2]] as ConvexMesh3Triangle);
     }
