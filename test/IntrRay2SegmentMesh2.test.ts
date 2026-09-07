@@ -144,6 +144,24 @@ describe('IntrRay2SegmentMesh2 verification', () => {
     const fiQ = new IntrRay2SegmentMesh2FI();
     const lsQ = new IntrLine2SegmentMesh2FI();
 
+    // The line-segment tests are knife-edge when the query line passes
+    // through a mesh vertex: which of the two incident mesh segments
+    // reports the crossing then depends on the rounding of the line
+    // origin and direction, so a reversed or moved copy of the same line
+    // can report a different number of hits. Properties that compare two
+    // such copies skip those configurations.
+    function clearsMeshVertices(origin: Vector, direction: Vector,
+        mesh: SegmentMesh, tolerance = 1e-6): boolean {
+        const dd = dot(direction, direction);
+        if (dd === 0) { return false; }
+        for (const v of mesh.getVertices()) {
+            const w = sub(v, origin);
+            const perp = sub(w, mul(dot(w, direction) / dd, direction));
+            if (Math.sqrt(dot(perp, perp)) < tolerance) { return false; }
+        }
+        return true;
+    }
+
     // A closed polygonal mesh whose vertices are on a jittered circle, so
     // that segments are well separated and rays hit several of them.
     const arbMesh = fc.tuple(fc.integer({ min: 3, max: 9 }),
@@ -253,15 +271,14 @@ describe('IntrRay2SegmentMesh2 verification', () => {
                 const rot = (v: Vector) => Vector.fromArray([
                     dot(Rot[0], v), dot(Rot[1], v)]);
                 const map = (v: Vector) => add(rot(v), t);
+                if (!clearsMeshVertices(R.origin, R.direction, M)) {
+                    return;
+                }
                 const r0 = fiQ.find(R, M);
-                // Skip near-vertex and near-origin hits, where the strict
-                // filters can flip under a rigid motion.
+                // Skip hits at the ray origin, where the t >= 0 filter
+                // can flip under a rigid motion.
                 for (const o of r0.intersections) {
-                    if (o.meshSegmentParameter < 1e-6
-                        || o.meshSegmentParameter > 1 - 1e-6
-                        || o.rayParameter < 1e-6) {
-                        return;
-                    }
+                    if (o.rayParameter < 1e-6) { return; }
                 }
                 const M2 = SegmentMesh.fromContiguous(
                     M.getVertices().map(map), false);

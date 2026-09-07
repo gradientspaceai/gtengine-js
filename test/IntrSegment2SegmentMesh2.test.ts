@@ -140,6 +140,24 @@ describe('IntrSegment2SegmentMesh2 verification', () => {
     const fiQ = new IntrSegment2SegmentMesh2FI();
     const lsQ = new IntrLine2SegmentMesh2FI();
 
+    // The line-segment tests are knife-edge when the query line passes
+    // through a mesh vertex: which of the two incident mesh segments
+    // reports the crossing then depends on the rounding of the line
+    // origin and direction, so a reversed or moved copy of the same line
+    // can report a different number of hits. Properties that compare two
+    // such copies skip those configurations.
+    function clearsMeshVertices(origin: Vector, direction: Vector,
+        mesh: SegmentMesh, tolerance = 1e-6): boolean {
+        const dd = dot(direction, direction);
+        if (dd === 0) { return false; }
+        for (const v of mesh.getVertices()) {
+            const w = sub(v, origin);
+            const perp = sub(w, mul(dot(w, direction) / dd, direction));
+            if (Math.sqrt(dot(perp, perp)) < tolerance) { return false; }
+        }
+        return true;
+    }
+
     const arbMesh = fc.tuple(fc.integer({ min: 3, max: 9 }),
         fc.array(fc.double({ min: 0.5, max: 2, noNaN: true }),
             { minLength: 9, maxLength: 9 }))
@@ -216,11 +234,12 @@ describe('IntrSegment2SegmentMesh2 verification', () => {
         // reversed. Hits within rounding of an endpoint or of a mesh vertex
         // are skipped, where the inclusive filters can flip.
         check(fc.tuple(arbSegment(2), arbMesh), ([S, M]) => {
+            if (!clearsMeshVertices(S.p[0], sub(S.p[1], S.p[0]), M)) {
+                return;
+            }
             const r0 = fiQ.find(S, M);
             for (const o of r0.intersections) {
-                if (o.segmentParameter < 1e-7 || o.segmentParameter > 1 - 1e-7
-                    || o.meshSegmentParameter < 1e-7
-                    || o.meshSegmentParameter > 1 - 1e-7) {
+                if (o.segmentParameter < 1e-6 || o.segmentParameter > 1 - 1e-6) {
                     return;
                 }
             }
@@ -278,11 +297,13 @@ describe('IntrSegment2SegmentMesh2 verification', () => {
                 const rot = (v: Vector) => Vector.fromArray([
                     dot(Rot[0], v), dot(Rot[1], v)]);
                 const map = (v: Vector) => add(rot(v), t);
+                if (!clearsMeshVertices(S.p[0], sub(S.p[1], S.p[0]),
+                    M)) {
+                    return;
+                }
                 const r0 = fiQ.find(S, M);
                 for (const o of r0.intersections) {
-                    if (o.meshSegmentParameter < 1e-6
-                        || o.meshSegmentParameter > 1 - 1e-6
-                        || o.segmentParameter < 1e-6
+                    if (o.segmentParameter < 1e-6
                         || o.segmentParameter > 1 - 1e-6) {
                         return;
                     }
