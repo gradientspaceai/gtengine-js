@@ -1632,7 +1632,8 @@
   "verified": 15
  },
  "MinimalCycleBasis.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 37
  },
  "Minimize1.h": {
   "status": "ported"
@@ -1786,7 +1787,8 @@
   "verified": 25
  },
  "PlanarMesh.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 37
  },
  "Polygon2.h": {
   "status": "ported"
@@ -1970,7 +1972,8 @@
   "verified": 8
  },
  "SplitMeshByPlane.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 37
  },
  "SqrtEstimate.h": {
   "status": "ported",
@@ -2136,14 +2139,16 @@
   "verified": 16
  },
  "VETManifoldMesh.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 37
  },
  "VETNonmanifoldMesh.h": {
   "status": "ported",
   "verified": 16
  },
  "VTSManifoldMesh.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 37
  },
  "WeakPtrCompare.h": {
   "status": "omitted",
