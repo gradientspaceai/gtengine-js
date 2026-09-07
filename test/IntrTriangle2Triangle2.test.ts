@@ -6,7 +6,11 @@ import {
     defaultIntrTriangle2Triangle2TIResult
 } from '../src/IntrTriangle2Triangle2.js';
 import { Triangle } from '../src/Triangle.js';
-import { Vector, add, sub } from '../src/Vector.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import {
+    check, expectClose, expectVectorClose, fc, rotationFrame,
+    seededRandom, wellScaledVector
+} from './helpers/arbitraries.js';
 import { dotPerp } from '../src/Vector2.js';
 
 const V2 = (x: number, y: number) => Vector.fromArray([x, y]);
@@ -298,5 +302,316 @@ describe('IntrTriangle2Triangle2 randomized cross-checks', () => {
             // tolerance relative to the bounding-box area.
             expect(Math.abs(estimate - exact)).toBeLessThan(0.08 * boxArea);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V35): the TI query is cross-checked against a brute-force
+// method of separating axes over the six edge normals, and the FI polygon
+// against an independent Sutherland-Hodgman clip of triangle1 by the three
+// halfplanes of triangle0.
+// ---------------------------------------------------------------------------
+
+describe('IntrTriangle2Triangle2 verification', () => {
+    const tiv = new IntrTriangle2Triangle2TI();
+    const fiv = new IntrTriangle2Triangle2FI();
+
+    function perp2(v: Vector): Vector {
+        return Vector.fromArray([v.values[1], -v.values[0]]);
+    }
+
+    // The six candidate separating directions: the edge normals of both
+    // triangles, unnormalized (so integer input stays exact).
+    function candidateAxes(t0: Triangle, t1: Triangle): Vector[] {
+        const axes: Vector[] = [];
+        for (const t of [t0, t1]) {
+            for (let i0 = 2, i1 = 0; i1 < 3; i0 = i1++) {
+                axes.push(perp2(sub(t.v[i1], t.v[i0])));
+            }
+        }
+        return axes;
+    }
+
+    function interval(t: Triangle, n: Vector): [number, number] {
+        let lo = dot(n, t.v[0]);
+        let hi = lo;
+        for (let i = 1; i < 3; ++i) {
+            const d = dot(n, t.v[i]);
+            if (d < lo) { lo = d; } else if (d > hi) { hi = d; }
+        }
+        return [lo, hi];
+    }
+
+    // The two solid triangles have disjoint interiors exactly when some
+    // candidate axis gives closed projection intervals that do not overlap;
+    // touching intervals count as separated, matching the query, whose
+    // WhichSide requires a strictly positive projection.
+    function satSeparated(t0: Triangle, t1: Triangle): boolean {
+        for (const n of candidateAxes(t0, t1)) {
+            if (dot(n, n) === 0) {
+                continue;
+            }
+            const [lo0, hi0] = interval(t0, n);
+            const [lo1, hi1] = interval(t1, n);
+            if (hi0 <= lo1 || hi1 <= lo0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function hasTie(t0: Triangle, t1: Triangle, tol: number): boolean {
+        for (const n of candidateAxes(t0, t1)) {
+            const nn = dot(n, n);
+            if (nn === 0) {
+                return true;
+            }
+            const scale = Math.sqrt(nn);
+            const [lo0, hi0] = interval(t0, n);
+            const [lo1, hi1] = interval(t1, n);
+            if (Math.abs(lo1 - hi0) <= tol * scale
+                || Math.abs(lo0 - hi1) <= tol * scale) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function twiceArea(poly: readonly Vector[]): number {
+        let a = 0;
+        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+            a += poly[j].values[0] * poly[i].values[1]
+                - poly[i].values[0] * poly[j].values[1];
+        }
+        return a;
+    }
+
+    // Clip 'poly' by the halfplane { x : dotPerp(b - a, x - a) >= 0 }.
+    function clipHalfplane(poly: readonly Vector[], a: Vector, b: Vector):
+        Vector[] {
+        const edge = sub(b, a);
+        const side = (x: Vector): number => dotPerp(edge, sub(x, a));
+        const out: Vector[] = [];
+        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+            const sj = side(poly[j]);
+            const si = side(poly[i]);
+            if (sj >= 0) {
+                out.push(poly[j]);
+            }
+            if ((sj > 0 && si < 0) || (sj < 0 && si > 0)) {
+                const t = sj / (sj - si);
+                out.push(add(poly[j], mul(t, sub(poly[i], poly[j]))));
+            }
+        }
+        return out;
+    }
+
+    // The convex intersection of two counterclockwise triangles.
+    function clipTriangles(t0: Triangle, t1: Triangle): Vector[] {
+        let poly: Vector[] = [t1.v[0], t1.v[1], t1.v[2]];
+        for (let i0 = 0, i1 = 1; i0 < 3; i0 = i1++) {
+            poly = clipHalfplane(poly, t0.v[i0], t0.v[(i0 + 1) % 3]);
+            if (poly.length === 0) {
+                return poly;
+            }
+        }
+        return poly;
+    }
+
+    // Counterclockwise triangle with area bounded away from zero.
+    const ccwTriangle = fc.array(wellScaledVector(2, -6, 6),
+        { minLength: 3, maxLength: 3 })
+        .map(vs => {
+            const t = Triangle.fromVertices(vs[0], vs[1], vs[2]);
+            if (dotPerp(sub(t.v[1], t.v[0]), sub(t.v[2], t.v[0])) < 0) {
+                const swap = t.v[1];
+                t.v[1] = t.v[2];
+                t.v[2] = swap;
+            }
+            return t;
+        })
+        .filter(t => dotPerp(sub(t.v[1], t.v[0]), sub(t.v[2], t.v[0])) > 1);
+
+    it('TI agrees with a brute-force separating-axis test on lattice input',
+        () => {
+            // Integer coordinates keep every projection onto an unnormalized
+            // edge normal exact, so the reference decides separation exactly
+            // and no tolerance is needed.
+            const rng = seededRandom(0x7a11e5);
+            const draw = (): Vector => Vector.fromArray([
+                Math.round(rng() * 10) - 5, Math.round(rng() * 10) - 5]);
+            let numIntersect = 0, numSeparate = 0;
+            for (let iter = 0; iter < 4000; ++iter) {
+                const mk = (): Triangle | null => {
+                    const t = Triangle.fromVertices(draw(), draw(), draw());
+                    const area = dotPerp(sub(t.v[1], t.v[0]),
+                        sub(t.v[2], t.v[0]));
+                    if (area === 0) {
+                        return null;
+                    }
+                    if (area < 0) {
+                        const swap = t.v[1];
+                        t.v[1] = t.v[2];
+                        t.v[2] = swap;
+                    }
+                    return t;
+                };
+                const t0 = mk();
+                const t1 = mk();
+                if (t0 === null || t1 === null) {
+                    continue;
+                }
+                const separated = satSeparated(t0, t1);
+                expect(tiv.test(t0, t1).intersect).toBe(!separated);
+                if (separated) { ++numSeparate; } else { ++numIntersect; }
+            }
+            expect(numIntersect).toBeGreaterThan(100);
+            expect(numSeparate).toBeGreaterThan(100);
+        }, 30000);
+
+    it('TI agrees with a brute-force separating-axis test on real input',
+        () => {
+            check(fc.tuple(ccwTriangle, ccwTriangle), ([t0, t1]) => {
+                if (hasTie(t0, t1, 1e-9)) {
+                    return;
+                }
+                expect(tiv.test(t0, t1).intersect).toBe(!satSeparated(t0, t1));
+            });
+        });
+
+    it('TI is symmetric in its arguments', () => {
+        check(fc.tuple(ccwTriangle, ccwTriangle), ([t0, t1]) => {
+            if (hasTie(t0, t1, 1e-9)) {
+                return;
+            }
+            expect(tiv.test(t1, t0).intersect).toBe(tiv.test(t0, t1).intersect);
+        });
+    });
+
+    it('FI equals an independent convex clip', () => {
+        check(fc.tuple(ccwTriangle, ccwTriangle), ([t0, t1]) => {
+            const got = fiv.find(t0, t1).intersection;
+            const want = clipTriangles(t0, t1);
+            const areaGot = twiceArea(got);
+            const areaWant = twiceArea(want);
+            // Both polygons are formed from the same intersections of the
+            // same lines, so the areas agree to rounding; the tolerance is
+            // relative to the triangle sizes (coordinates below 6).
+            expectClose(areaGot, areaWant, 1e-7, 1e-7);
+            if (areaWant > 1e-6) {
+                expect(got.length).toBeGreaterThanOrEqual(3);
+            }
+        });
+    });
+
+    it('FI returns a counterclockwise convex polygon inside both triangles',
+        () => {
+            check(fc.tuple(ccwTriangle, ccwTriangle), ([t0, t1]) => {
+                const poly = fiv.find(t0, t1).intersection;
+                if (poly.length < 3) {
+                    return;
+                }
+                expect(twiceArea(poly)).toBeGreaterThanOrEqual(-1e-9);
+                // Convexity: every turn is a left turn (or straight).
+                for (let i = 0; i < poly.length; ++i) {
+                    const a = poly[i];
+                    const b = poly[(i + 1) % poly.length];
+                    const c = poly[(i + 2) % poly.length];
+                    expect(dotPerp(sub(b, a), sub(c, b)))
+                        .toBeGreaterThanOrEqual(-1e-9);
+                }
+                // Containment in both triangles. The clipped vertices are
+                // computed by linear interpolation along the clipping lines,
+                // so the residual is proportional to the coordinate size.
+                for (const x of poly) {
+                    for (const t of [t0, t1]) {
+                        for (let i0 = 0; i0 < 3; ++i0) {
+                            const a = t.v[i0];
+                            const b = t.v[(i0 + 1) % 3];
+                            expect(dotPerp(sub(b, a), sub(x, a)))
+                                .toBeGreaterThan(-1e-8);
+                        }
+                    }
+                }
+            });
+        });
+
+    it('a triangle intersected with itself returns its own area', () => {
+        check(ccwTriangle, t => {
+            const poly = fiv.find(t, t).intersection;
+            expect(poly.length).toBeGreaterThanOrEqual(3);
+            expectClose(twiceArea(poly),
+                dotPerp(sub(t.v[1], t.v[0]), sub(t.v[2], t.v[0])),
+                1e-9, 1e-9);
+            expect(tiv.test(t, t).intersect).toBe(true);
+        });
+    });
+
+    it('TI implies a nonempty FI polygon, and a positive-area FI polygon'
+        + ' implies TI', () => {
+            // TI reports separation for measure-zero contact (its WhichSide
+            // requires a strictly positive projection), while FI still
+            // returns the touching vertex or edge, so the two do not agree in
+            // both directions. These implications do hold.
+            check(fc.tuple(ccwTriangle, ccwTriangle), ([t0, t1]) => {
+                const poly = fiv.find(t0, t1).intersection;
+                if (tiv.test(t0, t1).intersect) {
+                    expect(poly.length).toBeGreaterThan(0);
+                }
+                if (twiceArea(poly) > 1e-7) {
+                    expect(tiv.test(t0, t1).intersect).toBe(true);
+                }
+            });
+        });
+
+    it('treats measure-zero contact as separation in TI', () => {
+        // Two triangles meeting at the single point (1,0). The TI WhichSide
+        // requires a strictly positive projection, so the shared-vertex axis
+        // reports separation. The FI clip drops the contact as well here
+        // (the third clipping line leaves the polygon on its negative side
+        // with one zero-height vertex), but that is a knife edge: for other
+        // touching configurations the clip returns a zero-area polygon
+        // instead, which is why the TI/FI relation is only asserted in the
+        // two safe directions above.
+        const a = Triangle.fromVertices(Vector.fromArray([0, 0]),
+            Vector.fromArray([1, 0]), Vector.fromArray([0, 1]));
+        const b = Triangle.fromVertices(Vector.fromArray([1, 0]),
+            Vector.fromArray([2, 0]), Vector.fromArray([1, 1]));
+        expect(tiv.test(a, b).intersect).toBe(false);
+        expect(tiv.test(b, a).intersect).toBe(false);
+        const poly = fiv.find(a, b).intersection;
+        expect(Math.abs(twiceArea(poly))).toBeLessThan(1e-12);
+        for (const x of poly) {
+            expectVectorClose(x, Vector.fromArray([1, 0]), 1e-9, 1e-9);
+        }
+        // Two triangles sharing the edge from (0,0) to (0,1) likewise report
+        // separation.
+        const c = Triangle.fromVertices(Vector.fromArray([0, 0]),
+            Vector.fromArray([-1, 0]), Vector.fromArray([0, 1]));
+        expect(tiv.test(a, c).intersect).toBe(false);
+        expect(Math.abs(twiceArea(fiv.find(a, c).intersection)))
+            .toBeLessThan(1e-12);
+    });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(ccwTriangle, ccwTriangle, rotationFrame(2),
+            wellScaledVector(2, -5, 5)), ([t0, t1, frame, tr]) => {
+                if (hasTie(t0, t1, 1e-7)) {
+                    return;
+                }
+                const xf = (v: Vector): Vector => Vector.fromArray([
+                    frame[0].values[0] * v.values[0]
+                        + frame[1].values[0] * v.values[1] + tr.values[0],
+                    frame[0].values[1] * v.values[0]
+                        + frame[1].values[1] * v.values[1] + tr.values[1]]);
+                const a = Triangle.fromVertices(xf(t0.v[0]), xf(t0.v[1]),
+                    xf(t0.v[2]));
+                const b = Triangle.fromVertices(xf(t1.v[0]), xf(t1.v[1]),
+                    xf(t1.v[2]));
+                expect(tiv.test(a, b).intersect)
+                    .toBe(tiv.test(t0, t1).intersect);
+                expectClose(twiceArea(fiv.find(a, b).intersection),
+                    twiceArea(fiv.find(t0, t1).intersection), 1e-7, 1e-7);
+            });
     });
 });
