@@ -3,6 +3,7 @@ import { TetrahedronKey } from '../src/TetrahedronKey.js';
 import { FeatureKey } from '../src/FeatureKey.js';
 import { Vector, dot, sub } from '../src/Vector.js';
 import { cross } from '../src/Vector3.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 // Deterministic pseudorandom generator so failures are reproducible.
 function makeRng(seed: number): () => number {
@@ -216,5 +217,127 @@ describe('TetrahedronKey.getOppositeFace', () => {
             // The normal must point away from the opposite vertex p[j].
             expect(dot(normal, sub(p[a], p[j]))).toBeGreaterThan(0);
         }
+    });
+});
+
+describe('TetrahedronKey verification', () => {
+    const quad = fc.uniqueArray(fc.integer({ min: -3, max: 9 }),
+        { minLength: 4, maxLength: 4 });
+
+    const permutations = (): number[][] => {
+        const out: number[][] = [];
+        const rec = (prefix: number[], rest: number[]): void => {
+            if (rest.length === 0) {
+                out.push(prefix);
+                return;
+            }
+            for (let i = 0; i < rest.length; ++i) {
+                rec(prefix.concat([rest[i]]),
+                    rest.slice(0, i).concat(rest.slice(i + 1)));
+            }
+        };
+        rec([], [0, 1, 2, 3]);
+        return out;
+    };
+
+    const parity = (p: number[]): number => {
+        let inversions = 0;
+        for (let i = 0; i < p.length; ++i) {
+            for (let j = i + 1; j < p.length; ++j) {
+                if (p[i] > p[j]) {
+                    ++inversions;
+                }
+            }
+        }
+        return inversions % 2;
+    };
+
+    const allPerms = permutations();
+    const evenPerms = allPerms.filter((p) => parity(p) === 0);
+    const oddPerms = allPerms.filter((p) => parity(p) === 1);
+
+    it('the permutation sets have the expected sizes', () => {
+        expect(allPerms.length).toBe(24);
+        expect(evenPerms.length).toBe(12);
+        expect(oddPerms.length).toBe(12);
+    });
+
+    it('ordered: the twelve even permutations map to one key', () => {
+        check(quad, (v) => {
+            const key = new TetrahedronKey(true, v[0], v[1], v[2], v[3]);
+            for (const p of evenPerms) {
+                const other = new TetrahedronKey(true, v[p[0]], v[p[1]],
+                    v[p[2]], v[p[3]]);
+                expect(other.equals(key)).toBe(true);
+                expect(other.mapKey()).toBe(key.mapKey());
+            }
+        });
+    });
+
+    it('ordered: the odd permutations map to a single other key', () => {
+        check(quad, (v) => {
+            const key = new TetrahedronKey(true, v[0], v[1], v[2], v[3]);
+            const oddKeys = new Set<string>();
+            for (const p of oddPerms) {
+                const other = new TetrahedronKey(true, v[p[0]], v[p[1]],
+                    v[p[2]], v[p[3]]);
+                expect(other.equals(key)).toBe(false);
+                oddKeys.add(other.mapKey());
+            }
+            expect(oddKeys.size).toBe(1);
+        });
+    });
+
+    it('ordered: V[0] and V[1] are the two smallest, det(P) = +1', () => {
+        check(quad, (v) => {
+            const key = new TetrahedronKey(true, v[0], v[1], v[2], v[3]);
+            const sorted = v.slice().sort((a, b) => a - b);
+            expect(key.V[0]).toBe(sorted[0]);
+            expect(key.V[1]).toBe(Math.min(key.V[1], key.V[2], key.V[3]));
+            const perm = key.V.map((x) => v.indexOf(x));
+            expect(perm.slice().sort((a, b) => a - b)).toEqual([0, 1, 2, 3]);
+            expect(parity(perm)).toBe(0);
+        });
+    });
+
+    it('ordered: the stored tuple is one of the twelve documented forms', () => {
+        check(quad, (v) => {
+            const key = new TetrahedronKey(true, v[0], v[1], v[2], v[3]);
+            const forms = evenPerms.map((p) =>
+                [v[p[0]], v[p[1]], v[p[2]], v[p[3]]].join(','));
+            expect(forms).toContain(key.mapKey());
+        });
+    });
+
+    it('unordered: all 24 permutations map to one sorted key', () => {
+        check(quad, (v) => {
+            const key = new TetrahedronKey(false, v[0], v[1], v[2], v[3]);
+            expect(key.V).toEqual(v.slice().sort((a, b) => a - b));
+            for (const p of allPerms) {
+                const other = new TetrahedronKey(false, v[p[0]], v[p[1]],
+                    v[p[2]], v[p[3]]);
+                expect(other.equals(key)).toBe(true);
+            }
+        });
+    });
+
+    it('unordered sorting is numeric, not lexicographic on strings', () => {
+        // The default Array.prototype.sort would produce [10, 2, 3, 9].
+        const key = new TetrahedronKey(false, 10, 3, 2, 9);
+        expect(key.V).toEqual([2, 3, 9, 10]);
+    });
+
+    it('the opposite faces are the four triples of the ordered key', () => {
+        check(quad, (v) => {
+            const key = new TetrahedronKey(true, v[0], v[1], v[2], v[3]);
+            const faces = TetrahedronKey.getOppositeFace();
+            const seen = new Set<string>();
+            for (let j = 0; j < 4; ++j) {
+                const face = faces[j].map((i) => key.V[i]);
+                expect(face).not.toContain(key.V[j]);
+                seen.add(face.slice().sort((a, b) => a - b).join(','));
+            }
+            expect(seen.size).toBe(4);
+        });
     });
 });

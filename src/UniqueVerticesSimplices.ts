@@ -292,6 +292,25 @@ export class UniqueVerticesSimplices<VertexType> {
         return indices;
     }
 
+    // The port of the C++ copy that occurs whenever upstream stores a
+    // VertexType in its std::map key or in the outVertices std::vector.
+    // JavaScript assignment aliases, so a mutable vertex is copied here:
+    // Vector and friends through clone(), arrays and typed arrays through
+    // slice(). Immutable vertex types (number, string, bigint, boolean) are
+    // returned unchanged, which is indistinguishable from a copy.
+    private copyVertex(vertex: VertexType): VertexType {
+        const candidate = vertex as unknown as { clone?: () => VertexType };
+        if (candidate !== null && typeof candidate === 'object') {
+            if (typeof candidate.clone === 'function') {
+                return candidate.clone();
+            }
+            if (Array.isArray(vertex) || ArrayBuffer.isView(vertex)) {
+                return (vertex as unknown as { slice: () => VertexType }).slice();
+            }
+        }
+        return vertex;
+    }
+
     // Store in inToOutMapping[] the index in the returned vertex pool of each
     // input vertex.
     private removeDuplicates(
@@ -318,11 +337,8 @@ export class UniqueVerticesSimplices<VertexType> {
                 // after the loop by iterating the map, which stores the
                 // vertex at the same index computed here. Upstream's
                 // std::vector<VertexType> holds COPIES; a JS array would alias
-                // the caller's objects, so vertices that expose clone() (Vector
-                // and friends) are copied. Plain values are unaffected.
-                const v = inVertices[i] as unknown as { clone?: () => VertexType };
-                outVertices.push(typeof v.clone === 'function'
-                    ? v.clone() : inVertices[i]);
+                // the caller's objects, so mutable vertices are copied.
+                outVertices.push(this.copyVertex(inVertices[i]));
                 ++numOutVertices;
             }
         }
@@ -347,7 +363,8 @@ export class UniqueVerticesSimplices<VertexType> {
         let numOutVertices = 0;
         const vmap = new Map<number, number>();
         for (const oldIndex of usedIndices) {
-            outVertices[numOutVertices] = inVertices[oldIndex];
+            // Upstream copies the vertex into the output std::vector.
+            outVertices[numOutVertices] = this.copyVertex(inVertices[oldIndex]);
             vmap.set(oldIndex, numOutVertices);
             ++numOutVertices;
         }

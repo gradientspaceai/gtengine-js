@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { StaticVETManifoldMesh2 } from '../src/StaticVETManifoldMesh2.js';
+import {
+    ETManifoldMesh, ETManifoldMeshTriangle
+} from '../src/ETManifoldMesh.js';
+import { TriangleKey } from '../src/TriangleKey.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 const invalid = StaticVETManifoldMesh2.invalid;
 
@@ -276,5 +281,316 @@ describe('StaticVETManifoldMesh2.getBoundaryPolygons', () => {
             const v1 = polygons[0][(k + 1) % polygons[0].length];
             expect(mesh.edgeExists(v0, v1)).toBe(true);
         }
+    });
+});
+
+describe('StaticVETManifoldMesh2 verification', () => {
+    // Random subsets of a consistently oriented grid mesh. Every subset is a
+    // manifold mesh with no mixed chirality, which is what the class
+    // preconditions require.
+    const meshArb = fc.integer({ min: 1, max: 3 }).chain((n) => {
+        const grid = makeGrid(n, n);
+        return fc.array(fc.boolean(), {
+            minLength: grid.triangles.length,
+            maxLength: grid.triangles.length
+        }).map((mask) => ({
+            numVertices: grid.numVertices,
+            triangles: grid.triangles.filter((_, i) => mask[i])
+        }));
+    }).filter(({ triangles }) => triangles.length > 0);
+
+    // The dynamic sibling mesh built from the same triangle soup.
+    const dynamicOf = (triangles: [number, number, number][]): ETManifoldMesh => {
+        const mesh = new ETManifoldMesh();
+        for (const t of triangles) {
+            expect(mesh.insert(t[0], t[1], t[2])).not.toBeNull();
+        }
+        return mesh;
+    };
+
+    it('agrees with ETManifoldMesh on edges and triangle adjacency', () => {
+        check(meshArb, ({ numVertices, triangles }) => {
+            const stat = new StaticVETManifoldMesh2(numVertices, triangles);
+            const dyn = dynamicOf(triangles);
+
+            // The same undirected edges.
+            const dynEdges = new Set(dyn.getEdgeKeys().map((k) => k.mapKey()));
+            const statEdges = new Set<string>();
+            for (const t of triangles) {
+                for (let i = 0; i < 3; ++i) {
+                    const a = t[i];
+                    const b = t[(i + 1) % 3];
+                    statEdges.add(Math.min(a, b) + ',' + Math.max(a, b));
+                    expect(stat.edgeExists(a, b)).toBe(true);
+                    expect(stat.edgeExists(b, a)).toBe(true);
+                }
+            }
+            expect(statEdges).toEqual(dynEdges);
+
+            // The same triangle-triangle adjacency. Both classes index the
+            // adjacency by the edge (V[i], V[(i+1)%3]).
+            const adjacents = stat.getAdjacents();
+            for (let t = 0; t < triangles.length; ++t) {
+                const tri = triangles[t];
+                const dynTri = dyn.getTriangle(tri[0], tri[1], tri[2]);
+                expect(dynTri).not.toBeNull();
+                for (let i = 0; i < 3; ++i) {
+                    // The dynamic triangle may be a rotation of the input, so
+                    // look the edge up by its vertices.
+                    const dynAdj = (dynTri as ETManifoldMeshTriangle)
+                        .getAdjacentOfEdge(tri[i], tri[(i + 1) % 3]);
+                    if (adjacents[t][i] === invalid) {
+                        expect(dynAdj).toBeNull();
+                    } else {
+                        expect(dynAdj).not.toBeNull();
+                        const other = triangles[adjacents[t][i]];
+                        expect(new TriangleKey(true, other[0], other[1], other[2])
+                            .mapKey())
+                            .toBe(new TriangleKey(true,
+                                (dynAdj as ETManifoldMeshTriangle).V[0],
+                                (dynAdj as ETManifoldMeshTriangle).V[1],
+                                (dynAdj as ETManifoldMeshTriangle).V[2]).mapKey());
+                    }
+                }
+            }
+        }, 60);
+    });
+
+    it('the packed vertex storage decodes to the mesh adjacency', () => {
+        check(meshArb, ({ numVertices, triangles }) => {
+            const stat = new StaticVETManifoldMesh2(numVertices, triangles);
+            const vertices = stat.getVertices();
+            expect(vertices.length).toBe(numVertices);
+
+            // Brute-force per-vertex data.
+            const counts: number[] = new Array<number>(numVertices).fill(0);
+            const neighbors: Set<number>[] = [];
+            const outgoing: Map<number, number>[] = [];
+            for (let v = 0; v < numVertices; ++v) {
+                neighbors.push(new Set<number>());
+                outgoing.push(new Map<number, number>());
+            }
+            for (let t = 0; t < triangles.length; ++t) {
+                const tri = triangles[t];
+                for (let i = 0; i < 3; ++i) {
+                    ++counts[tri[i]];
+                    neighbors[tri[i]].add(tri[(i + 1) % 3]);
+                    neighbors[tri[i]].add(tri[(i + 2) % 3]);
+                    // The directed edge <tri[i], tri[i+1]> belongs to t.
+                    outgoing[tri[i]].set(tri[(i + 1) % 3], t);
+                }
+            }
+
+            expect(stat.getMinNumTrianglesAtVertex()).toBe(Math.min(...counts));
+            expect(stat.getMaxNumTrianglesAtVertex()).toBe(Math.max(...counts));
+
+            for (let v = 0; v < numVertices; ++v) {
+                const vertex = vertices[v];
+                expect(vertex.getNumTAdjacents()).toBe(counts[v]);
+                // One outgoing edge per incident triangle.
+                expect(vertex.getNumEAdjacents()).toBe(counts[v]);
+                expect(new Set(vertex.getVAdjacents())).toEqual(neighbors[v]);
+                expect(vertex.getVAdjacents().length)
+                    .toBe(vertex.getNumVAdjacents());
+                expect(vertex.getNumVAdjacents())
+                    .toBeLessThanOrEqual(2 * vertex.getNumTAdjacents());
+
+                const triples = vertex.getEAdjacents();
+                expect(triples.length).toBe(counts[v]);
+                expect(new Set(triples.map((e) => e[0])).size)
+                    .toBe(triples.length);
+                for (let j = 0; j < triples.length; ++j) {
+                    const [av, lt, rt] = triples[j];
+                    // LT is the triangle containing the directed edge <v,av>.
+                    expect(lt).toBe(outgoing[v].get(av));
+                    // RT is the triangle containing the reversed directed
+                    // edge, or 'invalid' on a boundary edge.
+                    const reverse = outgoing[av].get(v);
+                    expect(rt).toBe(reverse === undefined ? invalid : reverse);
+                    expect(vertex.getEAdjacent(j)).toEqual([av, lt, rt]);
+                }
+            }
+        }, 60);
+    });
+
+    it('getAdjacentTriangles reports the documented four cases', () => {
+        check(meshArb, ({ numVertices, triangles }) => {
+            const stat = new StaticVETManifoldMesh2(numVertices, triangles);
+            // Brute force: the triangle containing each directed edge.
+            const owner = new Map<string, number>();
+            for (let t = 0; t < triangles.length; ++t) {
+                for (let i = 0; i < 3; ++i) {
+                    owner.set(triangles[t][i] + ',' +
+                        triangles[t][(i + 1) % 3], t);
+                }
+            }
+
+            for (let v0 = 0; v0 < numVertices; ++v0) {
+                for (let v1 = 0; v1 < numVertices; ++v1) {
+                    const forward = owner.get(v0 + ',' + v1);
+                    const backward = owner.get(v1 + ',' + v0);
+                    const result = stat.getAdjacentTriangles(v0, v1);
+                    if (v0 === v1 || (forward === undefined &&
+                        backward === undefined)) {
+                        // Case 4.
+                        expect(result).toEqual({
+                            exists: false, adj0: invalid, adj1: invalid
+                        });
+                        continue;
+                    }
+                    expect(result.exists).toBe(true);
+                    expect(result.adj0)
+                        .toBe(forward === undefined ? invalid : forward);
+                    expect(result.adj1)
+                        .toBe(backward === undefined ? invalid : backward);
+                    // The query is antisymmetric in its arguments.
+                    const swapped = stat.getAdjacentTriangles(v1, v0);
+                    expect(swapped.adj0).toBe(result.adj1);
+                    expect(swapped.adj1).toBe(result.adj0);
+                    expect(stat.edgeExists(v0, v1)).toBe(true);
+                }
+            }
+        }, 25);
+    });
+
+    it('agrees with ETManifoldMesh on the connected components', () => {
+        check(meshArb, ({ numVertices, triangles }) => {
+            const stat = new StaticVETManifoldMesh2(numVertices, triangles);
+            const dyn = dynamicOf(triangles);
+
+            const key = (t: number[]): string =>
+                new TriangleKey(true, t[0], t[1], t[2]).mapKey();
+            const statComponents = stat.getComponents()
+                .map((c) => c.map((t) => key(triangles[t])).sort().join(';'))
+                .sort();
+            const dynComponents = dyn.getComponents()
+                .map((c) => c.map((t) => key(t.V)).sort().join(';'))
+                .sort();
+            expect(statComponents).toEqual(dynComponents);
+
+            // The components partition the triangle indices.
+            const flat = stat.getComponents().flat();
+            expect(flat.length).toBe(triangles.length);
+            expect(new Set(flat).size).toBe(triangles.length);
+        }, 60);
+    });
+
+    it('agrees with ETManifoldMesh on the boundary polygons', () => {
+        check(meshArb, ({ numVertices, triangles }) => {
+            const stat = new StaticVETManifoldMesh2(numVertices, triangles);
+            const dyn = dynamicOf(triangles);
+
+            // Normalize a polygon to its lexicographically smallest rotation
+            // so that the two traversals can be compared regardless of where
+            // they start.
+            const canonical = (polygon: number[]): string => {
+                let best: string | null = null;
+                for (let s = 0; s < polygon.length; ++s) {
+                    const rotated = polygon.slice(s).concat(polygon.slice(0, s));
+                    const text = rotated.join(',');
+                    if (best === null || text < best) {
+                        best = text;
+                    }
+                }
+                return best as string;
+            };
+
+            let statPolygons: number[][];
+            let dynPolygons: number[][];
+            try {
+                statPolygons = stat.getBoundaryPolygons(false);
+            } catch (e) {
+                // A pinched (bow-tie) vertex makes both traversals fail.
+                expect(() => dyn.getBoundaryPolygons(false)).toThrow();
+                return;
+            }
+            dynPolygons = dyn.getBoundaryPolygons(false);
+            expect(statPolygons.map(canonical).sort())
+                .toEqual(dynPolygons.map(canonical).sort());
+
+            // Each boundary edge is traversed exactly once.
+            const boundary: string[] = [];
+            const adjacents = stat.getAdjacents();
+            for (let t = 0; t < triangles.length; ++t) {
+                for (let i = 0; i < 3; ++i) {
+                    if (adjacents[t][i] === invalid) {
+                        boundary.push(triangles[t][i] + ',' +
+                            triangles[t][(i + 1) % 3]);
+                    }
+                }
+            }
+            const covered: string[] = [];
+            for (const polygon of statPolygons) {
+                for (let i = 0; i < polygon.length; ++i) {
+                    covered.push(polygon[i] + ',' +
+                        polygon[(i + 1) % polygon.length]);
+                }
+            }
+            expect(covered.sort()).toEqual(boundary.sort());
+
+            // duplicateEndpoints repeats the first vertex at the end.
+            const closed = stat.getBoundaryPolygons(true);
+            expect(closed.length).toBe(statPolygons.length);
+            for (let i = 0; i < closed.length; ++i) {
+                expect(closed[i][closed[i].length - 1]).toBe(closed[i][0]);
+                expect(closed[i].slice(0, -1)).toEqual(statPolygons[i]);
+            }
+        }, 60);
+    });
+
+    it('the triangle order does not change the mesh relations', () => {
+        check(fc.tuple(meshArb, fc.array(fc.nat(), { maxLength: 16 })),
+            ([{ numVertices, triangles }, shuffle]) => {
+                const permuted = triangles.slice();
+                for (let k = 0; k < shuffle.length; ++k) {
+                    const i = shuffle[k] % permuted.length;
+                    const j = (shuffle[k] * 5 + k) % permuted.length;
+                    const t = permuted[i];
+                    permuted[i] = permuted[j];
+                    permuted[j] = t;
+                }
+                const a = new StaticVETManifoldMesh2(numVertices, triangles);
+                const b = new StaticVETManifoldMesh2(numVertices, permuted);
+
+                expect(b.getMinNumTrianglesAtVertex())
+                    .toBe(a.getMinNumTrianglesAtVertex());
+                expect(b.getMaxNumTrianglesAtVertex())
+                    .toBe(a.getMaxNumTrianglesAtVertex());
+                for (let v0 = 0; v0 < numVertices; ++v0) {
+                    for (let v1 = v0 + 1; v1 < numVertices; ++v1) {
+                        expect(b.edgeExists(v0, v1)).toBe(a.edgeExists(v0, v1));
+                        const ra = a.getAdjacentTriangles(v0, v1);
+                        const rb = b.getAdjacentTriangles(v0, v1);
+                        expect(rb.exists).toBe(ra.exists);
+                        // The adjacency values are triangle indices, so
+                        // compare the triangles they name.
+                        const nameA = (i: number): string => i === invalid
+                            ? 'none' : triangles[i].join(',');
+                        const nameB = (i: number): string => i === invalid
+                            ? 'none' : permuted[i].join(',');
+                        expect(nameB(rb.adj0)).toBe(nameA(ra.adj0));
+                        expect(nameB(rb.adj1)).toBe(nameA(ra.adj1));
+                    }
+                }
+            }, 25);
+    });
+
+    it('the numThreads argument does not change the result', () => {
+        check(fc.tuple(meshArb, fc.integer({ min: 0, max: 8 })),
+            ([{ numVertices, triangles }, numThreads]) => {
+                const a = new StaticVETManifoldMesh2(numVertices, triangles, 0);
+                const b = new StaticVETManifoldMesh2(numVertices, triangles,
+                    numThreads);
+                expect(b.getAdjacents()).toEqual(a.getAdjacents());
+                expect(b.getVertices().map((v) => v.getEAdjacents()))
+                    .toEqual(a.getVertices().map((v) => v.getEAdjacents()));
+            }, 40);
+    });
+
+    it('the constructor copies the caller triangle array', () => {
+        const triangles: [number, number, number][] = [[0, 1, 2], [0, 2, 3]];
+        const mesh = new StaticVETManifoldMesh2(4, triangles);
+        triangles[0][0] = 99;
+        expect(mesh.getTriangles()[0]).toEqual([0, 1, 2]);
     });
 });

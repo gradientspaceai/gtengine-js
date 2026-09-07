@@ -6,6 +6,7 @@ import {
 } from '../src/ETManifoldMesh.js';
 import { EdgeKey } from '../src/EdgeKey.js';
 import { TriangleKey } from '../src/TriangleKey.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 // The ordered triangle keys of the mesh (or of a component), as arrays of the
 // three vertex indices.
@@ -708,5 +709,433 @@ describe('ETManifoldMesh randomized consistency', () => {
             expect(keys(mesh.getTriangles())).toEqual(keys(build(triples).getTriangles()));
             checkInvariants(mesh);
         }
+    });
+});
+
+describe('ETManifoldMesh verification', () => {
+    // An independent model of the mesh built from the triangle triples: the
+    // unordered edge -> triangles map, computed by brute force.
+    class Model {
+        triples: number[][] = [];
+
+        edgeMap(): Map<string, number[][]> {
+            const map = new Map<string, number[][]>();
+            for (const t of this.triples) {
+                for (let i = 0; i < 3; ++i) {
+                    const key = new EdgeKey(false, t[i], t[(i + 1) % 3]).mapKey();
+                    const list = map.get(key);
+                    if (list === undefined) {
+                        map.set(key, [t]);
+                    } else {
+                        list.push(t);
+                    }
+                }
+            }
+            return map;
+        }
+
+        // The triple is manifold-compatible with the model: no coincident
+        // triangle and no edge already shared by two triangles. The upstream
+        // 'nonmanifold' guard additionally enforces consistent orientation
+        // across a shared edge.
+        canInsert(t: number[]): boolean {
+            const tkey = new TriangleKey(true, t[0], t[1], t[2]).mapKey();
+            for (const u of this.triples) {
+                if (new TriangleKey(true, u[0], u[1], u[2]).mapKey() === tkey) {
+                    return false;
+                }
+            }
+            const map = this.edgeMap();
+            for (let i = 0; i < 3; ++i) {
+                const shared = map.get(
+                    new EdgeKey(false, t[i], t[(i + 1) % 3]).mapKey()) ?? [];
+                if (shared.length >= 2) {
+                    return false;
+                }
+                for (const u of shared) {
+                    // The shared edge must be traversed in opposite
+                    // directions by the two triangles.
+                    const side = new ETManifoldMeshTriangle(u[0], u[1], u[2])
+                        .whichSideOfEdge(t[i], t[(i + 1) % 3]);
+                    if (side !== -1) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+    }
+
+    // Compare the mesh against the brute-force model.
+    const checkAgainstModel = (mesh: ETManifoldMesh, model: Model): void => {
+        const expectedTriangles = model.triples
+            .map((t) => new TriangleKey(true, t[0], t[1], t[2]).mapKey()).sort();
+        expect(mesh.getTriangleKeys().map((k) => k.mapKey()).sort())
+            .toEqual(expectedTriangles);
+
+        const modelEdges = model.edgeMap();
+        expect(mesh.getEdgeKeys().map((k) => k.mapKey()).sort())
+            .toEqual(Array.from(modelEdges.keys()).sort());
+
+        for (const edge of mesh.getEdges()) {
+            const key = new EdgeKey(false, edge.V[0], edge.V[1]).mapKey();
+            const shared = modelEdges.get(key) as number[][];
+            const stored = edge.T.filter((t) => t !== null);
+            expect(stored.length).toBe(shared.length);
+            expect(stored.map((t) =>
+                new TriangleKey(true, t.V[0], t.V[1], t.V[2]).mapKey()).sort())
+                .toEqual(shared.map((t) =>
+                    new TriangleKey(true, t[0], t[1], t[2]).mapKey()).sort());
+        }
+
+        expect(mesh.isClosed()).toBe(Array.from(modelEdges.values())
+            .every((list) => list.length === 2));
+        checkInvariants(mesh);
+    };
+
+    // A random subset of the triangles of an n x n grid. Every subset of a
+    // consistently oriented manifold mesh is a manifold mesh.
+    const gridSubset = (n: number) => fc.tuple(fc.constant(n),
+        fc.array(fc.boolean(), { minLength: 2 * n * n, maxLength: 2 * n * n }))
+        .map(([size, mask]) => gridTriples(size).filter((_, i) => mask[i]));
+
+    const subsetArb = fc.integer({ min: 1, max: 3 }).chain((n) => gridSubset(n))
+        .filter((triples) => triples.length > 0);
+
+    it('agrees with a brute-force adjacency model', () => {
+        check(subsetArb, (triples) => {
+            const mesh = new ETManifoldMesh();
+            const model = new Model();
+            for (const t of triples) {
+                expect(mesh.insert(t[0], t[1], t[2])).not.toBeNull();
+                model.triples.push(t);
+            }
+            checkAgainstModel(mesh, model);
+            // A consistently oriented submesh of an oriented mesh is
+            // oriented.
+            expect(mesh.isOriented()).toBe(true);
+        }, 60);
+    });
+
+    it('random insert/remove sequences agree with the model', () => {
+        check(fc.tuple(fc.integer({ min: 1, max: 3 }),
+            fc.array(fc.tuple(fc.boolean(), fc.nat()),
+                { minLength: 1, maxLength: 20 })), ([n, ops]) => {
+            const all = gridTriples(n);
+            const mesh = new ETManifoldMesh();
+            const model = new Model();
+            for (const [insertOp, raw] of ops) {
+                const t = all[raw % all.length];
+                const tkey = new TriangleKey(true, t[0], t[1], t[2]).mapKey();
+                if (insertOp) {
+                    const expected = model.canInsert(t);
+                    expect(mesh.insert(t[0], t[1], t[2]) !== null).toBe(expected);
+                    if (expected) {
+                        model.triples.push(t);
+                    }
+                } else {
+                    const present = model.triples.some((u) =>
+                        new TriangleKey(true, u[0], u[1], u[2]).mapKey() === tkey);
+                    expect(mesh.remove(t[0], t[1], t[2])).toBe(present);
+                    model.triples = model.triples.filter((u) =>
+                        new TriangleKey(true, u[0], u[1], u[2]).mapKey() !== tkey);
+                }
+                checkAgainstModel(mesh, model);
+            }
+        }, 40);
+    });
+
+    it('the insertion order does not change the mesh contents', () => {
+        check(fc.tuple(subsetArb, fc.array(fc.nat(), { maxLength: 20 })),
+            ([triples, shuffle]) => {
+                const permuted = triples.slice();
+                for (let k = 0; k < shuffle.length; ++k) {
+                    const i = shuffle[k] % permuted.length;
+                    const j = (shuffle[k] * 5 + k) % permuted.length;
+                    const t = permuted[i];
+                    permuted[i] = permuted[j];
+                    permuted[j] = t;
+                }
+                const a = build(triples);
+                const b = build(permuted);
+                expect(b.getTriangleKeys().map((k) => k.mapKey()))
+                    .toEqual(a.getTriangleKeys().map((k) => k.mapKey()));
+                expect(b.getEdgeKeys().map((k) => k.mapKey()))
+                    .toEqual(a.getEdgeKeys().map((k) => k.mapKey()));
+                expect(b.isClosed()).toBe(a.isClosed());
+                expect(b.isOriented()).toBe(a.isOriented());
+            }, 60);
+    });
+
+    it('a third triangle on an edge is rejected and leaks a phantom edge', () => {
+        check(fc.integer({ min: 10, max: 20 }), (w) => {
+            const mesh = new ETManifoldMesh();
+            mesh.insert(0, 1, 2);
+            mesh.insert(1, 0, 3);
+            // A third triangle on the edge {0,1}. It is wound so that the
+            // orientation guard does not fire first, so the failure comes
+            // from the edge already having two triangles.
+            expect(() => mesh.insert(1, 0, w))
+                .toThrow('Attempt to create nonmanifold mesh.');
+            expect(mesh.getNumTriangles()).toBe(2);
+
+            // Upstream quirk, preserved: the edges created by the loop
+            // iterations that ran before the failure stay in the edge map and
+            // reference the rejected triangle, which was never added to the
+            // triangle map. (In C++ that Triangle* dangles, because the
+            // unique_ptr holding the rejected triangle dies with the frame.)
+            const phantom = mesh.getEdge(w, 1);
+            expect(phantom).not.toBeNull();
+            const leaked = (phantom as ETManifoldMeshEdge).T[0];
+            expect(leaked).not.toBeNull();
+            expect(mesh.getTriangles()).not.toContain(leaked);
+            expect(mesh.getNumEdges()).toBe(6);
+
+            // The same happens on the graceful path, where insert returns
+            // null instead of throwing.
+            const graceful = new ETManifoldMesh();
+            graceful.throwOnNonmanifoldInsertion(false);
+            graceful.insert(0, 1, 2);
+            graceful.insert(1, 0, 3);
+            expect(graceful.insert(1, 0, w)).toBeNull();
+            expect(graceful.getNumTriangles()).toBe(2);
+            expect(graceful.getEdge(w, 1)).not.toBeNull();
+        });
+    });
+
+    it('getComponents partitions the triangles by connectivity', () => {
+        check(subsetArb, (triples) => {
+            const mesh = build(triples);
+            const components = mesh.getComponents();
+            const keyComponents = mesh.getComponentKeys();
+
+            // The components partition the triangles.
+            const flat = components.flat();
+            expect(flat.length).toBe(mesh.getNumTriangles());
+            expect(new Set(flat).size).toBe(flat.length);
+            expect(keyComponents.map((c) => c.length))
+                .toEqual(components.map((c) => c.length));
+
+            // Brute-force connectivity by shared edges, using union-find over
+            // the triangle keys.
+            const all = mesh.getTriangles();
+            const parent = new Map<ETManifoldMeshTriangle, ETManifoldMeshTriangle>();
+            for (const t of all) {
+                parent.set(t, t);
+            }
+            const find = (t: ETManifoldMeshTriangle): ETManifoldMeshTriangle => {
+                while (parent.get(t) !== t) {
+                    t = parent.get(t) as ETManifoldMeshTriangle;
+                }
+                return t;
+            };
+            for (const t of all) {
+                for (const adj of t.T) {
+                    if (adj !== null) {
+                        parent.set(find(t), find(adj));
+                    }
+                }
+            }
+            const roots = new Set(all.map((t) => find(t)));
+            expect(components.length).toBe(roots.size);
+            for (const component of components) {
+                expect(new Set(component.map((t) => find(t))).size).toBe(1);
+            }
+        }, 60);
+    });
+
+    it('createCompactGraph mirrors the mesh adjacency', () => {
+        check(subsetArb, (triples) => {
+            const mesh = build(triples);
+            const { triangles, adjacents } = mesh.createCompactGraph();
+            const ordered = mesh.getTriangles();
+            expect(triangles.length).toBe(ordered.length);
+
+            for (let i = 0; i < ordered.length; ++i) {
+                expect(triangles[i]).toEqual(ordered[i].V.slice());
+                for (let j = 0; j < 3; ++j) {
+                    const adj = ordered[i].T[j];
+                    if (adj === null) {
+                        expect(adjacents[i][j]).toBe(-1);
+                    } else {
+                        expect(adjacents[i][j]).toBe(ordered.indexOf(adj));
+                        // The adjacency is symmetric.
+                        expect(adjacents[adjacents[i][j]]).toContain(i);
+                    }
+                }
+            }
+        }, 60);
+    });
+
+    it('makeConsistentChirality repairs randomly flipped closed meshes', () => {
+        const closedMeshes = [tetraSurface, octaSurface];
+        check(fc.tuple(fc.integer({ min: 0, max: closedMeshes.length - 1 }),
+            fc.array(fc.boolean(), { minLength: 8, maxLength: 8 })),
+        ([which, flips]) => {
+            const source = closedMeshes[which];
+            const flipped = source.map((t, i) =>
+                (flips[i % flips.length] ? [t[0], t[2], t[1]] : t));
+            const mesh = new ETManifoldMesh();
+            // Flipping breaks the orientation, so insertion must not throw.
+            mesh.throwOnNonmanifoldInsertion(false);
+            for (const t of flipped) {
+                mesh.insert(t[0], t[1], t[2]);
+            }
+            expect(mesh.getNumTriangles()).toBe(source.length);
+
+            mesh.makeConsistentChirality();
+            expect(mesh.getNumTriangles()).toBe(source.length);
+            expect(mesh.isOriented()).toBe(true);
+            expect(mesh.isClosed()).toBe(true);
+            // The unordered triangles are unchanged; only the winding may
+            // have been flipped.
+            expect(unorderedTriples(mesh)).toEqual(
+                unorderedTriples(build(source)));
+            checkInvariants(mesh);
+        }, 60);
+    });
+
+    it('makeConsistentChirality is idempotent', () => {
+        check(subsetArb, (triples) => {
+            const mesh = build(triples);
+            mesh.makeConsistentChirality();
+            const once = mesh.getTriangleKeys().map((k) => k.mapKey());
+            mesh.makeConsistentChirality();
+            expect(mesh.getTriangleKeys().map((k) => k.mapKey())).toEqual(once);
+        }, 40);
+    });
+
+    it('getComponentsConsistentChirality partitions the compact graph', () => {
+        check(subsetArb, (triples) => {
+            const mesh = build(triples);
+            const { triangles, adjacents } = mesh.createCompactGraph();
+            const { components, numComponentTriangles } =
+                ETManifoldMesh.getComponentsConsistentChirality(triangles, adjacents);
+            expect(components.length).toBe(triangles.length);
+            expect(new Set(components).size).toBe(components.length);
+            expect(numComponentTriangles.reduce((a, b) => a + b, 0))
+                .toBe(triangles.length);
+            expect(numComponentTriangles.length)
+                .toBe(mesh.getComponents().length);
+            for (const size of numComponentTriangles) {
+                expect(size).toBeGreaterThan(0);
+            }
+        }, 60);
+    });
+
+    it('boundary polygons cover every boundary edge exactly once', () => {
+        check(subsetArb, (triples) => {
+            const mesh = build(triples);
+            // The directed boundary edges: those with no adjacent triangle.
+            const boundary = new Set<string>();
+            for (const tri of mesh.getTriangles()) {
+                for (let i = 0; i < 3; ++i) {
+                    if (tri.T[i] === null) {
+                        boundary.add(tri.V[i] + ',' + tri.V[(i + 1) % 3]);
+                    }
+                }
+            }
+            // A pinched vertex (more than two boundary edges meeting there)
+            // makes the upstream traversal revisit a triangle and assert.
+            const outgoing = new Map<number, number>();
+            for (const key of boundary) {
+                const v = Number(key.split(',')[0]);
+                outgoing.set(v, (outgoing.get(v) ?? 0) + 1);
+            }
+            const pinched = Array.from(outgoing.values()).some((c) => c > 1);
+
+            let polygons: number[][];
+            try {
+                polygons = mesh.getBoundaryPolygons(false);
+            } catch (e) {
+                expect(pinched).toBe(true);
+                return;
+            }
+
+            const covered: string[] = [];
+            for (const polygon of polygons) {
+                expect(polygon.length).toBeGreaterThanOrEqual(3);
+                for (let i = 0; i < polygon.length; ++i) {
+                    covered.push(polygon[i] + ',' +
+                        polygon[(i + 1) % polygon.length]);
+                }
+            }
+            if (!pinched) {
+                expect(covered.slice().sort())
+                    .toEqual(Array.from(boundary).sort());
+            }
+
+            // With duplicated endpoints the polygon closes on itself.
+            const closed = mesh.getBoundaryPolygons(true);
+            expect(closed.length).toBe(polygons.length);
+            for (let i = 0; i < closed.length; ++i) {
+                expect(closed[i].length).toBe(polygons[i].length + 1);
+                expect(closed[i][closed[i].length - 1]).toBe(closed[i][0]);
+                expect(closed[i].slice(0, -1)).toEqual(polygons[i]);
+            }
+        }, 60);
+    });
+
+    it('the boundary of an n x n grid disk is its 4n-vertex perimeter', () => {
+        check(fc.integer({ min: 1, max: 5 }), (n) => {
+            const mesh = build(gridTriples(n));
+            const polygons = mesh.getBoundaryPolygons(false);
+            expect(polygons.length).toBe(1);
+            expect(polygons[0].length).toBe(4 * n);
+            // Every polygon vertex is on the perimeter of the grid.
+            for (const v of polygons[0]) {
+                const r = Math.floor(v / (n + 1));
+                const c = v % (n + 1);
+                expect(r === 0 || r === n || c === 0 || c === n).toBe(true);
+            }
+            expect(new Set(polygons[0]).size).toBe(4 * n);
+        });
+    });
+
+    it('clone and assign reproduce the mesh', () => {
+        check(subsetArb, (triples) => {
+            const mesh = build(triples);
+            const copy = mesh.clone();
+            expect(copy.getTriangleKeys().map((k) => k.mapKey()))
+                .toEqual(mesh.getTriangleKeys().map((k) => k.mapKey()));
+            expect(copy.getEdgeKeys().map((k) => k.mapKey()))
+                .toEqual(mesh.getEdgeKeys().map((k) => k.mapKey()));
+            checkInvariants(copy);
+
+            // The copies are independent.
+            const first = mesh.getTriangles()[0];
+            mesh.remove(first.V[0], first.V[1], first.V[2]);
+            expect(copy.getNumTriangles()).toBe(triples.length);
+
+            // assign onto a nonempty mesh clears it first.
+            const target = build(tetraSurface);
+            target.assign(copy);
+            expect(target.getTriangleKeys().map((k) => k.mapKey()))
+                .toEqual(copy.getTriangleKeys().map((k) => k.mapKey()));
+        }, 60);
+    });
+
+    it('whichSideOfEdge and getOppositeVertexOfEdge are consistent', () => {
+        check(fc.uniqueArray(fc.integer({ min: 0, max: 9 }),
+            { minLength: 3, maxLength: 3 }), (v) => {
+            const tri = new ETManifoldMeshTriangle(v[0], v[1], v[2]);
+            for (let i = 0; i < 3; ++i) {
+                const a = v[i];
+                const b = v[(i + 1) % 3];
+                const c = v[(i + 2) % 3];
+                expect(tri.whichSideOfEdge(a, b)).toBe(+1);
+                expect(tri.whichSideOfEdge(b, a)).toBe(-1);
+                expect(tri.getOppositeVertexOfEdge(a, b))
+                    .toEqual({ found: true, uOpposite: c });
+                expect(tri.getOppositeVertexOfEdge(b, a))
+                    .toEqual({ found: true, uOpposite: c });
+                expect(tri.getAdjacentOfEdge(a, b)).toBeNull();
+            }
+            // An edge that the triangle does not have.
+            expect(tri.whichSideOfEdge(v[0], 100)).toBe(0);
+            expect(tri.getOppositeVertexOfEdge(v[0], 100))
+                .toEqual({ found: false, uOpposite: -1 });
+            expect(tri.getAdjacentOfEdge(v[0], 100)).toBeNull();
+        });
     });
 });

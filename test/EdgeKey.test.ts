@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { EdgeKey } from '../src/EdgeKey.js';
 import { FeatureKey } from '../src/FeatureKey.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 // Deterministic pseudorandom generator so failures are reproducible.
 function makeRng(seed: number): () => number {
@@ -91,5 +92,59 @@ describe('EdgeKey use as a map key', () => {
         const key1 = new EdgeKey(false, 2, 8);
         expect(FeatureKey.equal(key0, key1)).toBe(true);
         expect(key0.hashValue()).toBe(key1.hashValue());
+    });
+});
+
+describe('EdgeKey verification', () => {
+    const idx = fc.integer({ min: -2, max: 5 });
+
+    it('ordered keys store the inputs verbatim', () => {
+        check(fc.tuple(idx, idx), ([v0, v1]) => {
+            const key = new EdgeKey(true, v0, v1);
+            expect(key.V).toEqual([v0, v1]);
+            expect(key.ordered).toBe(true);
+            expect(key.n).toBe(2);
+        });
+    });
+
+    it('unordered keys are sorted and swap-invariant', () => {
+        check(fc.tuple(idx, idx), ([v0, v1]) => {
+            const a = new EdgeKey(false, v0, v1);
+            const b = new EdgeKey(false, v1, v0);
+            expect(a.V[0]).toBeLessThanOrEqual(a.V[1]);
+            expect(a.V[0]).toBe(Math.min(v0, v1));
+            expect(a.V[1]).toBe(Math.max(v0, v1));
+            expect(a.equals(b)).toBe(true);
+            expect(a.mapKey()).toBe(b.mapKey());
+            expect(a.hashValue()).toBe(b.hashValue());
+        });
+    });
+
+    it('ordered keys distinguish the two orientations', () => {
+        check(fc.tuple(idx, idx).filter(([v0, v1]) => v0 !== v1),
+            ([v0, v1]) => {
+                const a = new EdgeKey(true, v0, v1);
+                const b = new EdgeKey(true, v1, v0);
+                expect(a.equals(b)).toBe(false);
+                // The unordered key of either orientation is the same.
+                const u0 = new EdgeKey(false, v0, v1);
+                const u1 = new EdgeKey(false, v1, v0);
+                expect(u0.equals(u1)).toBe(true);
+            });
+    });
+
+    it('a Set of unordered edges counts undirected edges', () => {
+        check(fc.array(fc.tuple(idx, idx).filter(([a, b]) => a !== b),
+            { minLength: 1, maxLength: 12 }), (pairs) => {
+            const set = new Set<string>();
+            for (const [v0, v1] of pairs) {
+                set.add(new EdgeKey(false, v0, v1).mapKey());
+            }
+            const brute = new Set<string>();
+            for (const [v0, v1] of pairs) {
+                brute.add(`${Math.min(v0, v1)},${Math.max(v0, v1)}`);
+            }
+            expect(set.size).toBe(brute.size);
+        });
     });
 });

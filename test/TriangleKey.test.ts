@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { TriangleKey } from '../src/TriangleKey.js';
 import { FeatureKey } from '../src/FeatureKey.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 // Deterministic pseudorandom generator so failures are reproducible.
 function makeRng(seed: number): () => number {
@@ -159,5 +160,96 @@ describe('TriangleKey unordered', () => {
         expect(new TriangleKey(false, 3, 5, 5).V).toEqual([3, 5, 5]);
         expect(new TriangleKey(false, -1, -4, 2).V).toEqual([-4, -1, 2]);
         expect(new TriangleKey(false, 7, 7, 7).V).toEqual([7, 7, 7]);
+    });
+});
+
+describe('TriangleKey verification', () => {
+    // Distinct vertex indices; the ordered/unordered contracts are stated for
+    // a triangle whose three vertices differ.
+    const triple = fc.uniqueArray(fc.integer({ min: -3, max: 8 }),
+        { minLength: 3, maxLength: 3 });
+
+    const even: number[][] = [[0, 1, 2], [1, 2, 0], [2, 0, 1]];
+    const odd: number[][] = [[0, 2, 1], [2, 1, 0], [1, 0, 2]];
+    const all = even.concat(odd);
+
+    it('ordered: the three cyclic rotations map to one key', () => {
+        check(triple, (v) => {
+            const key = new TriangleKey(true, v[0], v[1], v[2]);
+            for (const p of even) {
+                const other = new TriangleKey(true, v[p[0]], v[p[1]], v[p[2]]);
+                expect(other.equals(key)).toBe(true);
+                expect(other.mapKey()).toBe(key.mapKey());
+            }
+        });
+    });
+
+    it('ordered: the odd permutations map to the other key', () => {
+        check(triple, (v) => {
+            const key = new TriangleKey(true, v[0], v[1], v[2]);
+            for (const p of odd) {
+                const other = new TriangleKey(true, v[p[0]], v[p[1]], v[p[2]]);
+                expect(other.equals(key)).toBe(false);
+            }
+            // Exactly two distinct ordered keys arise from the 6 permutations.
+            const keys = new Set(all.map((p) =>
+                new TriangleKey(true, v[p[0]], v[p[1]], v[p[2]]).mapKey()));
+            expect(keys.size).toBe(2);
+        });
+    });
+
+    it('ordered: V[0] is the minimum and V is a rotation of the input', () => {
+        check(triple, (v) => {
+            const key = new TriangleKey(true, v[0], v[1], v[2]);
+            expect(key.V[0]).toBe(Math.min(v[0], v[1], v[2]));
+            const rotations = even.map((p) => [v[p[0]], v[p[1]], v[p[2]]]);
+            expect(rotations.some((r) =>
+                r[0] === key.V[0] && r[1] === key.V[1] && r[2] === key.V[2]))
+                .toBe(true);
+        });
+    });
+
+    it('ordered: the permutation matrix has determinant +1', () => {
+        check(triple, (v) => {
+            const key = new TriangleKey(true, v[0], v[1], v[2]);
+            // Row i of P is the standard basis vector selected by mapping
+            // V[i] back to its position in the input triple.
+            const perm = key.V.map((x) => v.indexOf(x));
+            expect(perm.slice().sort((a, b) => a - b)).toEqual([0, 1, 2]);
+            let inversions = 0;
+            for (let i = 0; i < 3; ++i) {
+                for (let j = i + 1; j < 3; ++j) {
+                    if (perm[i] > perm[j]) {
+                        ++inversions;
+                    }
+                }
+            }
+            expect(inversions % 2).toBe(0);
+        });
+    });
+
+    it('unordered: all six permutations map to one sorted key', () => {
+        check(triple, (v) => {
+            const key = new TriangleKey(false, v[0], v[1], v[2]);
+            expect(key.V).toEqual(v.slice().sort((a, b) => a - b));
+            for (const p of all) {
+                const other = new TriangleKey(false, v[p[0]], v[p[1]], v[p[2]]);
+                expect(other.equals(key)).toBe(true);
+                expect(other.mapKey()).toBe(key.mapKey());
+            }
+        });
+    });
+
+    it('degenerate triangles keep the documented minimum-first contract', () => {
+        check(fc.array(fc.integer({ min: 0, max: 3 }),
+            { minLength: 3, maxLength: 3 }), (v) => {
+            const ordered = new TriangleKey(true, v[0], v[1], v[2]);
+            const unordered = new TriangleKey(false, v[0], v[1], v[2]);
+            expect(ordered.V[0]).toBe(Math.min(v[0], v[1], v[2]));
+            expect(unordered.V).toEqual(v.slice().sort((a, b) => a - b));
+            // Both keys are multiset-preserving.
+            expect(ordered.V.slice().sort((a, b) => a - b))
+                .toEqual(v.slice().sort((a, b) => a - b));
+        });
     });
 });

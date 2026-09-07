@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { MinimumSpanningTree, type MSTEdge } from '../src/MinimumSpanningTree.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 const nil = MinimumSpanningTree.nil;
 
@@ -292,5 +293,238 @@ describe('MinimumSpanningTree input validation', () => {
         const { minimumSpanningTree } =
             MinimumSpanningTree.execute([[0, 1], [1, 2]], [0, 0], true);
         expect(minimumSpanningTree.length).toBe(3);
+    });
+});
+
+describe('MinimumSpanningTree verification', () => {
+    // A random graph on 'labels' with integer weights. Non-consecutive and
+    // out-of-order vertex labels exercise the vertex remapping. Integer
+    // weights make ties (and therefore the tie-breaking paths) common.
+    const graph = fc.tuple(
+        fc.uniqueArray(fc.integer({ min: 0, max: 200 }),
+            { minLength: 2, maxLength: 7 }),
+        fc.array(fc.tuple(fc.nat(), fc.nat(), fc.integer({ min: 0, max: 4 })),
+            { minLength: 1, maxLength: 24 }))
+        .map(([labels, raw]) => {
+            const edges: MSTEdge[] = [];
+            const weights: number[] = [];
+            const seen = new Set<string>();
+            for (const [a, b, w] of raw) {
+                const i = a % labels.length;
+                const j = b % labels.length;
+                if (i === j) {
+                    continue;
+                }
+                const key = Math.min(i, j) + ',' + Math.max(i, j);
+                if (seen.has(key)) {
+                    continue;
+                }
+                seen.add(key);
+                edges.push([labels[i], labels[j]]);
+                weights.push(w);
+            }
+            return { edges, weights };
+        })
+        .filter(({ edges }) => edges.length > 0);
+
+    it('the forest weight equals the Kruskal weight', () => {
+        check(graph, ({ edges, weights }) => {
+            const { minimumSpanningTree } =
+                MinimumSpanningTree.execute(edges, weights, true);
+            expect(treeWeight(minimumSpanningTree, edges, weights))
+                .toBe(kruskalWeight(edges, weights));
+        });
+    });
+
+    it('the output is a spanning forest of the referenced vertices', () => {
+        check(graph, ({ edges, weights }) => {
+            const { minimumSpanningTree } =
+                MinimumSpanningTree.execute(edges, weights, true);
+
+            // One output element per referenced vertex, each vertex reached
+            // exactly once, and every non-sentinel edge attaches to an
+            // already-reached vertex (so the forest is acyclic).
+            expect(minimumSpanningTree.length).toBe(vertexCount(edges));
+            const reached = new Set<number>();
+            for (const treeEdge of minimumSpanningTree) {
+                if (treeEdge[0] === nil) {
+                    expect(reached.has(treeEdge[1])).toBe(false);
+                } else {
+                    expect(reached.has(treeEdge[0])).toBe(true);
+                    expect(reached.has(treeEdge[1])).toBe(false);
+                }
+                reached.add(treeEdge[1]);
+            }
+            const referenced = new Set<number>();
+            for (const edge of edges) {
+                referenced.add(edge[0]);
+                referenced.add(edge[1]);
+            }
+            expect(reached.size).toBe(referenced.size);
+            for (const v of referenced) {
+                expect(reached.has(v)).toBe(true);
+            }
+        });
+    });
+
+    it('the sentinel count equals the number of connected components', () => {
+        check(graph, ({ edges, weights }) => {
+            const parent = new Map<number, number>();
+            const find = (v: number): number => {
+                while (parent.get(v) !== v) {
+                    v = parent.get(v) as number;
+                }
+                return v;
+            };
+            for (const edge of edges) {
+                for (const v of edge) {
+                    if (!parent.has(v)) {
+                        parent.set(v, v);
+                    }
+                }
+            }
+            for (const [v0, v1] of edges) {
+                parent.set(find(v0), find(v1));
+            }
+            const roots = new Set<number>();
+            for (const v of parent.keys()) {
+                roots.add(find(v));
+            }
+
+            const { minimumSpanningTree } =
+                MinimumSpanningTree.execute(edges, weights, true);
+            expect(minimumSpanningTree.filter((e) => e[0] === nil).length)
+                .toBe(roots.size);
+        });
+    });
+
+    it('tree edges and back edges partition the input edges', () => {
+        check(graph, ({ edges, weights }) => {
+            const { minimumSpanningTree, backEdges } =
+                MinimumSpanningTree.execute(edges, weights, true);
+
+            const undirected = (e: MSTEdge): string =>
+                Math.min(e[0], e[1]) + ',' + Math.max(e[0], e[1]);
+            const input = new Set(edges.map(undirected));
+            const tree = minimumSpanningTree
+                .filter((e) => e[0] !== nil)
+                .map(undirected);
+            const back = backEdges.map(undirected);
+
+            expect(new Set(tree).size).toBe(tree.length);
+            expect(new Set(back).size).toBe(back.length);
+            expect(tree.length + back.length).toBe(input.size);
+            for (const key of tree.concat(back)) {
+                expect(input.has(key)).toBe(true);
+            }
+        });
+    });
+
+    it('back edges are ordered by the internal remapped vertex indices', () => {
+        // Upstream keeps the (v0,v1) of a back-edge pair for which v0 < v1
+        // in the *remapped* indices (assigned in first-encounter order over
+        // edges[]) and emits them in std::map order, then converts back to
+        // the original labels. So the reported back edges are neither
+        // sorted by the original labels nor necessarily smaller-first.
+        check(graph, ({ edges, weights }) => {
+            const remap = new Map<number, number>();
+            for (const edge of edges) {
+                for (const v of edge) {
+                    if (!remap.has(v)) {
+                        remap.set(v, remap.size);
+                    }
+                }
+            }
+            const inverse: number[] = [];
+            for (const [label, index] of remap) {
+                inverse[index] = label;
+            }
+
+            const { minimumSpanningTree, backEdges } =
+                MinimumSpanningTree.execute(edges, weights, true);
+            const undirected = (e: MSTEdge): string =>
+                Math.min(e[0], e[1]) + ',' + Math.max(e[0], e[1]);
+            const treeSet = new Set(minimumSpanningTree
+                .filter((e) => e[0] !== nil).map(undirected));
+
+            const expected: MSTEdge[] = [];
+            for (const edge of edges) {
+                if (treeSet.has(undirected(edge))) {
+                    continue;
+                }
+                const r0 = remap.get(edge[0]) as number;
+                const r1 = remap.get(edge[1]) as number;
+                expected.push([Math.min(r0, r1), Math.max(r0, r1)]);
+            }
+            expected.sort((a, b) => (a[0] !== b[0] ? a[0] - b[0] : a[1] - b[1]));
+            expect(backEdges).toEqual(
+                expected.map((e) => [inverse[e[0]], inverse[e[1]]]));
+        });
+    });
+
+    it('every tree edge is a minimum-weight edge across its own cut', () => {
+        check(graph, ({ edges, weights }) => {
+            const { minimumSpanningTree } =
+                MinimumSpanningTree.execute(edges, weights, true);
+            const weightOf = new Map<string, number>();
+            for (let e = 0; e < edges.length; ++e) {
+                const key = Math.min(edges[e][0], edges[e][1]) + ',' +
+                    Math.max(edges[e][0], edges[e][1]);
+                weightOf.set(key, weights[e]);
+            }
+
+            // Prim grows the tree in output order, so the vertices already
+            // added when a tree edge is emitted define one side of the cut.
+            const inTree = new Set<number>();
+            for (const treeEdge of minimumSpanningTree) {
+                if (treeEdge[0] !== nil) {
+                    const key = Math.min(treeEdge[0], treeEdge[1]) + ',' +
+                        Math.max(treeEdge[0], treeEdge[1]);
+                    const chosen = weightOf.get(key) as number;
+                    for (const [v0, v1] of edges) {
+                        const crosses = (inTree.has(v0) && !inTree.has(v1)) ||
+                            (inTree.has(v1) && !inTree.has(v0));
+                        if (crosses) {
+                            const w = weightOf.get(
+                                Math.min(v0, v1) + ',' + Math.max(v0, v1)) as number;
+                            expect(chosen).toBeLessThanOrEqual(w);
+                        }
+                    }
+                }
+                inTree.add(treeEdge[1]);
+            }
+        });
+    });
+
+    it('validation is optional but does not change the result', () => {
+        check(graph, ({ edges, weights }) => {
+            const validated = MinimumSpanningTree.execute(edges, weights, true);
+            const unvalidated = MinimumSpanningTree.execute(edges, weights, false);
+            expect(unvalidated.minimumSpanningTree)
+                .toEqual(validated.minimumSpanningTree);
+            expect(unvalidated.backEdges).toEqual(validated.backEdges);
+        });
+    });
+
+    it('execute does not modify its inputs', () => {
+        check(graph, ({ edges, weights }) => {
+            const edgesCopy = edges.map((e) => e.slice());
+            const weightsCopy = weights.slice();
+            MinimumSpanningTree.execute(edges, weights, true);
+            expect(edges.map((e) => e.slice())).toEqual(edgesCopy);
+            expect(weights).toEqual(weightsCopy);
+        });
+    });
+
+    it('an empty edge list yields empty output instead of upstream UB', () => {
+        // Upstream sizes records[] by the number of vertices (zero here) and
+        // then writes records[0], which is undefined behavior. The port
+        // returns early.
+        const result = MinimumSpanningTree.execute([], [], true);
+        expect(result.minimumSpanningTree).toEqual([]);
+        expect(result.backEdges).toEqual([]);
+        const unvalidated = MinimumSpanningTree.execute([], [], false);
+        expect(unvalidated.minimumSpanningTree).toEqual([]);
+        expect(unvalidated.backEdges).toEqual([]);
     });
 });

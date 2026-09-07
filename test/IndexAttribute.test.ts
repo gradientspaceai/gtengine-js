@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { IndexAttribute } from '../src/IndexAttribute.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 describe('IndexAttribute', () => {
     it('defaults to a null source with no supported view', () => {
@@ -70,5 +71,104 @@ describe('IndexAttribute', () => {
         attribute.setTriangle(0, 1, 2, 3);  // no-op
         expect(Array.from(indices)).toEqual([9, 9, 9]);
         expect(attribute.getTriangle(0)).toEqual({ v0: 0, v1: 0, v2: 0 });
+    });
+});
+
+describe('IndexAttribute verification', () => {
+    const triangles = (numTriangles: number) =>
+        fc.array(fc.tuple(
+            fc.integer({ min: 0, max: 0xffffffff }),
+            fc.integer({ min: 0, max: 0xffffffff }),
+            fc.integer({ min: 0, max: 0xffffffff })),
+        { minLength: numTriangles, maxLength: numTriangles });
+
+    it('uint32 indices round trip through set/get', () => {
+        check(triangles(6), (tris) => {
+            const buffer = new ArrayBuffer(4 * 3 * tris.length);
+            const attr = new IndexAttribute(buffer, 4);
+            tris.forEach(([v0, v1, v2], t) => attr.setTriangle(t, v0, v1, v2));
+            tris.forEach(([v0, v1, v2], t) => {
+                expect(attr.getTriangle(t)).toEqual({ v0, v1, v2 });
+            });
+            // The raw layout is 3 consecutive uint32 per triangle.
+            const raw = new Uint32Array(buffer);
+            tris.forEach(([v0, v1, v2], t) => {
+                expect(raw[3 * t]).toBe(v0 >>> 0);
+                expect(raw[3 * t + 1]).toBe(v1 >>> 0);
+                expect(raw[3 * t + 2]).toBe(v2 >>> 0);
+            });
+        });
+    });
+
+    it('uint16 indices truncate exactly as static_cast<uint16_t>', () => {
+        check(triangles(5), (tris) => {
+            const buffer = new ArrayBuffer(2 * 3 * tris.length);
+            const attr = new IndexAttribute(buffer, 2);
+            tris.forEach(([v0, v1, v2], t) => attr.setTriangle(t, v0, v1, v2));
+            tris.forEach(([v0, v1, v2], t) => {
+                expect(attr.getTriangle(t)).toEqual({
+                    v0: v0 & 0xffff,
+                    v1: v1 & 0xffff,
+                    v2: v2 & 0xffff
+                });
+            });
+        });
+    });
+
+    it('writes to one triangle never disturb its neighbours', () => {
+        check(fc.tuple(triangles(4), fc.integer({ min: 0, max: 3 }),
+            fc.integer({ min: 0, max: 1000 })), ([tris, t, v]) => {
+            const attr = new IndexAttribute(new ArrayBuffer(4 * 3 * 4), 4);
+            tris.forEach(([v0, v1, v2], i) => attr.setTriangle(i, v0, v1, v2));
+            attr.setTriangle(t, v, v, v);
+            for (let i = 0; i < 4; ++i) {
+                if (i === t) {
+                    expect(attr.getTriangle(i)).toEqual({ v0: v, v1: v, v2: v });
+                } else {
+                    const [v0, v1, v2] = tris[i];
+                    expect(attr.getTriangle(i))
+                        .toEqual({ v0: v0 >>> 0, v1: v1 >>> 0, v2: v2 >>> 0 });
+                }
+            }
+        });
+    });
+
+    it('unsupported index sizes are inert, as upstream documents', () => {
+        check(fc.integer({ min: -4, max: 12 })
+            .filter((size) => size !== 2 && size !== 4), (size) => {
+            const buffer = new ArrayBuffer(64);
+            const attr = new IndexAttribute(buffer, size);
+            attr.setTriangle(0, 1, 2, 3);
+            expect(attr.getTriangle(0)).toEqual({ v0: 0, v1: 0, v2: 0 });
+            // Nothing was written to the buffer.
+            expect(Array.from(new Uint8Array(buffer)).every((b) => b === 0))
+                .toBe(true);
+        });
+    });
+
+    it('a view source is addressed from its own byteOffset', () => {
+        check(fc.tuple(fc.integer({ min: 0, max: 5 }),
+            fc.integer({ min: 0, max: 0xffff })), ([offset, v]) => {
+            const buffer = new ArrayBuffer(4 * (3 * 4 + 8));
+            const view = new Uint32Array(buffer, 4 * offset, 3 * 4);
+            const attr = new IndexAttribute(view, 4);
+            attr.setTriangle(1, v, v + 1, v + 2);
+            const raw = new Uint32Array(buffer);
+            expect(raw[offset + 3]).toBe(v);
+            expect(raw[offset + 4]).toBe(v + 1);
+            expect(raw[offset + 5]).toBe(v + 2);
+            expect(attr.getTriangle(1)).toEqual({ v0: v, v1: v + 1, v2: v + 2 });
+        });
+    });
+
+    it('a null source leaves the attribute inert instead of crashing', () => {
+        const attr = new IndexAttribute();
+        expect(attr.source).toBeNull();
+        expect(attr.size).toBe(0);
+        attr.setTriangle(0, 1, 2, 3);
+        expect(attr.getTriangle(0)).toEqual({ v0: 0, v1: 0, v2: 0 });
+        const sized = new IndexAttribute(null, 4);
+        sized.setTriangle(0, 1, 2, 3);
+        expect(sized.getTriangle(0)).toEqual({ v0: 0, v1: 0, v2: 0 });
     });
 });
