@@ -4,6 +4,9 @@ import { SplitMeshByPlane } from '../src/SplitMeshByPlane.js';
 import type { SplitMeshByPlaneResult } from '../src/SplitMeshByPlane.js';
 import { Vector, dot, length, normalize, sub } from '../src/Vector.js';
 import { cross } from '../src/Vector3.js';
+import {
+    check, expectClose, expectVectorClose, fc, unitVector
+} from './helpers/arbitraries.js';
 
 // A small deterministic pseudorandom generator (mulberry32) so the randomized
 // cross-checks are reproducible.
@@ -360,5 +363,283 @@ describe('SplitMeshByPlane', () => {
                 expect(result.clipVertices[i]).not.toBe(vertices[i]);
             }
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V37): independent re-check against SplitMeshByPlane.h.
+// ---------------------------------------------------------------------------
+
+// Six times the signed volume of the cone from the origin over the triangle.
+// Summed over a closed mesh this is six times the enclosed volume; summed
+// over any mesh it is invariant under a subdivision of the triangles that
+// preserves their orientation, which is exactly what the split does.
+function sixSignedVolume(vertices: readonly Vector[],
+    indices: readonly number[]): number {
+    let total = 0;
+    for (let i = 0; i < indices.length; i += 3) {
+        const p0 = vertices[indices[i] as number] as Vector;
+        const p1 = vertices[indices[i + 1] as number] as Vector;
+        const p2 = vertices[indices[i + 2] as number] as Vector;
+        total += dot(p0, cross(p1, p2));
+    }
+    return total;
+}
+
+// The multiset of directed edges of a triangle list, as counts keyed by
+// "a->b".
+function directedEdgeCounts(indices: readonly number[]): Map<string, number> {
+    const counts = new Map<string, number>();
+    for (let i = 0; i < indices.length; i += 3) {
+        for (let j = 0; j < 3; ++j) {
+            const key = (indices[i + j] as number) + '->'
+                + (indices[i + (j + 1) % 3] as number);
+            counts.set(key, (counts.get(key) ?? 0) + 1);
+        }
+    }
+    return counts;
+}
+
+// The regular octahedron, outward-facing.
+function makeOctahedron(): { vertices: Vector[], indices: number[] } {
+    const vertices = [
+        v3(1, 0, 0), v3(-1, 0, 0), v3(0, 1, 0),
+        v3(0, -1, 0), v3(0, 0, 1), v3(0, 0, -1)
+    ];
+    const indices = [
+        0, 2, 4, 2, 1, 4, 1, 3, 4, 3, 0, 4,
+        2, 0, 5, 1, 2, 5, 3, 1, 5, 0, 3, 5
+    ];
+    return { vertices, indices };
+}
+
+// A closed mesh whose triangles are consistently outward-facing, scaled and
+// translated so that the split plane meets it in a variety of ways.
+const closedMeshArb = fc.tuple(fc.boolean(), fc.integer({ min: 1, max: 4 }),
+    fc.integer({ min: -2, max: 2 }), fc.integer({ min: -2, max: 2 }),
+    fc.integer({ min: -2, max: 2 }))
+    .map(([useCube, scale, tx, ty, tz]) => {
+        const base = useCube ? makeCube() : makeOctahedron();
+        const vertices = base.vertices.map(p => v3(
+            scale * p.get(0) + tx, scale * p.get(1) + ty,
+            scale * p.get(2) + tz));
+        return { vertices, indices: base.indices };
+    });
+
+// A plane with a well-scaled unit normal (a subnormal normal would make the
+// signed distances meaningless) whose constant is an eighth-integer offset by
+// a sixteenth. The mesh coordinates are integers, so for an axis-aligned
+// normal every signed distance is at least 1/16 away from zero; that keeps
+// fast-check's shrinker from sliding the plane onto a vertex, where the
+// output legitimately contains slivers that no fixed epsilon can classify.
+const planeArb = fc.tuple(unitVector(3), fc.integer({ min: -32, max: 32 }))
+    .map(([normal, k]) => Hyperplane.fromNormalConstant(normal,
+        (4 * k + 2) / 16));
+
+describe('SplitMeshByPlane verification', () => {
+    it('conserves signed volume and closedness when it splits a closed mesh', () => {
+        // A plane that passes within rounding distance of a vertex produces
+        // legitimate slivers whose three vertices are all within any fixed
+        // epsilon of the plane, which no fixed-epsilon side test can
+        // classify. Those draws are skipped; the counters below keep the
+        // property from becoming vacuous.
+        let trials = 0;
+        let skipped = 0;
+        let actuallySplit = 0;
+        check(fc.tuple(closedMeshArb, planeArb), ([mesh, plane]) => {
+            ++trials;
+            let scale = 1;
+            let closest = Number.MAX_VALUE;
+            for (const p of mesh.vertices) {
+                scale = Math.max(scale, length(p));
+                closest = Math.min(closest,
+                    Math.abs(signedDistance(plane, p)));
+            }
+            if (closest < 1e-6 * scale) {
+                ++skipped;
+                return;
+            }
+
+            const split = new SplitMeshByPlane();
+            const result = split.compute(mesh.vertices, mesh.indices, plane);
+            if (result.clipVertices.length > mesh.vertices.length) {
+                ++actuallySplit;
+            }
+
+            // Every generated vertex lies in the plane.
+            for (let i = mesh.vertices.length; i < result.clipVertices.length;
+                ++i) {
+                const p = result.clipVertices[i] as Vector;
+                expect(Math.abs(signedDistance(plane, p)))
+                    .toBeLessThan(1e-9 * (1 + length(p)));
+            }
+            // The caller's vertices are copied, not aliased or mutated.
+            for (let i = 0; i < mesh.vertices.length; ++i) {
+                expect(coords(result.clipVertices[i] as Vector))
+                    .toEqual(coords(mesh.vertices[i] as Vector));
+                expect(result.clipVertices[i]).not.toBe(mesh.vertices[i]);
+            }
+
+            // Sidedness of every output triangle.
+            verifySide(result, plane, result.posIndices, +1, 1e-9);
+            verifySide(result, plane, result.negIndices, -1, 1e-9);
+
+            // The two halves tile the original surface, so the cone volume
+            // and the surface area are both conserved. The only triangles
+            // that may be dropped are those lying entirely in the plane,
+            // which contribute zero area and, being coplanar with a plane
+            // through them, are still counted here because the input mesh is
+            // closed and a random plane does not contain a whole triangle.
+            const combined = result.posIndices.concat(result.negIndices);
+            expectClose(sixSignedVolume(result.clipVertices, combined),
+                sixSignedVolume(mesh.vertices, mesh.indices), 1e-8, 1e-9);
+            expectClose(meshArea(result.clipVertices, combined),
+                meshArea(mesh.vertices, mesh.indices), 1e-8, 1e-9);
+
+            // The union of the two halves is still a closed surface: every
+            // directed edge is matched by its reverse. (Each half on its own
+            // is open along the cut.)
+            const counts = directedEdgeCounts(combined);
+            for (const [key, count] of counts) {
+                const parts = key.split('->');
+                const reverse = parts[1] + '->' + parts[0];
+                expect(counts.get(reverse) ?? 0).toBe(count);
+            }
+
+            // The cut boundaries of the two halves are reverses of each
+            // other, which is what would let a cap be attached.
+            expect(onPlaneDirectedEdges(result, plane, result.posIndices, 1e-9))
+                .toEqual(reversedEdges(onPlaneDirectedEdges(result, plane,
+                    result.negIndices, 1e-9)));
+
+            // Every strictly positive original vertex survives in the
+            // positive output and every strictly negative one in the
+            // negative output.
+            const posSet = new Set<number>(result.posIndices);
+            const negSet = new Set<number>(result.negIndices);
+            for (let i = 0; i < mesh.vertices.length; ++i) {
+                const sDist = signedDistance(plane,
+                    mesh.vertices[i] as Vector);
+                if (sDist > 0) {
+                    expect(posSet.has(i)).toBe(true);
+                }
+                else if (sDist < 0) {
+                    expect(negSet.has(i)).toBe(true);
+                }
+            }
+
+            // Reusing the query object gives the same answer (mEMap and the
+            // signed distances are reset by compute()).
+            const again = split.compute(mesh.vertices, mesh.indices, plane);
+            expect(again.posIndices).toEqual(result.posIndices);
+            expect(again.negIndices).toEqual(result.negIndices);
+            expect(again.clipVertices.map(coords)).toEqual(
+                result.clipVertices.map(coords));
+        }, 150);
+        expect(trials - skipped).toBeGreaterThan(140);
+        expect(actuallySplit).toBeGreaterThan(40);
+    }, 30000);
+
+    it('sends a mesh that misses the plane entirely to one side', () => {
+        check(fc.tuple(closedMeshArb, unitVector(3)), ([mesh, normal]) => {
+            // Push the plane past the whole mesh in both directions.
+            let extreme = 0;
+            for (const p of mesh.vertices) {
+                extreme = Math.max(extreme, Math.abs(dot(normal, p)));
+            }
+            const split = new SplitMeshByPlane();
+
+            const below = split.compute(mesh.vertices, mesh.indices,
+                Hyperplane.fromNormalConstant(normal, -extreme - 1));
+            expect(below.negIndices).toEqual([]);
+            expect(below.posIndices).toEqual(Array.from(mesh.indices));
+            expect(below.clipVertices.length).toBe(mesh.vertices.length);
+
+            const above = split.compute(mesh.vertices, mesh.indices,
+                Hyperplane.fromNormalConstant(normal, extreme + 1));
+            expect(above.posIndices).toEqual([]);
+            expect(above.negIndices).toEqual(Array.from(mesh.indices));
+            expect(above.clipVertices.length).toBe(mesh.vertices.length);
+        }, 100);
+    });
+
+    it('handles the vertex-in-plane cases without generating a vertex there', () => {
+        // A triangle with one vertex exactly in the plane and the other two
+        // strictly on opposite sides is split by exactly one new vertex, on
+        // the edge joining the two off-plane vertices. This is the "+-0" /
+        // "-+0" family, which upstream routes through SplitTrianglePMZ and
+        // SplitTriangleMPZ.
+        check(fc.tuple(fc.integer({ min: 1, max: 5 }),
+            fc.integer({ min: 1, max: 5 }), fc.integer({ min: 0, max: 2 }),
+            fc.boolean()), ([above, below, rotate, flip]) => {
+            const plane = Hyperplane.fromNormalConstant(v3(0, 0, 1), 0);
+            const triangle = [
+                v3(0, 0, 0),
+                v3(1, 0, flip ? above : -below),
+                v3(0, 1, flip ? -below : above)
+            ];
+            const indices = [rotate % 3, (rotate + 1) % 3, (rotate + 2) % 3];
+
+            const split = new SplitMeshByPlane();
+            const result = split.compute(triangle, indices, plane);
+
+            // Exactly one new vertex, on the edge between vertices 1 and 2
+            // at the parameter t = sDist1 / (sDist1 - sDist2) that upstream
+            // computes for that edge.
+            expect(result.clipVertices.length).toBe(4);
+            const generated = result.clipVertices[3] as Vector;
+            const z1 = triangle[1]!.get(2);
+            const z2 = triangle[2]!.get(2);
+            const t = z1 / (z1 - z2);
+            expectVectorClose(generated, v3(1 - t, t, 0), 1e-12, 1e-12);
+            expectClose(signedDistance(plane, generated), 0, 1e-12, 1e-12);
+
+            // One triangle on each side, each using the on-plane vertex 0 and
+            // the generated vertex.
+            expect(result.posIndices.length).toBe(3);
+            expect(result.negIndices.length).toBe(3);
+            expect(result.posIndices).toContain(0);
+            expect(result.posIndices).toContain(3);
+            expect(result.negIndices).toContain(0);
+            expect(result.negIndices).toContain(3);
+
+            verifySide(result, plane, result.posIndices, +1, 1e-12);
+            verifySide(result, plane, result.negIndices, -1, 1e-12);
+            expectClose(
+                meshArea(result.clipVertices, result.posIndices)
+                + meshArea(result.clipVertices, result.negIndices),
+                meshArea(triangle, indices), 1e-12, 1e-12);
+        }, 120);
+    });
+
+    it('drops only the triangles that lie entirely in the plane', () => {
+        // A closed mesh whose equator is a ring of vertices in the plane:
+        // the two "000" triangles of the flat band are rejected and the rest
+        // are classified without any new vertex.
+        const plane = Hyperplane.fromNormalConstant(v3(0, 0, 1), 0);
+        check(fc.integer({ min: 1, max: 4 }), height => {
+            const vertices = [
+                v3(1, 0, 0), v3(0, 1, 0), v3(-1, 0, 0), v3(0, -1, 0),
+                v3(0, 0, height), v3(0, 0, -height)
+            ];
+            // The eight side triangles plus two coplanar triangles that
+            // tile the equatorial square.
+            const indices = [
+                0, 1, 4, 1, 2, 4, 2, 3, 4, 3, 0, 4,
+                1, 0, 5, 2, 1, 5, 3, 2, 5, 0, 3, 5,
+                0, 1, 2, 0, 2, 3
+            ];
+
+            const split = new SplitMeshByPlane();
+            const result = split.compute(vertices, indices, plane);
+
+            // No edge crosses the plane strictly, so no vertex is generated.
+            expect(result.clipVertices.length).toBe(vertices.length);
+            // Four triangles above, four below, two rejected.
+            expect(result.posIndices.length).toBe(12);
+            expect(result.negIndices.length).toBe(12);
+            expect(result.posIndices).toEqual(indices.slice(0, 12));
+            expect(result.negIndices).toEqual(indices.slice(12, 24));
+        }, 4);
     });
 });

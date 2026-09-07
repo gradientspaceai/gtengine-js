@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { VTSManifoldMesh, VTSManifoldMeshVertex } from '../src/VTSManifoldMesh.js';
 import { TetrahedronKey } from '../src/TetrahedronKey.js';
 import { TriangleKey } from '../src/TriangleKey.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 // A vertex with extra client data, used to exercise the VCreator callback.
 class TaggedVertex extends VTSManifoldMeshVertex {
@@ -240,4 +241,236 @@ describe('VTSManifoldMesh', () => {
         expect(mesh.getNumTriangles()).toBe(0);
         expect(mesh.getNumTetrahedra()).toBe(0);
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V37): independent re-check against VTSManifoldMesh.h.
+// ---------------------------------------------------------------------------
+
+// The Kuhn (Freudenthal) subdivision of an (nx x ny x nz) grid of unit cubes
+// into 6 tetrahedra per cube. The subdivision is face-conforming, so the
+// complex is triangle-manifold and so is any subset of its tetrahedra: a face
+// is shared by at most two of them, and an arbitrary insert/remove sequence
+// over the subset never trips the nonmanifold rejection. Unlike the chain of
+// tetrahedra used above, a vertex here is shared by many tetrahedra and a
+// vertex pair by several faces, which is exactly the configuration in which
+// upstream's Remove over-erases VAdjacent (upstream issue #256).
+function kuhnTetrahedra(nx: number, ny: number, nz: number): number[][] {
+    const index = (i: number, j: number, k: number) =>
+        (i * (ny + 1) + j) * (nz + 1) + k;
+    const permutations = [
+        [0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]
+    ];
+    const tetrahedra: number[][] = [];
+    for (let i = 0; i < nx; ++i) {
+        for (let j = 0; j < ny; ++j) {
+            for (let k = 0; k < nz; ++k) {
+                for (const perm of permutations) {
+                    const offset = [0, 0, 0];
+                    const tetra = [index(i, j, k)];
+                    for (const axis of perm) {
+                        offset[axis] = 1;
+                        tetra.push(index(i + (offset[0] as number),
+                            j + (offset[1] as number),
+                            k + (offset[2] as number)));
+                    }
+                    tetrahedra.push(tetra);
+                }
+            }
+        }
+    }
+    return tetrahedra;
+}
+
+// The face records the base class must hold for a given set of tetrahedra:
+// a face key maps to the sorted keys of the tetrahedra that contain it.
+function expectedFaces(tetrahedra: number[][]): Map<string, string[]> {
+    const faces = new Map<string, Set<string>>();
+    for (const tetra of tetrahedra) {
+        const skey = new TetrahedronKey(true, tetra[0] as number,
+            tetra[1] as number, tetra[2] as number,
+            tetra[3] as number).mapKey();
+        for (let j = 0; j < 4; ++j) {
+            const face = tetra.filter((_, k) => k !== j);
+            const tkey = new TriangleKey(false, face[0] as number,
+                face[1] as number, face[2] as number).mapKey();
+            let s = faces.get(tkey);
+            if (s === undefined) {
+                s = new Set<string>();
+                faces.set(tkey, s);
+            }
+            s.add(skey);
+        }
+    }
+    const sorted = new Map<string, string[]>();
+    for (const [k, s] of faces) {
+        sorted.set(k, Array.from(s).sort());
+    }
+    return sorted;
+}
+
+// verifyAgainstTetrahedra plus the base-class face bookkeeping and the
+// counts, so that the whole mesh state is pinned.
+function verifyFullState(mesh: VTSManifoldMesh, tetrahedra: number[][]): void {
+    verifyAgainstTetrahedra(mesh, tetrahedra);
+
+    const faces = expectedFaces(tetrahedra);
+    expect(mesh.getNumTetrahedra()).toBe(tetrahedra.length);
+    expect(mesh.getNumTriangles()).toBe(faces.size);
+    expect(mesh.getTriangles().map(
+        t => new TriangleKey(false, t.V[0], t.V[1], t.V[2]).mapKey()).sort())
+        .toEqual(Array.from(faces.keys()).sort());
+
+    for (const face of mesh.getTriangles()) {
+        const tkey = new TriangleKey(false, face.V[0], face.V[1],
+            face.V[2]).mapKey();
+        const tetras: string[] = [];
+        for (const s of face.S) {
+            if (s !== null) {
+                tetras.push(new TetrahedronKey(true, s.V[0], s.V[1], s.V[2],
+                    s.V[3]).mapKey());
+            }
+        }
+        tetras.sort();
+        expect(tetras).toEqual(faces.get(tkey));
+        // A one-tetrahedron face always keeps its reference at index 0.
+        if (face.S[1] !== null) {
+            expect(face.S[0]).not.toBeNull();
+        }
+    }
+
+    // The vertex adjacency relation is symmetric, and every face a vertex
+    // references is still in the mesh.
+    const liveFaces = new Set<string>(faces.keys());
+    for (const vertex of mesh.getVertices()) {
+        for (const w of vertex.getVAdjacent()) {
+            const other = mesh.getVertex(w) as VTSManifoldMeshVertex;
+            expect(other).not.toBeNull();
+            expect(other.getVAdjacent()).toContain(vertex.V);
+        }
+        for (const face of vertex.getTAdjacent()) {
+            expect(liveFaces.has(new TriangleKey(false, face.V[0], face.V[1],
+                face.V[2]).mapKey())).toBe(true);
+        }
+    }
+}
+
+describe('VTSManifoldMesh verification', () => {
+    const tetrahedra = kuhnTetrahedra(2, 1, 1);
+
+    it('matches a brute-force adjacency model under interleaved insert/remove', () => {
+        const op = fc.record({
+            doInsert: fc.boolean(),
+            s: fc.integer({ min: 0, max: tetrahedra.length - 1 })
+        });
+        check(fc.array(op, { minLength: 1, maxLength: 24 }), ops => {
+            const mesh = new VTSManifoldMesh();
+            const present = new Set<number>();
+            for (const step of ops) {
+                const s = tetrahedra[step.s] as number[];
+                if (step.doInsert) {
+                    const result = mesh.insert(s[0] as number, s[1] as number,
+                        s[2] as number, s[3] as number);
+                    if (present.has(step.s)) {
+                        // Upstream returns nullptr for a tetrahedron already
+                        // in the mesh and leaves the mesh unchanged.
+                        expect(result).toBeNull();
+                    }
+                    else {
+                        expect(result).not.toBeNull();
+                        present.add(step.s);
+                    }
+                }
+                else {
+                    const expected = present.delete(step.s);
+                    expect(mesh.remove(s[0] as number, s[1] as number,
+                        s[2] as number, s[3] as number)).toBe(expected);
+                }
+                verifyFullState(mesh,
+                    Array.from(present).map(i => tetrahedra[i] as number[]));
+            }
+
+            // Removing everything empties every map.
+            for (const i of Array.from(present)) {
+                const s = tetrahedra[i] as number[];
+                expect(mesh.remove(s[0] as number, s[1] as number,
+                    s[2] as number, s[3] as number)).toBe(true);
+            }
+            expect(mesh.getNumVertices()).toBe(0);
+            expect(mesh.getNumTriangles()).toBe(0);
+            expect(mesh.getNumTetrahedra()).toBe(0);
+            expect(mesh.getVertices()).toEqual([]);
+        }, 60);
+    }, 30000);
+
+    it('rejects a nonmanifold insertion without disturbing the vertex layer', () => {
+        check(fc.integer({ min: 0, max: 6 }), k => {
+            // Three tetrahedra sharing the face <0,1,2>; the third insertion
+            // is nonmanifold.
+            const mesh = new VTSManifoldMesh();
+            expect(mesh.insert(0, 1, 2, 3)).not.toBeNull();
+            expect(mesh.insert(0, 1, 2, 4)).not.toBeNull();
+            const good = [[0, 1, 2, 3], [0, 1, 2, 4]];
+            verifyFullState(mesh, good);
+
+            // Upstream runs the base-class Insert first and only updates
+            // mVMap when it succeeds, so the vertex layer is untouched by a
+            // rejection. (The base class leaves behind the faces it created
+            // before the failure; that ETManifoldMesh/TSManifoldMesh quirk is
+            // preserved by the port and is not part of the vertex layer.)
+            const rejected = new TetrahedronKey(true, 0, 1, 2, 5 + k).mapKey();
+            const expectVertexLayerUnchanged = (): void => {
+                expect(mesh.getNumTetrahedra()).toBe(2);
+                expect(mesh.getTetrahedron(0, 1, 2, 5 + k)).toBeNull();
+                verifyAgainstTetrahedra(mesh, good);
+                for (const vertex of mesh.getVertices()) {
+                    const keys = vertex.getSAdjacent().map(
+                        s => new TetrahedronKey(true, s.V[0], s.V[1], s.V[2],
+                            s.V[3]).mapKey());
+                    expect(keys).not.toContain(rejected);
+                }
+            };
+
+            expect(() => mesh.insert(0, 1, 2, 5 + k)).toThrow();
+            expectVertexLayerUnchanged();
+
+            const previous = mesh.throwOnNonmanifoldInsertion(false);
+            expect(previous).toBe(true);
+            expect(mesh.insert(0, 1, 2, 5 + k)).toBeNull();
+            mesh.throwOnNonmanifoldInsertion(previous);
+            expectVertexLayerUnchanged();
+        }, 7);
+    });
+
+    it('clone and assign reproduce the adjacency model', () => {
+        const chosenArb = fc.uniqueArray(
+            fc.integer({ min: 0, max: tetrahedra.length - 1 }),
+            { minLength: 1, maxLength: tetrahedra.length });
+        check(chosenArb, chosen => {
+            const mesh = new VTSManifoldMesh();
+            const chosenTetrahedra = chosen.map(i => tetrahedra[i] as number[]);
+            for (const s of chosenTetrahedra) {
+                expect(mesh.insert(s[0] as number, s[1] as number,
+                    s[2] as number, s[3] as number)).not.toBeNull();
+            }
+
+            const copy = mesh.clone();
+            verifyFullState(copy, chosenTetrahedra);
+            for (const vertex of copy.getVertices()) {
+                expect(vertex).not.toBe(mesh.getVertex(vertex.V));
+            }
+
+            // Removing from the copy leaves the original alone.
+            const first = chosenTetrahedra[0] as number[];
+            expect(copy.remove(first[0] as number, first[1] as number,
+                first[2] as number, first[3] as number)).toBe(true);
+            verifyFullState(mesh, chosenTetrahedra);
+
+            // assign() clears the target first.
+            const target = new VTSManifoldMesh();
+            expect(target.insert(100, 101, 102, 103)).not.toBeNull();
+            target.assign(mesh);
+            verifyFullState(target, chosenTetrahedra);
+        }, 40);
+    }, 30000);
 });
