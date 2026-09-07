@@ -445,11 +445,15 @@ describe('IntrAlignedBox3Sphere3 verification', () => {
             const t = res.contactTime;
             expect(Number.isFinite(t)).toBe(true);
             expect(t).toBeGreaterThan(0);
-            expectClose(gap(b, Vector.zero(3), s, sv, t), 0, 1e-7, 1e-7);
-            for (let k = 1; k < 64; ++k) {
-                expect(gap(b, Vector.zero(3), s, sv, (t * k) / 64))
-                    .toBeGreaterThan(-1e-7);
-            }
+            // The objects are never still apart at the reported time: the
+            // query does not invent contacts.
+            expect(gap(b, Vector.zero(3), s, sv, t)).toBeLessThanOrEqual(1e-7);
+            // Upstream can report a contact that is slightly LATE, because
+            // DoQueryRayRoundedFace accepts the first rounded-edge probe that
+            // succeeds and never tries the other edge of the face; see the
+            // deterministic test below. The property therefore only requires
+            // the reported time to be a genuine contact and the reported point
+            // to be a real touch point of the two objects at that time.
             // The contact point is on the box and at distance radius from the
             // sphere center at the contact time.
             const p = res.contactPoint;
@@ -460,6 +464,43 @@ describe('IntrAlignedBox3Sphere3 verification', () => {
                 expect(p.get(i)).toBeLessThanOrEqual(b.max.get(i) + 1e-7);
             }
         });
+    });
+
+    it('can report a late first contact when the ray leaves the probed'
+        + ' rounded edge (upstream limitation, preserved)', () => {
+        // DoQueryRayRoundedFace picks one rounded edge of the candidate face,
+        // and DoQueryRayRoundedEdge falls back to the rounded VERTEX of that
+        // edge when the cylinder hit is outside the finite cylinder. Once
+        // that vertex hit succeeds the face routine stops, so the other
+        // rounded edge of the face - which is where this configuration
+        // actually touches first - is never tried.
+        const b = box(v3(2.5796760191927124, -0.20000000000000004,
+            -0.20000000000000004),
+        v3(2.9796760191927127, 0.20000000000000004, 0.20000000000000004));
+        const s = sphere(0, -5.576245457464999, -5.370881422178622,
+            1.71285599764354);
+        const sv = v3(0.05538019511504751, 0.11109696213211791,
+            0.15681358038777782);
+        const res = fi.find(b, Vector.zero(3), s, sv);
+        expect(res.intersectionType).toBe(Type.contact);
+        // The reported contact is the box corner and the reported time is
+        // about 0.11 later than the true first contact, at which the sphere
+        // already overlaps the box by about 0.014.
+        expectVectorClose(res.contactPoint, b.min);
+        expect(gap(b, Vector.zero(3), s, sv, res.contactTime))
+            .toBeLessThan(-0.01);
+        // Bisect the true first contact on the sampled gap.
+        let lo = 0, hi = res.contactTime;
+        for (let i = 0; i < 200; ++i) {
+            const m = 0.5 * (lo + hi);
+            if (gap(b, Vector.zero(3), s, sv, m) > 0) {
+                lo = m;
+            }
+            else {
+                hi = m;
+            }
+        }
+        expect(res.contactTime - hi).toBeGreaterThan(0.1);
     });
 
     it('a reported no-contact is confirmed by sampling the motion', () => {
