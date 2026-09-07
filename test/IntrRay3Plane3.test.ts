@@ -7,8 +7,14 @@ import {
     defaultIntrRay3Plane3TIResult,
     intrRay3Plane3FIDoQuery
 } from '../src/IntrRay3Plane3.js';
+import { IntrLine3Plane3FI } from '../src/IntrLine3Plane3.js';
+import { Line } from '../src/Line.js';
 import { Ray } from '../src/Ray.js';
-import { Vector, add, dot, mul, normalize } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector.js';
+import {
+    check, expectClose, expectVectorClose, fc, rotationFrame, unitVector,
+    wellScaledVector
+} from './helpers/arbitraries.js';
 
 function vec(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -141,5 +147,155 @@ describe('IntrRay3Plane3', () => {
             }
         }
         expect(hits).toBeGreaterThan(1000);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V35): property-based cross-checks against the line query and
+// against the geometry of the reported point.
+// ---------------------------------------------------------------------------
+
+describe('IntrRay3Plane3 verification', () => {
+    const ti = new IntrRay3Plane3TI();
+    const fiv = new IntrRay3Plane3FI();
+    const lineFI = new IntrLine3Plane3FI();
+    const INT32_MAX = 2147483647;
+
+    // A ray and a plane that are both moderately scaled, so that a
+    // catastrophic cancellation in Dot(N, O) - c cannot make the sign tests
+    // meaningless.
+    const rayPlane = fc.tuple(unitVector(3), wellScaledVector(3, -5, 5),
+        unitVector(3), wellScaledVector(3, -5, 5))
+        .map(([n, po, d, ro]) => ({
+            plane: Hyperplane.fromNormalOrigin(n, po),
+            ray: Ray.fromOriginDirection(ro, d)
+        }));
+
+    it('TI and FI agree on intersect', () => {
+        check(rayPlane, ({ ray: R, plane: P }) => {
+            // The two queries are algebraically the same predicate: the FI
+            // parameter is -signedDistance/DdN, which is nonnegative exactly
+            // when the TI sign test succeeds. No tolerance is needed.
+            const a = ti.test(R, P).intersect;
+            const b = fiv.find(R, P).intersect;
+            expect(b).toBe(a);
+        });
+    });
+
+    it('equals the line query restricted to t >= 0', () => {
+        check(rayPlane, ({ ray: R, plane: P }) => {
+            const lr = lineFI.find(
+                Line.fromOriginDirection(R.origin, R.direction), P);
+            const rr = fiv.find(R, P);
+            const expected = lr.intersect && !(lr.parameter < 0);
+            expect(rr.intersect).toBe(expected);
+            if (expected) {
+                expect(rr.numIntersections).toBe(lr.numIntersections);
+                expect(rr.parameter).toBe(lr.parameter);
+            }
+            else {
+                expect(rr.numIntersections).toBe(0);
+            }
+        });
+    });
+
+    it('reports a point on the plane and on the ray', () => {
+        check(rayPlane, ({ ray: R, plane: P }) => {
+            const r = fiv.find(R, P);
+            if (!r.intersect) {
+                return;
+            }
+            for (let i = 0; i < 3; ++i) {
+                expect(Number.isNaN(r.point.get(i))).toBe(false);
+            }
+            expect(r.parameter >= 0).toBe(true);
+            if (r.numIntersections === 1) {
+                // |N| = 1, so Dot(N,X) - c is the signed distance. The point
+                // is O + t*D with |t| <= |signedDistance(O)|/|DdN|; the
+                // residual is bounded by the rounding of that product.
+                const scale = 1 + Math.abs(r.parameter);
+                expectClose(dot(P.normal, r.point) - P.constant, 0,
+                    1e-12 * scale, 1e-12);
+                expectVectorClose(r.point,
+                    add(R.origin, mul(r.parameter, R.direction)), 1e-12, 1e-12);
+            }
+            else {
+                // The ray lies on the plane.
+                expect(r.numIntersections).toBe(INT32_MAX);
+                expect(r.parameter).toBe(0);
+                expectVectorClose(r.point, R.origin);
+            }
+        });
+    });
+
+    it('reports the whole ray when the ray lies exactly in the plane', () => {
+        // The ray must lie in the plane exactly, not merely to within
+        // rounding: for a nearly coplanar ray the FI query divides a tiny
+        // signed distance by a tiny Dot(D,N) and the resulting parameter is
+        // arbitrary, so the classification is a knife edge. An axis-aligned
+        // plane and points sharing that coordinate give exact zeros.
+        check(fc.tuple(fc.integer({ min: 0, max: 2 }),
+            wellScaledVector(3, -5, 5), wellScaledVector(3, -5, 5),
+            wellScaledVector(3, -5, 5)),
+            ([k, po, a, b]) => {
+                const o = a.clone();
+                const q = b.clone();
+                o.values[k] = po.values[k];
+                q.values[k] = po.values[k];
+                const d = sub(q, o);
+                if (length(d) < 1e-2) {
+                    return;
+                }
+                normalize(d);
+                // The k-th component of d is exactly zero, so Dot(D,N) = 0.
+                const P = Hyperplane.fromNormalOrigin(Vector.unit(3, k), po);
+                const R = Ray.fromOriginDirection(o, d);
+                const r = fiv.find(R, P);
+                expect(ti.test(R, P).intersect).toBe(true);
+                expect(r.intersect).toBe(true);
+                expect(r.numIntersections).toBe(INT32_MAX);
+                expect(r.parameter).toBe(0);
+                expectVectorClose(r.point, R.origin);
+            });
+    });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(rayPlane, rotationFrame(3), wellScaledVector(3, -5, 5)),
+            ([{ ray: R, plane: P }, frame, t]) => {
+                const xf = (v: Vector): Vector => {
+                    const w = new Vector(3);
+                    for (let i = 0; i < 3; ++i) {
+                        w.values[i] = frame[0].values[i] * v.values[0]
+                            + frame[1].values[i] * v.values[1]
+                            + frame[2].values[i] * v.values[2]
+                            + t.values[i];
+                    }
+                    return w;
+                };
+                const xfDir = (v: Vector): Vector => {
+                    const w = new Vector(3);
+                    for (let i = 0; i < 3; ++i) {
+                        w.values[i] = frame[0].values[i] * v.values[0]
+                            + frame[1].values[i] * v.values[1]
+                            + frame[2].values[i] * v.values[2];
+                    }
+                    return w;
+                };
+                const r0 = fiv.find(R, P);
+                const r1 = fiv.find(
+                    Ray.fromOriginDirection(xf(R.origin), xfDir(R.direction)),
+                    Hyperplane.fromNormalOrigin(xfDir(P.normal),
+                        xf(add(mul(P.constant, P.normal), new Vector(3)))));
+                // Grazing configurations (the transformed Dot(D,N) landing on
+                // the other side of zero) are knife edges; skip them.
+                if (Math.abs(dot(R.direction, P.normal)) < 1e-6) {
+                    return;
+                }
+                expect(r1.intersect).toBe(r0.intersect);
+                if (r0.intersect && r0.numIntersections === 1) {
+                    expectClose(r1.parameter, r0.parameter, 1e-8, 1e-8);
+                    expectVectorClose(r1.point, xf(r0.point), 1e-8, 1e-8);
+                }
+            });
     });
 });

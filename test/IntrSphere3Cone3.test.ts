@@ -8,7 +8,12 @@ import {
 import { Cone } from '../src/Cone.js';
 import { Hypersphere } from '../src/Hypersphere.js';
 import { Ray } from '../src/Ray.js';
-import { Vector, dot, length, normalize, sub } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
+import {
+    check, expectVectorClose, fc, rotationFrame, unitVector,
+    wellScaledVector
+} from './helpers/arbitraries.js';
 
 const V3 = (x: number, y: number, z: number) => Vector.fromArray([x, y, z]);
 
@@ -366,4 +371,290 @@ describe('IntrSphere3Cone3FI', () => {
             expect(found).toBeGreaterThan(100);
             expect(missed).toBeGreaterThan(100);
         });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V35): the TI query is cross-checked against an exact distance
+// from the sphere centre to the solid cone, computed by reducing to two
+// dimensions; the FI query is cross-checked against the infinite-cone form of
+// the same distance and against the geometry of the reported point.
+// ---------------------------------------------------------------------------
+
+describe('IntrSphere3Cone3 verification', () => {
+    const tiv = new IntrSphere3Cone3TI();
+    const fiv = new IntrSphere3Cone3FI();
+
+    // A height that stands in for +infinity. Every generated configuration
+    // has coordinates below 20, so a cap at this height is never the closest
+    // feature of the cone and the truncation is invisible to the reference.
+    const BIG_HEIGHT = 1e6;
+
+    // Squared distance from (px,py) to the segment [(ax,ay),(bx,by)].
+    function sqrDistPointSegment2(px: number, py: number, ax: number,
+        ay: number, bx: number, by: number): number {
+        const dx = bx - ax, dy = by - ay;
+        const dd = dx * dx + dy * dy;
+        let t = dd > 0 ? ((px - ax) * dx + (py - ay) * dy) / dd : 0;
+        t = Math.min(Math.max(t, 0), 1);
+        const ex = px - (ax + t * dx), ey = py - (ay + t * dy);
+        return ex * ex + ey * ey;
+    }
+
+    // Exact distance from X to the solid cone. The solid is invariant under
+    // rotation about the cone axis, so writing X in the (h,r) half plane of
+    // axial height h and radial distance r >= 0 reduces the problem to the
+    // planar distance from (h,r) to the convex region
+    //   { (h',r') : hmin <= h' <= hmax, 0 <= r' <= h' * tan(angle) },
+    // a trapezoid whose boundary consists of four segments. (For a point of
+    // the half plane, the nearest point of the solid of revolution is in the
+    // same meridian half plane, so the two distances coincide.)
+    function distanceToSolidCone(C: Cone, X: Vector): number {
+        const diff = sub(X, C.ray.origin);
+        const h = dot(C.ray.direction, diff);
+        const r = length(sub(diff, mul(h, C.ray.direction)));
+        const hmin = C.getMinHeight();
+        const hmax = C.isFinite() ? C.getMaxHeight() : BIG_HEIGHT;
+        const tan = C.tanAngle;
+        if (hmin <= h && h <= hmax && r <= h * tan) {
+            return 0;
+        }
+        const corner: [number, number][] = [
+            [hmin, 0], [hmin, hmin * tan], [hmax, hmax * tan], [hmax, 0]
+        ];
+        let best = Number.MAX_VALUE;
+        for (let i = 0, j = 3; i < 4; j = i++) {
+            best = Math.min(best, sqrDistPointSegment2(h, r,
+                corner[j][0], corner[j][1], corner[i][0], corner[i][1]));
+        }
+        return Math.sqrt(best);
+    }
+
+    // The infinite cone (hmin = 0, hmax = +infinity) with the same vertex,
+    // axis and angle; this is the solid the FI query works with.
+    function infiniteConeOf(C: Cone): Cone {
+        const D = new Cone(3);
+        D.ray = C.ray.clone();
+        D.setAngle(C.angle);
+        D.makeInfiniteCone();
+        return D;
+    }
+
+    // A cone of one of the four kinds, plus a sphere. Coordinates are well
+    // scaled so that no dot product underflows.
+    const coneArb = fc.tuple(wellScaledVector(3, -5, 5), unitVector(3),
+        fc.double({ min: 0.15, max: 1.35, noNaN: true }),
+        fc.integer({ min: 0, max: 3 }),
+        fc.double({ min: 0.25, max: 3, noNaN: true }),
+        fc.double({ min: 0.25, max: 4, noNaN: true }))
+        .map(([v, a, angle, kind, h0, dh]) => {
+            const C = new Cone(3);
+            C.ray = Ray.fromOriginDirection(v, a);
+            C.setAngle(angle);
+            if (kind === 0) { C.makeInfiniteCone(); }
+            else if (kind === 1) { C.makeInfiniteTruncatedCone(h0); }
+            else if (kind === 2) { C.makeFiniteCone(h0 + dh); }
+            else { C.makeConeFrustum(h0, h0 + dh); }
+            return C;
+        });
+
+    const sphereArb = fc.tuple(wellScaledVector(3, -6, 6),
+        fc.double({ min: 0.05, max: 4, noNaN: true }))
+        .map(([c, r]) => Hypersphere.fromCenterRadius(c, r));
+
+    const coneSphere = fc.tuple(coneArb, sphereArb);
+
+    it('TI agrees with the exact distance from the centre to the cone', () => {
+        check(coneSphere, ([C, S]) => {
+            const d = distanceToSolidCone(C, S.center);
+            // The query decides d <= radius; skip the knife edge, where the
+            // rounding of either side can flip the comparison.
+            const scale = Math.max(1, S.radius, d);
+            if (Math.abs(d - S.radius) < 1e-9 * scale) {
+                return;
+            }
+            expect(tiv.test(S, C).intersect).toBe(d <= S.radius);
+        });
+    });
+
+    it('TI is monotone in the sphere radius', () => {
+        check(fc.tuple(coneArb, wellScaledVector(3, -6, 6),
+            fc.double({ min: 0.05, max: 3, noNaN: true }),
+            fc.double({ min: 0.01, max: 3, noNaN: true })),
+            ([C, c, r, dr]) => {
+                const small = Hypersphere.fromCenterRadius(c, r);
+                const large = Hypersphere.fromCenterRadius(c, r + dr);
+                if (tiv.test(small, C).intersect) {
+                    expect(tiv.test(large, C).intersect).toBe(true);
+                }
+            });
+    });
+
+    it('TI on a truncated cone implies TI on the infinite cone', () => {
+        check(coneSphere, ([C, S]) => {
+            if (tiv.test(S, C).intersect) {
+                expect(tiv.test(S, infiniteConeOf(C)).intersect).toBe(true);
+            }
+        });
+    });
+
+    it('TI accepts a sphere centred at a point of the cone', () => {
+        check(fc.tuple(coneArb, fc.double({ min: 0, max: 1, noNaN: true }),
+            fc.double({ min: 0, max: 1, noNaN: true }),
+            fc.double({ min: 0, max: 2 * Math.PI, noNaN: true }),
+            fc.double({ min: 0.05, max: 2, noNaN: true })),
+            ([C, s, u, phi, radius]) => {
+                // Build a point of the solid cone from its (h, r, phi)
+                // parameters, then centre a sphere on it.
+                const hmin = C.getMinHeight();
+                const hmax = C.isFinite() ? C.getMaxHeight() : hmin + 5;
+                const h = hmin + s * (hmax - hmin);
+                const r = u * h * C.tanAngle;
+                // Any unit vector orthogonal to the axis.
+                const a = C.ray.direction;
+                const k = Math.abs(a.values[0]) < 0.5 ? 0
+                    : (Math.abs(a.values[1]) < 0.5 ? 1 : 2);
+                const e = Vector.unit(3, k);
+                const p = sub(e, mul(dot(e, a), a));
+                normalize(p);
+                const q = cross(a, p);
+                const X = add(add(C.ray.origin, mul(h, a)),
+                    add(mul(r * Math.cos(phi), p), mul(r * Math.sin(phi), q)));
+                // X is in the closed cone, so the sphere around it meets it.
+                expect(distanceToSolidCone(C, X)).toBeLessThan(1e-9);
+                const S = Hypersphere.fromCenterRadius(X, radius);
+                expect(tiv.test(S, C).intersect).toBe(true);
+            });
+    });
+
+    it('FI treats the cone as infinite and agrees with the distance', () => {
+        check(coneSphere, ([C, S]) => {
+            const d = distanceToSolidCone(infiniteConeOf(C), S.center);
+            const scale = Math.max(1, S.radius, d);
+            if (Math.abs(d - S.radius) < 1e-9 * scale) {
+                return;
+            }
+            const r = fiv.find(S, C);
+            expect(r.intersect).toBe(d <= S.radius);
+            // The height range is ignored, so the answer only depends on the
+            // vertex, axis and angle.
+            expect(fiv.find(S, infiniteConeOf(C)).intersect).toBe(r.intersect);
+        });
+    });
+
+    it('FI reports a finite point on both the sphere and the cone', () => {
+        check(coneSphere, ([C, S]) => {
+            const r = fiv.find(S, C);
+            if (!r.intersect) {
+                return;
+            }
+            for (let i = 0; i < 3; ++i) {
+                expect(Number.isFinite(r.point.get(i))).toBe(true);
+            }
+            const infinite = infiniteConeOf(C);
+            // The point is in the closed sphere and in the closed infinite
+            // cone. Both memberships are computed from products of
+            // coordinates below 20, so an absolute tolerance is meaningful.
+            expect(length(sub(r.point, S.center))).toBeLessThanOrEqual(
+                S.radius + 1e-8);
+            expect(distanceToSolidCone(infinite, r.point))
+                .toBeLessThanOrEqual(1e-8);
+        });
+    });
+
+    it('FI returns the cone vertex or the sphere centre in the two special'
+        + ' cases', () => {
+            check(coneSphere, ([C, S]) => {
+                const diff = sub(S.center, C.ray.origin);
+                const lenSqr = dot(diff, diff);
+                const r = fiv.find(S, C);
+                if (lenSqr <= S.radius * S.radius) {
+                    expect(r.intersect).toBe(true);
+                    expectVectorClose(r.point, C.ray.origin);
+                    return;
+                }
+                const h = dot(diff, C.ray.direction);
+                if (h > 0 && h * h >= lenSqr * C.cosAngleSqr) {
+                    expect(r.intersect).toBe(true);
+                    expectVectorClose(r.point, S.center);
+                }
+            });
+        });
+
+    it('FI places the point relative to the cone vertex, not the origin',
+        () => {
+            // Regression for the upstream defect fixed in the port: upstream
+            // assigns result.point = t * D, which omits the cone vertex V and
+            // is correct only when V is the origin. Translating the whole
+            // configuration must translate the reported point.
+            check(fc.tuple(coneArb, sphereArb, wellScaledVector(3, -6, 6)),
+                ([C, S, t]) => {
+                    const r0 = fiv.find(S, C);
+                    if (!r0.intersect) {
+                        return;
+                    }
+                    const D = new Cone(3);
+                    D.ray = Ray.fromOriginDirection(
+                        add(C.ray.origin, t), C.ray.direction);
+                    D.setAngle(C.angle);
+                    if (C.getMinHeight() > 0) {
+                        if (C.isFinite()) {
+                            D.makeConeFrustum(C.getMinHeight(),
+                                C.getMaxHeight());
+                        }
+                        else {
+                            D.makeInfiniteTruncatedCone(C.getMinHeight());
+                        }
+                    }
+                    else if (C.isFinite()) {
+                        D.makeFiniteCone(C.getMaxHeight());
+                    }
+                    else {
+                        D.makeInfiniteCone();
+                    }
+                    const r1 = fiv.find(Hypersphere.fromCenterRadius(
+                        add(S.center, t), S.radius), D);
+                    expect(r1.intersect).toBe(true);
+                    expectVectorClose(r1.point, add(r0.point, t), 1e-7, 1e-7);
+                });
+        });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(coneArb, sphereArb, rotationFrame(3),
+            wellScaledVector(3, -5, 5)), ([C, S, frame, t]) => {
+                const xfDir = (v: Vector): Vector => {
+                    const w = new Vector(3);
+                    for (let i = 0; i < 3; ++i) {
+                        w.values[i] = frame[0].values[i] * v.values[0]
+                            + frame[1].values[i] * v.values[1]
+                            + frame[2].values[i] * v.values[2];
+                    }
+                    return w;
+                };
+                const xf = (v: Vector): Vector => add(xfDir(v), t);
+                const d = distanceToSolidCone(C, S.center);
+                if (Math.abs(d - S.radius) < 1e-7 * Math.max(1, S.radius, d)) {
+                    return;
+                }
+                const D = new Cone(3);
+                D.ray = Ray.fromOriginDirection(xf(C.ray.origin),
+                    xfDir(C.ray.direction));
+                D.setAngle(C.angle);
+                if (C.getMinHeight() > 0) {
+                    if (C.isFinite()) {
+                        D.makeConeFrustum(C.getMinHeight(), C.getMaxHeight());
+                    }
+                    else {
+                        D.makeInfiniteTruncatedCone(C.getMinHeight());
+                    }
+                }
+                else if (C.isFinite()) {
+                    D.makeFiniteCone(C.getMaxHeight());
+                }
+                else {
+                    D.makeInfiniteCone();
+                }
+                const T = Hypersphere.fromCenterRadius(xf(S.center), S.radius);
+                expect(tiv.test(T, D).intersect).toBe(tiv.test(S, C).intersect);
+            });
+    });
 });

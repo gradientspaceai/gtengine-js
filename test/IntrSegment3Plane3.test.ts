@@ -7,8 +7,14 @@ import {
     defaultIntrSegment3Plane3TIResult,
     intrSegment3Plane3FIDoQuery
 } from '../src/IntrSegment3Plane3.js';
+import { IntrLine3Plane3FI } from '../src/IntrLine3Plane3.js';
+import { Line } from '../src/Line.js';
 import { Segment } from '../src/Segment.js';
-import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector.js';
+import {
+    check, expectClose, expectVectorClose, fc, rotationFrame, unitVector,
+    wellScaledVector
+} from './helpers/arbitraries.js';
 
 function vec(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -137,5 +143,172 @@ describe('IntrSegment3Plane3', () => {
             }
         }
         expect(hits).toBeGreaterThan(500);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V35): property-based cross-checks against the line query and
+// against the geometry of the reported point.
+// ---------------------------------------------------------------------------
+
+describe('IntrSegment3Plane3 verification', () => {
+    const tiv = new IntrSegment3Plane3TI();
+    const fiv = new IntrSegment3Plane3FI();
+    const lineFI = new IntrLine3Plane3FI();
+    const INT32_MAX = 2147483647;
+
+    const segPlane = fc.tuple(unitVector(3), wellScaledVector(3, -5, 5),
+        wellScaledVector(3, -5, 5), wellScaledVector(3, -5, 5))
+        .filter(([, , p0, p1]) => length(sub(p1, p0)) > 1e-2)
+        .map(([n, po, p0, p1]) => ({
+            plane: Hyperplane.fromNormalOrigin(n, po),
+            segment: Segment.fromEndpoints(p0, p1)
+        }));
+
+    it('TI and FI agree on intersect away from grazing configurations', () => {
+        check(segPlane, ({ segment: S, plane: P }) => {
+            const sd0 = dot(P.normal, S.p[0]) - P.constant;
+            const sd1 = dot(P.normal, S.p[1]) - P.constant;
+            // TI decides from the endpoint signs; FI decides from
+            // |t| <= extent in the centered form. The two are the same
+            // predicate in exact arithmetic, but the FI comparison is a knife
+            // edge when the crossing is at an endpoint, so require the
+            // endpoints to be off the plane by a relative margin.
+            const scale = Math.max(Math.abs(sd0), Math.abs(sd1), 1);
+            if (Math.min(Math.abs(sd0), Math.abs(sd1)) < 1e-8 * scale) {
+                return;
+            }
+            expect(fiv.find(S, P).intersect).toBe(tiv.test(S, P).intersect);
+        });
+    });
+
+    it('equals the line query restricted to |t| <= extent', () => {
+        check(segPlane, ({ segment: S, plane: P }) => {
+            const cf = S.getCenteredForm();
+            const lr = lineFI.find(
+                Line.fromOriginDirection(cf.center, cf.direction), P);
+            const sr = fiv.find(S, P);
+            const expected = lr.intersect
+                && !(Math.abs(lr.parameter) > cf.extent);
+            expect(sr.intersect).toBe(expected);
+            if (expected) {
+                expect(sr.numIntersections).toBe(lr.numIntersections);
+                expect(sr.parameter).toBe(lr.parameter);
+            }
+            else {
+                expect(sr.numIntersections).toBe(0);
+            }
+        });
+    });
+
+    it('reports a point on the plane and inside the segment', () => {
+        check(segPlane, ({ segment: S, plane: P }) => {
+            const r = fiv.find(S, P);
+            if (!r.intersect) {
+                return;
+            }
+            const cf = S.getCenteredForm();
+            for (let i = 0; i < 3; ++i) {
+                expect(Number.isNaN(r.point.get(i))).toBe(false);
+            }
+            if (r.numIntersections === INT32_MAX) {
+                // The segment lies on the plane; the reported point is the
+                // segment center.
+                expect(r.parameter).toBe(0);
+                expectVectorClose(r.point, cf.center);
+                return;
+            }
+            expect(r.numIntersections).toBe(1);
+            // The result parameter is in the centered form, as documented.
+            expect(Math.abs(r.parameter) <= cf.extent).toBe(true);
+            expectVectorClose(r.point,
+                add(cf.center, mul(r.parameter, cf.direction)), 1e-12, 1e-12);
+            const scale = 1 + cf.extent;
+            expectClose(dot(P.normal, r.point) - P.constant, 0,
+                1e-12 * scale, 1e-12);
+        });
+    });
+
+    it('finds the crossing of a segment built to straddle the plane', () => {
+        check(fc.tuple(unitVector(3), wellScaledVector(3, -5, 5),
+            wellScaledVector(3, -5, 5),
+            fc.double({ min: 0.2, max: 5, noNaN: true }),
+            fc.double({ min: 0.2, max: 5, noNaN: true })),
+            ([n, po, tangent, a, b]) => {
+                // p0 is at signed distance -a and p1 at +b from the plane, so
+                // the segment crosses the plane transversely.
+                const base = add(po, sub(tangent, mul(dot(n, tangent), n)));
+                const p0 = add(base, mul(-a, n));
+                const p1 = add(base, mul(+b, n));
+                const P = Hyperplane.fromNormalOrigin(n, po);
+                const S = Segment.fromEndpoints(p0, p1);
+                expect(tiv.test(S, P).intersect).toBe(true);
+                const r = fiv.find(S, P);
+                expect(r.intersect).toBe(true);
+                expect(r.numIntersections).toBe(1);
+                // The crossing is at the parameter a/(a+b) of [p0,p1].
+                const expected = add(p0, mul(a / (a + b), sub(p1, p0)));
+                expectVectorClose(r.point, expected, 1e-9, 1e-9);
+            });
+    });
+
+    it('reports the whole segment when it lies exactly in the plane', () => {
+        // The segment must lie in the plane exactly, not merely to within
+        // rounding: for a segment that is only nearly coplanar the FI query
+        // divides a tiny signed distance by a tiny Dot(D,N) and the resulting
+        // parameter is arbitrary, so the classification is a knife edge. An
+        // axis-aligned plane and endpoints sharing that coordinate give exact
+        // zeros.
+        check(fc.tuple(fc.integer({ min: 0, max: 2 }),
+            wellScaledVector(3, -5, 5), wellScaledVector(3, -5, 5),
+            wellScaledVector(3, -5, 5)),
+            ([k, po, a, b]) => {
+                const p0 = a.clone();
+                const p1 = b.clone();
+                p0.values[k] = po.values[k];
+                p1.values[k] = po.values[k];
+                if (length(sub(p1, p0)) < 1e-2) {
+                    return;
+                }
+                const P = Hyperplane.fromNormalOrigin(Vector.unit(3, k), po);
+                const S = Segment.fromEndpoints(p0, p1);
+                expect(tiv.test(S, P).intersect).toBe(true);
+                const r = fiv.find(S, P);
+                expect(r.intersect).toBe(true);
+                expect(r.numIntersections).toBe(INT32_MAX);
+                expect(r.parameter).toBe(0);
+                expectVectorClose(r.point, S.getCenteredForm().center);
+            });
+    });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(segPlane, rotationFrame(3), wellScaledVector(3, -5, 5)),
+            ([{ segment: S, plane: P }, frame, t]) => {
+                const xfDir = (v: Vector): Vector => {
+                    const w = new Vector(3);
+                    for (let i = 0; i < 3; ++i) {
+                        w.values[i] = frame[0].values[i] * v.values[0]
+                            + frame[1].values[i] * v.values[1]
+                            + frame[2].values[i] * v.values[2];
+                    }
+                    return w;
+                };
+                const xf = (v: Vector): Vector => add(xfDir(v), t);
+                const sd0 = dot(P.normal, S.p[0]) - P.constant;
+                const sd1 = dot(P.normal, S.p[1]) - P.constant;
+                const scale = Math.max(Math.abs(sd0), Math.abs(sd1), 1);
+                if (Math.min(Math.abs(sd0), Math.abs(sd1)) < 1e-6 * scale) {
+                    return;
+                }
+                const r0 = fiv.find(S, P);
+                const r1 = fiv.find(
+                    Segment.fromEndpoints(xf(S.p[0]), xf(S.p[1])),
+                    Hyperplane.fromNormalOrigin(xfDir(P.normal),
+                        xf(mul(P.constant, P.normal))));
+                expect(r1.intersect).toBe(r0.intersect);
+                if (r0.intersect && r0.numIntersections === 1) {
+                    expectVectorClose(r1.point, xf(r0.point), 1e-8, 1e-8);
+                }
+            });
     });
 });

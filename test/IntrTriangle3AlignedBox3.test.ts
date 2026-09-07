@@ -8,7 +8,15 @@ import {
     intrTriangle3BoxFacePlanes
 } from '../src/IntrTriangle3AlignedBox3.js';
 import { Triangle } from '../src/Triangle.js';
-import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import { CanonicalBox } from '../src/CanonicalBox.js';
+import { DistTriangle3AlignedBox3 } from '../src/DistTriangle3AlignedBox3.js';
+import {
+    IntrTriangle3CanonicalBox3TI, IntrTriangle3CanonicalBox3FI
+} from '../src/IntrTriangle3CanonicalBox3.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import {
+    check, expectClose, expectVectorClose, fc, wellScaledVector
+} from './helpers/arbitraries.js';
 import { cross } from '../src/Vector3.js';
 
 function vec(x: number, y: number, z: number): Vector {
@@ -216,5 +224,140 @@ describe('IntrTriangle3AlignedBox3', () => {
         }
         expect(numInside).toBeGreaterThan(100);
         expect(numClipped).toBeGreaterThan(50);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V35): cross-checks against the triangle-box distance query and
+// against the canonical-box query that the aligned-box query delegates to.
+// ---------------------------------------------------------------------------
+
+describe('IntrTriangle3AlignedBox3 verification', () => {
+    const tiv = new IntrTriangle3AlignedBox3TI();
+    const fiv = new IntrTriangle3AlignedBox3FI();
+    const canonTI = new IntrTriangle3CanonicalBox3TI();
+    const canonFI = new IntrTriangle3CanonicalBox3FI();
+    const distQuery = new DistTriangle3AlignedBox3();
+
+    function twiceArea3(poly: readonly Vector[]): number {
+        if (poly.length < 3) {
+            return 0;
+        }
+        const acc = new Vector(3);
+        for (let i = 1; i + 1 < poly.length; ++i) {
+            const c = cross(sub(poly[i], poly[0]), sub(poly[i + 1], poly[0]));
+            for (let k = 0; k < 3; ++k) {
+                acc.values[k] += c.values[k];
+            }
+        }
+        return length(acc);
+    }
+
+    const boxArb = fc.tuple(wellScaledVector(3, -4, 4),
+        fc.array(fc.double({ min: 0.2, max: 4, noNaN: true }),
+            { minLength: 3, maxLength: 3 }))
+        .map(([c, e]) => AlignedBox.fromMinMax(
+            Vector.fromArray([c.values[0] - e[0], c.values[1] - e[1],
+                c.values[2] - e[2]]),
+            Vector.fromArray([c.values[0] + e[0], c.values[1] + e[1],
+                c.values[2] + e[2]])));
+
+    const triArb = fc.array(wellScaledVector(3, -8, 8),
+        { minLength: 3, maxLength: 3 })
+        .map(vs => Triangle.fromVertices(vs[0], vs[1], vs[2]))
+        .filter(t => length(cross(sub(t.v[1], t.v[0]), sub(t.v[2], t.v[0])))
+            > 1);
+
+    // A classification is stable when growing and shrinking the box by delta
+    // leaves it unchanged. Grazing configurations are not stable, and for
+    // those the answer is decided by rounding, so properties comparing two
+    // computations of the same predicate are asserted only on stable input.
+    function grow(b: AlignedBox, delta: number): AlignedBox {
+        const d = Vector.fromArray([delta, delta, delta]);
+        return AlignedBox.fromMinMax(sub(b.min, d), add(b.max, d));
+    }
+
+    function stable(t: Triangle, b: AlignedBox, delta = 1e-6): boolean {
+        return tiv.test(t, grow(b, delta)).intersect
+            === tiv.test(t, grow(b, -delta)).intersect;
+    }
+
+    it('TI is true exactly when the triangle-box distance is zero', () => {
+        check(fc.tuple(triArb, boxArb), ([t, b]) => {
+            const d = distQuery.compute(t, b).distance;
+            if (d === 0) {
+                if (stable(t, b)) {
+                    expect(tiv.test(t, b).intersect).toBe(true);
+                }
+            }
+            else if (d > 1e-9) {
+                expect(tiv.test(t, b).intersect).toBe(false);
+            }
+        });
+    });
+
+    it('TI and FI equal the canonical-box queries after translation', () => {
+        check(fc.tuple(triArb, boxArb), ([t, b]) => {
+            if (!stable(t, b)) {
+                return;
+            }
+            const center = mul(0.5, add(b.max, b.min));
+            const extent = mul(0.5, sub(b.max, b.min));
+            const cbox = CanonicalBox.fromExtent(extent);
+            const ct = Triangle.fromVertices(sub(t.v[0], center),
+                sub(t.v[1], center), sub(t.v[2], center));
+            expect(tiv.test(t, b).intersect)
+                .toBe(canonTI.test(ct, cbox).intersect);
+
+            const r = fiv.find(t, b);
+            const cr = canonFI.find(ct, cbox);
+            // The two clips run in different coordinate systems, so a vertex
+            // that lands on a clipping plane can be kept by one and dropped
+            // by the other; the area of the clipped polygon is the stable
+            // invariant.
+            expect(r.insidePolygon.length > 0)
+                .toBe(cr.insidePolygon.length > 0);
+            expectClose(twiceArea3(r.insidePolygon),
+                twiceArea3(cr.insidePolygon), 1e-7, 1e-7);
+        });
+    });
+
+    it('FI conserves the triangle area and stays inside the box', () => {
+        check(fc.tuple(triArb, boxArb), ([t, b]) => {
+            const r = fiv.find(t, b);
+            let total = twiceArea3(r.insidePolygon);
+            for (const poly of r.outsidePolygons) {
+                total += twiceArea3(poly);
+            }
+            expectClose(total,
+                length(cross(sub(t.v[1], t.v[0]), sub(t.v[2], t.v[0]))),
+                1e-7, 1e-7);
+            for (const x of r.insidePolygon) {
+                for (let k = 0; k < 3; ++k) {
+                    expect(x.values[k]).toBeGreaterThan(b.min.values[k] - 1e-8);
+                    expect(x.values[k]).toBeLessThan(b.max.values[k] + 1e-8);
+                }
+            }
+        });
+    });
+
+    it('is equivariant under translation', () => {
+        check(fc.tuple(triArb, boxArb, wellScaledVector(3, -5, 5)),
+            ([t, b, tr]) => {
+                const t2 = Triangle.fromVertices(add(t.v[0], tr),
+                    add(t.v[1], tr), add(t.v[2], tr));
+                const b2 = AlignedBox.fromMinMax(add(b.min, tr),
+                    add(b.max, tr));
+                if (!stable(t, b, 1e-5)) {
+                    return;
+                }
+                expect(tiv.test(t2, b2).intersect)
+                    .toBe(tiv.test(t, b).intersect);
+                // Compare areas rather than vertex counts: a clipped vertex
+                // that lands on a face plane may or may not survive the
+                // translation, which changes the count but not the area.
+                expectClose(twiceArea3(fiv.find(t2, b2).insidePolygon),
+                    twiceArea3(fiv.find(t, b).insidePolygon), 1e-7, 1e-7);
+            });
     });
 });

@@ -5,8 +5,11 @@ import {
     intrTetrahedron3Tetrahedron3InvalidIndex
 } from '../src/IntrTetrahedron3Tetrahedron3.js';
 import { Tetrahedron3 } from '../src/Tetrahedron3.js';
-import { Vector, add, dot, sub } from '../src/Vector.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
 import { cross } from '../src/Vector3.js';
+import {
+    check, fc, rotationFrame, seededRandom, wellScaledVector
+} from './helpers/arbitraries.js';
 
 const V3 = (x: number, y: number, z: number) => Vector.fromArray([x, y, z]);
 const INVALID = intrTetrahedron3Tetrahedron3InvalidIndex;
@@ -273,4 +276,287 @@ describe('IntrTetrahedron3Tetrahedron3TI randomized cross-check', () => {
                 expect(ti.test(t0, t1).intersect).toBe(true);
             }
         });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V35): the TI query is cross-checked against a brute-force
+// method of separating axes over the full candidate set (4 + 4 face normals
+// and 36 edge-pair cross products). On integer input every projection is an
+// exact binary64 value, so the reference is exact.
+// ---------------------------------------------------------------------------
+
+describe('IntrTetrahedron3Tetrahedron3 verification', () => {
+    const tiv = new IntrTetrahedron3Tetrahedron3TI();
+    const invalid = intrTetrahedron3Tetrahedron3InvalidIndex;
+
+    // All 44 candidate separating directions, unnormalized. The face normals
+    // are the raw cross products of the face edges rather than the unit
+    // normals the query uses, so that integer input keeps exact arithmetic.
+    function candidateAxes(t0: Tetrahedron3, t1: Tetrahedron3): Vector[] {
+        const axes: Vector[] = [];
+        for (const t of [t0, t1]) {
+            for (let f = 0; f < 4; ++f) {
+                const idx = Tetrahedron3.getFaceIndices(f);
+                axes.push(cross(sub(t.v[idx[1]], t.v[idx[0]]),
+                    sub(t.v[idx[2]], t.v[idx[0]])));
+            }
+        }
+        for (let i0 = 0; i0 < 6; ++i0) {
+            const a = Tetrahedron3.getEdgeIndices(i0);
+            const E0 = sub(t0.v[a[1]], t0.v[a[0]]);
+            for (let i1 = 0; i1 < 6; ++i1) {
+                const b = Tetrahedron3.getEdgeIndices(i1);
+                axes.push(cross(E0, sub(t1.v[b[1]], t1.v[b[0]])));
+            }
+        }
+        return axes;
+    }
+
+    function interval(t: Tetrahedron3, n: Vector): [number, number] {
+        let lo = dot(n, t.v[0]);
+        let hi = lo;
+        for (let i = 1; i < 4; ++i) {
+            const d = dot(n, t.v[i]);
+            if (d < lo) { lo = d; } else if (d > hi) { hi = d; }
+        }
+        return [lo, hi];
+    }
+
+    // The two solids have disjoint interiors exactly when some candidate axis
+    // gives closed projection intervals that do not overlap; touching
+    // intervals count as separated, which is the convention of the query.
+    function satSeparated(t0: Tetrahedron3, t1: Tetrahedron3): boolean {
+        for (const n of candidateAxes(t0, t1)) {
+            if (dot(n, n) === 0) {
+                continue;
+            }
+            const [lo0, hi0] = interval(t0, n);
+            const [lo1, hi1] = interval(t1, n);
+            if (hi0 <= lo1 || hi1 <= lo0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // True when some candidate axis has projection intervals that exactly
+    // touch (or touch to within 'tol' relative to the axis length). The query
+    // computes the face-normal tests with unit-length normals, so a vertex
+    // that lies exactly in a face plane projects to a tiny nonzero value of
+    // either sign and the strict-sign classification is a coin flip. Such
+    // configurations are knife edges and are excluded from the comparison.
+    function hasTie(t0: Tetrahedron3, t1: Tetrahedron3, tol: number): boolean {
+        for (const n of candidateAxes(t0, t1)) {
+            const nn = dot(n, n);
+            if (nn === 0) {
+                continue;
+            }
+            const scale = Math.sqrt(nn);
+            const [lo0, hi0] = interval(t0, n);
+            const [lo1, hi1] = interval(t1, n);
+            if (Math.abs(lo1 - hi0) <= tol * scale
+                || Math.abs(lo0 - hi1) <= tol * scale) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function signedVolume(t: Tetrahedron3): number {
+        return dot(cross(sub(t.v[1], t.v[0]), sub(t.v[2], t.v[0])),
+            sub(t.v[3], t.v[0]));
+    }
+
+    // The query assumes counterclockwise face ordering, that is, a positively
+    // oriented tetrahedron; make one from four points.
+    function orient(vs: Vector[]): Tetrahedron3 | null {
+        const t = Tetrahedron3.fromArray(vs);
+        const vol = signedVolume(t);
+        if (vol === 0) {
+            return null;
+        }
+        if (vol < 0) {
+            const swap = t.v[1];
+            t.v[1] = t.v[2];
+            t.v[2] = swap;
+        }
+        return t;
+    }
+
+    it('agrees with a brute-force separating-axis test on lattice input',
+        () => {
+            // Integer coordinates in [-6,6] make every projection onto an
+            // (unnormalized) candidate axis an exact integer below 2^53, so
+            // the reference decides separation exactly.
+            const rng = seededRandom(0x5eed1234);
+            const draw = (): Vector => Vector.fromArray([
+                Math.round(rng() * 12) - 6,
+                Math.round(rng() * 12) - 6,
+                Math.round(rng() * 12) - 6]);
+            let numIntersect = 0, numSeparate = 0;
+            for (let iter = 0; iter < 3000; ++iter) {
+                const t0 = orient([draw(), draw(), draw(), draw()]);
+                const t1 = orient([draw(), draw(), draw(), draw()]);
+                if (t0 === null || t1 === null || hasTie(t0, t1, 0)) {
+                    continue;
+                }
+                const separated = satSeparated(t0, t1);
+                expect(tiv.test(t0, t1).intersect).toBe(!separated);
+                if (separated) { ++numSeparate; } else { ++numIntersect; }
+            }
+            // Both outcomes must be exercised or the property is vacuous.
+            expect(numIntersect).toBeGreaterThan(100);
+            expect(numSeparate).toBeGreaterThan(100);
+        }, 30000);
+
+    // Well-scaled random tetrahedra with a comfortable volume, so that the
+    // face normals are well determined.
+    const tetraArb = fc.array(wellScaledVector(3, -6, 6),
+        { minLength: 4, maxLength: 4 })
+        .map(vs => orient(vs))
+        .filter((t): t is Tetrahedron3 =>
+            t !== null && signedVolume(t) > 1);
+
+    it('agrees with a brute-force separating-axis test on real input', () => {
+        check(fc.tuple(tetraArb, tetraArb), ([t0, t1]) => {
+            if (hasTie(t0, t1, 1e-9)) {
+                return;
+            }
+            expect(tiv.test(t0, t1).intersect).toBe(!satSeparated(t0, t1));
+        });
+    });
+
+    it('is symmetric in its arguments', () => {
+        check(fc.tuple(tetraArb, tetraArb), ([t0, t1]) => {
+            if (hasTie(t0, t1, 1e-9)) {
+                return;
+            }
+            expect(tiv.test(t1, t0).intersect).toBe(tiv.test(t0, t1).intersect);
+        });
+    });
+
+    it('reports a genuine separating axis in result.separating', () => {
+        check(fc.tuple(tetraArb, tetraArb), ([t0, t1]) => {
+            const r = tiv.test(t0, t1);
+            if (r.intersect) {
+                expect(r.separating[0]).toBe(invalid);
+                expect(r.separating[1]).toBe(invalid);
+                return;
+            }
+            const [a, b] = r.separating;
+            let axis: Vector;
+            if (b === invalid) {
+                // A face normal of tetra0.
+                expect(a).toBeGreaterThanOrEqual(0);
+                expect(a).toBeLessThan(4);
+                axis = t0.computeFaceNormal(a);
+            }
+            else if (a === invalid) {
+                // A face normal of tetra1.
+                expect(b).toBeGreaterThanOrEqual(0);
+                expect(b).toBeLessThan(4);
+                axis = t1.computeFaceNormal(b);
+            }
+            else {
+                // The cross product of edge a of tetra0 and edge b of tetra1.
+                const e0 = Tetrahedron3.getEdgeIndices(a);
+                const e1 = Tetrahedron3.getEdgeIndices(b);
+                axis = cross(sub(t0.v[e0[1]], t0.v[e0[0]]),
+                    sub(t1.v[e1[1]], t1.v[e1[0]]));
+            }
+            const [lo0, hi0] = interval(t0, axis);
+            const [lo1, hi1] = interval(t1, axis);
+            const gap = Math.max(lo1 - hi0, lo0 - hi1);
+            // The reported axis really does separate, up to the rounding of
+            // the unit face normals.
+            expect(gap).toBeGreaterThanOrEqual(-1e-9 * Math.sqrt(dot(axis, axis)));
+        });
+    });
+
+    it('reports a tetrahedron as intersecting itself and its subsets', () => {
+        check(fc.tuple(tetraArb, fc.array(
+            fc.double({ min: 0.05, max: 1, noNaN: true }),
+            { minLength: 4, maxLength: 4 })), ([t, w]) => {
+                expect(tiv.test(t, t).intersect).toBe(true);
+                // A tetrahedron whose vertices are strictly interior convex
+                // combinations of t's vertices lies inside t.
+                const sum = w[0] + w[1] + w[2] + w[3];
+                const centroid = new Vector(3);
+                for (let i = 0; i < 4; ++i) {
+                    for (let k = 0; k < 3; ++k) {
+                        centroid.values[k] += (w[i] / sum) * t.v[i].values[k];
+                    }
+                }
+                const inner = Tetrahedron3.fromArray(t.v.map(v =>
+                    add(centroid, mul(0.25, sub(v, centroid)))));
+                expect(tiv.test(t, inner).intersect).toBe(true);
+                expect(tiv.test(inner, t).intersect).toBe(true);
+            });
+    });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(tetraArb, tetraArb, rotationFrame(3),
+            wellScaledVector(3, -5, 5)), ([t0, t1, frame, tr]) => {
+                if (hasTie(t0, t1, 1e-7)) {
+                    return;
+                }
+                const xf = (v: Vector): Vector => {
+                    const w = new Vector(3);
+                    for (let i = 0; i < 3; ++i) {
+                        w.values[i] = frame[0].values[i] * v.values[0]
+                            + frame[1].values[i] * v.values[1]
+                            + frame[2].values[i] * v.values[2]
+                            + tr.values[i];
+                    }
+                    return w;
+                };
+                const a = Tetrahedron3.fromArray(t0.v.map(xf));
+                const b = Tetrahedron3.fromArray(t1.v.map(xf));
+                expect(tiv.test(a, b).intersect)
+                    .toBe(tiv.test(t0, t1).intersect);
+            });
+    });
+
+    it('requires positively oriented tetrahedra', () => {
+        // The face normals come from Tetrahedron3.computeFaceNormal, which
+        // points outward only for a positively oriented tetrahedron. With the
+        // orientation reversed the normals point inward and the face-normal
+        // phase reports separation for a contained tetrahedron. This is an
+        // undocumented upstream precondition; the port states it in the file
+        // comments.
+        const V = (x: number, y: number, z: number) =>
+            Vector.fromArray([x, y, z]);
+        const positive = Tetrahedron3.fromArray([V(0, 0, 0), V(1, 0, 0),
+            V(0, 1, 0), V(0, 0, 1)]);
+        const negative = Tetrahedron3.fromArray([V(0, 0, 0), V(0, 1, 0),
+            V(1, 0, 0), V(0, 0, 1)]);
+        expect(signedVolume(positive)).toBeGreaterThan(0);
+        expect(signedVolume(negative)).toBeLessThan(0);
+        const inner = Tetrahedron3.fromArray([V(0.1, 0.1, 0.1),
+            V(0.3, 0.1, 0.1), V(0.1, 0.3, 0.1), V(0.1, 0.1, 0.3)]);
+        expect(tiv.test(positive, inner).intersect).toBe(true);
+        expect(tiv.test(negative, inner).intersect).toBe(false);
+    });
+
+    it('treats measure-zero contact as separation', () => {
+        // Two unit tetrahedra sharing the face x = 0 exactly. The projection
+        // intervals touch, and the query reports separation; this convention
+        // is inherited from upstream and is pinned here.
+        const a = Tetrahedron3.fromArray([
+            Vector.fromArray([0, 0, 0]), Vector.fromArray([-1, 0, 0]),
+            Vector.fromArray([0, 1, 0]), Vector.fromArray([0, 0, 1])]);
+        const b = Tetrahedron3.fromArray([
+            Vector.fromArray([0, 0, 0]), Vector.fromArray([1, 0, 0]),
+            Vector.fromArray([0, 1, 0]), Vector.fromArray([0, 0, 1])]);
+        const ra = signedVolume(a) > 0 ? a : Tetrahedron3.fromArray(
+            [a.v[0], a.v[2], a.v[1], a.v[3]]);
+        const rb = signedVolume(b) > 0 ? b : Tetrahedron3.fromArray(
+            [b.v[0], b.v[2], b.v[1], b.v[3]]);
+        expect(tiv.test(ra, rb).intersect).toBe(false);
+        expect(tiv.test(rb, ra).intersect).toBe(false);
+        // Overlapping them by a sliver makes the intersection positive.
+        const shifted = Tetrahedron3.fromArray(rb.v.map(v =>
+            add(v, Vector.fromArray([-0.25, 0, 0]))));
+        expect(tiv.test(ra, shifted).intersect).toBe(true);
+    });
 });
