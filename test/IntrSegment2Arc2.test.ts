@@ -9,7 +9,12 @@ import {
 } from '../src/IntrSegment2Arc2.js';
 import { Line } from '../src/Line.js';
 import { Segment } from '../src/Segment.js';
-import { Vector, add, length, mul, sub } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import { dotPerp } from '../src/Vector2.js';
+import {
+    check, expectClose, expectVectorClose, fc, positive,
+    rotationFrame, segment as arbSegment, unitVector, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function vec(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -141,5 +146,174 @@ describe('IntrSegment2Arc2', () => {
         }
         expect(numOne).toBeGreaterThan(20);
         expect(numTwo).toBeGreaterThanOrEqual(1);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification group V34: property-based re-verification against
+// GTE/Mathematics/IntrSegment2Arc2.h at commit d29e7758ae26.
+// ---------------------------------------------------------------------------
+
+describe('IntrSegment2Arc2 verification', () => {
+    const tiQ = new IntrSegment2Arc2TI();
+    const fiQ = new IntrSegment2Arc2FI();
+
+    const arbArc = fc.tuple(wellScaledVector(2), positive(4),
+        fc.double({ min: -Math.PI, max: Math.PI, noNaN: true }),
+        fc.double({ min: 0.05, max: 2 * Math.PI - 0.05, noNaN: true }))
+        .map(([c, r, a0, span]) => {
+            const e0 = Vector.fromArray([c.values[0] + r * Math.cos(a0),
+                c.values[1] + r * Math.sin(a0)]);
+            const a1 = a0 + span;
+            const e1 = Vector.fromArray([c.values[0] + r * Math.cos(a1),
+                c.values[1] + r * Math.sin(a1)]);
+            return Arc2.fromCenterRadiusEnds(c, r, e0, e1);
+        });
+
+    it('TI and FI agree on intersect', () => {
+        check(fc.tuple(arbSegment(2), arbArc), ([S, A]) => {
+            expect(tiQ.test(S, A).intersect).toBe(fiQ.find(S, A).intersect);
+        });
+    });
+
+    it('the reported points use the centered segment form and are on the arc', () => {
+        check(fc.tuple(arbSegment(2), arbArc), ([S, A]) => {
+            const r = fiQ.find(S, A);
+            const cf = S.getCenteredForm();
+            const scale = 1 + A.radius + length(A.center) + length(cf.center);
+            for (let i = 0; i < r.numIntersections; ++i) {
+                const t = r.parameter[i];
+                // The documented convention: P = C + t*D with |t| <= extent.
+                expect(Math.abs(t)).toBeLessThanOrEqual(cf.extent);
+                const X = r.point[i];
+                expectVectorClose(X, add(cf.center, mul(t, cf.direction)),
+                    1e-12 * scale, 1e-12);
+                expectClose(length(sub(X, A.center)), A.radius,
+                    1e-9 * scale, 1e-9);
+                expect(A.containsOnCircle(X)).toBe(true);
+                // The point is also between the segment endpoints.
+                const d0 = length(sub(X, S.p[0]));
+                const d1 = length(sub(X, S.p[1]));
+                expectClose(d0 + d1, length(sub(S.p[1], S.p[0])),
+                    1e-9 * scale, 1e-9);
+            }
+        });
+    });
+
+    it('is the line-circle query filtered to |t| <= extent and to the arc', () => {
+        const lcQuery = new IntrLine2Circle2FI();
+        check(fc.tuple(arbSegment(2), arbArc), ([S, A]) => {
+            const cf = S.getCenteredForm();
+            const lc = lcQuery.find(
+                Line.fromOriginDirection(cf.center, cf.direction),
+                Hypersphere.fromCenterRadius(A.center, A.radius));
+            const kept: number[] = [];
+            for (let i = 0; i < lc.numIntersections; ++i) {
+                if (Math.abs(lc.parameter[i]) <= cf.extent
+                    && A.containsOnCircle(lc.point[i])) {
+                    kept.push(lc.parameter[i]);
+                }
+            }
+            const r = fiQ.find(S, A);
+            expect(r.numIntersections).toBe(kept.length);
+            expect(r.intersect).toBe(kept.length > 0);
+            for (let i = 0; i < kept.length; ++i) {
+                expect(r.parameter[i]).toBe(kept[i]);
+            }
+        });
+    });
+
+    it('never reports an off-arc hit when an endpoint is inside the disk', () => {
+        // The upstream defect (#304): the solid-disk segment-circle query
+        // clips the t-interval to [-e,e], so a segment endpoint inside the
+        // disk is reported as an "intersection point" and handed to
+        // Arc2::Contains, which assumes its argument is on the circle.
+        check(fc.tuple(arbArc, unitVector(2),
+            fc.double({ min: 0, max: 0.9, noNaN: true }),
+            fc.double({ min: -Math.PI, max: Math.PI, noNaN: true }),
+            positive(6, 0.1)),
+            ([A, d, frac, phi, len]) => {
+                const inside = add(A.center, Vector.fromArray([
+                    frac * A.radius * Math.cos(phi),
+                    frac * A.radius * Math.sin(phi)]));
+                const S = Segment.fromEndpoints(inside,
+                    add(inside, mul(len, d)));
+                const r = fiQ.find(S, A);
+                const scale = 1 + A.radius + length(A.center);
+                for (let i = 0; i < r.numIntersections; ++i) {
+                    expectClose(length(sub(r.point[i], A.center)), A.radius,
+                        1e-9 * scale, 1e-9);
+                    expect(A.containsOnCircle(r.point[i])).toBe(true);
+                }
+                expect(r.numIntersections).toBeLessThanOrEqual(1);
+            });
+    });
+
+    it('pins the endpoint-inside-the-disk regression', () => {
+        // The unit circle centred at the origin; the arc is the upper half.
+        // The segment from (0,-0.5) to (0,-0.9) is entirely inside the disk
+        // and meets neither the circle nor the arc. Upstream's solid-disk
+        // clipping reported the endpoint (0,-0.5) and Arc2::Contains accepted
+        // it (dotPerp((0,-0.5)-(1,0), (-2,0)) = -1*-0.5... > 0).
+        const A = Arc2.fromCenterRadiusEnds(Vector.zero(2), 1,
+            Vector.fromArray([1, 0]), Vector.fromArray([-1, 0]));
+        const S = Segment.fromEndpoints(Vector.fromArray([0, -0.5]),
+            Vector.fromArray([0, -0.9]));
+        const r = fiQ.find(S, A);
+        expect(r.intersect).toBe(false);
+        expect(r.numIntersections).toBe(0);
+        expect(tiQ.test(S, A).intersect).toBe(false);
+
+        // A segment reaching up through the arc does intersect it.
+        const S2 = Segment.fromEndpoints(Vector.fromArray([0, -0.5]),
+            Vector.fromArray([0, 2]));
+        const r2 = fiQ.find(S2, A);
+        expect(r2.intersect).toBe(true);
+        expect(r2.numIntersections).toBe(1);
+        expectVectorClose(r2.point[0], Vector.fromArray([0, 1]), 1e-12, 1e-12);
+    });
+
+    it('is equivariant under a rigid motion', () => {
+        check(fc.tuple(arbSegment(2), arbArc, rotationFrame(2),
+            wellScaledVector(2)),
+            ([S, A, Rot, t]) => {
+                const rot = (v: Vector) => Vector.fromArray([
+                    dot(Rot[0], v), dot(Rot[1], v)]);
+                const map = (v: Vector) => add(rot(v), t);
+                const cf = S.getCenteredForm();
+                const lc = new IntrLine2Circle2FI().find(
+                    Line.fromOriginDirection(cf.center, cf.direction),
+                    Hypersphere.fromCenterRadius(A.center, A.radius));
+                if (lc.numIntersections === 1) { return; }  // tangency
+                const sc = 1 + A.radius + length(A.center) + length(cf.center);
+                for (let i = 0; i < lc.numIntersections; ++i) {
+                    if (Math.abs(Math.abs(lc.parameter[i]) - cf.extent)
+                        < 1e-6 * sc) {
+                        return;
+                    }
+                    const dp0 = dotPerp(sub(lc.point[i], A.end[0]),
+                        sub(A.end[1], A.end[0]));
+                    if (Math.abs(dp0) < 1e-6 * A.radius * A.radius) {
+                        return;
+                    }
+                }
+                const S2 = Segment.fromEndpoints(map(S.p[0]), map(S.p[1]));
+                const A2 = Arc2.fromCenterRadiusEnds(map(A.center), A.radius,
+                    map(A.end[0]), map(A.end[1]));
+                expect(fiQ.find(S2, A2).numIntersections)
+                    .toBe(fiQ.find(S, A).numIntersections);
+            });
+    });
+
+    it('reports a degenerate (point) segment outside the circle as empty', () => {
+        check(fc.tuple(arbArc, wellScaledVector(2)), ([A, p]) => {
+            if (Math.abs(length(sub(p, A.center)) - A.radius) < 1e-6) {
+                return;
+            }
+            const S = Segment.fromEndpoints(p, p.clone());
+            const r = fiQ.find(S, A);
+            expect(r.intersect).toBe(false);
+            expect(r.numIntersections).toBe(0);
+        });
     });
 });
