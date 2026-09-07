@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { FeatureKey } from '../src/FeatureKey.js';
 import { hashCombine } from '../src/HashCombine.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 // Deterministic pseudorandom generator so failures are reproducible.
 function makeRng(seed: number): () => number {
@@ -183,5 +184,115 @@ describe('FeatureKey.compare', () => {
         expect(FeatureKey.compare(makeKey([5, 6]), makeKey([5, 6]))).toBe(0);
         expect(FeatureKey.compare(makeKey([5, 6]), makeKey([5, 7]))).toBe(-1);
         expect(FeatureKey.compare(makeKey([5, 7]), makeKey([5, 6]))).toBe(1);
+    });
+});
+
+describe('FeatureKey verification', () => {
+    const keyOfLength = (n: number): fc.Arbitrary<FeatureKey> =>
+        fc.array(fc.integer({ min: -3, max: 3 }), { minLength: n, maxLength: n })
+            .map((v) => {
+                const key = new FeatureKey(n, false);
+                for (let i = 0; i < n; ++i) {
+                    key.V[i] = v[i];
+                }
+                return key;
+            });
+
+    const pair = (n: number): fc.Arbitrary<[FeatureKey, FeatureKey]> =>
+        fc.tuple(keyOfLength(n), keyOfLength(n));
+
+    it('lessThan is a strict total order (trichotomy)', () => {
+        check(pair(3), ([a, b]) => {
+            const lt = a.lessThan(b);
+            const gt = b.lessThan(a);
+            const eq = a.equals(b);
+            // Exactly one of <, >, == holds.
+            expect(Number(lt) + Number(gt) + Number(eq)).toBe(1);
+            expect(a.notEqual(b)).toBe(!eq);
+        });
+    });
+
+    it('lessThan is transitive and irreflexive', () => {
+        check(fc.tuple(keyOfLength(4), keyOfLength(4), keyOfLength(4)),
+            ([a, b, c]) => {
+                expect(a.lessThan(a)).toBe(false);
+                if (a.lessThan(b) && b.lessThan(c)) {
+                    expect(a.lessThan(c)).toBe(true);
+                }
+            });
+    });
+
+    it('the derived comparisons follow from lessThan', () => {
+        check(pair(2), ([a, b]) => {
+            expect(a.lessThanOrEqual(b)).toBe(!b.lessThan(a));
+            expect(a.greaterThan(b)).toBe(b.lessThan(a));
+            expect(a.greaterThanOrEqual(b)).toBe(!a.lessThan(b));
+            // <= and >= together are equality.
+            expect(a.lessThanOrEqual(b) && a.greaterThanOrEqual(b))
+                .toBe(a.equals(b));
+        });
+    });
+
+    it('compare orders exactly as lessThan and sorts lexicographically', () => {
+        check(fc.array(keyOfLength(3), { minLength: 2, maxLength: 8 }),
+            (keys) => {
+                const sorted = keys.slice().sort(FeatureKey.compare);
+                for (let i = 0; i + 1 < sorted.length; ++i) {
+                    expect(sorted[i + 1].lessThan(sorted[i])).toBe(false);
+                }
+                // compare is antisymmetric and zero exactly on equality.
+                for (const a of keys) {
+                    for (const b of keys) {
+                        // '+ 0' normalizes the -0 that negating a zero
+                        // comparison produces; toBe uses Object.is.
+                        expect(FeatureKey.compare(a, b))
+                            .toBe(-FeatureKey.compare(b, a) + 0);
+                        expect(FeatureKey.compare(a, b) === 0).toBe(a.equals(b));
+                    }
+                }
+            });
+    });
+
+    it('mapKey and hashValue agree with equals', () => {
+        check(pair(3), ([a, b]) => {
+            const eq = a.equals(b);
+            expect(a.mapKey() === b.mapKey()).toBe(eq);
+            expect(FeatureKey.equal(a, b)).toBe(eq);
+            if (eq) {
+                expect(a.hashValue()).toBe(b.hashValue());
+                expect(FeatureKey.hashValue(a)).toBe(FeatureKey.hashValue(b));
+            }
+        });
+    });
+
+    it('mapKey never collides across different key lengths', () => {
+        check(fc.tuple(keyOfLength(2), keyOfLength(3)), ([a, b]) => {
+            expect(a.mapKey()).not.toBe(b.mapKey());
+        });
+    });
+
+    it('a Map keyed by mapKey behaves as std::map<FeatureKey, .>', () => {
+        check(fc.array(keyOfLength(3), { minLength: 1, maxLength: 10 }),
+            (keys) => {
+                const map = new Map<string, FeatureKey>();
+                for (const key of keys) {
+                    map.set(key.mapKey(), key);
+                }
+                // The number of distinct keys under equals() is the map size.
+                let distinct = 0;
+                for (let i = 0; i < keys.length; ++i) {
+                    let seen = false;
+                    for (let j = 0; j < i; ++j) {
+                        if (keys[i].equals(keys[j])) {
+                            seen = true;
+                            break;
+                        }
+                    }
+                    if (!seen) {
+                        ++distinct;
+                    }
+                }
+                expect(map.size).toBe(distinct);
+            });
     });
 });
