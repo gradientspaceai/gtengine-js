@@ -711,10 +711,16 @@ export class IntrAlignedBox3Cone3TI implements
             if (clipMin) {
                 const E0 = this.mVertices[edge[0]].values;
                 const E1 = this.mVertices[edge[1]].values;
-                const denom = p1Min - p0Min;
+                // Upstream divides the numerator vector by (p1Min - p0Min)
+                // with Vector::operator/, which multiplies by the reciprocal
+                // (Vector.h). Dividing componentwise would differ in the last
+                // bit, so the reciprocal is formed here as upstream does. The
+                // divisor cannot be zero: clipMin holds only when p0Min and
+                // p1Min have strictly opposite signs.
+                const invDenom = 1 / (p1Min - p0Min);
                 const values = this.mVertices[v0].values;
                 for (let d = 0; d < 3; ++d) {
-                    values[d] = (p1Min * E0[d] - p0Min * E1[d]) / denom;
+                    values[d] = (p1Min * E0[d] - p0Min * E1[d]) * invDenom;
                 }
             }
 
@@ -725,10 +731,11 @@ export class IntrAlignedBox3Cone3TI implements
             if (clipMax) {
                 const E0 = this.mVertices[edge[0]].values;
                 const E1 = this.mVertices[edge[1]].values;
-                const denom = p1Max - p0Max;
+                // See the comment in the hmin block above.
+                const invDenom = 1 / (p1Max - p0Max);
                 const values = this.mVertices[v1].values;
                 for (let d = 0; d < 3; ++d) {
-                    values[d] = (p1Max * E0[d] - p0Max * E1[d]) / denom;
+                    values[d] = (p1Max * E0[d] - p0Max * E1[d]) * invDenom;
                 }
             }
 
