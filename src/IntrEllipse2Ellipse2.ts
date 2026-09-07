@@ -166,6 +166,7 @@ export class IntrEllipse2Ellipse2TI implements
             : [[d1, c1], [d0, c0]]);
 
         const valid: Array<[number, number]> = [];
+        let oneTermDropped = false;
         if (param[0][0] > param[1][0]) {
             // d0 > d1
             for (let i = 0; i < 2; ++i) {
@@ -173,6 +174,7 @@ export class IntrEllipse2Ellipse2TI implements
                     valid.push(param[i]);
                 }
             }
+            oneTermDropped = (valid.length === 1);
         }
         else {
             // d0 = d1
@@ -202,6 +204,44 @@ export class IntrEllipse2Ellipse2TI implements
             }
             if (sqrDistance > maxSqrDistance) {
                 maxSqrDistance = sqrDistance;
+            }
+        }
+
+        if (oneTermDropped) {
+            // Upstream bug (FIXED here; see the upstream-bug issue for
+            // IntrEllipse2Ellipse2): when exactly one of c0, c1 is zero, that
+            // term is dropped from f(s) and two of the four critical points
+            // of the squared distance are lost, so minSqrDistance and
+            // maxSqrDistance are both taken from the remaining pair.
+            //
+            // The critical-point condition is p_i * (1 - s * d_i) =
+            // -s * d_i * k_i for i = 0, 1. When k_j = 0 the j-th equation is
+            // p_j * (1 - s * d_j) = 0, which besides p_j = 0 has the solution
+            // s = 1 / d_j with p_j free. That value of s is a pole of f, so
+            // the root search above cannot find it. At s = 1 / d_j,
+            //   p_i = d_i * k_i / (d_i - d_j)      (i != j, d_i != d_j)
+            //   p_j^2 = (1 - d_i * (p_i - k_i)^2) / d_j
+            // and the two points +-p_j give the same squared distance.
+            //
+            // Without this, the query reports ELLIPSE1_STRICTLY_CONTAINS_
+            // ELLIPSE0 for, say, the unit circle at the origin against the
+            // ellipse with extents (1/2, 2) centred at (0, 1/2), which in
+            // fact overlap.
+            const jIsZero = (c0 === zero);
+            const dj = (jIsZero ? d0 : d1);
+            const di = (jIsZero ? d1 : d0);
+            const ki = (jIsZero ? K.values[1] : K.values[0]);
+            const pi = di * ki / (di - dj);
+            const diff = pi - ki;
+            const numer = 1 - di * diff * diff;
+            if (numer >= zero) {
+                const sqrDistance = numer / dj + pi * pi;
+                if (sqrDistance < minSqrDistance) {
+                    minSqrDistance = sqrDistance;
+                }
+                if (sqrDistance > maxSqrDistance) {
+                    maxSqrDistance = sqrDistance;
+                }
             }
         }
 

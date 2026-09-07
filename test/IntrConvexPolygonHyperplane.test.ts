@@ -6,6 +6,7 @@ import {
     IntrConvexPolygonHyperplaneTI,
     IntrConvexPolygonHyperplaneFI
 } from '../src/IntrConvexPolygonHyperplane.js';
+import { check, expectClose, fc } from './helpers/arbitraries.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -307,5 +308,266 @@ describe('IntrConvexPolygonHyperplaneFI', () => {
             }
         }
         expect(numSplit).toBeGreaterThan(30);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V32): properties cross-checking the port against upstream
+// IntrConvexPolygonHyperplane.h.
+// ---------------------------------------------------------------------------
+
+describe('IntrConvexPolygonHyperplane verification', () => {
+    const ti = new IntrConvexPolygonHyperplaneTI();
+    const fi = new IntrConvexPolygonHyperplaneFI();
+
+    // Convex lattice polygons: a counterclockwise rectangle or trapezoid with
+    // integer vertices. Small integers are exact in binary64, so the heights
+    // dot(n, v) - c below are computed exactly for integer normals and
+    // constants and the sign tests of the query are unambiguous.
+    const arbLatticePolygon = fc.tuple(
+        fc.integer({ min: -6, max: 0 }), fc.integer({ min: 1, max: 6 }),
+        fc.integer({ min: -6, max: 0 }), fc.integer({ min: 1, max: 6 }),
+        fc.integer({ min: 0, max: 3 }))
+        .map(([x0, x1, y0, y1, cut]) => {
+            const ps = [v2(x0, y0), v2(x1, y0), v2(x1, y1), v2(x0, y1)];
+            if (cut === 0 || x1 - x0 < 2 || y1 - y0 < 2) {
+                return ps;
+            }
+            // Bevel the top-right corner, keeping the polygon convex.
+            return [v2(x0, y0), v2(x1, y0), v2(x1, y1 - 1),
+                v2(x1 - 1, y1), v2(x0, y1)];
+        });
+    const arbLatticePlane = fc.tuple(
+        fc.integer({ min: -3, max: 3 }), fc.integer({ min: -3, max: 3 }),
+        fc.integer({ min: -8, max: 8 }))
+        .filter(([nx, ny]) => nx !== 0 || ny !== 0)
+        .map(([nx, ny, c]) => Hyperplane.fromNormalConstant(v2(nx, ny), c));
+    const arbPair = fc.tuple(arbLatticePolygon, arbLatticePlane);
+
+    function heights(polygon: readonly Vector[], hp: Hyperplane): number[] {
+        return polygon.map(p => height(hp, p));
+    }
+
+    function expectedConfiguration(h: readonly number[]): Cfg {
+        let numPositive = 0, numNegative = 0, numZero = 0;
+        for (const x of h) {
+            if (x > 0) {
+                ++numPositive;
+            }
+            else if (x < 0) {
+                ++numNegative;
+            }
+            else {
+                ++numZero;
+            }
+        }
+        if (numPositive > 0) {
+            if (numNegative > 0) {
+                return Cfg.SPLIT;
+            }
+            return numZero === 0 ? Cfg.POSITIVE_SIDE_STRICT
+                : (numZero === 1 ? Cfg.POSITIVE_SIDE_VERTEX
+                    : Cfg.POSITIVE_SIDE_EDGE);
+        }
+        if (numNegative > 0) {
+            return numZero === 0 ? Cfg.NEGATIVE_SIDE_STRICT
+                : (numZero === 1 ? Cfg.NEGATIVE_SIDE_VERTEX
+                    : Cfg.NEGATIVE_SIDE_EDGE);
+        }
+        return Cfg.CONTAINED;
+    }
+
+    it('TI and FI report the same configuration, matching the exact vertex'
+        + ' signs', () => {
+        check(arbPair, ([polygon, hp]) => {
+            const expected = expectedConfiguration(heights(polygon, hp));
+            const tiRes = ti.test(polygon, hp);
+            expect(tiRes.configuration).toBe(expected);
+            expect(fi.find(polygon, hp).configuration).toBe(expected);
+            expect(tiRes.intersect).toBe(
+                expected !== Cfg.POSITIVE_SIDE_STRICT
+                && expected !== Cfg.NEGATIVE_SIDE_STRICT
+                && expected !== Cfg.INVALID_POLYGON);
+        });
+    });
+
+    it('the split polygons partition the input: correct sides, zero-height'
+        + ' cut vertices and conserved area', () => {
+        check(arbPair, ([polygon, hp]) => {
+            const res = fi.find(polygon, hp);
+            if (res.configuration !== Cfg.SPLIT) {
+                return;
+            }
+            expect(res.positivePolygon.length).toBeGreaterThanOrEqual(3);
+            expect(res.negativePolygon.length).toBeGreaterThanOrEqual(3);
+            const scale = 1 + Math.abs(area2(polygon));
+            for (const p of res.positivePolygon) {
+                expect(height(hp, p)).toBeGreaterThanOrEqual(-1e-9 * scale);
+            }
+            for (const p of res.negativePolygon) {
+                expect(height(hp, p)).toBeLessThanOrEqual(1e-9 * scale);
+            }
+            // The two intersection points are on the hyperplane and belong to
+            // both sub-polygons.
+            expect(res.intersection.length).toBe(2);
+            for (const q of res.intersection) {
+                expectClose(height(hp, q), 0, 1e-9 * scale, 1e-9);
+                const onPos = res.positivePolygon.some(p =>
+                    p.equals(q));
+                const onNeg = res.negativePolygon.some(p =>
+                    p.equals(q));
+                // A cut point is shared; a cut that lands exactly on an input
+                // vertex is only added to the negative polygon (the vertex is
+                // already in the positive one).
+                expect(onPos || onNeg).toBe(true);
+            }
+            // Areas are conserved: the clip partitions the polygon.
+            expectClose(Math.abs(area2(res.positivePolygon))
+                + Math.abs(area2(res.negativePolygon)),
+                Math.abs(area2(polygon)), 1e-8 * scale, 1e-9);
+            // Both parts keep the orientation of the input.
+            const a = area2(polygon);
+            if (Math.abs(a) > 1e-9) {
+                expect(Math.sign(area2(res.positivePolygon)))
+                    .toBe(Math.sign(a));
+                expect(Math.sign(area2(res.negativePolygon)))
+                    .toBe(Math.sign(a));
+            }
+        });
+    });
+
+    it('clipping is idempotent on each side', () => {
+        check(arbPair, ([polygon, hp]) => {
+            const res = fi.find(polygon, hp);
+            if (res.configuration !== Cfg.SPLIT) {
+                return;
+            }
+            const scale = 1 + Math.abs(area2(polygon));
+            // The clip vertices are computed as omt*P + t*Q, so their height
+            // can be a few ulps off zero and the second clip may report a
+            // SPLIT whose other side has negligible area.
+            const again = fi.find(res.positivePolygon, hp);
+            if (again.configuration === Cfg.SPLIT) {
+                expect(Math.abs(area2(again.negativePolygon)))
+                    .toBeLessThanOrEqual(1e-9 * scale);
+            }
+            else {
+                expect([Cfg.POSITIVE_SIDE_VERTEX, Cfg.POSITIVE_SIDE_EDGE,
+                    Cfg.POSITIVE_SIDE_STRICT, Cfg.CONTAINED])
+                    .toContain(again.configuration);
+                if (again.configuration !== Cfg.CONTAINED) {
+                    expect(again.positivePolygon.length)
+                        .toBe(res.positivePolygon.length);
+                }
+            }
+            const negAgain = fi.find(res.negativePolygon, hp);
+            if (negAgain.configuration === Cfg.SPLIT) {
+                expect(Math.abs(area2(negAgain.positivePolygon)))
+                    .toBeLessThanOrEqual(1e-9 * scale);
+            }
+            else {
+                expect([Cfg.NEGATIVE_SIDE_VERTEX, Cfg.NEGATIVE_SIDE_EDGE,
+                    Cfg.NEGATIVE_SIDE_STRICT, Cfg.CONTAINED])
+                    .toContain(negAgain.configuration);
+            }
+        });
+    });
+
+    it('the one-sided cases return the whole polygon on that side', () => {
+        check(arbPair, ([polygon, hp]) => {
+            const res = fi.find(polygon, hp);
+            if (res.configuration === Cfg.POSITIVE_SIDE_STRICT
+                || res.configuration === Cfg.POSITIVE_SIDE_VERTEX
+                || res.configuration === Cfg.POSITIVE_SIDE_EDGE) {
+                expect(res.positivePolygon.length).toBe(polygon.length);
+                for (let i = 0; i < polygon.length; ++i) {
+                    expect(res.positivePolygon[i].equals(polygon[i]))
+                        .toBe(true);
+                }
+                expect(res.negativePolygon.length).toBe(0);
+            }
+            if (res.configuration === Cfg.NEGATIVE_SIDE_STRICT
+                || res.configuration === Cfg.NEGATIVE_SIDE_VERTEX
+                || res.configuration === Cfg.NEGATIVE_SIDE_EDGE) {
+                expect(res.negativePolygon.length).toBe(polygon.length);
+                expect(res.positivePolygon.length).toBe(0);
+            }
+            if (res.configuration === Cfg.CONTAINED) {
+                expect(res.intersection.length).toBe(polygon.length);
+                expect(res.positivePolygon.length).toBe(0);
+                expect(res.negativePolygon.length).toBe(0);
+            }
+        });
+    });
+
+    it('the result never aliases the input polygon', () => {
+        check(arbPair, ([polygon, hp]) => {
+            const before = polygon.map(p => p.clone());
+            const res = fi.find(polygon, hp);
+            for (const out of [res.intersection, res.positivePolygon,
+                res.negativePolygon]) {
+                for (const p of out) {
+                    p.set(0, 12345);
+                }
+            }
+            for (let i = 0; i < polygon.length; ++i) {
+                expect(polygon[i].equals(before[i])).toBe(true);
+            }
+        });
+    });
+
+    it('negating the hyperplane exchanges the two sides', () => {
+        check(arbPair, ([polygon, hp]) => {
+            const flipped = Hyperplane.fromNormalConstant(
+                Vector.fromArray([-hp.normal.get(0), -hp.normal.get(1)]),
+                -hp.constant);
+            const a = fi.find(polygon, hp);
+            const b = fi.find(polygon, flipped);
+            const mirror: Record<number, number> = {
+                [Cfg.SPLIT]: Cfg.SPLIT,
+                [Cfg.CONTAINED]: Cfg.CONTAINED,
+                [Cfg.POSITIVE_SIDE_STRICT]: Cfg.NEGATIVE_SIDE_STRICT,
+                [Cfg.POSITIVE_SIDE_VERTEX]: Cfg.NEGATIVE_SIDE_VERTEX,
+                [Cfg.POSITIVE_SIDE_EDGE]: Cfg.NEGATIVE_SIDE_EDGE,
+                [Cfg.NEGATIVE_SIDE_STRICT]: Cfg.POSITIVE_SIDE_STRICT,
+                [Cfg.NEGATIVE_SIDE_VERTEX]: Cfg.POSITIVE_SIDE_VERTEX,
+                [Cfg.NEGATIVE_SIDE_EDGE]: Cfg.POSITIVE_SIDE_EDGE
+            };
+            expect(b.configuration).toBe(mirror[a.configuration]);
+            if (a.configuration === Cfg.SPLIT) {
+                expectClose(Math.abs(area2(b.positivePolygon)),
+                    Math.abs(area2(a.negativePolygon)), 1e-8, 1e-9);
+                expectClose(Math.abs(area2(b.negativePolygon)),
+                    Math.abs(area2(a.positivePolygon)), 1e-8, 1e-9);
+            }
+        });
+    });
+
+    it('rejects polygons with fewer than three vertices', () => {
+        const hp = plane2(1, 0, 0);
+        for (const p of [[], [v2(1, 1)], [v2(1, 1), v2(2, 2)]]) {
+            expect(ti.test(p, hp).configuration).toBe(Cfg.INVALID_POLYGON);
+            expect(ti.test(p, hp).intersect).toBe(false);
+            const res = fi.find(p, hp);
+            expect(res.configuration).toBe(Cfg.INVALID_POLYGON);
+            expect(res.intersection.length).toBe(0);
+            expect(res.positivePolygon.length).toBe(0);
+            expect(res.negativePolygon.length).toBe(0);
+        }
+    });
+
+    it('works for polygons embedded in 3D', () => {
+        // The query is dimension agnostic: it only uses dot products.
+        const polygon = [v3(0, 0, 0), v3(2, 0, 0), v3(2, 2, 0), v3(0, 2, 0)];
+        const hp = Hyperplane.fromNormalConstant(v3(1, 0, 0), 1);
+        const res = fi.find(polygon, hp);
+        expect(res.configuration).toBe(Cfg.SPLIT);
+        expect(res.intersection.length).toBe(2);
+        for (const q of res.intersection) {
+            expectClose(q.get(0), 1);
+            expect(q.get(2)).toBe(0);
+        }
+        expectClose(Math.abs(area2(res.positivePolygon)), 2);
+        expectClose(Math.abs(area2(res.negativePolygon)), 2);
     });
 });
