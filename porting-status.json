@@ -1085,7 +1085,8 @@
   "verified": 30
  },
  "IntrAlignedBox2Circle2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 32
  },
  "IntrAlignedBox2OrientedBox2.h": {
   "status": "ported",
@@ -1099,14 +1100,16 @@
   "status": "ported"
  },
  "IntrAlignedBox3Cylinder3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 32
  },
  "IntrAlignedBox3OrientedBox3.h": {
   "status": "ported",
   "verified": 30
  },
  "IntrAlignedBox3Sphere3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 32
  },
  "IntrArc2Arc2.h": {
   "status": "ported",
@@ -1135,7 +1138,8 @@
   "status": "ported"
  },
  "IntrConvexPolygonHyperplane.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 32
  },
  "IntrCylinder3Cylinder3.h": {
   "status": "ported",
@@ -1146,7 +1150,8 @@
   "verified": 31
  },
  "IntrEllipse2Ellipse2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 32
  },
  "IntrEllipsoid3Ellipsoid3.h": {
   "status": "ported"
@@ -1371,14 +1376,16 @@
   "verified": 31
  },
  "IntrRay3Sphere3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 32
  },
  "IntrRay3Triangle3.h": {
   "status": "ported",
   "verified": 30
  },
  "IntrSegment2AlignedBox2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 32
  },
  "IntrSegment2Arc2.h": {
   "status": "ported"
@@ -1390,16 +1397,19 @@
   "status": "ported"
  },
  "IntrSegment2Segment2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 32
  },
  "IntrSegment2SegmentMesh2.h": {
   "status": "ported"
  },
  "IntrSegment2Triangle2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 32
  },
  "IntrSegment3AlignedBox3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 32
  },
  "IntrSegment3Capsule3.h": {
   "status": "ported"
@@ -1420,10 +1430,12 @@
   "status": "ported"
  },
  "IntrSegment3Rectangle3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 32
  },
  "IntrSegment3Sphere3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 32
  },
  "IntrSegment3Triangle3.h": {
   "status": "ported",
@@ -1436,10 +1448,12 @@
   "status": "ported"
  },
  "IntrSphere3Sphere3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 32
  },
  "IntrSphere3Triangle3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 32
  },
  "IntrTetrahedron3Tetrahedron3.h": {
   "status": "ported"
@@ -1454,7 +1468,8 @@
   "status": "ported"
  },
  "IntrTriangle3Cylinder3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 32
  },
  "IntrTriangle3OrientedBox3.h": {
   "status": "ported"
