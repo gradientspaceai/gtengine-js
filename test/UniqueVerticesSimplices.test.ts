@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { UniqueVerticesSimplices } from '../src/UniqueVerticesSimplices.js';
+import { Vector } from '../src/Vector.js';
 
 type P2 = [number, number];
 type P3 = [number, number, number];
@@ -313,4 +314,17 @@ describe('UniqueVerticesSimplices randomized round trips', () => {
                 .toEqual(indices.map(i => pool[i].join(',')));
         }
     });
+    it('copies vertices that expose clone() instead of aliasing the input', () => {
+        // Upstream's std::vector<VertexType> holds copies; a caller mutating
+        // its input must not see the change in the unique-vertex array.
+        const a = Vector.fromArray([1, 2, 3]);
+        const b = Vector.fromArray([4, 5, 6]);
+        const uvs = new UniqueVerticesSimplices<Vector>(3);
+        const { vertices } = uvs.generateIndexedSimplices([a, b, a]);
+        expect(vertices.length).toBe(2);
+        expect(vertices[0]).not.toBe(a);
+        a.values[0] = 99;
+        expect(vertices[0].values[0]).toBe(1);
+    });
+
 });

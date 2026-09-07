@@ -316,8 +316,13 @@ export class UniqueVerticesSimplices<VertexType> {
                 inToOutMapping[i] = numOutVertices;
                 // Pack the unique vertices into an array. Upstream packs them
                 // after the loop by iterating the map, which stores the
-                // vertex at the same index computed here.
-                outVertices.push(inVertices[i]);
+                // vertex at the same index computed here. Upstream's
+                // std::vector<VertexType> holds COPIES; a JS array would alias
+                // the caller's objects, so vertices that expose clone() (Vector
+                // and friends) are copied. Plain values are unaffected.
+                const v = inVertices[i] as unknown as { clone?: () => VertexType };
+                outVertices.push(typeof v.clone === 'function'
+                    ? v.clone() : inVertices[i]);
                 ++numOutVertices;
             }
         }
