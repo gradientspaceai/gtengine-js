@@ -416,7 +416,8 @@
   "verified": 8
  },
  "ConvexMesh3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 36
  },
  "ConvexPolyhedron3.h": {
   "status": "ported",
@@ -794,7 +795,8 @@
   "verified": 22
  },
  "EdgeKey.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 36
  },
  "Ellipse3.h": {
   "status": "ported"
@@ -804,7 +806,8 @@
   "verified": 18
  },
  "ETManifoldMesh.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 36
  },
  "ETNonmanifoldMesh.h": {
   "status": "ported",
@@ -859,7 +862,8 @@
   "verified": 25
  },
  "FeatureKey.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 36
  },
  "FIQuery.h": {
   "status": "ported",
@@ -1003,7 +1007,8 @@
   "verified": 10
  },
  "IndexAttribute.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 36
  },
  "InscribedFixedAspectRectInQuad.h": {
   "status": "ported",
@@ -1533,7 +1538,8 @@
   "verified": 23
  },
  "IsPlanarGraph.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 36
  },
  "LCPSolver.h": {
   "status": "ported"
@@ -1650,7 +1656,8 @@
   "verified": 10
  },
  "MinimumSpanningTree.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 36
  },
  "MinimumVolumeBox3.h": {
   "status": "ported",
@@ -1980,13 +1987,16 @@
   "verified": 23
  },
  "StaticVETManifoldMesh2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 36
  },
  "StaticVTSManifoldMesh3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 36
  },
  "STLBinaryFile.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 36
  },
  "StringUtility.h": {
   "status": "omitted",
@@ -2037,7 +2047,8 @@
   "status": "ported"
  },
  "TetrahedronKey.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 36
  },
  "ThreadSafeMap.h": {
   "status": "omitted",
@@ -2067,7 +2078,8 @@
   "status": "ported"
  },
  "TriangleKey.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 36
  },
  "TriangulateCDT.h": {
   "status": "ported",
@@ -2078,7 +2090,8 @@
   "verified": 8
  },
  "TSManifoldMesh.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 36
  },
  "TubeMesh.h": {
   "status": "ported",
@@ -2102,7 +2115,8 @@
   "note": "C++ 32-bit UInteger storage backend; superseded by bigint-backed BSNumber precedent (B34, PR #94) — no consumers in the TS port"
  },
  "UniqueVerticesSimplices.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 36
  },
  "UniqueVerticesTriangles.h": {
   "status": "ported",
@@ -2129,10 +2143,12 @@
   "verified": 1
  },
  "VEManifoldMesh.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 36
  },
  "VertexAttribute.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 36
  },
  "VertexCollapseMesh.h": {
   "status": "ported",
