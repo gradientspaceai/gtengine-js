@@ -81,6 +81,14 @@ class per query and names `operator()` by kind:
   without inheritance.
 - Query classes are stateless unless upstream has tunable state
   (`setMaxLCPIterations`, `useConjugateGradient`), and may be reused freely.
+- Algorithms that upstream templates on a mesh type (the nonuniform
+  interpolators) take a duck-typed interface instead. Its per-simplex
+  accessors are named `getTriangleIndices(t)` / `getTetrahedronIndices(t)`,
+  never `getIndices(t)`: the mesh classes expose `getIndices()` for the
+  whole flat array, and TypeScript accepts a lower-arity method where a
+  higher-arity one is declared, so a colliding name binds silently to the
+  wrong method. `Delaunay2Mesh`, `Delaunay3Mesh` and `PlanarMesh` implement
+  the interfaces.
 - `TI` and `FI` are not always two halves of one predicate. For circles
   upstream's TI tests the solid disks (`|C0 - C1| <= r0 + r1`) while FI
   intersects the curves, so nested circles give TI `true` and FI
