@@ -363,6 +363,13 @@ describe('IntrLine3Capsule3 verification', () => {
                 const c = Capsule.fromSegmentRadius(seg, radius);
                 const base = add(seg.p[0], mul(s, sub(seg.p[1], seg.p[0])));
                 const target = add(base, mul(frac * radius, off));
+                // Upstream collapses to a degenerate interval when the line lies
+                // in a cap-junction plane perpendicular to the axis (#461
+                // item 3); that knife edge is pinned deterministically
+                // elsewhere, so skip it here.
+                if ((s < 1e-6 || s > 1 - 1e-6) && Math.abs(dot(d, u)) < 1e-6) {
+                    return true;
+                }
                 const l = Line.fromOriginDirection(target, d);
                 const f = fiq.find(l, c);
                 expect(tiq.test(l, c).intersect).toBe(true);
