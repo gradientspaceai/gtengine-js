@@ -7,7 +7,12 @@ import {
     defaultIntrPlane3Circle3FIResult,
     intrPlane3Circle3InfinitePoints
 } from '../src/IntrPlane3Circle3.js';
-import { Vector, dot, length, normalize, sub } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
+import {
+    check, expectClose, fc, plane as arbPlane, positive, rotationFrame,
+    unitVector, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function plane(normal: number[], origin: number[]): Hyperplane {
     const n = Vector.fromArray(normal);
@@ -138,5 +143,189 @@ describe('IntrPlane3Circle3', () => {
             expect(X.values[0] + X.values[1]).toBeCloseTo(0, 10);
             expect(length(sub(X, C.center))).toBeCloseTo(2, 10);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification group V34: property-based re-verification against
+// GTE/Mathematics/IntrPlane3Circle3.h at commit d29e7758ae26.
+// ---------------------------------------------------------------------------
+
+describe('IntrPlane3Circle3 verification', () => {
+    const tiQ = new IntrPlane3Circle3TI();
+    const fiQ = new IntrPlane3Circle3FI();
+
+    const arbCircle = fc.tuple(wellScaledVector(3), unitVector(3), positive(5))
+        .map(([c, n, r]) => Circle3.fromCenterNormalRadius(c, n, r));
+
+    // IntrPlane3Plane3 decides 'parallel' with the exact test |Dot(N0,N1)|
+    // >= 1, so the coplanar and parallel branches are reached only when the
+    // shared normal has Dot(N,N) exactly 1. About half of the normalized
+    // random vectors do; these are exact.
+    const exactUnitNormals = [
+        Vector.fromArray([1, 0, 0]), Vector.fromArray([0, 1, 0]),
+        Vector.fromArray([0, 0, 1]), Vector.fromArray([0.6, 0.8, 0]),
+        Vector.fromArray([0, 0.6, 0.8]), Vector.fromArray([0.8, 0, 0.6]),
+        Vector.fromArray([-0.6, 0, 0.8])
+    ];
+    const arbExactCircle = fc.tuple(wellScaledVector(3),
+        fc.constantFrom(...exactUnitNormals), positive(5))
+        .map(([c, n, r]) => Circle3.fromCenterNormalRadius(c, n, r));
+
+    // The circle plane and the input plane are transverse by a safe margin,
+    // which keeps the plane-plane line well conditioned.
+    const transverse = (P: Hyperplane, C: Circle3) =>
+        Math.abs(dot(P.normal, C.normal)) < 1 - 1e-3;
+
+    it('TI and FI agree on intersect', () => {
+        check(fc.tuple(arbPlane(3), arbCircle), ([P, C]) => {
+            expect(fiQ.find(P, C).intersect).toBe(tiQ.test(P, C).intersect);
+        });
+    });
+
+    it('the FI points lie on the plane and on the circle', () => {
+        check(fc.tuple(arbPlane(3), arbCircle), ([P, C]) => {
+            if (!transverse(P, C)) { return; }
+            const r = fiQ.find(P, C);
+            if (!r.intersect
+                || r.numIntersections === intrPlane3Circle3InfinitePoints) {
+                return;
+            }
+            const scale = 1 + C.radius + length(C.center);
+            for (let i = 0; i < r.numIntersections; ++i) {
+                const X = r.point[i];
+                // On the input plane.
+                expectClose(dot(P.normal, X) - P.constant, 0, 1e-8 * scale, 0);
+                // On the circle: in the circle plane and at the radius.
+                const d = sub(X, C.center);
+                expectClose(dot(C.normal, d), 0, 1e-8 * scale, 0);
+                expectClose(length(d), C.radius, 1e-8 * scale, 1e-8);
+            }
+        });
+    });
+
+    it('reports a coplanar circle as the whole circle', () => {
+        check(arbExactCircle, C => {
+            const P = Hyperplane.fromNormalOrigin(C.normal, C.center);
+            const r = fiQ.find(P, C);
+            expect(r.intersect).toBe(true);
+            expect(r.numIntersections).toBe(intrPlane3Circle3InfinitePoints);
+            expect(r.circle.center.values).toEqual(C.center.values);
+            expect(r.circle.normal.values).toEqual(C.normal.values);
+            expect(r.circle.radius).toBe(C.radius);
+            expect(r.point[0].values).toEqual([0, 0, 0]);
+            expect(r.point[1].values).toEqual([0, 0, 0]);
+            expect(tiQ.test(P, C).intersect).toBe(true);
+            // The returned circle is a copy, not an alias of the input.
+            r.circle.radius = -1;
+            expect(C.radius).not.toBe(-1);
+        });
+    });
+
+    it('reports a parallel offset plane as empty', () => {
+        check(arbExactCircle, C => {
+            const P = Hyperplane.fromNormalOrigin(C.normal,
+                add(C.center, mul(1.5, C.normal)));
+            const r = fiQ.find(P, C);
+            expect(r.intersect).toBe(false);
+            expect(r.numIntersections).toBe(0);
+            expect(tiQ.test(P, C).intersect).toBe(false);
+        });
+    });
+
+    it('agrees with sampling of the circle when the plane cuts it', () => {
+        // The plane cuts the circle when Dot(N,X) - c changes sign along the
+        // circle. Sampling proves an intersection; the query must report at
+        // least one point in that case.
+        check(fc.tuple(arbPlane(3), arbCircle), ([P, C]) => {
+            if (!transverse(P, C)) { return; }
+            const helper = Math.abs(C.normal.values[0]) < 0.9
+                ? Vector.fromArray([1, 0, 0]) : Vector.fromArray([0, 1, 0]);
+            const u = cross(C.normal, helper);
+            normalize(u);
+            const v = cross(C.normal, u);
+            let lo = Number.POSITIVE_INFINITY;
+            let hi = Number.NEGATIVE_INFINITY;
+            for (let i = 0; i < 360; ++i) {
+                const a = (2 * Math.PI * i) / 360;
+                const X = add(C.center, add(mul(C.radius * Math.cos(a), u),
+                    mul(C.radius * Math.sin(a), v)));
+                const sd = dot(P.normal, X) - P.constant;
+                lo = Math.min(lo, sd);
+                hi = Math.max(hi, sd);
+            }
+            const r = fiQ.find(P, C);
+            const scale = 1 + C.radius;
+            if (lo < -1e-9 * scale && hi > 1e-9 * scale) {
+                expect(r.intersect).toBe(true);
+                expect(r.numIntersections).toBe(2);
+            }
+            if (lo > 1e-6 * scale || hi < -1e-6 * scale) {
+                expect(r.intersect).toBe(false);
+            }
+        }, 60);
+    });
+
+    it('reports a tangent configuration as a single (doubled) point', () => {
+        // The plane z = 0 is tangent to the unit circle in the xz-plane
+        // centered at (0,0,1).
+        const C = Circle3.fromCenterNormalRadius(Vector.fromArray([0, 0, 1]),
+            Vector.fromArray([0, 1, 0]), 1);
+        const P = Hyperplane.fromNormalOrigin(Vector.fromArray([0, 0, 1]),
+            Vector.zero(3));
+        const r = fiQ.find(P, C);
+        expect(r.intersect).toBe(true);
+        expect(r.numIntersections).toBe(1);
+        expect(r.point[0].values[0]).toBeCloseTo(0, 12);
+        expect(r.point[0].values[2]).toBeCloseTo(0, 12);
+        expect(r.point[1].values).toEqual(r.point[0].values);
+        // point[1] is a copy, not an alias.
+        r.point[1].values[0] = 42;
+        expect(r.point[0].values[0]).not.toBe(42);
+        expect(r.circle.radius).toBe(0);
+        expect(tiQ.test(P, C).intersect).toBe(true);
+    });
+
+    it('is equivariant under a rigid motion', () => {
+        check(fc.tuple(arbPlane(3), arbCircle, rotationFrame(3),
+            wellScaledVector(3)),
+            ([P, C, R, t]) => {
+                const rot = (x: Vector) => Vector.fromArray([
+                    dot(R[0], x), dot(R[1], x), dot(R[2], x)]);
+                const map = (x: Vector) => add(rot(x), t);
+                const P2 = Hyperplane.fromNormalOrigin(rot(P.normal),
+                    map(P.origin));
+                const C2 = Circle3.fromCenterNormalRadius(map(C.center),
+                    rot(C.normal), C.radius);
+                if (!transverse(P, C)) { return; }
+                const r0 = fiQ.find(P, C);
+                const r1 = fiQ.find(P2, C2);
+                if (r0.numIntersections === 1) { return; }  // tangency
+                expect(r1.intersect).toBe(r0.intersect);
+                expect(r1.numIntersections).toBe(r0.numIntersections);
+            });
+    });
+    it('pins the near-coplanar conditioning inherited from IntrPlane3Plane3', () => {
+        // IntrPlane3Plane3 classifies the planes as parallel only when
+        // |Dot(N0,N1)| >= 1 exactly. A normalized normal whose self-dot is
+        // one ulp below 1 makes two IDENTICAL planes transverse, and the
+        // intersection line is then built with invDet = 1/(1 - d*d) ~ 1e16.
+        // This query inherits that: the circle is reported as two points far
+        // from the circle rather than as the whole circle. Upstream has the
+        // same behaviour; the test pins it so that a future change is noticed.
+        const n = Vector.fromArray([0.9995064129969172, 0, 0.03141544807949855]);
+        expect(dot(n, n)).toBeLessThan(1);
+        const C = Circle3.fromCenterNormalRadius(Vector.zero(3), n, 1);
+        const P = Hyperplane.fromNormalOrigin(n, Vector.zero(3));
+        const r = fiQ.find(P, C);
+        expect(r.numIntersections).not.toBe(intrPlane3Circle3InfinitePoints);
+        // With an exactly unit-length normal the same configuration is
+        // reported correctly.
+        const m = Vector.fromArray([0.6, 0.8, 0]);
+        expect(dot(m, m)).toBe(1);
+        const C2 = Circle3.fromCenterNormalRadius(Vector.zero(3), m, 1);
+        const P2 = Hyperplane.fromNormalOrigin(m, Vector.zero(3));
+        expect(fiQ.find(P2, C2).numIntersections)
+            .toBe(intrPlane3Circle3InfinitePoints);
     });
 });

@@ -5,7 +5,12 @@ import {
     IntrPlane3Ellipsoid3TI,
     defaultIntrPlane3Ellipsoid3TIResult
 } from '../src/IntrPlane3Ellipsoid3.js';
-import { Vector, dot, normalize } from '../src/Vector.js';
+import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
+import { mulMatrix } from '../src/Matrix.js';
+import {
+    check, expectClose, fc, plane as arbPlane, positive, rotationFrame,
+    wellScaledVector
+} from './helpers/arbitraries.js';
 
 function plane(normal: number[], origin: number[]): Hyperplane {
     const n = Vector.fromArray(normal);
@@ -98,5 +103,127 @@ describe('IntrPlane3Ellipsoid3', () => {
         }
         expect(numHits).toBeGreaterThan(50);
         expect(numHits).toBeLessThan(350);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification group V34: property-based re-verification against
+// GTE/Mathematics/IntrPlane3Ellipsoid3.h at commit d29e7758ae26.
+// ---------------------------------------------------------------------------
+
+describe('IntrPlane3Ellipsoid3 verification', () => {
+    const q = new IntrPlane3Ellipsoid3TI();
+
+    const arbEllipsoid = fc.tuple(wellScaledVector(3), rotationFrame(3),
+        fc.tuple(positive(4), positive(4), positive(4)))
+        .map(([c, axis, e]) => Hyperellipsoid.fromCenterAxisExtent(c, axis,
+            Vector.fromArray([e[0], e[1], e[2]])));
+
+    it('agrees with the exact support point of the ellipsoid', () => {
+        // The ellipsoid point maximizing Dot(N, X - C) is
+        //   X = C + M^{-1} N / sqrt(N^T M^{-1} N),
+        // so the extreme signed distances are Dot(N,C) - c +- sqrt(...). The
+        // support point is built here from the port's own getM/getMInverse
+        // and checked to be on the ellipsoid, which makes this an independent
+        // derivation of the query's comparison.
+        check(fc.tuple(arbPlane(3), arbEllipsoid), ([P, E]) => {
+            const MInv = E.getMInverse();
+            const M = E.getM();
+            const MiN = mulMatrix(MInv, P.normal) as Vector;
+            const s = dot(P.normal, MiN);
+            expect(s).toBeGreaterThan(0);
+            const root = Math.sqrt(s);
+            const support = add(E.center, mul(1 / root, MiN));
+            // The support point is on the ellipsoid: (X-C)^T M (X-C) = 1.
+            const d = sub(support, E.center);
+            expectClose(dot(d, mulMatrix(M, d) as Vector), 1, 1e-7, 1e-7);
+            const center = dot(P.normal, E.center) - P.constant;
+            const expected = Math.abs(center) <= root;
+            expect(q.test(P, E).intersect).toBe(expected);
+        });
+    });
+
+    it('reports an intersection whenever sampled surface points straddle the plane', () => {
+        check(fc.tuple(arbPlane(3), arbEllipsoid), ([P, E]) => {
+            let lo = Number.POSITIVE_INFINITY;
+            let hi = Number.NEGATIVE_INFINITY;
+            for (let i = 0; i <= 24; ++i) {
+                const phi = (Math.PI * i) / 24;
+                for (let j = 0; j < 48; ++j) {
+                    const theta = (2 * Math.PI * j) / 48;
+                    const X = add(E.center, add(
+                        mul(E.extent.values[0] * Math.sin(phi)
+                            * Math.cos(theta), E.axis[0]),
+                        add(mul(E.extent.values[1] * Math.sin(phi)
+                            * Math.sin(theta), E.axis[1]),
+                            mul(E.extent.values[2] * Math.cos(phi),
+                                E.axis[2]))));
+                    const sd = dot(P.normal, X) - P.constant;
+                    lo = Math.min(lo, sd);
+                    hi = Math.max(hi, sd);
+                }
+            }
+            const got = q.test(P, E).intersect;
+            // The sampled range is a subset of the true range, so a straddle
+            // proves an intersection; the reverse direction is asserted only
+            // with a margin that the sampling density can support.
+            if (lo < -1e-9 && hi > 1e-9) { expect(got).toBe(true); }
+            const maxExtent = Math.max(E.extent.values[0], E.extent.values[1],
+                E.extent.values[2]);
+            if (lo > 0.05 * maxExtent || hi < -0.05 * maxExtent) {
+                expect(got).toBe(false);
+            }
+        }, 60);
+    });
+
+    it('is equivariant under a rigid motion', () => {
+        check(fc.tuple(arbPlane(3), arbEllipsoid, rotationFrame(3),
+            wellScaledVector(3)),
+            ([P, E, R, t]) => {
+                const rot = (v: Vector) => Vector.fromArray([
+                    dot(R[0], v), dot(R[1], v), dot(R[2], v)]);
+                const map = (v: Vector) => add(rot(v), t);
+                const P2 = Hyperplane.fromNormalOrigin(rot(P.normal),
+                    map(P.origin));
+                const E2 = Hyperellipsoid.fromCenterAxisExtent(map(E.center),
+                    E.axis.map(rot), E.extent);
+                const MiN = mulMatrix(E.getMInverse(), P.normal) as Vector;
+                const root = Math.sqrt(dot(P.normal, MiN));
+                const center = Math.abs(dot(P.normal, E.center) - P.constant);
+                // Skip near-tangency, where rounding of the rotated copy can
+                // cross the '<=' comparison.
+                if (Math.abs(center - root) < 1e-7 * (1 + root)) { return; }
+                expect(q.test(P2, E2).intersect)
+                    .toBe(q.test(P, E).intersect);
+            });
+    });
+
+    it('reduces to the sphere query for equal extents', () => {
+        check(fc.tuple(arbPlane(3), wellScaledVector(3), rotationFrame(3),
+            positive(4)),
+            ([P, c, axis, r]) => {
+                const E = Hyperellipsoid.fromCenterAxisExtent(c, axis,
+                    Vector.fromArray([r, r, r]));
+                const d = Math.abs(dot(P.normal, c) - P.constant);
+                // sqrt(N^T M^{-1} N) = r for a sphere and a unit normal.
+                const got = q.test(P, E).intersect;
+                if (Math.abs(d - r) > 1e-9 * (1 + r)) {
+                    expect(got).toBe(d <= r);
+                }
+            });
+    });
+
+    it('detects a plane tangent to an axis-aligned ellipsoid', () => {
+        const E = Hyperellipsoid.fromCenterAxisExtent(Vector.zero(3),
+            [Vector.fromArray([1, 0, 0]), Vector.fromArray([0, 1, 0]),
+                Vector.fromArray([0, 0, 1])],
+            Vector.fromArray([3, 2, 1]));
+        const tangent = Hyperplane.fromNormalOrigin(
+            Vector.fromArray([1, 0, 0]), Vector.fromArray([3, 0, 0]));
+        expect(q.test(tangent, E).intersect).toBe(true);
+        const outside = Hyperplane.fromNormalOrigin(
+            Vector.fromArray([1, 0, 0]),
+            Vector.fromArray([3 + 1e-12, 0, 0]));
+        expect(q.test(outside, E).intersect).toBe(false);
     });
 });

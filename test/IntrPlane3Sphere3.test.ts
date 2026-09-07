@@ -6,7 +6,12 @@ import {
     IntrPlane3Sphere3FI,
     defaultIntrPlane3Sphere3FIResult
 } from '../src/IntrPlane3Sphere3.js';
-import { Vector, dot, normalize, sub } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
+import {
+    check, expectClose, fc, plane as arbPlane, rotationFrame,
+    sphere as arbSphere, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function plane(normal: number[], origin: number[]): Hyperplane {
     const n = Vector.fromArray(normal);
@@ -100,5 +105,117 @@ describe('IntrPlane3Sphere3', () => {
             }
         }
         expect(numCircles).toBeGreaterThan(50);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification group V34: property-based re-verification against
+// GTE/Mathematics/IntrPlane3Sphere3.h at commit d29e7758ae26.
+// ---------------------------------------------------------------------------
+
+describe('IntrPlane3Sphere3 verification', () => {
+    const tiQ = new IntrPlane3Sphere3TI();
+    const fiQ = new IntrPlane3Sphere3FI();
+
+    it('TI and FI agree on intersect', () => {
+        check(fc.tuple(arbPlane(3), arbSphere(3)), ([P, S]) => {
+            expect(fiQ.find(P, S).intersect).toBe(tiQ.test(P, S).intersect);
+        });
+    });
+
+    it('the FI circle lies on the plane and on the sphere', () => {
+        check(fc.tuple(arbPlane(3), arbSphere(3)), ([P, S]) => {
+            const r = fiQ.find(P, S);
+            if (!r.intersect || !r.isCircle) { return; }
+            const scale = 1 + S.radius + length(S.center);
+            // The circle normal is the plane normal and the circle center is
+            // on the plane.
+            expect(r.circle.normal.values).toEqual(P.normal.values);
+            expectClose(dot(P.normal, r.circle.center) - P.constant, 0,
+                1e-13 * scale, 0);
+            // Every circle point is on the sphere: sample a few using an
+            // orthonormal basis of the plane.
+            const helper = Math.abs(P.normal.values[0]) < 0.9
+                ? Vector.fromArray([1, 0, 0]) : Vector.fromArray([0, 1, 0]);
+            const u = cross(P.normal, helper);
+            normalize(u);
+            const v = cross(P.normal, u);
+            for (let i = 0; i < 8; ++i) {
+                const a = (2 * Math.PI * i) / 8;
+                const X = add(r.circle.center,
+                    add(mul(r.circle.radius * Math.cos(a), u),
+                        mul(r.circle.radius * Math.sin(a), v)));
+                expectClose(length(sub(X, S.center)), S.radius,
+                    1e-11 * scale, 1e-11);
+                expectClose(dot(P.normal, X) - P.constant, 0,
+                    1e-11 * scale, 0);
+            }
+        });
+    });
+
+    it('the FI tangent point is on the plane and on the sphere', () => {
+        check(fc.tuple(arbPlane(3), wellScaledVector(3)), ([P, c]) => {
+            // Build a sphere whose radius is exactly the point-plane
+            // distance, so the '==' branch is taken.
+            const radius = Math.abs(dot(P.normal, c) - P.constant);
+            if (radius < 1e-6) { return; }
+            const S = Hypersphere.fromCenterRadius(c, radius);
+            const r = fiQ.find(P, S);
+            expect(r.intersect).toBe(true);
+            expect(r.isCircle).toBe(false);
+            const scale = 1 + radius + length(c);
+            expectClose(dot(P.normal, r.point) - P.constant, 0,
+                1e-12 * scale, 0);
+            expectClose(length(sub(r.point, c)), radius, 1e-12 * scale, 1e-12);
+        });
+    });
+
+    it('is equivariant under a rigid motion', () => {
+        check(fc.tuple(arbPlane(3), arbSphere(3), rotationFrame(3),
+            wellScaledVector(3)),
+            ([P, S, R, t]) => {
+                const rot = (x: Vector) => Vector.fromArray([
+                    dot(R[0], x), dot(R[1], x), dot(R[2], x)]);
+                const map = (x: Vector) => add(rot(x), t);
+                const P2 = Hyperplane.fromNormalOrigin(rot(P.normal),
+                    map(P.origin));
+                const S2 = Hypersphere.fromCenterRadius(map(S.center),
+                    S.radius);
+                const r0 = fiQ.find(P, S);
+                const r1 = fiQ.find(P2, S2);
+                const d = Math.abs(dot(P.normal, S.center) - P.constant);
+                if (Math.abs(d - S.radius) < 1e-9 * (1 + S.radius)) { return; }
+                expect(r1.intersect).toBe(r0.intersect);
+                expect(r1.isCircle).toBe(r0.isCircle);
+                if (r0.isCircle) {
+                    expectClose(r1.circle.radius, r0.circle.radius, 1e-9,
+                        1e-9);
+                }
+            });
+    });
+
+    it('reports a sphere entirely on one side as no intersection', () => {
+        check(fc.tuple(arbPlane(3), arbSphere(3)), ([P, S]) => {
+            const d = Math.abs(dot(P.normal, S.center) - P.constant);
+            if (d <= S.radius) { return; }
+            const r = fiQ.find(P, S);
+            expect(r.intersect).toBe(false);
+            expect(r.isCircle).toBe(false);
+            expect(r.circle.radius).toBe(0);
+            expect(r.point.values).toEqual([0, 0, 0]);
+        });
+    });
+
+    it('reports a plane through the sphere center as a great circle', () => {
+        check(fc.tuple(arbSphere(3), wellScaledVector(3)), ([S, n]) => {
+            if (dot(n, n) < 1e-6) { return; }
+            const N = n.clone();
+            normalize(N);
+            const P = Hyperplane.fromNormalOrigin(N, S.center);
+            const r = fiQ.find(P, S);
+            expect(r.intersect).toBe(true);
+            expect(r.isCircle).toBe(true);
+            expectClose(r.circle.radius, S.radius, 1e-12, 1e-12);
+        });
     });
 });

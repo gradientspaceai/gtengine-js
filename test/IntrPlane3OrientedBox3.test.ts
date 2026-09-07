@@ -5,7 +5,11 @@ import {
     defaultIntrPlane3OrientedBox3TIResult
 } from '../src/IntrPlane3OrientedBox3.js';
 import { OrientedBox } from '../src/OrientedBox.js';
-import { Vector, dot, normalize } from '../src/Vector.js';
+import { Vector, add, dot, mul, normalize } from '../src/Vector.js';
+import {
+    check, fc, orientedBox as arbOrientedBox, plane as arbPlane,
+    rotationFrame, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function plane(normal: number[], origin: number[]): Hyperplane {
     const n = Vector.fromArray(normal);
@@ -95,5 +99,107 @@ describe('IntrPlane3OrientedBox3', () => {
         }
         expect(numHits).toBeGreaterThan(50);
         expect(numHits).toBeLessThan(350);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification group V34: property-based re-verification against
+// GTE/Mathematics/IntrPlane3OrientedBox3.h at commit d29e7758ae26.
+// ---------------------------------------------------------------------------
+
+describe('IntrPlane3OrientedBox3 verification', () => {
+    const q = new IntrPlane3OrientedBox3TI();
+
+    function corners(box: OrientedBox): Vector[] {
+        const out: Vector[] = [];
+        for (let i = 0; i < 8; ++i) {
+            let p = box.center.clone();
+            for (let d = 0; d < 3; ++d) {
+                const s = ((i >> d) & 1) === 0 ? -1 : +1;
+                p = add(p, mul(s * box.extent.values[d], box.axis[d]));
+            }
+            out.push(p);
+        }
+        return out;
+    }
+
+    it('agrees with the signed distances of the eight corners', () => {
+        // A box is the convex hull of its corners, so the extreme values of
+        // the linear function Dot(N,X) - c over the box are attained at
+        // corners. This is an independent derivation of the radius formula.
+        check(fc.tuple(arbPlane(3), arbOrientedBox(3)), ([P, B]) => {
+            let lo = Number.POSITIVE_INFINITY;
+            let hi = Number.NEGATIVE_INFINITY;
+            for (const X of corners(B)) {
+                const sd = dot(P.normal, X) - P.constant;
+                lo = Math.min(lo, sd);
+                hi = Math.max(hi, sd);
+            }
+            const got = q.test(P, B).intersect;
+            const scale = 1 + Math.abs(lo) + Math.abs(hi);
+            // Skip configurations that are within rounding of tangency; the
+            // two computations of the extreme distance differ there in the
+            // last bits.
+            if (Math.abs(lo) < 1e-12 * scale || Math.abs(hi) < 1e-12 * scale) {
+                return;
+            }
+            expect(got).toBe(lo <= 0 && hi >= 0);
+        });
+    });
+
+    it('is equivariant under a rigid motion', () => {
+        check(fc.tuple(arbPlane(3), arbOrientedBox(3), rotationFrame(3),
+            wellScaledVector(3)),
+            ([P, B, R, t]) => {
+                const rot = (v: Vector) => Vector.fromArray([
+                    dot(R[0], v), dot(R[1], v), dot(R[2], v)]);
+                const map = (v: Vector) => add(rot(v), t);
+                const P2 = Hyperplane.fromNormalOrigin(rot(P.normal),
+                    map(P.origin));
+                const B2 = OrientedBox.fromCenterAxisExtent(map(B.center),
+                    B.axis.map(rot), B.extent);
+                const radius =
+                    Math.abs(B.extent.values[0] * dot(P.normal, B.axis[0]))
+                    + Math.abs(B.extent.values[1] * dot(P.normal, B.axis[1]))
+                    + Math.abs(B.extent.values[2] * dot(P.normal, B.axis[2]));
+                const d = Math.abs(dot(P.normal, B.center) - P.constant);
+                if (Math.abs(d - radius) < 1e-9 * (1 + radius)) { return; }
+                expect(q.test(P2, B2).intersect).toBe(q.test(P, B).intersect);
+            });
+    });
+
+    it('reports a plane touching a single box corner', () => {
+        const B = OrientedBox.fromCenterAxisExtent(Vector.zero(3),
+            [Vector.fromArray([1, 0, 0]), Vector.fromArray([0, 1, 0]),
+                Vector.fromArray([0, 0, 1])],
+            Vector.fromArray([1, 1, 1]));
+        const n = Vector.fromArray([1, 1, 1]);
+        normalize(n);
+        const touching = Hyperplane.fromNormalOrigin(n,
+            Vector.fromArray([1, 1, 1]));
+        expect(q.test(touching, B).intersect).toBe(true);
+        const outside = Hyperplane.fromNormalOrigin(n,
+            Vector.fromArray([1.001, 1.001, 1.001]));
+        expect(q.test(outside, B).intersect).toBe(false);
+    });
+
+    it('reports a degenerate (zero-extent) box as a point test', () => {
+        check(fc.tuple(arbPlane(3), wellScaledVector(3), rotationFrame(3)),
+            ([P, c, axis]) => {
+                const B = OrientedBox.fromCenterAxisExtent(c, axis,
+                    Vector.zero(3));
+                const d = dot(P.normal, c) - P.constant;
+                expect(q.test(P, B).intersect).toBe(d === 0);
+            });
+    });
+
+    it('reports a box flattened into the plane as an intersection', () => {
+        const B = OrientedBox.fromCenterAxisExtent(Vector.zero(3),
+            [Vector.fromArray([1, 0, 0]), Vector.fromArray([0, 1, 0]),
+                Vector.fromArray([0, 0, 1])],
+            Vector.fromArray([2, 3, 0]));
+        const P = Hyperplane.fromNormalOrigin(Vector.fromArray([0, 0, 1]),
+            Vector.zero(3));
+        expect(q.test(P, B).intersect).toBe(true);
     });
 });
