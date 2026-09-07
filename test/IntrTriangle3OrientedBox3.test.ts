@@ -12,7 +12,12 @@ import {
 } from '../src/IntrTriangle3OrientedBox3.js';
 import { OrientedBox } from '../src/OrientedBox.js';
 import { Triangle } from '../src/Triangle.js';
-import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
+import { DistTriangle3OrientedBox3 } from '../src/DistTriangle3OrientedBox3.js';
+import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector.js';
+import {
+    check, expectClose, expectVectorClose, fc,
+    rotationFrame as randomRotationFrame, wellScaledVector
+} from './helpers/arbitraries.js';
 import { cross } from '../src/Vector3.js';
 
 function vec(x: number, y: number, z: number): Vector {
@@ -237,5 +242,161 @@ describe('IntrTriangle3OrientedBox3', () => {
         }
         expect(numInside).toBeGreaterThan(80);
         expect(numClipped).toBeGreaterThan(30);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V35): cross-checks against the triangle-box distance query,
+// against the aligned-box query for an identity frame, and under rigid
+// motions of the whole configuration.
+// ---------------------------------------------------------------------------
+
+describe('IntrTriangle3OrientedBox3 verification', () => {
+    const tiv = new IntrTriangle3OrientedBox3TI();
+    const fiv = new IntrTriangle3OrientedBox3FI();
+    const alignedTI = new IntrTriangle3AlignedBox3TI();
+    const alignedFI = new IntrTriangle3AlignedBox3FI();
+    const distQuery = new DistTriangle3OrientedBox3();
+
+    function twiceArea3(poly: readonly Vector[]): number {
+        if (poly.length < 3) {
+            return 0;
+        }
+        const acc = new Vector(3);
+        for (let i = 1; i + 1 < poly.length; ++i) {
+            const c = cross(sub(poly[i], poly[0]), sub(poly[i + 1], poly[0]));
+            for (let k = 0; k < 3; ++k) {
+                acc.values[k] += c.values[k];
+            }
+        }
+        return length(acc);
+    }
+
+    const boxArb = fc.tuple(wellScaledVector(3, -4, 4),
+        randomRotationFrame(3),
+        fc.array(fc.double({ min: 0.2, max: 4, noNaN: true }),
+            { minLength: 3, maxLength: 3 }))
+        .map(([c, axis, e]) => OrientedBox.fromCenterAxisExtent(c, axis,
+            Vector.fromArray(e)));
+
+    const triArb = fc.array(wellScaledVector(3, -8, 8),
+        { minLength: 3, maxLength: 3 })
+        .map(vs => Triangle.fromVertices(vs[0], vs[1], vs[2]))
+        .filter(t => length(cross(sub(t.v[1], t.v[0]), sub(t.v[2], t.v[0])))
+            > 1);
+
+    // A classification is stable when growing and shrinking the box by delta
+    // leaves it unchanged. Grazing configurations are not stable, and for
+    // those the answer is decided by rounding, so properties comparing two
+    // computations of the same predicate are asserted only on stable input.
+    function grow(b: OrientedBox, delta: number): OrientedBox {
+        return OrientedBox.fromCenterAxisExtent(b.center, b.axis,
+            Vector.fromArray([b.extent.values[0] + delta,
+                b.extent.values[1] + delta, b.extent.values[2] + delta]));
+    }
+
+    function stable(t: Triangle, b: OrientedBox, delta = 1e-6): boolean {
+        return tiv.test(t, grow(b, delta)).intersect
+            === tiv.test(t, grow(b, -delta)).intersect;
+    }
+
+    it('TI is true exactly when the triangle-box distance is zero', () => {
+        check(fc.tuple(triArb, boxArb), ([t, b]) => {
+            const d = distQuery.compute(t, b).distance;
+            if (d === 0) {
+                if (stable(t, b)) {
+                    expect(tiv.test(t, b).intersect).toBe(true);
+                }
+            }
+            else if (d > 1e-9) {
+                expect(tiv.test(t, b).intersect).toBe(false);
+            }
+        });
+    });
+
+    it('equals the aligned-box query for a box with the standard frame',
+        () => {
+            check(fc.tuple(triArb, wellScaledVector(3, -4, 4),
+                fc.array(fc.double({ min: 0.2, max: 4, noNaN: true }),
+                    { minLength: 3, maxLength: 3 })), ([t, c, e]) => {
+                    const abb = AlignedBox.fromMinMax(
+                        sub(c, Vector.fromArray(e)),
+                        add(c, Vector.fromArray(e)));
+                    // Derive the oriented box from the aligned box exactly as
+                    // the aligned-box query does, so that both queries see
+                    // bit-identical centres and extents; recomputing them from
+                    // c and e would differ in the last bit and turn grazing
+                    // configurations into spurious disagreements.
+                    const center = mul(0.5, add(abb.max, abb.min));
+                    const extent = mul(0.5, sub(abb.max, abb.min));
+                    const obb = OrientedBox.fromCenterAxisExtent(center,
+                        [Vector.unit(3, 0), Vector.unit(3, 1),
+                            Vector.unit(3, 2)], extent);
+                    if (!stable(t, obb)) {
+                        return;
+                    }
+                    expect(tiv.test(t, obb).intersect)
+                        .toBe(alignedTI.test(t, abb).intersect);
+                    const ro = fiv.find(t, obb);
+                    const ra = alignedFI.find(t, abb);
+                    expect(ro.insidePolygon.length > 0)
+                        .toBe(ra.insidePolygon.length > 0);
+                    expectClose(twiceArea3(ro.insidePolygon),
+                        twiceArea3(ra.insidePolygon), 1e-7, 1e-7);
+                });
+        });
+
+    it('FI conserves the triangle area and stays inside the box', () => {
+        check(fc.tuple(triArb, boxArb), ([t, b]) => {
+            const r = fiv.find(t, b);
+            let total = twiceArea3(r.insidePolygon);
+            for (const poly of r.outsidePolygons) {
+                total += twiceArea3(poly);
+            }
+            expectClose(total,
+                length(cross(sub(t.v[1], t.v[0]), sub(t.v[2], t.v[0]))),
+                1e-7, 1e-7);
+            for (const x of r.insidePolygon) {
+                const diff = sub(x, b.center);
+                for (let k = 0; k < 3; ++k) {
+                    expect(Math.abs(dot(b.axis[k], diff)))
+                        .toBeLessThan(b.extent.values[k] + 1e-8);
+                }
+            }
+        });
+    });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(triArb, boxArb, randomRotationFrame(3),
+            wellScaledVector(3, -5, 5)), ([t, b, frame, tr]) => {
+                if (!stable(t, b, 1e-5)) {
+                    return;
+                }
+                const xfDir = (v: Vector): Vector => {
+                    const w = new Vector(3);
+                    for (let i = 0; i < 3; ++i) {
+                        w.values[i] = frame[0].values[i] * v.values[0]
+                            + frame[1].values[i] * v.values[1]
+                            + frame[2].values[i] * v.values[2];
+                    }
+                    return w;
+                };
+                const xf = (v: Vector): Vector => add(xfDir(v), tr);
+                const t2 = Triangle.fromVertices(xf(t.v[0]), xf(t.v[1]),
+                    xf(t.v[2]));
+                const b2 = OrientedBox.fromCenterAxisExtent(xf(b.center),
+                    [xfDir(b.axis[0]), xfDir(b.axis[1]), xfDir(b.axis[2])],
+                    b.extent);
+                expect(tiv.test(t2, b2).intersect)
+                    .toBe(tiv.test(t, b).intersect);
+                const r = fiv.find(t, b);
+                const r2 = fiv.find(t2, b2);
+                // A vertex lying on a face plane can survive the motion or
+                // not, so compare the clipped area rather than the vertices.
+                expect(r2.insidePolygon.length > 0)
+                    .toBe(r.insidePolygon.length > 0);
+                expectClose(twiceArea3(r2.insidePolygon),
+                    twiceArea3(r.insidePolygon), 1e-7, 1e-7);
+            });
     });
 });
