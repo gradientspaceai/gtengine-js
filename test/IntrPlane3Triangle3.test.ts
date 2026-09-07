@@ -415,11 +415,26 @@ describe('IntrPlane3Triangle3 verification', () => {
                 p.constant + dot(n2, tr));
             const t2 = Triangle.fromVertices(xf(t.v[0]), xf(t.v[1]),
                 xf(t.v[2]));
+            // A vertex that is exactly on the plane in the lattice
+            // configuration is generically off it after a rotation, which
+            // moves the case to a different row of the n/p/z table (for
+            // example z=2 with isInterior false becomes z=1, p=1, n=1 with
+            // isInterior true). Those rows are covered exactly by the lattice
+            // properties above; here the property is restricted to
+            // configurations whose vertex classification is stable, i.e. no
+            // signed distance is within round-off of zero on either side.
+            const scale = 1 + length(p.normal) * 8 + Math.abs(p.constant);
+            const margin = (pl: Hyperplane, tr: Triangle): number =>
+                Math.min(...[0, 1, 2].map(i =>
+                    Math.abs(dot(pl.normal, tr.v[i]) - pl.constant)));
+            if (margin(p, t) < 1e-6 * scale
+                || margin(p2, t2) < 1e-6 * scale) {
+                return;
+            }
+
             const r0 = fiq.find(p, t);
             const r1 = fiq.find(p2, t2);
             if (r0.numIntersections !== r1.numIntersections) {
-                // A vertex that was exactly on the plane can move off it by
-                // round-off under the rotation.
                 return;
             }
             expect(r1.intersect).toBe(r0.intersect);
