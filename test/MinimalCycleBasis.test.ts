@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     MinimalCycleBasis
 } from '../src/MinimalCycleBasis.js';
+import { check, fc } from './helpers/arbitraries.js';
 import type {
     MinimalCycleBasisEdge, MinimalCycleBasisPosition, MinimalCycleBasisTree
 } from '../src/MinimalCycleBasis.js';
@@ -457,4 +458,268 @@ describe('MinimalCycleBasis', () => {
             }
         }
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V37): independent re-check against MinimalCycleBasis.h.
+// ---------------------------------------------------------------------------
+
+// The depth of a tree of the forest, counting only nodes that carry a cycle.
+function treeDepth(tree: MinimalCycleBasisTree): number {
+    let deepest = 0;
+    for (const child of tree.children) {
+        deepest = Math.max(deepest, treeDepth(child));
+    }
+    return (tree.cycle.length > 0 ? 1 : 0) + deepest;
+}
+
+// The vertex set of a cycle, as a sorted comma-joined string.
+function cycleVertexKey(cycle: readonly number[]): string {
+    const unique = Array.from(new Set(cycle));
+    unique.sort((a, b) => a - b);
+    return unique.join(',');
+}
+
+// The connected components of the vertex-edge graph, as arrays of vertex
+// indices, together with the degree of every vertex.
+function graphComponents(numVertices: number,
+    edges: readonly MinimalCycleBasisEdge[]): {
+        componentOf: number[], degree: number[]
+    } {
+    const parent = new Array<number>(numVertices);
+    for (let i = 0; i < numVertices; ++i) {
+        parent[i] = i;
+    }
+    const find = (i: number): number => {
+        while ((parent[i] as number) !== i) {
+            parent[i] = parent[parent[i] as number] as number;
+            i = parent[i] as number;
+        }
+        return i;
+    };
+    const degree = new Array<number>(numVertices).fill(0);
+    for (const edge of edges) {
+        degree[edge[0]] = (degree[edge[0]] as number) + 1;
+        degree[edge[1]] = (degree[edge[1]] as number) + 1;
+        const r0 = find(edge[0]);
+        const r1 = find(edge[1]);
+        if (r0 !== r1) {
+            parent[r0] = r1;
+        }
+    }
+    const componentOf = new Array<number>(numVertices);
+    for (let i = 0; i < numVertices; ++i) {
+        componentOf[i] = find(i);
+    }
+    return { componentOf, degree };
+}
+
+// k concentric regular polygons joined by radial bridge edges, rotated by
+// 'angle'. Polygon r+1 lies strictly inside polygon r (radius halves and the
+// vertex counts are at least 4, so cos(pi/n) >= 0.707 > 0.5), and the bridge
+// runs along the positive x-axis of the unrotated configuration from the
+// angle-0 vertex of ring r to the angle-0 vertex of ring r+1, meeting the two
+// polygons only at those vertices. So the graph is planar, the bridges are
+// filaments and the cycle forest must be a single chain of depth k.
+function nestedRings(sizes: readonly number[], angle: number,
+    center: readonly number[]): {
+        positions: MinimalCycleBasisPosition[],
+        edges: MinimalCycleBasisEdge[],
+        rings: number[][]
+    } {
+    const positions: MinimalCycleBasisPosition[] = [];
+    const edges: MinimalCycleBasisEdge[] = [];
+    const rings: number[][] = [];
+    let radius = 1;
+    for (const n of sizes) {
+        const ring: number[] = [];
+        for (let i = 0; i < n; ++i) {
+            const theta = 2 * Math.PI * i / n + angle;
+            positions.push([
+                (center[0] as number) + radius * Math.cos(theta),
+                (center[1] as number) + radius * Math.sin(theta)
+            ]);
+            ring.push(positions.length - 1);
+        }
+        for (let i = 0; i < n; ++i) {
+            edges.push([ring[i] as number, ring[(i + 1) % n] as number]);
+        }
+        if (rings.length > 0) {
+            const previous = rings[rings.length - 1] as number[];
+            edges.push([previous[0] as number, ring[0] as number]);
+        }
+        rings.push(ring);
+        radius /= 2;
+    }
+    return { positions, edges, rings };
+}
+
+describe('MinimalCycleBasis verification', () => {
+    it('agrees with the cycle rank and covers every edge on random subgraphs', () => {
+        const gridArb = fc.tuple(
+            fc.integer({ min: 2, max: 4 }),
+            fc.integer({ min: 2, max: 4 }),
+            fc.array(fc.boolean(), { minLength: 40, maxLength: 40 }));
+        check(gridArb, ([numCellsX, numCellsY, keep]) => {
+            const { positions, edges: allEdges } = makeGrid(numCellsX, numCellsY);
+            const edges = allEdges.filter((_, i) => keep[i % keep.length]);
+            if (edges.length === 0) {
+                return;
+            }
+            const mcb = extract(positions, edges);
+            const cycles = collectCycles(mcb.getForest());
+            const names = edgeNameSet(edges);
+
+            // The number of extracted cycles is the cycle rank E - V + C,
+            // which for a connected planar graph is the Euler-formula count
+            // of bounded faces.
+            expect(cycles.length).toBe(cycleRank(positions.length, edges));
+
+            // Every cycle is a simple closed walk over graph edges, and the
+            // cycles are pairwise distinct.
+            const keys = new Set<string>();
+            const covered = new Set<string>();
+            for (const cycle of cycles) {
+                expect(cycle.length).toBeGreaterThanOrEqual(4);
+                expect(cycle[0]).toBe(cycle[cycle.length - 1]);
+                const seen = new Set<number>();
+                for (let i = 0; i + 1 < cycle.length; ++i) {
+                    const v = cycle[i] as number;
+                    expect(v).toBeGreaterThanOrEqual(0);
+                    expect(v).toBeLessThan(positions.length);
+                    expect(seen.has(v)).toBe(false);
+                    seen.add(v);
+                    const name = edgeName(v, cycle[i + 1] as number);
+                    expect(names.has(name)).toBe(true);
+                    covered.add(name);
+                }
+                const key = cycleKey(cycle);
+                expect(keys.has(key)).toBe(false);
+                keys.add(key);
+            }
+
+            // Every filament is a polyline over graph edges.
+            for (const filament of mcb.getFilaments()) {
+                expect(filament.length).toBeGreaterThanOrEqual(2);
+                for (let i = 0; i + 1 < filament.length; ++i) {
+                    const name = edgeName(filament[i] as number,
+                        filament[i + 1] as number);
+                    expect(names.has(name)).toBe(true);
+                    covered.add(name);
+                }
+            }
+
+            // Every edge is reported by a cycle or a filament, except the
+            // edges of a component that is a single edge: upstream seeds the
+            // component search only from vertices with at least two
+            // adjacents, so a lone edge is reported as nothing at all
+            // (upstream issue #310 item 4, preserved by the port).
+            const { componentOf, degree } = graphComponents(positions.length,
+                edges);
+            const maxDegree = new Map<number, number>();
+            for (let i = 0; i < positions.length; ++i) {
+                const root = componentOf[i] as number;
+                maxDegree.set(root, Math.max(maxDegree.get(root) ?? 0,
+                    degree[i] as number));
+            }
+            for (const edge of edges) {
+                const lone = (maxDegree.get(componentOf[edge[0]] as number)
+                    ?? 0) <= 1;
+                expect(covered.has(edgeName(edge[0], edge[1]))).toBe(!lone);
+            }
+
+            // Extraction is deterministic: a second run reports the same
+            // cycles, filaments and isolated vertices.
+            const again = extract(positions, edges);
+            expect(cycleKeys(again.getForest())).toEqual(
+                cycleKeys(mcb.getForest()));
+            expect(again.getFilaments()).toEqual(mcb.getFilaments());
+            expect(again.getIsolatedVertices()).toEqual(
+                mcb.getIsolatedVertices());
+        }, 60);
+    }, 30000);
+
+    it('nests concentric rings to the full depth, at any orientation', () => {
+        // Regression coverage for the upstream 'visited' flag bug (issue
+        // #310 item 1): with the persistent flags the third and deeper rings
+        // are reported as siblings instead of descendants. Randomizing the
+        // ring sizes and the global rotation also exercises the exact
+        // BSNumber convexity predicates on non-representable coordinates.
+        const ringsArb = fc.tuple(
+            fc.array(fc.integer({ min: 4, max: 7 }),
+                { minLength: 2, maxLength: 4 }),
+            fc.integer({ min: 0, max: 71 }));
+        check(ringsArb, ([sizes, twelfth]) => {
+            const angle = 2 * Math.PI * twelfth / 72;
+            const { positions, edges, rings } = nestedRings(sizes, angle, [0, 0]);
+            const mcb = extract(positions, edges);
+
+            const forest = mcb.getForest();
+            expect(forest.length).toBe(1);
+            let node = forest[0] as MinimalCycleBasisTree;
+            expect(treeDepth(node)).toBe(sizes.length);
+
+            // Walking down the single chain must meet the rings from the
+            // outside in.
+            for (let r = 0; r < sizes.length; ++r) {
+                expect(cycleVertexKey(node.cycle)).toBe(
+                    cycleVertexKey(rings[r] as number[]));
+                if (r + 1 < sizes.length) {
+                    expect(node.children.length).toBe(1);
+                    node = node.children[0] as MinimalCycleBasisTree;
+                }
+                else {
+                    expect(node.children).toEqual([]);
+                }
+            }
+
+            // The bridges are the filaments, one per adjacent ring pair.
+            const filaments = mcb.getFilaments().map(
+                f => edgeName(f[0] as number, f[f.length - 1] as number)).sort();
+            const expected: string[] = [];
+            for (let r = 0; r + 1 < sizes.length; ++r) {
+                expected.push(edgeName((rings[r] as number[])[0] as number,
+                    (rings[r + 1] as number[])[0] as number));
+            }
+            expected.sort();
+            expect(filaments).toEqual(expected);
+            expect(mcb.getIsolatedVertices()).toEqual([]);
+        }, 60);
+    }, 30000);
+
+    it('keeps disjoint nested configurations in separate trees', () => {
+        const configsArb = fc.array(
+            fc.array(fc.integer({ min: 4, max: 6 }),
+                { minLength: 1, maxLength: 3 }),
+            { minLength: 2, maxLength: 3 });
+        check(configsArb, configs => {
+            // Place the configurations far apart so they cannot interact;
+            // each has diameter 2.
+            const positions: MinimalCycleBasisPosition[] = [];
+            const edges: MinimalCycleBasisEdge[] = [];
+            const depths: number[] = [];
+            configs.forEach((sizes, c) => {
+                const built = nestedRings(sizes, 0.3 * c, [10 * c, 0]);
+                const base = positions.length;
+                for (const p of built.positions) {
+                    positions.push(p);
+                }
+                for (const e of built.edges) {
+                    edges.push([base + e[0], base + e[1]]);
+                }
+                depths.push(sizes.length);
+            });
+
+            const mcb = extract(positions, edges);
+            const forest = mcb.getForest();
+            expect(forest.length).toBe(configs.length);
+
+            // Each tree is one of the configurations; the depths agree as a
+            // multiset, and every cycle count matches the cycle rank.
+            const found = forest.map(treeDepth).sort((a, b) => a - b);
+            expect(found).toEqual(depths.slice().sort((a, b) => a - b));
+            expect(collectCycles(forest).length).toBe(
+                cycleRank(positions.length, edges));
+        }, 60);
+    }, 30000);
 });
