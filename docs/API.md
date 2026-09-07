@@ -81,11 +81,13 @@ class per query and names `operator()` by kind:
   without inheritance.
 - Query classes are stateless unless upstream has tunable state
   (`setMaxLCPIterations`, `useConjugateGradient`), and may be reused freely.
-- `TI` and `FI` are not always two halves of one predicate. For circles and
-  spheres upstream's TI tests the solid disks/balls (`|C0 - C1| <= r0 + r1`)
-  while FI intersects the curves/surfaces, so nested circles give TI `true`
-  and FI `numIntersections = 0`. The affected TI classes say so in their
-  doc comments.
+- `TI` and `FI` are not always two halves of one predicate. For circles
+  upstream's TI tests the solid disks (`|C0 - C1| <= r0 + r1`) while FI
+  intersects the curves, so nested circles give TI `true` and FI
+  `numIntersections = 0` (`IntrSphere3Sphere3`'s FI reports containment as
+  `intersect = true`, so spheres agree). `IntrRay2Ray2` TI/FI differ in
+  `numIntersections` for collinear opposite rays. The affected TI classes
+  say so in their doc comments.
 - Line-family FI results differ in how many `point[]` entries they fill:
   some fill only `i < numIntersections`, others fill both slots whenever
   `intersect` is true (faithful to upstream). Read only
