@@ -12,7 +12,13 @@ import {
 } from '../src/IntrRay3Cone3.js';
 import { Line } from '../src/Line.js';
 import { Ray } from '../src/Ray.js';
+import { QFNumber } from '../src/QFNumber.js';
+import { cross } from '../src/Vector3.js';
 import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector.js';
+import {
+    check, expectClose, expectVectorClose, fc, rotationFrame, scaled,
+    wellScaledVector
+} from './helpers/arbitraries.js';
 
 function ray(origin: number[], direction: number[]): Ray {
     const d = Vector.fromArray(direction);
@@ -264,5 +270,321 @@ describe('IntrRay3Cone3', () => {
             }
         }
         expect(numSegments).toBeGreaterThan(50);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V35): the ray query must be the line query clipped to
+// [0,+infinity), and the reported interval must be exactly the set of ray
+// parameters whose point is in the solid cone.
+// ---------------------------------------------------------------------------
+
+describe('IntrRay3Cone3 verification', () => {
+    const fiv = new IntrRay3Cone3FI();
+    const lineFIv = new IntrLine3Cone3FI();
+
+    // A cone of one of the four kinds: infinite, infinite truncated, finite
+    // and frustum. Coordinates are well scaled so that no dot product
+    // underflows.
+    // Directions and positions are drawn from a uniform grid rather than
+    // fast-check's double(), whose bit-pattern-uniform sampling produces
+    // near-zero components (and hence axis-aligned frames and degenerate
+    // configurations) far more often than a uniform distribution would.
+    const gridPoint = (lo: number, hi: number): fc.Arbitrary<Vector> =>
+        fc.tuple(scaled(lo, hi), scaled(lo, hi), scaled(lo, hi))
+            .map(a => Vector.fromArray(a));
+
+    const gridDirection = gridPoint(-1, 1)
+        .filter(v => length(v) > 0.3)
+        .map(v => { const u = v.clone(); normalize(u); return u; });
+
+    const coneArb = fc.tuple(gridPoint(-3, 3), gridDirection,
+        fc.double({ min: 0.15, max: 1.35, noNaN: true }),
+        fc.integer({ min: 0, max: 3 }),
+        fc.double({ min: 0.25, max: 2, noNaN: true }),
+        fc.double({ min: 0.25, max: 3, noNaN: true }))
+        .map(([v, a, angle, kind, h0, dh]) => {
+            const C = new Cone(3);
+            C.ray = Ray.fromOriginDirection(v, a);
+            C.setAngle(angle);
+            if (kind === 0) { C.makeInfiniteCone(); }
+            else if (kind === 1) { C.makeInfiniteTruncatedCone(h0); }
+            else if (kind === 2) { C.makeFiniteCone(h0 + dh); }
+            else { C.makeConeFrustum(h0, h0 + dh); }
+            return C;
+        });
+
+
+    // A point of the solid cone, from its (height, radius, angle) parameters.
+    function coneSample(C: Cone, s: number, u: number, phi: number): Vector {
+        const hmin = C.getMinHeight();
+        const hmax = C.isFinite() ? C.getMaxHeight() : hmin + 4;
+        const h = hmin + s * (hmax - hmin);
+        const r = u * h * C.tanAngle;
+        const a = C.ray.direction;
+        const k = Math.abs(a.values[0]) < 0.5 ? 0
+            : (Math.abs(a.values[1]) < 0.5 ? 1 : 2);
+        const e = Vector.unit(3, k);
+        const q0 = sub(e, mul(dot(e, a), a));
+        normalize(q0);
+        const q1 = cross(a, q0);
+        return add(add(C.ray.origin, mul(h, a)),
+            add(mul(r * Math.cos(phi), q0), mul(r * Math.sin(phi), q1)));
+    }
+
+    // Half the rays are aimed at a point of the solid cone so that hits are
+    // common; the rest are unconstrained.
+    const coneAndRay = coneArb.chain(C => fc.tuple(fc.constant(C),
+        gridPoint(-4, 4), gridDirection, fc.boolean(),
+        scaled(0, 1), scaled(0, 1), scaled(0, 2 * Math.PI))
+        .map(([cone, o, d, aim, s, u, phi]) => {
+            if (!aim) {
+                return [Ray.fromOriginDirection(o, d), cone] as [Ray, Cone];
+            }
+            const target = coneSample(cone, s, u, phi);
+            const dir = sub(target, o);
+            if (length(dir) < 1e-3) {
+                return [Ray.fromOriginDirection(o, d), cone] as [Ray, Cone];
+            }
+            normalize(dir);
+            return [Ray.fromOriginDirection(o, dir), cone] as [Ray, Cone];
+        }));
+
+    // The line-cone query solves c2*t^2 + 2*c1*t + c0 = 0 and branches on the
+    // sign of the discriminant c1^2 - c0*c2 and on an exact test for the line
+    // passing through the cone vertex. Both are formed by subtracting nearly
+    // equal quantities, so when the discriminant is at the noise level (a line
+    // tangent to the cone, or a line through the vertex such as one along the
+    // cone axis) the branch taken is decided by rounding and the reported set
+    // can be a point, or empty, where the true answer is a ray. Those
+    // configurations are excluded from the properties below; see the PR notes
+    // for the defect in the shared line-cone query.
+    function wellConditioned(origin: Vector, dir: Vector, C: Cone): boolean {
+        const PmV = sub(origin, C.ray.origin);
+        const UdU = dot(dir, dir);
+        const DdU = dot(C.ray.direction, dir);
+        const DdPmV = dot(C.ray.direction, PmV);
+        const UdPmV = dot(dir, PmV);
+        const PmVdPmV = dot(PmV, PmV);
+        const k = C.cosAngleSqr;
+        const c2 = DdU * DdU - k * UdU;
+        const c1 = DdU * DdPmV - k * UdPmV;
+        const c0 = DdPmV * DdPmV - k * PmVdPmV;
+        const discr = c1 * c1 - c0 * c2;
+        const discrScale = Math.max(c1 * c1, Math.abs(c0 * c2));
+        if (Math.abs(discr) < 1e-6 * discrScale) {
+            return false;
+        }
+        if (Math.abs(c2) < 1e-6 * Math.max(DdU * DdU, k * UdU)) {
+            return false;
+        }
+        // The height clamping against hmin and hmax is a second family of
+        // knife edges; require the roots to be off the caps by a margin.
+        const root = [(-c1 - Math.sqrt(Math.max(discr, 0))) / c2,
+            (-c1 + Math.sqrt(Math.max(discr, 0))) / c2];
+        for (const t of root) {
+            const h = t * DdU + DdPmV;
+            for (const cap of [0, C.getMinHeight(),
+                C.isFinite() ? C.getMaxHeight() : Number.NaN]) {
+                if (Number.isFinite(cap) && Math.abs(h - cap) < 1e-9) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    // The reported t-interval as a pair of numbers, with +/-infinity for the
+    // unbounded types. The QFNumber sentinel for an infinite endpoint is
+    // (+/-1, 0, d), which does not convert to a number, so it is replaced
+    // here.
+    function intervalOf(result: { type: number, t: [QFNumber, QFNumber] }):
+        [number, number] | null {
+        switch (result.type) {
+            case T.isEmpty:
+                return null;
+            case T.isPoint: {
+                const a = intrLine3Cone3Convert(result.t[0]);
+                return [a, a];
+            }
+            case T.isSegment:
+                return [intrLine3Cone3Convert(result.t[0]),
+                    intrLine3Cone3Convert(result.t[1])];
+            case T.isRayPositive:
+                return [intrLine3Cone3Convert(result.t[0]),
+                    Number.POSITIVE_INFINITY];
+            default:  // isRayNegative
+                return [Number.NEGATIVE_INFINITY,
+                    intrLine3Cone3Convert(result.t[1])];
+        }
+    }
+
+    it('is the line result clipped to t >= 0', () => {
+        let numTested = 0, numNonEmpty = 0;
+        check(coneAndRay, ([R, C]) => {
+            if (!wellConditioned(R.origin, R.direction, C)) {
+                return;
+            }
+            ++numTested;
+            const lr = lineFIv.find(
+                Line.fromOriginDirection(R.origin, R.direction), C);
+            const li = intervalOf(lr);
+            const rr = fiv.find(R, C);
+            const ri = intervalOf(rr);
+
+            if (li === null) {
+                expect(ri).toBeNull();
+                return;
+            }
+            // Skip the knife edges where an endpoint of the line interval is
+            // numerically indistinguishable from the ray origin: there the
+            // exact QFNumber comparison inside the query and the comparison
+            // on the converted doubles can disagree.
+            if (Math.abs(li[0]) < 1e-9 || Math.abs(li[1]) < 1e-9) {
+                return;
+            }
+            const lo = Math.max(li[0], 0);
+            const hi = li[1];
+            if (hi < lo) {
+                expect(ri).toBeNull();
+                return;
+            }
+            expect(ri).not.toBeNull();
+            const got = ri as [number, number];
+            if (hi === Number.POSITIVE_INFINITY) {
+                expect(rr.type).toBe(T.isRayPositive);
+                expectClose(got[0], lo, 1e-9, 1e-9);
+                return;
+            }
+            if (lo === hi) {
+                expect(rr.type).toBe(T.isPoint);
+            }
+            expectClose(got[0], lo, 1e-9, 1e-9);
+            expectClose(got[1], hi, 1e-9, 1e-9);
+            ++numNonEmpty;
+        });
+        // The conditioning filter must not reject everything, and both the
+        // empty and the nonempty outcome must occur.
+        expect(numTested).toBeGreaterThan(100);
+        expect(numNonEmpty).toBeGreaterThan(10);
+        expect(numTested - numNonEmpty).toBeGreaterThan(10);
+    });
+
+    it('reports exactly the ray parameters whose point is in the cone', () => {
+        check(coneAndRay, ([R, C]) => {
+            if (!wellConditioned(R.origin, R.direction, C)) {
+                return;
+            }
+            const rr = fiv.find(R, C);
+            const ri = intervalOf(rr);
+            const lo = ri === null ? 0 : ri[0];
+            const hi = ri === null ? -1 : Math.min(ri[1], 12);
+            const steps = 160;
+            for (let i = 0; i <= steps; ++i) {
+                const t = (i / steps) * 12;
+                const X = add(R.origin, mul(t, R.direction));
+                // A point comfortably inside the solid cone must be inside
+                // the reported interval.
+                if (inSolidCone(C, X, -1e-6)) {
+                    expect(ri).not.toBeNull();
+                    expect(t).toBeGreaterThan(lo - 1e-5);
+                    expect(t).toBeLessThan(hi + 1e-5);
+                }
+                // A parameter comfortably inside the reported interval must
+                // map to a point of the solid cone.
+                if (ri !== null && t > lo + 1e-6 && t < hi - 1e-6) {
+                    expect(inSolidCone(C, X, 1e-6)).toBe(true);
+                }
+            }
+        }, 60);
+    }, 30000);
+
+    it('reports points that lie on the ray and in the cone', () => {
+        check(coneAndRay, ([R, C]) => {
+            if (!wellConditioned(R.origin, R.direction, C)) {
+                return;
+            }
+            const rr = fiv.find(R, C);
+            if (!rr.intersect) {
+                return;
+            }
+            const P0 = intrLine3Cone3ConvertPoint(rr.P[0]);
+            expect(inSolidCone(C, P0, 1e-7)).toBe(true);
+            const t0 = intrLine3Cone3Convert(rr.t[0]);
+            expect(t0).toBeGreaterThan(-1e-12);
+            expectVectorClose(P0, add(R.origin, mul(t0, R.direction)),
+                1e-8, 1e-8);
+            if (rr.type === T.isSegment || rr.type === T.isPoint) {
+                const P1 = intrLine3Cone3ConvertPoint(rr.P[1]);
+                const t1 = intrLine3Cone3Convert(rr.t[1]);
+                expect(inSolidCone(C, P1, 1e-7)).toBe(true);
+                expectVectorClose(P1, add(R.origin, mul(t1, R.direction)),
+                    1e-8, 1e-8);
+                expect(t1).toBeGreaterThan(t0 - 1e-12);
+            }
+            else if (rr.type === T.isRayPositive) {
+                // P[1] carries the ray direction rather than a point.
+                const D = intrLine3Cone3ConvertPoint(rr.P[1]);
+                expectVectorClose(D, R.direction, 1e-12, 1e-12);
+            }
+        });
+    });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(coneAndRay, rotationFrame(3),
+            wellScaledVector(3, -4, 4)), ([[R, C], frame, tr]) => {
+                if (!wellConditioned(R.origin, R.direction, C)) {
+                    return;
+                }
+                const xfDir = (v: Vector): Vector => {
+                    const w = new Vector(3);
+                    for (let i = 0; i < 3; ++i) {
+                        w.values[i] = frame[0].values[i] * v.values[0]
+                            + frame[1].values[i] * v.values[1]
+                            + frame[2].values[i] * v.values[2];
+                    }
+                    return w;
+                };
+                const xf = (v: Vector): Vector => add(xfDir(v), tr);
+                const D = new Cone(3);
+                D.ray = Ray.fromOriginDirection(xf(C.ray.origin),
+                    xfDir(C.ray.direction));
+                D.setAngle(C.angle);
+                if (C.getMinHeight() > 0) {
+                    if (C.isFinite()) {
+                        D.makeConeFrustum(C.getMinHeight(), C.getMaxHeight());
+                    }
+                    else {
+                        D.makeInfiniteTruncatedCone(C.getMinHeight());
+                    }
+                }
+                else if (C.isFinite()) {
+                    D.makeFiniteCone(C.getMaxHeight());
+                }
+                else {
+                    D.makeInfiniteCone();
+                }
+                const r0 = fiv.find(R, C);
+                const r1 = fiv.find(Ray.fromOriginDirection(xf(R.origin),
+                    xfDir(R.direction)), D);
+                const i0 = intervalOf(r0);
+                const i1 = intervalOf(r1);
+                if (i0 === null || i1 === null) {
+                    // A grazing tangency can be classified either way after
+                    // the motion; only assert when both are nonempty or the
+                    // interval is not degenerate.
+                    if (i0 !== null && i0[1] - i0[0] > 1e-6) {
+                        expect(i1).not.toBeNull();
+                    }
+                    if (i1 !== null && i1[1] - i1[0] > 1e-6) {
+                        expect(i0).not.toBeNull();
+                    }
+                    return;
+                }
+                expectClose(i0[0], i1[0], 1e-6, 1e-6);
+                if (Number.isFinite(i0[1]) && Number.isFinite(i1[1])) {
+                    expectClose(i0[1], i1[1], 1e-6, 1e-6);
+                }
+            });
     });
 });
