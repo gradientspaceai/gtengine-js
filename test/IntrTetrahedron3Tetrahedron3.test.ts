@@ -517,6 +517,27 @@ describe('IntrTetrahedron3Tetrahedron3 verification', () => {
             });
     });
 
+    it('requires positively oriented tetrahedra', () => {
+        // The face normals come from Tetrahedron3.computeFaceNormal, which
+        // points outward only for a positively oriented tetrahedron. With the
+        // orientation reversed the normals point inward and the face-normal
+        // phase reports separation for a contained tetrahedron. This is an
+        // undocumented upstream precondition; the port states it in the file
+        // comments.
+        const V = (x: number, y: number, z: number) =>
+            Vector.fromArray([x, y, z]);
+        const positive = Tetrahedron3.fromArray([V(0, 0, 0), V(1, 0, 0),
+            V(0, 1, 0), V(0, 0, 1)]);
+        const negative = Tetrahedron3.fromArray([V(0, 0, 0), V(0, 1, 0),
+            V(1, 0, 0), V(0, 0, 1)]);
+        expect(signedVolume(positive)).toBeGreaterThan(0);
+        expect(signedVolume(negative)).toBeLessThan(0);
+        const inner = Tetrahedron3.fromArray([V(0.1, 0.1, 0.1),
+            V(0.3, 0.1, 0.1), V(0.1, 0.3, 0.1), V(0.1, 0.1, 0.3)]);
+        expect(tiv.test(positive, inner).intersect).toBe(true);
+        expect(tiv.test(negative, inner).intersect).toBe(false);
+    });
+
     it('treats measure-zero contact as separation', () => {
         // Two unit tetrahedra sharing the face x = 0 exactly. The projection
         // intervals touch, and the query reports separation; this convention

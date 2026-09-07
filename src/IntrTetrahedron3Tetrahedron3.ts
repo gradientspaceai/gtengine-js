@@ -6,6 +6,14 @@
 
 // The queries consider the tetrahedron to be a solid.
 //
+// The input tetrahedra must be positively oriented, that is,
+// Dot(Cross(v[1]-v[0], v[2]-v[0]), v[3]-v[0]) > 0, so that
+// Tetrahedron3.computeFaceNormal returns outward-pointing normals. Upstream
+// states the requirement only indirectly, in the comment about the
+// counterclockwise ordering of the face vertices; a negatively oriented
+// tetrahedron produces inward normals and the face-normal phase then reports
+// separation for tetrahedra that overlap.
+//
 // The test-intersection query uses the method of separating axes.
 // https://www.geometrictools.com/Documentation/MethodOfSeparatingAxes.pdf
 // The set of potential separating directions includes the 4 face normals of
