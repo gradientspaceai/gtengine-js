@@ -2,6 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { PlanarMesh } from '../src/PlanarMesh.js';
 import { ETManifoldMesh } from '../src/ETManifoldMesh.js';
 import { Vector } from '../src/Vector.js';
+import { Delaunay2 } from '../src/Delaunay2.js';
+import { IntpLinearNonuniform2 } from '../src/IntpLinearNonuniform2.js';
+import type { IntpLinearNonuniform2TriangleMesh } from '../src/IntpLinearNonuniform2.js';
+import type { IntpQuadraticNonuniform2TriangleMesh } from '../src/IntpQuadraticNonuniform2.js';
+import { check, expectClose, fc, seededRandom } from './helpers/arbitraries.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -278,5 +283,307 @@ describe('PlanarMesh', () => {
             expect(tb).toBeGreaterThanOrEqual(0);
             expect(keysB[tb]).toBe(keysA[ta]);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V37): independent re-check against PlanarMesh.h.
+// ---------------------------------------------------------------------------
+
+// A Delaunay triangulation of a set of lattice points, as an index array in
+// the input-vertex numbering. Returns null when the points are degenerate
+// (fewer than three distinct points, or all collinear).
+function delaunayIndices(points: readonly Vector[]): number[] | null {
+    const delaunay = new Delaunay2();
+    if (!delaunay.compute(points) || delaunay.getDimension() !== 2) {
+        return null;
+    }
+    return Array.from(delaunay.getIndices());
+}
+
+// The signed area of the triangle, twice. The lattice coordinates are small
+// integers, so this is exact.
+function twiceSignedArea(p0: Vector, p1: Vector, p2: Vector): number {
+    return (p1.get(0) - p0.get(0)) * (p2.get(1) - p0.get(1))
+        - (p1.get(1) - p0.get(1)) * (p2.get(0) - p0.get(0));
+}
+
+// The brute-force containment test: the indices of every triangle of the mesh
+// whose closed region contains p, using the same convention as upstream's
+// PointInPolygon2 (a point on an edge belongs to the triangle).
+function bruteForceContainers(mesh: PlanarMesh, p: Vector): number[] {
+    const found: number[] = [];
+    for (let t = 0; t < mesh.getNumTriangles(); ++t) {
+        const tri = mesh.getTriangleVertices(t) as [Vector, Vector, Vector];
+        const a0 = twiceSignedArea(p, tri[0], tri[1]);
+        const a1 = twiceSignedArea(p, tri[1], tri[2]);
+        const a2 = twiceSignedArea(p, tri[2], tri[0]);
+        if ((a0 >= 0 && a1 >= 0 && a2 >= 0) || (a0 <= 0 && a1 <= 0 && a2 <= 0)) {
+            found.push(t);
+        }
+    }
+    return found;
+}
+
+// Distinct lattice points in [-6,6]^2, enough of them for a two-dimensional
+// Delaunay triangulation. Integer coordinates keep the PrimalQuery2 sign
+// tests exact, so the linear walk is not at the mercy of rounding.
+const latticePoints = fc.uniqueArray(
+    fc.tuple(fc.integer({ min: -6, max: 6 }), fc.integer({ min: -6, max: 6 })),
+    { minLength: 6, maxLength: 14, selector: xy => xy[0] + ':' + xy[1] })
+    .map(pairs => pairs.map(xy => v2(xy[0], xy[1])));
+
+describe('PlanarMesh verification', () => {
+    it('locates points by linear walk exactly as an exhaustive search does', () => {
+        check(fc.tuple(latticePoints, fc.integer({ min: 0, max: 1023 })),
+            ([points, salt]) => {
+                const indices = delaunayIndices(points);
+                if (indices === null) {
+                    return;
+                }
+                const mesh = PlanarMesh.fromIndices(points, indices);
+                expect(mesh.getNumTriangles()).toBe(indices.length / 3);
+
+                // The convex hull of a Delaunay triangulation is convex, so
+                // the linear walk is guaranteed to succeed for any interior
+                // point from any starting triangle.
+                const random = seededRandom(salt + 1);
+                for (let trial = 0; trial < 12; ++trial) {
+                    // A random convex combination of a random triangle's
+                    // vertices lies in the hull.
+                    const source = Math.floor(random() * mesh.getNumTriangles());
+                    const tri = mesh.getTriangleVertices(source) as
+                        [Vector, Vector, Vector];
+                    let b0 = random();
+                    let b1 = random();
+                    let b2 = random();
+                    const sum = b0 + b1 + b2;
+                    if (sum < 1e-6) {
+                        continue;
+                    }
+                    b0 /= sum;
+                    b1 /= sum;
+                    b2 /= sum;
+                    const p = v2(
+                        b0 * tri[0].get(0) + b1 * tri[1].get(0) + b2 * tri[2].get(0),
+                        b0 * tri[0].get(1) + b1 * tri[1].get(1) + b2 * tri[2].get(1));
+
+                    const containers = bruteForceContainers(mesh, p);
+                    expect(containers.length).toBeGreaterThan(0);
+
+                    // The walk finds a containing triangle from every start.
+                    for (let start = 0; start < mesh.getNumTriangles(); ++start) {
+                        const t = mesh.getContainingTriangle(p, start);
+                        expect(containers).toContain(t);
+                        expect(mesh.contains(t, p)).toBe(true);
+
+                        // The cycle-trapping overload agrees and its visited
+                        // set records the start and the reported triangle.
+                        const walk = mesh.getContainingTriangleVisited(p, start);
+                        expect(walk.triangle).toBe(t);
+                        expect(walk.visited.has(start)).toBe(true);
+                        expect(walk.visited.has(t)).toBe(true);
+
+                        // The barycentric coordinates are a partition of
+                        // unity that reproduces the query point.
+                        const bary = mesh.getBarycentrics(t, p) as
+                            [number, number, number];
+                        expect(bary).not.toBeNull();
+                        expectClose(bary[0] + bary[1] + bary[2], 1, 1e-12, 1e-12);
+                        const vtx = mesh.getTriangleVertices(t) as
+                            [Vector, Vector, Vector];
+                        for (let j = 0; j < 2; ++j) {
+                            expectClose(
+                                bary[0] * vtx[0].get(j) + bary[1] * vtx[1].get(j)
+                                + bary[2] * vtx[2].get(j), p.get(j), 1e-11, 1e-11);
+                            expect(bary[j]).toBeGreaterThan(-1e-12);
+                        }
+                    }
+                }
+            }, 40);
+    }, 30000);
+
+    it('reports the -1 sentinel for points outside the convex hull', () => {
+        check(fc.tuple(latticePoints, fc.integer({ min: 0, max: 1023 })),
+            ([points, salt]) => {
+                const indices = delaunayIndices(points);
+                if (indices === null) {
+                    return;
+                }
+                const mesh = PlanarMesh.fromIndices(points, indices);
+
+                // Far outside the [-6,6]^2 lattice: no triangle can contain
+                // the point, and the walk must exit through a boundary edge.
+                const random = seededRandom(salt + 7);
+                for (let trial = 0; trial < 8; ++trial) {
+                    const angle = 2 * Math.PI * random();
+                    const p = v2(100 * Math.cos(angle), 100 * Math.sin(angle));
+                    expect(bruteForceContainers(mesh, p)).toEqual([]);
+                    for (let start = 0; start < mesh.getNumTriangles(); ++start) {
+                        expect(mesh.getContainingTriangle(p, start)).toBe(-1);
+                        expect(mesh.getContainingTriangleVisited(p, start)
+                            .triangle).toBe(-1);
+                    }
+                }
+            }, 40);
+    }, 30000);
+
+    it('keeps the adjacency graph consistent with the shared edges', () => {
+        check(latticePoints, points => {
+            const indices = delaunayIndices(points);
+            if (indices === null) {
+                return;
+            }
+            const mesh = PlanarMesh.fromIndices(points, indices);
+            const adjacencies = mesh.getAdjacencies();
+            expect(adjacencies.length).toBe(3 * mesh.getNumTriangles());
+
+            for (let t = 0; t < mesh.getNumTriangles(); ++t) {
+                const ti = mesh.getTriangleIndices(t) as [number, number, number];
+                // The triangles are counterclockwise (Delaunay2 output).
+                const tv = mesh.getTriangleVertices(t) as [Vector, Vector, Vector];
+                expect(twiceSignedArea(tv[0], tv[1], tv[2])).toBeGreaterThan(0);
+
+                for (let i = 0; i < 3; ++i) {
+                    const a = adjacencies[3 * t + i] as number;
+                    if (a === -1) {
+                        continue;
+                    }
+                    // Adjacency i of triangle t sits across the edge
+                    // <V[i], V[i+1]>, and the relation is symmetric.
+                    const ai = mesh.getTriangleAdjacencies(a) as
+                        [number, number, number];
+                    const j = ai.indexOf(t);
+                    expect(j).toBeGreaterThanOrEqual(0);
+                    const aIndices = mesh.getTriangleIndices(a) as
+                        [number, number, number];
+                    const shared = [ti[i], ti[(i + 1) % 3]].sort((x, y) => x - y);
+                    const sharedA = [aIndices[j], aIndices[(j + 1) % 3]]
+                        .sort((x, y) => x - y);
+                    expect(sharedA).toEqual(shared);
+                }
+            }
+        }, 60);
+    }, 30000);
+
+    it('drives IntpLinearNonuniform2 through the duck-typed mesh interface', () => {
+        // The interpolator's mesh interface is satisfied by name AND arity;
+        // the assignment below is the compile-time half of the check and the
+        // exactness assertion is the runtime half. Binding getTriangleIndices
+        // to a zero-argument accessor would blend the first triangle's
+        // samples for every query point (the V29 defect), which a linear
+        // function reproduced exactly cannot hide.
+        check(fc.tuple(latticePoints, fc.integer({ min: -5, max: 5 }),
+            fc.integer({ min: -5, max: 5 }), fc.integer({ min: -5, max: 5 }),
+            fc.integer({ min: 0, max: 1023 })),
+        ([points, a, b, c, salt]) => {
+            const indices = delaunayIndices(points);
+            if (indices === null) {
+                return;
+            }
+            const planar = PlanarMesh.fromIndices(points, indices);
+            const mesh: IntpLinearNonuniform2TriangleMesh = planar;
+            const quadMesh: IntpQuadraticNonuniform2TriangleMesh = planar;
+            expect(quadMesh.getNumTriangles()).toBe(planar.getNumTriangles());
+
+            // f(x,y) = a*x + b*y + c is reproduced exactly by barycentric
+            // interpolation over any triangulation of its samples.
+            const F = points.map(p => a * p.get(0) + b * p.get(1) + c);
+            const interpolator = new IntpLinearNonuniform2(mesh, F);
+
+            const random = seededRandom(salt + 11);
+            for (let trial = 0; trial < 10; ++trial) {
+                const source = Math.floor(random() * planar.getNumTriangles());
+                const tri = planar.getTriangleVertices(source) as
+                    [Vector, Vector, Vector];
+                let b0 = random();
+                let b1 = random();
+                let b2 = random();
+                const sum = b0 + b1 + b2;
+                if (sum < 1e-6) {
+                    continue;
+                }
+                b0 /= sum;
+                b1 /= sum;
+                b2 /= sum;
+                const p = v2(
+                    b0 * tri[0].get(0) + b1 * tri[1].get(0) + b2 * tri[2].get(0),
+                    b0 * tri[0].get(1) + b1 * tri[1].get(1) + b2 * tri[2].get(1));
+
+                const result = interpolator.evaluate(p);
+                expect(result.valid).toBe(true);
+                expectClose(result.F, a * p.get(0) + b * p.get(1) + c,
+                    1e-9, 1e-9);
+            }
+
+            // Outside the hull the interpolation reports failure.
+            const outside = interpolator.evaluate(v2(1000, 1000));
+            expect(outside.valid).toBe(false);
+        }, 40);
+    }, 30000);
+
+    it('gives fromMesh the same triangles as fromIndices', () => {
+        check(latticePoints, points => {
+            const indices = delaunayIndices(points);
+            if (indices === null) {
+                return;
+            }
+            const fromIndices = PlanarMesh.fromIndices(points, indices);
+
+            const etMesh = new ETManifoldMesh();
+            for (let t = 0; t < indices.length / 3; ++t) {
+                expect(etMesh.insert(indices[3 * t] as number,
+                    indices[3 * t + 1] as number,
+                    indices[3 * t + 2] as number)).not.toBeNull();
+            }
+            const fromMesh = PlanarMesh.fromMesh(points, etMesh);
+            expect(fromMesh.getNumTriangles()).toBe(fromIndices.getNumTriangles());
+
+            // The same triangles up to rotation of each index triple and to
+            // the ordering of the triangles themselves.
+            const rotatedKey = (mesh: PlanarMesh, t: number): string => {
+                const triple = (mesh.getTriangleIndices(t) as number[]).slice();
+                const min = Math.min(...triple);
+                while (triple[0] !== min) {
+                    triple.push(triple.shift() as number);
+                }
+                return triple.join(',');
+            };
+            const keysA: string[] = [];
+            const keysB: string[] = [];
+            for (let t = 0; t < fromIndices.getNumTriangles(); ++t) {
+                keysA.push(rotatedKey(fromIndices, t));
+                keysB.push(rotatedKey(fromMesh, t));
+            }
+            expect(keysB.slice().sort()).toEqual(keysA.slice().sort());
+
+            // And the same point-location answers.
+            for (let t = 0; t < fromIndices.getNumTriangles(); ++t) {
+                const tri = fromIndices.getTriangleVertices(t) as
+                    [Vector, Vector, Vector];
+                const p = v2(
+                    (tri[0].get(0) + tri[1].get(0) + tri[2].get(0)) / 3,
+                    (tri[0].get(1) + tri[1].get(1) + tri[2].get(1)) / 3);
+                const ta = fromIndices.getContainingTriangle(p);
+                const tb = fromMesh.getContainingTriangle(p);
+                expect(ta).toBeGreaterThanOrEqual(0);
+                expect(tb).toBeGreaterThanOrEqual(0);
+                expect(keysB[tb]).toBe(keysA[ta]);
+            }
+        }, 40);
+    }, 30000);
+
+    it('half-constructs on a duplicated triangle, as upstream does', () => {
+        // Upstream issue #256 item 2, preserved: the first constructor
+        // returns early when Insert reports a duplicate, leaving the object
+        // with no vertices, no triangles and an unset query.
+        const mesh = PlanarMesh.fromIndices(squareVertices,
+            [0, 1, 2, 0, 2, 3, 0, 1, 2]);
+        expect(mesh.getNumVertices()).toBe(0);
+        expect(mesh.getNumTriangles()).toBe(0);
+        expect(Array.from(mesh.getIndices())).toEqual([]);
+        expect(Array.from(mesh.getAdjacencies())).toEqual([]);
+        expect(mesh.getTriangleIndices(0)).toBeNull();
+        expect(mesh.getContainingTriangle(v2(0.5, 0.25))).toBe(-1);
     });
 });
