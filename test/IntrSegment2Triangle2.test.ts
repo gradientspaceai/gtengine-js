@@ -8,6 +8,11 @@ import {
     defaultIntrSegment2Triangle2FIResult,
     intrSegment2Triangle2DoQuery
 } from '../src/IntrSegment2Triangle2.js';
+import { Line } from '../src/Line.js';
+import { IntrLine2Triangle2FI } from '../src/IntrLine2Triangle2.js';
+import {
+    check, expectClose, expectVectorClose, fc, rotationFrame, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function vec(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -220,4 +225,200 @@ describe('IntrSegment2Triangle2', () => {
         expect(hits).toBeGreaterThan(20);
         expect([tiFiMismatch, sampleMismatch, pointMismatch]).toEqual([0, 0, 0]);
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V32): properties cross-checking the port against upstream
+// IntrSegment2Triangle2.h.
+// ---------------------------------------------------------------------------
+
+describe('IntrSegment2Triangle2 verification', () => {
+    const ti = new IntrSegment2Triangle2TI();
+    const fi = new IntrSegment2Triangle2FI();
+    const lineFi = new IntrLine2Triangle2FI();
+
+    const arbSegment = fc.tuple(wellScaledVector(2, -6, 6),
+        wellScaledVector(2, -6, 6))
+        .filter(([a, b]) => {
+            const d = sub(b, a);
+            return dot(d, d) > 1e-2;
+        })
+        .map(([a, b]) => Segment.fromEndpoints(a, b));
+    const arbTriangle = fc.tuple(wellScaledVector(2, -5, 5),
+        wellScaledVector(2, -5, 5), wellScaledVector(2, -5, 5))
+        .filter(([a, b, c]) => {
+            const e0 = sub(b, a), e1 = sub(c, a);
+            return Math.abs(e0.get(0) * e1.get(1) - e0.get(1) * e1.get(0)) > 0.5;
+        })
+        .map(([a, b, c]) => Triangle.fromVertices(a, b, c));
+    const arbPair = fc.tuple(arbSegment, arbTriangle);
+
+    // Barycentric coordinates of p with respect to the triangle.
+    function bary(t: Triangle, p: Vector): [number, number, number] {
+        const v0 = sub(t.v[1], t.v[0]), v1 = sub(t.v[2], t.v[0]);
+        const v2 = sub(p, t.v[0]);
+        const den = v0.get(0) * v1.get(1) - v0.get(1) * v1.get(0);
+        const b1 = (v2.get(0) * v1.get(1) - v2.get(1) * v1.get(0)) / den;
+        const b2 = (v0.get(0) * v2.get(1) - v0.get(1) * v2.get(0)) / den;
+        return [1 - b1 - b2, b1, b2];
+    }
+
+    it('TI and FI agree on intersect (TI delegates to FI upstream)', () => {
+        check(arbPair, ([s, t]) => {
+            expect(ti.test(s, t).intersect).toBe(fi.find(s, t).intersect);
+        });
+    });
+
+    it('FI parameters are in [0,1] and the points are on the segment and'
+        + ' in the triangle', () => {
+        check(arbPair, ([s, t]) => {
+            const res = fi.find(s, t);
+            if (!res.intersect) {
+                expect(res.numIntersections).toBe(0);
+                return;
+            }
+            expect(res.numIntersections === 1 || res.numIntersections === 2)
+                .toBe(true);
+            const d = sub(s.p[1], s.p[0]);
+            for (let i = 0; i < res.numIntersections; ++i) {
+                const p = res.parameter[i];
+                expect(Number.isFinite(p)).toBe(true);
+                expect(p).toBeGreaterThanOrEqual(-1e-12);
+                expect(p).toBeLessThanOrEqual(1 + 1e-12);
+                expectVectorClose(res.point[i], add(s.p[0], mul(p, d)),
+                    1e-12, 1e-12);
+                const b = bary(t, res.point[i]);
+                for (const bi of b) {
+                    expect(bi).toBeGreaterThanOrEqual(-1e-6);
+                    expect(bi).toBeLessThanOrEqual(1 + 1e-6);
+                }
+            }
+            expect(res.parameter[0]).toBeLessThanOrEqual(res.parameter[1]);
+        });
+    });
+
+    it('the segment result is the line result clipped to [0,1]', () => {
+        check(arbPair, ([s, t]) => {
+            const d = sub(s.p[1], s.p[0]);
+            const lineRes = lineFi.find(
+                Line.fromOriginDirection(s.p[0], d), t);
+            const segRes = fi.find(s, t);
+            if (!lineRes.intersect) {
+                expect(segRes.intersect).toBe(false);
+                return;
+            }
+            const c0 = Math.max(lineRes.parameter[0], 0);
+            const c1 = Math.min(lineRes.parameter[1], 1);
+            if (c0 > c1) {
+                expect(segRes.intersect).toBe(false);
+                return;
+            }
+            expect(segRes.intersect).toBe(true);
+            expect(segRes.parameter[0] + 0).toBe(c0 + 0);
+            expect(segRes.parameter[1] + 0).toBe(c1 + 0);
+            expect(segRes.numIntersections).toBe(c0 < c1 ? 2 : 1);
+        });
+    });
+
+    it('intersect is true whenever a finely sampled segment point is well'
+        + ' inside the triangle', () => {
+        check(arbPair, ([s, t]) => {
+            const d = sub(s.p[1], s.p[0]);
+            let inside = false;
+            for (let k = 0; k <= 512 && !inside; ++k) {
+                const b = bary(t, add(s.p[0], mul(k / 512, d)));
+                inside = b[0] > 1e-6 && b[1] > 1e-6 && b[2] > 1e-6;
+            }
+            if (inside) {
+                expect(ti.test(s, t).intersect).toBe(true);
+            }
+        });
+    });
+
+    // A configuration is generic when no segment endpoint is close to a
+    // triangle edge line, no triangle vertex is close to the segment line and
+    // the segment is not nearly parallel to an edge. Rigid-motion
+    // equivariance is only meaningful for generic configurations: the query
+    // classifies with exact sign tests, so a segment lying along an edge
+    // changes its answer under an arbitrarily small rotation.
+    function generic(s: Segment, t: Triangle): boolean {
+        const cross2 = (a: Vector, b: Vector): number =>
+            a.get(0) * b.get(1) - a.get(1) * b.get(0);
+        const ds = sub(s.p[1], s.p[0]);
+        const lenS = Math.sqrt(dot(ds, ds));
+        for (let i = 0; i < 3; ++i) {
+            const a = t.v[i], b = t.v[(i + 1) % 3];
+            const de = sub(b, a);
+            const lenE = Math.sqrt(dot(de, de));
+            if (Math.abs(cross2(ds, de)) / (lenS * lenE) < 1e-2) {
+                return false;
+            }
+            for (const p of [s.p[0], s.p[1]]) {
+                if (Math.abs(cross2(de, sub(p, a))) / lenE < 1e-2) {
+                    return false;
+                }
+            }
+            if (Math.abs(cross2(ds, sub(a, s.p[0]))) / lenS < 1e-2) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    it('is equivariant under rigid motions of the plane', () => {
+        check(fc.tuple(arbPair, rotationFrame(2), wellScaledVector(2, -4, 4)),
+            ([[s, t], frame, shift]) => {
+                if (!generic(s, t)) {
+                    return;
+                }
+                const map = (v: Vector): Vector => Vector.fromArray([
+                    dot(frame[0], v) + shift.get(0),
+                    dot(frame[1], v) + shift.get(1)]);
+                const s2 = Segment.fromEndpoints(map(s.p[0]), map(s.p[1]));
+                const t2 = Triangle.fromVertices(map(t.v[0]), map(t.v[1]),
+                    map(t.v[2]));
+                const a = fi.find(s, t), b = fi.find(s2, t2);
+                expect(b.intersect).toBe(a.intersect);
+                if (a.intersect) {
+                    expect(b.numIntersections).toBe(a.numIntersections);
+                    for (let i = 0; i < a.numIntersections; ++i) {
+                        expectClose(b.parameter[i], a.parameter[i], 1e-9, 1e-9);
+                        expectVectorClose(b.point[i], map(a.point[i]),
+                            1e-8, 1e-8);
+                    }
+                }
+            });
+    });
+
+    it('reports a contained segment as its own endpoints', () => {
+        const t = triangle([0, 0], [6, 0], [0, 6]);
+        const s = segment([1, 1], [2, 2]);
+        const res = fi.find(s, t);
+        expect(res.intersect).toBe(true);
+        expect(res.numIntersections).toBe(2);
+        expect(res.parameter[0]).toBe(0);
+        expect(res.parameter[1]).toBe(1);
+        expectVectorClose(res.point[0], vec(1, 1));
+        expectVectorClose(res.point[1], vec(2, 2));
+    });
+
+    it('reports a single point for a segment touching one vertex', () => {
+        const t = triangle([0, 0], [6, 0], [0, 6]);
+        const s = segment([-2, 2], [0, 0]);
+        const res = fi.find(s, t);
+        expect(res.intersect).toBe(true);
+        expect(res.numIntersections).toBe(1);
+        expectVectorClose(res.point[0], vec(0, 0));
+    });
+
+    it('the DoQuery helper resets a result that misses the segment domain',
+        () => {
+            const res = defaultIntrSegment2Triangle2FIResult();
+            // The line hits the triangle only for t > 1.
+            intrSegment2Triangle2DoQuery(vec(-10, 1), vec(1, 0),
+                triangle([0, 0], [6, 0], [0, 6]), res);
+            expect(res.intersect).toBe(false);
+            expect(res.numIntersections).toBe(0);
+            expect(res.parameter).toEqual([0, 0]);
+        });
 });

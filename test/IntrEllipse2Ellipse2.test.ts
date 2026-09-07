@@ -8,6 +8,11 @@ import {
     IntrEllipse2Ellipse2Classification as Cls,
     intrEllipse2Ellipse2InfinitePoints
 } from '../src/IntrEllipse2Ellipse2.js';
+import { add, mul } from '../src/Vector.js';
+import {
+    check, expectClose, fc, positive, rotationFrame, seededRandom,
+    wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -571,5 +576,434 @@ describe('IntrEllipse2Ellipse2FI', () => {
             expect(Math.hypot(p.values[0] - 2, p.values[1])).toBeCloseTo(2, 10);
             expect(p.values[0]).toBeCloseTo(0.25, 10);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V32): properties cross-checking the port against upstream
+// IntrEllipse2Ellipse2.h.
+// ---------------------------------------------------------------------------
+
+describe('IntrEllipse2Ellipse2 verification', () => {
+    const tiQuery = new IntrEllipse2Ellipse2TI();
+    const fiQuery = new IntrEllipse2Ellipse2FI();
+
+    // Upstream's own header says the number type "should support exact
+    // rational arithmetic in order for the polynomial root construction to be
+    // robust", and the port instantiates the floating-point path. Two
+    // conditioning cliffs of that path are exercised by the deterministic
+    // tests at the end of this block: the TI root bracketing asserts for
+    // nearly concentric ellipses, and the FI quartic loses nearly double
+    // roots. The randomized properties below therefore either predict only
+    // the robust direction (no intersection) or draw from a well-conditioned
+    // family of configurations.
+
+    const arbEllipse = fc.tuple(wellScaledVector(2, -3, 3), rotationFrame(2),
+        fc.array(positive(3, 0.4), { minLength: 2, maxLength: 2 }))
+        .map(([c, frame, e]) => Hyperellipsoid.fromCenterAxisExtent(c,
+            [frame[0], frame[1]], Vector.fromArray(e)));
+    const arbPair = fc.tuple(arbEllipse, arbEllipse);
+
+    // A point on the boundary of the ellipse at the given parameter angle.
+    function boundaryPoint(e: Hyperellipsoid, t: number): Vector {
+        return add(e.center,
+            add(mul(e.extent.get(0) * Math.cos(t), e.axis[0]),
+                mul(e.extent.get(1) * Math.sin(t), e.axis[1])));
+    }
+
+    // Sample the boundary of 'e' and report the extreme values of the other
+    // ellipse's quadratic form on it. The form is 1 on the boundary of the
+    // other ellipse, less inside and more outside.
+    function extremes(e: Hyperellipsoid, other: Hyperellipsoid, n: number):
+        { min: number, max: number } {
+        let lo = Number.MAX_VALUE, hi = -Number.MAX_VALUE;
+        for (let k = 0; k < n; ++k) {
+            const q = quadratic(other, boundaryPoint(e, (2 * Math.PI * k) / n));
+            lo = Math.min(lo, q);
+            hi = Math.max(hi, q);
+        }
+        return { min: lo, max: hi };
+    }
+
+    it('the FI points lie on both ellipses', () => {
+        check(arbPair, ([e0, e1]) => {
+            const res = fiQuery.find(e0, e1);
+            if (res.numPoints === intrEllipse2Ellipse2InfinitePoints) {
+                return;
+            }
+            expect(res.numPoints).toBeLessThanOrEqual(4);
+            expect(res.intersect).toBe(res.numPoints > 0);
+            for (let i = 0; i < res.numPoints; ++i) {
+                const p = res.points[i];
+                expect(Number.isNaN(p.get(0))).toBe(false);
+                expect(Number.isNaN(p.get(1))).toBe(false);
+                // The residual scales with the conditioning of the quartic
+                // built from the standard forms, and for nearly congruent or
+                // nearly circular ellipses (which fast-check shrinks towards)
+                // it has no useful bound - the deterministic well-conditioned
+                // family below is what checks the residual to 1e-6. Here the
+                // point is only required to be a plausible intersection: on
+                // both curves to within a few per cent of the quadratic form
+                // and inside the bounding box of each ellipse.
+                expectClose(quadratic(e0, p), 1, 0.05, 0.05);
+                expectClose(quadratic(e1, p), 1, 0.05, 0.05);
+                for (const e of [e0, e1]) {
+                    const box = fiQuery.computeAlignedBox(e);
+                    for (let d = 0; d < 2; ++d) {
+                        const tol = 1e-6 * (1 + Math.abs(p.get(d)));
+                        expect(p.get(d))
+                            .toBeGreaterThanOrEqual(box.min.get(d) - tol);
+                        expect(p.get(d))
+                            .toBeLessThanOrEqual(box.max.get(d) + tol);
+                    }
+                }
+            }
+        }, 100);
+    });
+
+    it('the FI query finds no points when the ellipses are robustly separated'
+        + ' or nested', () => {
+        check(arbPair, ([e0, e1]) => {
+            const on1 = extremes(e1, e0, 512);
+            const on0 = extremes(e0, e1, 512);
+            const margin = 0.05;
+            if ((on1.min > 1 + margin && on0.min > 1 + margin)
+                || on1.max < 1 - margin || on0.max < 1 - margin) {
+                const res = fiQuery.find(e0, e1);
+                expect(res.numPoints).toBe(0);
+                expect(res.intersect).toBe(false);
+            }
+        }, 100);
+    });
+
+    it('the early-exit bounding-box test only ever removes intersections',
+        () => {
+            check(arbPair, ([e0, e1]) => {
+                const withExit = fiQuery.find(e0, e1, true);
+                const without = fiQuery.find(e0, e1, false);
+                const box0 = fiQuery.computeAlignedBox(e0);
+                const box1 = fiQuery.computeAlignedBox(e1);
+                let disjoint = false;
+                for (let i = 0; i < 2; ++i) {
+                    disjoint = disjoint || box0.max.get(i) < box1.min.get(i)
+                        || box0.min.get(i) > box1.max.get(i);
+                }
+                if (disjoint) {
+                    // The boxes bound the ellipses, so there is no
+                    // intersection to report.
+                    expect(withExit.numPoints).toBe(0);
+                    expect(withExit.intersect).toBe(false);
+                }
+                else {
+                    expect(withExit.numPoints).toBe(without.numPoints);
+                    expect(withExit.intersect).toBe(without.intersect);
+                    for (let i = 0; i < withExit.numPoints; ++i) {
+                        expect(withExit.points[i].equals(without.points[i]))
+                            .toBe(true);
+                    }
+                }
+            });
+        });
+
+    it('the quartic solver can return spurious roots for nearly congruent'
+        + ' offset ellipses (upstream conditioning limitation)', () => {
+        // Two nearly identical ellipses whose bounding boxes are disjoint in
+        // x, so there is no intersection. With the early-exit test disabled
+        // the quartic solver returns two roots anyway; the early exit hides
+        // them, which is why the query enables it by default.
+        const e0 = ellipse(0, 0, 0, 0.40000000000000024, 2.999999999999992);
+        const e1 = ellipse(0.9376363112298954, 0, 0, 0.40000000000000097,
+            2.999999999999998);
+        expect(fiQuery.find(e0, e1, true).numPoints).toBe(0);
+        expect(fiQuery.find(e0, e1, false).numPoints).toBe(2);
+        // The spurious points are not on the ellipses.
+        const spurious = fiQuery.find(e0, e1, false);
+        let offCurve = 0;
+        for (let i = 0; i < spurious.numPoints; ++i) {
+            if (Math.abs(quadratic(e0, spurious.points[i]) - 1) > 1e-3
+                || Math.abs(quadratic(e1, spurious.points[i]) - 1) > 1e-3) {
+                ++offCurve;
+            }
+        }
+        expect(offCurve).toBeGreaterThan(0);
+    });
+
+    it('does not modify its inputs', () => {
+        check(arbPair, ([e0, e1]) => {
+            const c0 = e0.center.clone(), c1 = e1.center.clone();
+            fiQuery.find(e0, e1);
+            try {
+                tiQuery.test(e0, e1);
+            }
+            catch {
+                // Documented upstream assert; the inputs must still be intact.
+            }
+            expect(e0.center.equals(c0)).toBe(true);
+            expect(e1.center.equals(c1)).toBe(true);
+        });
+    });
+
+    it('getStandardForm uses the upstream Matrix operator/ semantics', () => {
+        // Upstream evaluates M = (UUTrn / aSqr + VVTrn / bSqr) / USqrLen with
+        // the Matrix operator/, which multiplies by the reciprocal of the
+        // divisor. Dividing each element instead rounds differently, which
+        // matters because every downstream branch of this file is selected by
+        // an exact comparison against zero.
+        check(arbEllipse, e => {
+            const { M } = fiQuery.getStandardForm(e);
+            const u = e.axis[0], v = e.axis[1];
+            const aSqr = e.extent.get(0) * e.extent.get(0);
+            const bSqr = e.extent.get(1) * e.extent.get(1);
+            const uSqrLen = u.get(0) * u.get(0) + u.get(1) * u.get(1);
+            const invA = 1 / aSqr, invB = 1 / bSqr, invU = 1 / uSqrLen;
+            for (let r = 0; r < 2; ++r) {
+                for (let c = 0; c < 2; ++c) {
+                    const uu = u.get(r) * u.get(c);
+                    const vv = v.get(r) * v.get(c);
+                    expect(M.get(r, c)).toBe((uu * invA + vv * invB) * invU);
+                }
+            }
+        });
+    });
+
+    it('the standard form is symmetric, positive definite and reproduces the'
+        + ' ellipse', () => {
+        check(arbEllipse, e => {
+            const { C, M } = fiQuery.getStandardForm(e);
+            expect(M.get(0, 1)).toBe(M.get(1, 0));
+            expect(M.get(0, 0)).toBeGreaterThan(0);
+            const det = M.get(0, 0) * M.get(1, 1) - M.get(0, 1) * M.get(1, 0);
+            expect(det).toBeGreaterThan(0);
+            expect(C.equals(e.center)).toBe(true);
+            for (let k = 0; k < 8; ++k) {
+                const d = sub(boundaryPoint(e, (2 * Math.PI * k) / 8), C);
+                const q = d.get(0) * (M.get(0, 0) * d.get(0)
+                    + M.get(0, 1) * d.get(1))
+                    + d.get(1) * (M.get(1, 0) * d.get(0)
+                        + M.get(1, 1) * d.get(1));
+                expectClose(q, 1, 1e-9, 1e-9);
+            }
+        });
+    });
+
+    it('the aligned box bounds the ellipse', () => {
+        check(arbEllipse, e => {
+            const b = fiQuery.computeAlignedBox(e);
+            for (let k = 0; k < 64; ++k) {
+                const p = boundaryPoint(e, (2 * Math.PI * k) / 64);
+                for (let i = 0; i < 2; ++i) {
+                    expect(p.get(i))
+                        .toBeGreaterThanOrEqual(b.min.get(i) - 1e-9);
+                    expect(p.get(i)).toBeLessThanOrEqual(b.max.get(i) + 1e-9);
+                }
+            }
+        });
+    });
+
+    // A deterministic family of well-conditioned configurations: the centers
+    // are clearly separated, the extents are clearly distinct (no near-circle
+    // and no near-congruent pair) and the orientations are unrelated. This
+    // avoids the conditioning cliffs documented at the end of the block, and
+    // being deterministic it cannot be shrunk onto them.
+    function wellConditionedPairs(seed: number, count: number):
+        Array<[Hyperellipsoid, Hyperellipsoid]> {
+        const rnd = seededRandom(seed);
+        const pairs: Array<[Hyperellipsoid, Hyperellipsoid]> = [];
+        const make = (cx: number, cy: number, angle: number, a: number,
+            b: number): Hyperellipsoid => {
+            const c = Math.cos(angle), s = Math.sin(angle);
+            return Hyperellipsoid.fromCenterAxisExtent(v2(cx, cy),
+                [v2(c, s), v2(-s, c)], v2(a, b));
+        };
+        while (pairs.length < count) {
+            const a0 = 0.6 + 2 * rnd(), b0 = 0.6 + 2 * rnd();
+            const a1 = 0.6 + 2 * rnd(), b1 = 0.6 + 2 * rnd();
+            if (Math.abs(a0 - b0) < 0.4 || Math.abs(a1 - b1) < 0.4) {
+                continue;   // near-circular: e4 is nearly zero
+            }
+            if (Math.abs(a0 - b1) < 0.3 && Math.abs(b0 - a1) < 0.3) {
+                continue;   // nearly congruent under a quarter turn
+            }
+            if (Math.abs(a0 - a1) < 0.3 && Math.abs(b0 - b1) < 0.3) {
+                continue;   // nearly congruent
+            }
+            const dx = 4 * rnd() - 2, dy = 4 * rnd() - 2;
+            if (Math.sqrt(dx * dx + dy * dy) < 0.5) {
+                continue;   // nearly concentric
+            }
+            pairs.push([make(0, 0, Math.PI * rnd(), a0, b0),
+                make(dx, dy, Math.PI * rnd(), a1, b1)]);
+        }
+        return pairs;
+    }
+
+    it('the TI classification matches a boundary sampling on well-conditioned'
+        + ' configurations', () => {
+        let checked = 0;
+        for (const [e0, e1] of wellConditionedPairs(0xC0FFEE, 400)) {
+            const on1 = extremes(e1, e0, 4096);
+            const on0 = extremes(e0, e1, 4096);
+            const margin = 1e-3;
+            let expected: Cls | undefined;
+            if (on1.min > 1 + margin && on0.min > 1 + margin) {
+                expected = Cls.ELLIPSES_SEPARATED;
+            }
+            else if (on1.max < 1 - margin) {
+                expected = Cls.ELLIPSE0_STRICTLY_CONTAINS_ELLIPSE1;
+            }
+            else if (on0.max < 1 - margin) {
+                expected = Cls.ELLIPSE1_STRICTLY_CONTAINS_ELLIPSE0;
+            }
+            else if (on1.min < 1 - margin && on1.max > 1 + margin) {
+                expected = Cls.ELLIPSES_OVERLAP;
+            }
+            if (expected !== undefined) {
+                expect(tiQuery.test(e0, e1)).toBe(expected);
+                ++checked;
+            }
+        }
+        expect(checked).toBeGreaterThan(300);
+    }, 30000);
+
+    it('the number of reported points matches the boundary sign changes on'
+        + ' well-conditioned configurations', () => {
+        let crossingCases = 0;
+        for (const [e0, e1] of wellConditionedPairs(0x5EED, 400)) {
+            const n = 4096;
+            const values: number[] = [];
+            for (let k = 0; k < n; ++k) {
+                values.push(quadratic(e0, boundaryPoint(e1,
+                    (2 * Math.PI * k) / n)) - 1);
+            }
+            // Require every crossing to be well separated and transversal, so
+            // that the count does not depend on the sampling resolution.
+            const crossIndices: number[] = [];
+            for (let k = 0; k < n; ++k) {
+                if (values[k] * values[(k + 1) % n] < 0) {
+                    crossIndices.push(k);
+                }
+            }
+            let robust = crossIndices.length > 0;
+            for (let i = 0; i < crossIndices.length && robust; ++i) {
+                const j = crossIndices[(i + 1) % crossIndices.length];
+                let sep = j - crossIndices[i];
+                if (sep <= 0) {
+                    sep += n;
+                }
+                robust = sep > n / 40;
+                const slope = Math.abs(values[(crossIndices[i] + 1) % n]
+                    - values[crossIndices[i]]) * n;
+                robust = robust && slope > 0.5;
+            }
+            if (!robust) {
+                continue;
+            }
+            const res = fiQuery.find(e0, e1);
+            expect(res.numPoints).toBe(crossIndices.length);
+            for (let i = 0; i < res.numPoints; ++i) {
+                expectClose(quadratic(e0, res.points[i]), 1, 1e-6, 1e-6);
+                expectClose(quadratic(e1, res.points[i]), 1, 1e-6, 1e-6);
+            }
+
+            ++crossingCases;
+        }
+        expect(crossingCases).toBeGreaterThan(50);
+    }, 30000);
+
+    it('is equivariant under rigid motions on well-conditioned'
+        + ' configurations', () => {
+        const rnd = seededRandom(0xBEEF);
+        for (const [e0, e1] of wellConditionedPairs(0xD00D, 200)) {
+            const angle = 2 * Math.PI * rnd();
+            const c = Math.cos(angle), s = Math.sin(angle);
+            const shift = v2(6 * rnd() - 3, 6 * rnd() - 3);
+            const rot = (v: Vector): Vector => v2(
+                c * v.get(0) - s * v.get(1), s * v.get(0) + c * v.get(1));
+            const moved = (e: Hyperellipsoid): Hyperellipsoid =>
+                Hyperellipsoid.fromCenterAxisExtent(add(rot(e.center), shift),
+                    [rot(e.axis[0]), rot(e.axis[1])], e.extent.clone());
+            const a = fiQuery.find(e0, e1);
+            const b = fiQuery.find(moved(e0), moved(e1));
+            if (a.numPoints === intrEllipse2Ellipse2InfinitePoints) {
+                continue;
+            }
+            expect(b.numPoints).toBe(a.numPoints);
+            for (let i = 0; i < a.numPoints; ++i) {
+                const q = add(rot(a.points[i]), shift);
+                let best = Number.MAX_VALUE;
+                for (let j = 0; j < b.numPoints; ++j) {
+                    const d = sub(b.points[j], q);
+                    best = Math.min(best, Math.sqrt(dot(d, d)));
+                }
+                expect(best).toBeLessThan(1e-6);
+            }
+        }
+    }, 30000);
+
+    it('the TI query reports the overlap of an ellipse whose centre differs'
+        + ' from the other along one principal direction (upstream-bug'
+        + ' regression)', () => {
+        // The critical-point equation p_i * (1 - s*d_i) = -s*d_i*k_i has, when
+        // k_j = 0, the extra solution s = 1/d_j with p_j free. That value is a
+        // pole of the function f(s) whose roots upstream computes, and
+        // upstream also drops the c_j = k_j^2 = 0 term from f, so two of the
+        // four critical points of the squared distance are lost and the
+        // classification is taken from the remaining pair.
+        //
+        // Here the unit circle and the ellipse with extents (1/2, 2) centred
+        // at (0, 1/2) overlap; upstream reports that the ellipse contains the
+        // circle.
+        const unitCircle = circle(0, 0, 1);
+        for (const dy of [0.5, 0.25, 1e-3, 1e-9]) {
+            const e = ellipse(0, dy, 0, 0.5, 2);
+            expect(tiQuery.test(unitCircle, e)).toBe(Cls.ELLIPSES_OVERLAP);
+            expect(tiQuery.test(e, unitCircle)).toBe(Cls.ELLIPSES_OVERLAP);
+        }
+        // The point (1/2, 1/2) is on the ellipse and strictly inside the
+        // circle, and (0, 5/2) is on the ellipse and outside it.
+        const e = ellipse(0, 0.5, 0, 0.5, 2);
+        expectClose(quadratic(e, v2(0.5, 0.5)), 1);
+        expect(quadratic(unitCircle, v2(0.5, 0.5))).toBeLessThan(1);
+        expectClose(quadratic(e, v2(0, 2.5)), 1);
+        expect(quadratic(unitCircle, v2(0, 2.5))).toBeGreaterThan(1);
+        // The exactly concentric case takes the K = 0 path and was already
+        // classified correctly.
+        expect(tiQuery.test(unitCircle, ellipse(0, 0, 0, 0.5, 2)))
+            .toBe(Cls.ELLIPSES_OVERLAP);
+    });
+
+    it('the TI query asserts for some nearly concentric ellipses (upstream'
+        + ' limitation, preserved)', () => {
+        // The bound smax = (1 + sqrt(sum)) / d1 used to bracket the last root
+        // collapses onto the pole 1/d1 when sum = d0*c0 + d1*c1 is tiny, that
+        // is when the two centres nearly coincide. F(smax) is then a large
+        // positive value instead of a nonpositive one and the upstream
+        // LogAssert fires. The port preserves the assert (it throws an Error
+        // carrying the upstream message).
+        const e0 = ellipse(0, -0.001, 0, 0.4000000000000001,
+            0.4000000000000001);
+        const e1 = Hyperellipsoid.fromCenterAxisExtent(v2(0, 0),
+            [v2(-0.9999999999999725, -2.3445664311150744e-7),
+                v2(2.3445664311150744e-7, -0.9999999999999725)],
+            v2(0.4000000000000001, 0.800680078467124));
+        expect(() => tiQuery.test(e0, e1)).toThrow('Unexpected condition.');
+    });
+
+    it('the FI query loses the crossings of a near-circular ellipse against an'
+        + ' axis-aligned one (upstream conditioning limitation)', () => {
+        // e1 is a circle up to one ulp, so e4 = d1 * g4 is a tiny nonzero
+        // number, the quartic is nearly a quadratic and the quartic solver
+        // loses the two real roots. The two boundaries do cross: the point
+        // (0.4, 0) is inside e0 and (-0.4, 0) is outside it.
+        const e0 = ellipse(2.674085229787872, 0, 0, 2.3341186669893186,
+            0.4069937584944733);
+        const e1 = Hyperellipsoid.fromCenterAxisExtent(v2(0, 0),
+            [v2(0.9999994998840165, 0.0010001158516906427),
+                v2(-0.0010001158516906427, 0.9999994998840165)],
+            v2(0.4000000000000001, 0.40000000000000013));
+        expect(quadratic(e0, v2(0.4, 0))).toBeLessThan(1);
+        expect(quadratic(e0, v2(-0.4, 0))).toBeGreaterThan(1);
+        // Documented failure: the query reports no intersection.
+        expect(fiQuery.find(e0, e1).numPoints).toBe(0);
     });
 });

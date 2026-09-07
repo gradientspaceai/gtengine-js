@@ -6,6 +6,13 @@ import {
     IntrSegment3Rectangle3TI,
     IntrSegment3Rectangle3FI
 } from '../src/IntrSegment3Rectangle3.js';
+import { Line } from '../src/Line.js';
+import { IntrLine3Rectangle3FI } from '../src/IntrLine3Rectangle3.js';
+import { cross } from '../src/Vector3.js';
+import {
+    check, expectClose, expectVectorClose, fc, positive, rotationFrame,
+    wellScaledVector
+} from './helpers/arbitraries.js';
 
 function vec(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -184,4 +191,149 @@ describe('IntrSegment3Rectangle3', () => {
         expect([tiFiMismatch, referenceMismatch, pointMismatch])
             .toEqual([0, 0, 0]);
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V32): properties cross-checking the port against upstream
+// IntrSegment3Rectangle3.h.
+// ---------------------------------------------------------------------------
+
+describe('IntrSegment3Rectangle3 verification', () => {
+    const ti = new IntrSegment3Rectangle3TI();
+    const fi = new IntrSegment3Rectangle3FI();
+    const lineFi = new IntrLine3Rectangle3FI();
+
+    const arbRectangle = fc.tuple(wellScaledVector(3, -4, 4), rotationFrame(3),
+        fc.array(positive(3, 0.25), { minLength: 2, maxLength: 2 }))
+        .map(([c, frame, e]) => Rectangle.fromCenterAxisExtent(c,
+            [frame[0], frame[1]], Vector.fromArray(e)));
+    const arbSegment = fc.tuple(wellScaledVector(3, -8, 8),
+        wellScaledVector(3, -8, 8))
+        .filter(([a, b]) => {
+            const d = sub(b, a);
+            return dot(d, d) > 1e-2;
+        })
+        .map(([a, b]) => Segment.fromEndpoints(a, b));
+    const arbPair = fc.tuple(arbSegment, arbRectangle);
+
+    it('TI and FI agree on intersect', () => {
+        check(arbPair, ([s, r]) => {
+            expect(ti.test(s, r).intersect).toBe(fi.find(s, r).intersect);
+        });
+    });
+
+    it('the FI point lies on the segment and on the rectangle', () => {
+        check(arbPair, ([s, r]) => {
+            const res = fi.find(s, r);
+            if (!res.intersect) {
+                expect(res.parameter).toBe(0);
+                expect(res.rectCoord).toEqual([0, 0, 0]);
+                expect(res.point.equals(Vector.zero(3))).toBe(true);
+                return;
+            }
+            const t = res.parameter;
+            expect(t).toBeGreaterThanOrEqual(0);
+            expect(t).toBeLessThanOrEqual(1);
+            const d = sub(s.p[1], s.p[0]);
+            expectVectorClose(res.point, add(s.p[0], mul(t, d)), 1e-9, 1e-9);
+            // The point is inside the rectangle, and its rectangle
+            // coordinates are the reported ones.
+            const delta = sub(res.point, r.center);
+            for (let i = 0; i < 2; ++i) {
+                const c = dot(r.axis[i], delta);
+                expectClose(c, res.rectCoord[i], 1e-8, 1e-8);
+                expect(Math.abs(c)).toBeLessThanOrEqual(
+                    r.extent.get(i) * (1 + 1e-8) + 1e-8);
+            }
+            // The upstream rectCoord has a vestigial third component that the
+            // line-rectangle query never assigns (upstream issue #141).
+            expect(res.rectCoord[2]).toBe(0);
+            // The point is in the plane of the rectangle.
+            const n = cross(r.axis[0], r.axis[1]);
+            expectClose(dot(n, delta), 0, 1e-8, 1e-8);
+        });
+    });
+
+    it('the segment result is the line result restricted to t in [0,1]', () => {
+        check(arbPair, ([s, r]) => {
+            const d = sub(s.p[1], s.p[0]);
+            const lineRes = lineFi.find(Line.fromOriginDirection(s.p[0], d), r);
+            const segRes = fi.find(s, r);
+            const onSegment = lineRes.intersect
+                && lineRes.parameter >= 0 && lineRes.parameter <= 1;
+            expect(segRes.intersect).toBe(onSegment);
+            if (onSegment) {
+                expect(segRes.parameter).toBe(lineRes.parameter);
+                expect(segRes.point.equals(lineRes.point)).toBe(true);
+                expect(segRes.rectCoord).toEqual(lineRes.rectCoord);
+            }
+        });
+    });
+
+    it('intersect is true when the two endpoints are strictly on opposite'
+        + ' sides of the plane and the crossing is well inside', () => {
+        check(arbPair, ([s, r]) => {
+            const n = cross(r.axis[0], r.axis[1]);
+            const h0 = dot(n, sub(s.p[0], r.center));
+            const h1 = dot(n, sub(s.p[1], r.center));
+            if (!(h0 * h1 < 0)) {
+                return;
+            }
+            // The crossing point of the segment with the plane of the
+            // rectangle.
+            const t = h0 / (h0 - h1);
+            const p = add(s.p[0], mul(t, sub(s.p[1], s.p[0])));
+            const delta = sub(p, r.center);
+            let strictlyInside = true;
+            for (let i = 0; i < 2 && strictlyInside; ++i) {
+                strictlyInside = Math.abs(dot(r.axis[i], delta))
+                    < r.extent.get(i) * (1 - 1e-6);
+            }
+            if (strictlyInside) {
+                const res = fi.find(s, r);
+                expect(res.intersect).toBe(true);
+                expectVectorClose(res.point, p, 1e-6, 1e-6);
+            }
+        });
+    });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(arbPair, rotationFrame(3), wellScaledVector(3, -4, 4)),
+            ([[s, r], frame, shift]) => {
+                const rot = (v: Vector): Vector => Vector.fromArray([
+                    dot(frame[0], v), dot(frame[1], v), dot(frame[2], v)]);
+                const map = (v: Vector): Vector => add(rot(v), shift);
+                const s2 = Segment.fromEndpoints(map(s.p[0]), map(s.p[1]));
+                const r2 = Rectangle.fromCenterAxisExtent(map(r.center),
+                    [rot(r.axis[0]), rot(r.axis[1])], r.extent.clone());
+                const a = fi.find(s, r), b = fi.find(s2, r2);
+                // Only assert for configurations where the crossing is well
+                // inside the rectangle; on the boundary the exact comparisons
+                // can flip under an arbitrarily small rotation.
+                if (a.intersect) {
+                    let wellInside = true;
+                    for (let i = 0; i < 2; ++i) {
+                        wellInside = wellInside
+                            && Math.abs(a.rectCoord[i])
+                                < r.extent.get(i) * (1 - 1e-4);
+                    }
+                    wellInside = wellInside
+                        && a.parameter > 1e-4 && a.parameter < 1 - 1e-4;
+                    if (wellInside) {
+                        expect(b.intersect).toBe(true);
+                        expectClose(b.parameter, a.parameter, 1e-8, 1e-8);
+                        expectVectorClose(b.point, map(a.point), 1e-7, 1e-7);
+                    }
+                }
+            });
+    });
+
+    it('reports no intersection for a segment in the plane of the rectangle',
+        () => {
+            // Upstream documents that a segment lying in the plane of the
+            // rectangle is reported as no intersection.
+            const inPlane = segment([-3, 0, 0], [3, 0, 0]);
+            expect(ti.test(inPlane, square).intersect).toBe(false);
+            expect(fi.find(inPlane, square).intersect).toBe(false);
+        });
 });

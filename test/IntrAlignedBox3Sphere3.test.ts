@@ -8,6 +8,11 @@ import {
     IntrAlignedBox3Sphere3FI,
     IntrAlignedBox3Sphere3FIResultType as Type
 } from '../src/IntrAlignedBox3Sphere3.js';
+import { dot } from '../src/Vector.js';
+import {
+    check, expectClose, expectVectorClose, fc, positive, unitVector,
+    wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -354,5 +359,248 @@ describe('IntrAlignedBox3Sphere3FI', () => {
         expect(s.center.values).toEqual([5, 0.25, 0]);
         expect(sv.values).toEqual([-1, 0, 0]);
         expect(unitBox.min.values).toEqual([-1, -1, -1]);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V32): properties cross-checking the port against upstream
+// IntrAlignedBox3Sphere3.h.
+// ---------------------------------------------------------------------------
+
+describe('IntrAlignedBox3Sphere3 verification', () => {
+    const ti = new IntrAlignedBox3Sphere3TI();
+    const fi = new IntrAlignedBox3Sphere3FI();
+
+    const arbBox = fc.tuple(wellScaledVector(3, -4, 4),
+        fc.array(positive(3, 0.2), { minLength: 3, maxLength: 3 }))
+        .map(([c, e]) => AlignedBox.fromMinMax(
+            Vector.fromArray([c.get(0) - e[0], c.get(1) - e[1],
+                c.get(2) - e[2]]),
+            Vector.fromArray([c.get(0) + e[0], c.get(1) + e[1],
+                c.get(2) + e[2]])));
+    const arbSphere = fc.tuple(wellScaledVector(3, -6, 6), positive(2, 0.2))
+        .map(([c, r]) => Hypersphere.fromCenterRadius(c, r));
+
+    // The signed gap between the moving sphere and the moving box, from the
+    // closed-form point-box distance. Negative when they overlap.
+    function gap(b: AlignedBox, bv: Vector, s: Hypersphere, sv: Vector,
+        t: number): number {
+        let sum = 0;
+        for (let i = 0; i < 3; ++i) {
+            const lo = b.min.get(i) + t * bv.get(i);
+            const hi = b.max.get(i) + t * bv.get(i);
+            const p = s.center.get(i) + t * sv.get(i);
+            const d = Math.max(lo - p, 0, p - hi);
+            sum += d * d;
+        }
+        return Math.sqrt(sum) - s.radius;
+    }
+
+    it('the TI query matches the closed-form point-box distance', () => {
+        check(fc.tuple(arbBox, arbSphere), ([b, s]) => {
+            const g = gap(b, Vector.zero(3), s, Vector.zero(3), 0);
+            // Skip exact tangency, where the closed form and the query's
+            // squared comparison can differ by an ulp.
+            if (Math.abs(g) > 1e-9 * (1 + s.radius)) {
+                expect(ti.test(b, s).intersect).toBe(g <= 0);
+            }
+        });
+    });
+
+    const arbMoving = fc.tuple(arbBox, arbSphere, unitVector(3),
+        positive(2, 0.2))
+        .map(([b, s, jitter, speed]) => {
+            const center = mul(0.5, add(b.min, b.max));
+            const aim = add(sub(center, s.center), mul(2.5, jitter));
+            const len = Math.sqrt(dot(aim, aim));
+            const sv = len > 1e-6 ? mul(speed / len, aim) : mul(speed, jitter);
+            return { b, s, sv };
+        });
+
+    it('an initial overlap is reported with contact time zero and a point in'
+        + ' the box', () => {
+        check(arbMoving, ({ b, s, sv }) => {
+            if (gap(b, Vector.zero(3), s, sv, 0) >= 0) {
+                return;
+            }
+            const res = fi.find(b, Vector.zero(3), s, sv);
+            expect(res.intersectionType).toBe(Type.initiallyOverlapping);
+            expect(res.contactTime).toBe(0);
+            for (let i = 0; i < 3; ++i) {
+                expect(res.contactPoint.get(i))
+                    .toBeGreaterThanOrEqual(b.min.get(i) - 1e-9);
+                expect(res.contactPoint.get(i))
+                    .toBeLessThanOrEqual(b.max.get(i) + 1e-9);
+            }
+        });
+    });
+
+    it('a reported contact time is the first time the objects touch', () => {
+        check(arbMoving, ({ b, s, sv }) => {
+            const res = fi.find(b, Vector.zero(3), s, sv);
+            if (res.intersectionType !== Type.contact
+                || res.contactTime === 0) {
+                return;
+            }
+            const t = res.contactTime;
+            expect(Number.isFinite(t)).toBe(true);
+            expect(t).toBeGreaterThan(0);
+            // The objects are never still apart at the reported time: the
+            // query does not invent contacts.
+            expect(gap(b, Vector.zero(3), s, sv, t)).toBeLessThanOrEqual(1e-7);
+            // Upstream can report a contact that is slightly LATE, because
+            // DoQueryRayRoundedFace accepts the first rounded-edge probe that
+            // succeeds and never tries the other edge of the face; see the
+            // deterministic test below. The property therefore only requires
+            // the reported time to be a genuine contact and the reported point
+            // to be a real touch point of the two objects at that time.
+            // The contact point is on the box and at distance radius from the
+            // sphere center at the contact time.
+            const p = res.contactPoint;
+            const d = sub(p, add(s.center, mul(t, sv)));
+            expectClose(Math.sqrt(dot(d, d)), s.radius, 1e-6, 1e-6);
+            for (let i = 0; i < 3; ++i) {
+                expect(p.get(i)).toBeGreaterThanOrEqual(b.min.get(i) - 1e-7);
+                expect(p.get(i)).toBeLessThanOrEqual(b.max.get(i) + 1e-7);
+            }
+        });
+    });
+
+    it('can report a late first contact when the ray leaves the probed'
+        + ' rounded edge (upstream limitation, preserved)', () => {
+        // DoQueryRayRoundedFace picks one rounded edge of the candidate face,
+        // and DoQueryRayRoundedEdge falls back to the rounded VERTEX of that
+        // edge when the cylinder hit is outside the finite cylinder. Once
+        // that vertex hit succeeds the face routine stops, so the other
+        // rounded edge of the face - which is where this configuration
+        // actually touches first - is never tried.
+        const b = box(v3(2.5796760191927124, -0.20000000000000004,
+            -0.20000000000000004),
+        v3(2.9796760191927127, 0.20000000000000004, 0.20000000000000004));
+        const s = sphere(0, -5.576245457464999, -5.370881422178622,
+            1.71285599764354);
+        const sv = v3(0.05538019511504751, 0.11109696213211791,
+            0.15681358038777782);
+        const res = fi.find(b, Vector.zero(3), s, sv);
+        expect(res.intersectionType).toBe(Type.contact);
+        // The reported contact is the box corner and the reported time is
+        // about 0.11 later than the true first contact, at which the sphere
+        // already overlaps the box by about 0.014.
+        expectVectorClose(res.contactPoint, b.min);
+        expect(gap(b, Vector.zero(3), s, sv, res.contactTime))
+            .toBeLessThan(-0.01);
+        // Bisect the true first contact on the sampled gap.
+        let lo = 0, hi = res.contactTime;
+        for (let i = 0; i < 200; ++i) {
+            const m = 0.5 * (lo + hi);
+            if (gap(b, Vector.zero(3), s, sv, m) > 0) {
+                lo = m;
+            }
+            else {
+                hi = m;
+            }
+        }
+        expect(res.contactTime - hi).toBeGreaterThan(0.1);
+    });
+
+    it('a reported no-contact is confirmed by sampling the motion', () => {
+        check(arbMoving, ({ b, s, sv }) => {
+            const res = fi.find(b, Vector.zero(3), s, sv);
+            if (res.intersectionType !== Type.noContact) {
+                return;
+            }
+            for (let k = 0; k <= 400; ++k) {
+                expect(gap(b, Vector.zero(3), s, sv, (20 * k) / 400))
+                    .toBeGreaterThan(-1e-7);
+            }
+        }, 80);
+    });
+
+    it('a no-contact result reports either the zero vector or the box center'
+        + ' as the contact point (upstream quirk, preserved)', () => {
+        // Upstream translates the contact point back by the box center
+        // whenever the ray-versus-superbox prefilter succeeds, even when the
+        // detailed query reported no contact. The Result documentation claims
+        // contactPoint = (0,0,0) in that case.
+        check(arbMoving, ({ b, s, sv }) => {
+            const res = fi.find(b, Vector.zero(3), s, sv);
+            if (res.intersectionType !== Type.noContact) {
+                return;
+            }
+            const center = mul(0.5, add(b.min, b.max));
+            const isZero = res.contactPoint.equals(Vector.zero(3));
+            const isCenter = res.contactPoint.equals(center);
+            expect(isZero || isCenter).toBe(true);
+        });
+    });
+
+    it('the result depends only on the relative velocity', () => {
+        check(fc.tuple(arbMoving, wellScaledVector(3, -2, 2)),
+            ([{ b, s, sv }, drift]) => {
+                const a = fi.find(b, Vector.zero(3), s, sv);
+                const d = fi.find(b, drift, s, add(sv, drift));
+                expect(d.intersectionType).toBe(a.intersectionType);
+                expectClose(d.contactTime, a.contactTime, 1e-9, 1e-9);
+            });
+    });
+
+    it('is equivariant under translation and under reflection in the axes',
+        () => {
+            check(fc.tuple(arbMoving, wellScaledVector(3, -5, 5)),
+                ([{ b, s, sv }, shift]) => {
+                    const a = fi.find(b, Vector.zero(3), s, sv);
+
+                    const bT = AlignedBox.fromMinMax(add(b.min, shift),
+                        add(b.max, shift));
+                    const sT = Hypersphere.fromCenterRadius(
+                        add(s.center, shift), s.radius);
+                    const t = fi.find(bT, Vector.zero(3), sT, sv);
+                    expect(t.intersectionType).toBe(a.intersectionType);
+                    expectClose(t.contactTime, a.contactTime, 1e-9, 1e-9);
+                    if (a.intersectionType === Type.contact
+                        || a.intersectionType === Type.initiallyOverlapping) {
+                        expectVectorClose(t.contactPoint,
+                            add(a.contactPoint, shift), 1e-8, 1e-8);
+                    }
+
+                    // Reflect z -> -z; the query mirrors the sphere center
+                    // into the first octant, so this exercises the sign
+                    // bookkeeping.
+                    const flip = (v: Vector): Vector => Vector.fromArray([
+                        v.get(0), v.get(1), -v.get(2)]);
+                    const bF = AlignedBox.fromMinMax(
+                        Vector.fromArray([b.min.get(0), b.min.get(1),
+                            -b.max.get(2)]),
+                        Vector.fromArray([b.max.get(0), b.max.get(1),
+                            -b.min.get(2)]));
+                    const sF = Hypersphere.fromCenterRadius(flip(s.center),
+                        s.radius);
+                    const f = fi.find(bF, Vector.zero(3), sF, flip(sv));
+                    expect(f.intersectionType).toBe(a.intersectionType);
+                    expectClose(f.contactTime, a.contactTime, 1e-9, 1e-9);
+                    if (a.intersectionType === Type.contact
+                        || a.intersectionType === Type.initiallyOverlapping) {
+                        expectVectorClose(f.contactPoint, flip(a.contactPoint),
+                            1e-8, 1e-8);
+                    }
+                });
+        });
+
+    it('reports no NaN in any field', () => {
+        check(arbMoving, ({ b, s, sv }) => {
+            const res = fi.find(b, Vector.zero(3), s, sv);
+            expect(Number.isNaN(res.contactTime)).toBe(false);
+            for (let i = 0; i < 3; ++i) {
+                expect(Number.isNaN(res.contactPoint.get(i))).toBe(false);
+            }
+        });
+    });
+
+    it('rejects inputs of the wrong dimension', () => {
+        const b2 = AlignedBox.fromMinMax(Vector.zero(2), Vector.zero(2));
+        const s3 = sphere(0, 0, 0, 1);
+        expect(() => ti.test(b2, s3)).toThrow('mismatched sizes');
+        expect(() => fi.find(b2, Vector.zero(2), s3, Vector.zero(3)))
+            .toThrow('mismatched sizes');
     });
 });

@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { Ray } from '../src/Ray.js';
 import { Hypersphere } from '../src/Hypersphere.js';
+import { Line } from '../src/Line.js';
+import { IntrLine3Sphere3FI } from '../src/IntrLine3Sphere3.js';
+import {
+    check, expectClose, expectVectorClose, fc, positive, rotationFrame,
+    unitVector, wellScaledVector
+} from './helpers/arbitraries.js';
 import { Vector, add, mul, sub, dot, normalize } from '../src/Vector.js';
 import {
     IntrRay3Sphere3TI,
@@ -202,5 +208,165 @@ describe('IntrRay3Sphere3', () => {
         expect(hits).toBeGreaterThan(20);
         expect([tiFiMismatch, sampleMismatch, parameterMismatch])
             .toEqual([0, 0, 0]);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V32): properties cross-checking the port against upstream
+// IntrRay3Sphere3.h.
+// ---------------------------------------------------------------------------
+
+describe('IntrRay3Sphere3 verification', () => {
+    const ti = new IntrRay3Sphere3TI();
+    const fi = new IntrRay3Sphere3FI();
+    const lineFi = new IntrLine3Sphere3FI();
+
+    // Rays and spheres with moderate, non-subnormal scales. The default
+    // vector() generator emits 1e-160-scale components, which make the
+    // relative comparisons below meaningless.
+    const arbRay = fc.tuple(wellScaledVector(3, -6, 6), unitVector(3))
+        .map(([o, d]) => Ray.fromOriginDirection(o, d));
+    const arbSphere = fc.tuple(wellScaledVector(3, -6, 6), positive(4, 0.25))
+        .map(([c, r]) => Hypersphere.fromCenterRadius(c, r));
+    const arbPair = fc.tuple(arbRay, arbSphere);
+
+    it('TI and FI agree on intersect (both treat the sphere as a solid)', () => {
+        check(arbPair, ([r, s]) => {
+            expect(fi.find(r, s).intersect).toBe(ti.test(r, s).intersect);
+        });
+    });
+
+    it('FI reports parameters in the ray domain and points on the ray', () => {
+        check(arbPair, ([r, s]) => {
+            const res = fi.find(r, s);
+            if (!res.intersect) {
+                expect(res.numIntersections).toBe(0);
+                return;
+            }
+            expect(res.numIntersections === 1 || res.numIntersections === 2)
+                .toBe(true);
+            for (let i = 0; i < res.numIntersections; ++i) {
+                const t = res.parameter[i];
+                expect(Number.isFinite(t)).toBe(true);
+                expect(t).toBeGreaterThanOrEqual(0);
+                // point[i] = origin + t * direction.
+                const p = add(r.origin, mul(t, r.direction));
+                expectVectorClose(res.point[i], p, 1e-12, 1e-12);
+                // The point is on the sphere unless the ray origin is inside
+                // the solid sphere and the interval was clipped to t = 0.
+                const diff = sub(res.point[i], s.center);
+                const onSurface = Math.abs(dot(diff, diff)
+                    - s.radius * s.radius) <= 1e-8 * (1 + s.radius * s.radius);
+                const clipped = t === 0
+                    && dot(diff, diff) <= s.radius * s.radius + 1e-9;
+                expect(onSurface || clipped).toBe(true);
+            }
+            expect(res.parameter[0]).toBeLessThanOrEqual(res.parameter[1]);
+        });
+    });
+
+    it('the ray result is the line result clipped to t >= 0', () => {
+        check(arbPair, ([r, s]) => {
+            const lineRes = lineFi.find(
+                Line.fromOriginDirection(r.origin, r.direction), s);
+            const rayRes = fi.find(r, s);
+            if (!lineRes.intersect) {
+                expect(rayRes.intersect).toBe(false);
+                return;
+            }
+            const t0 = lineRes.parameter[0], t1 = lineRes.parameter[1];
+            const c0 = Math.max(t0, 0), c1 = t1;
+            if (c0 > c1) {
+                expect(rayRes.intersect).toBe(false);
+                return;
+            }
+            expect(rayRes.intersect).toBe(true);
+            expect(rayRes.parameter[0] + 0).toBe(c0 + 0);
+            expect(rayRes.parameter[1] + 0).toBe(c1 + 0);
+            expect(rayRes.numIntersections).toBe(c0 < c1 ? 2 : 1);
+        });
+    });
+
+    it('intersect is true whenever a sampled ray point is inside the sphere',
+        () => {
+            check(arbPair, ([r, s]) => {
+                const rsqr = s.radius * s.radius;
+                let inside = false;
+                for (let k = 0; k <= 400 && !inside; ++k) {
+                    const t = (k * 20) / 400;
+                    const diff = sub(add(r.origin, mul(t, r.direction)),
+                        s.center);
+                    // Shrink the radius slightly so that points within
+                    // rounding distance of the surface do not force a
+                    // conclusion the exact predicate need not share.
+                    if (dot(diff, diff) < rsqr - 1e-9) {
+                        inside = true;
+                    }
+                }
+                if (inside) {
+                    expect(ti.test(r, s).intersect).toBe(true);
+                }
+            });
+        });
+
+    it('is equivariant under rigid motions', () => {
+        check(fc.tuple(arbPair, rotationFrame(3), wellScaledVector(3, -5, 5)),
+            ([[r, s], frame, shift]) => {
+                const rot = (v: Vector): Vector => {
+                    const out = new Vector(3);
+                    for (let i = 0; i < 3; ++i) {
+                        out.set(i, dot(frame[i], v));
+                    }
+                    return out;
+                };
+                const map = (v: Vector): Vector => add(rot(v), shift);
+                const r2 = Ray.fromOriginDirection(map(r.origin),
+                    rot(r.direction));
+                const s2 = Hypersphere.fromCenterRadius(map(s.center),
+                    s.radius);
+                const a = fi.find(r, s), b = fi.find(r2, s2);
+                expect(b.intersect).toBe(a.intersect);
+                if (a.intersect) {
+                    expect(b.numIntersections).toBe(a.numIntersections);
+                    for (let i = 0; i < a.numIntersections; ++i) {
+                        expectClose(b.parameter[i], a.parameter[i], 1e-8, 1e-8);
+                        expectVectorClose(b.point[i], map(a.point[i]),
+                            1e-7, 1e-7);
+                    }
+                }
+            });
+    });
+
+    it('is tangent-exact for a ray grazing the unit sphere', () => {
+        const r = Ray.fromOriginDirection(vec(-5, 1, 0), vec(1, 0, 0));
+        const s = sphere([0, 0, 0], 1);
+        const res = fi.find(r, s);
+        expect(res.intersect).toBe(true);
+        expect(res.numIntersections).toBe(1);
+        expect(res.parameter[0]).toBe(5);
+        expect(res.parameter[1]).toBe(5);
+        expect(ti.test(r, s).intersect).toBe(true);
+    });
+
+    it('reports no intersection for a ray pointing away from the sphere', () => {
+        const r = Ray.fromOriginDirection(vec(5, 0, 0), vec(1, 0, 0));
+        const s = sphere([0, 0, 0], 1);
+        expect(ti.test(r, s).intersect).toBe(false);
+        const res = fi.find(r, s);
+        expect(res.intersect).toBe(false);
+        expect(res.numIntersections).toBe(0);
+        expect(res.parameter).toEqual([0, 0]);
+    });
+
+    it('the DoQuery helper leaves a non-intersecting result fully reset', () => {
+        const res = defaultIntrRay3Sphere3FIResult();
+        // A line that meets the sphere only for t < 0.
+        intrRay3Sphere3DoQuery(vec(5, 0, 0), vec(1, 0, 0),
+            sphere([0, 0, 0], 1), res);
+        expect(res.intersect).toBe(false);
+        expect(res.numIntersections).toBe(0);
+        expect(res.parameter).toEqual([0, 0]);
+        expect(res.point[0].equals(Vector.zero(3))).toBe(true);
+        expect(res.point[1].equals(Vector.zero(3))).toBe(true);
     });
 });

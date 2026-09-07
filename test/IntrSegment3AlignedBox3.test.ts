@@ -9,6 +9,13 @@ import {
     defaultIntrSegment3AlignedBox3FIResult,
     intrSegment3AlignedBox3FIDoQuery
 } from '../src/IntrSegment3AlignedBox3.js';
+import { Line } from '../src/Line.js';
+import {
+    IntrLine3AlignedBox3TI, IntrLine3AlignedBox3FI
+} from '../src/IntrLine3AlignedBox3.js';
+import {
+    check, expectClose, expectVectorClose, fc, positive, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function vec(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -196,4 +203,230 @@ describe('IntrSegment3AlignedBox3', () => {
         expect(hits).toBeGreaterThan(20);
         expect([tiFiMismatch, sampleMismatch, pointMismatch]).toEqual([0, 0, 0]);
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V32): properties cross-checking the port against upstream
+// IntrSegment3AlignedBox3.h.
+// ---------------------------------------------------------------------------
+
+describe('IntrSegment3AlignedBox3 verification', () => {
+    const ti = new IntrSegment3AlignedBox3TI();
+    const fi = new IntrSegment3AlignedBox3FI();
+    const lineTi = new IntrLine3AlignedBox3TI();
+    const lineFi = new IntrLine3AlignedBox3FI();
+
+    const arbSegment = fc.tuple(wellScaledVector(3, -8, 8),
+        wellScaledVector(3, -8, 8))
+        .filter(([a, b]) => {
+            const d = sub(b, a);
+            return dot(d, d) > 1e-2;
+        })
+        .map(([a, b]) => Segment.fromEndpoints(a, b));
+    const arbBox = fc.tuple(wellScaledVector(3, -6, 6),
+        wellScaledVector(3, -6, 6))
+        .map(([a, b]) => {
+            const lo = new Vector(3), hi = new Vector(3);
+            for (let i = 0; i < 3; ++i) {
+                lo.set(i, Math.min(a.get(i), b.get(i)));
+                hi.set(i, Math.max(a.get(i), b.get(i)));
+            }
+            return AlignedBox.fromMinMax(lo, hi);
+        });
+    const arbPair = fc.tuple(arbSegment, arbBox);
+
+    // A sound separation certificate: both endpoints lie strictly beyond the
+    // same box face.
+    function separatedByAxis(s: Segment, b: AlignedBox): boolean {
+        for (let d = 0; d < 3; ++d) {
+            const tol = 1e-6 * (1 + Math.abs(b.max.get(d))
+                + Math.abs(b.min.get(d)));
+            if (s.p[0].get(d) > b.max.get(d) + tol
+                && s.p[1].get(d) > b.max.get(d) + tol) {
+                return true;
+            }
+            if (s.p[0].get(d) < b.min.get(d) - tol
+                && s.p[1].get(d) < b.min.get(d) - tol) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    it('both queries agree with a robust brute-force classification', () => {
+        // The TI query uses separating axes while the FI query clips the
+        // t-interval; the two can differ by an ulp for a segment that only
+        // touches the box, so the property asserts agreement only when the
+        // configuration is robustly one-sided.
+        check(arbPair, ([s, b]) => {
+            let insideMargin = false;
+            for (let k = 0; k <= 256 && !insideMargin; ++k) {
+                const t = k / 256;
+                const p = add(mul(s.p[0], 1 - t), mul(s.p[1], t));
+                let all = true;
+                for (let d = 0; d < 3 && all; ++d) {
+                    const tol = 1e-6 * (1 + Math.abs(p.get(d)));
+                    all = p.get(d) > b.min.get(d) + tol
+                        && p.get(d) < b.max.get(d) - tol;
+                }
+                insideMargin = all;
+            }
+            if (insideMargin) {
+                expect(ti.test(s, b).intersect).toBe(true);
+                expect(fi.find(s, b).intersect).toBe(true);
+            }
+            else if (separatedByAxis(s, b)) {
+                expect(ti.test(s, b).intersect).toBe(false);
+                expect(fi.find(s, b).intersect).toBe(false);
+            }
+        });
+    });
+
+    it('FI reports centered-form parameters in [-e,e] and points in the box',
+        () => {
+            check(arbPair, ([s, b]) => {
+                const res = fi.find(s, b);
+                if (!res.intersect) {
+                    expect(res.numIntersections).toBe(0);
+                    return;
+                }
+                const { center, direction, extent } = s.getCenteredForm();
+                for (let i = 0; i < res.numIntersections; ++i) {
+                    const t = res.parameter[i];
+                    expect(Number.isFinite(t)).toBe(true);
+                    expect(Math.abs(t)).toBeLessThanOrEqual(
+                        extent * (1 + 1e-12) + 1e-12);
+                    // The reported points use the centered form C + t*D.
+                    expectVectorClose(res.point[i],
+                        add(center, mul(t, direction)), 1e-9, 1e-9);
+                    for (let d = 0; d < 3; ++d) {
+                        const tol = 1e-8 * (1 + Math.abs(res.point[i].get(d)));
+                        expect(res.point[i].get(d))
+                            .toBeGreaterThanOrEqual(b.min.get(d) - tol);
+                        expect(res.point[i].get(d))
+                            .toBeLessThanOrEqual(b.max.get(d) + tol);
+                    }
+                }
+                expect(res.parameter[0]).toBeLessThanOrEqual(res.parameter[1]);
+            });
+        });
+
+    // Boxes centered at the origin: the FI query translates the segment by the
+    // box center before taking its centered form, so for an off-center box the
+    // world-frame centered form used by this property would differ from the
+    // query's by rounding.
+    const arbCenteredBox = fc.array(positive(6, 1e-2),
+        { minLength: 3, maxLength: 3 })
+        .map(e => AlignedBox.fromMinMax(
+            Vector.fromArray(e.map(x => -x)), Vector.fromArray(e)));
+
+    it('the segment result is the line result clipped to [-e,e]', () => {
+        check(fc.tuple(arbSegment, arbCenteredBox), ([s, b]) => {
+            const { center, direction, extent } = s.getCenteredForm();
+            const lineRes = lineFi.find(
+                Line.fromOriginDirection(center, direction), b);
+            const segRes = fi.find(s, b);
+            if (!lineRes.intersect) {
+                expect(segRes.intersect).toBe(false);
+                return;
+            }
+            const c0 = Math.max(lineRes.parameter[0], -extent);
+            const c1 = Math.min(lineRes.parameter[1], extent);
+            if (c0 > c1) {
+                expect(segRes.intersect).toBe(false);
+                return;
+            }
+            expect(segRes.intersect).toBe(true);
+            expect(segRes.parameter[0] + 0).toBe(c0 + 0);
+            expect(segRes.parameter[1] + 0).toBe(c1 + 0);
+            expect(segRes.numIntersections).toBe(c0 < c1 ? 2 : 1);
+        });
+    });
+
+    it('the TI query never reports more than the line TI query', () => {
+        // The separating-axis prefilter can only remove intersections the line
+        // query would have reported. The comparison uses the same box-relative
+        // centered form the query itself builds; the world-frame form differs
+        // by rounding, which flips the answer for segments that merely touch a
+        // degenerate box.
+        check(fc.tuple(arbSegment, arbCenteredBox), ([s, b]) => {
+            const { center, direction } = s.getCenteredForm();
+            if (ti.test(s, b).intersect) {
+                expect(lineTi.test(
+                    Line.fromOriginDirection(center, direction), b).intersect)
+                    .toBe(true);
+            }
+        });
+    });
+
+    // The query classifies with exact comparisons, so a segment that only
+    // touches the box can change its answer under an arbitrarily small
+    // perturbation. Equivariance is asserted only for configurations that
+    // robustly cross the box interior.
+    function crossesInterior(s: Segment, b: AlignedBox): boolean {
+        for (let k = 0; k <= 256; ++k) {
+            const t = k / 256;
+            const p = add(mul(s.p[0], 1 - t), mul(s.p[1], t));
+            let all = true;
+            for (let d = 0; d < 3 && all; ++d) {
+                const tol = 1e-4 * (1 + Math.abs(p.get(d)));
+                all = p.get(d) > b.min.get(d) + tol
+                    && p.get(d) < b.max.get(d) - tol;
+            }
+            if (all) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    it('is equivariant under translation', () => {
+        check(fc.tuple(arbPair, wellScaledVector(3, -5, 5)),
+            ([[s, b], shift]) => {
+                if (!crossesInterior(s, b)) {
+                    return;
+                }
+                const s2 = Segment.fromEndpoints(add(s.p[0], shift),
+                    add(s.p[1], shift));
+                const b2 = AlignedBox.fromMinMax(add(b.min, shift),
+                    add(b.max, shift));
+                const a = fi.find(s, b), c = fi.find(s2, b2);
+                expect(c.intersect).toBe(a.intersect);
+                if (a.intersect) {
+                    expect(c.numIntersections).toBe(a.numIntersections);
+                    for (let i = 0; i < a.numIntersections; ++i) {
+                        expectClose(c.parameter[i], a.parameter[i],
+                            1e-8, 1e-8);
+                        expectVectorClose(c.point[i], add(a.point[i], shift),
+                            1e-7, 1e-7);
+                    }
+                }
+            });
+    });
+
+    it('reports the whole segment for a contained segment', () => {
+        const s = segment([-1, -1, -1], [1, 1, 1]);
+        const b = box([-4, -4, -4], [4, 4, 4]);
+        const res = fi.find(s, b);
+        expect(res.intersect).toBe(true);
+        expect(res.numIntersections).toBe(2);
+        const e = s.getCenteredForm().extent;
+        expectClose(res.parameter[0], -e);
+        expectClose(res.parameter[1], e);
+        expectVectorClose(res.point[0], vec(-1, -1, -1));
+        expectVectorClose(res.point[1], vec(1, 1, 1));
+    });
+
+    it('the FI DoQuery resets a result whose interval misses the segment',
+        () => {
+            const res = defaultIntrSegment3AlignedBox3FIResult();
+            // Centered segment [-1,1] along +x at x = 5, box extent 1 at the
+            // origin: the line hits the box for t in [-6,-4].
+            intrSegment3AlignedBox3FIDoQuery(vec(5, 0, 0), vec(1, 0, 0), 1,
+                vec(1, 1, 1), res);
+            expect(res.intersect).toBe(false);
+            expect(res.numIntersections).toBe(0);
+            expect(res.parameter).toEqual([0, 0]);
+            expect(res.point[0].equals(Vector.zero(3))).toBe(true);
+        });
 });

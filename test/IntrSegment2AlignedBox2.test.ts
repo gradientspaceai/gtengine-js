@@ -7,6 +7,9 @@ import {
     IntrSegment2AlignedBox2TI,
     IntrSegment2AlignedBox2FI
 } from '../src/IntrSegment2AlignedBox2.js';
+import {
+    check, expectClose, expectVectorClose, fc, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function vec(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -192,5 +195,225 @@ describe('IntrSegment2AlignedBox2', () => {
 
         expect(hits).toBeGreaterThan(20);
         expect([tiFiMismatch, sampleMismatch, pointMismatch]).toEqual([0, 0, 0]);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V32): properties cross-checking the port against upstream
+// IntrSegment2AlignedBox2.h.
+// ---------------------------------------------------------------------------
+
+describe('IntrSegment2AlignedBox2 verification', () => {
+    const ti = new IntrSegment2AlignedBox2TI();
+    const fi = new IntrSegment2AlignedBox2FI();
+
+    // Moderately scaled segments and boxes: the shared segment()/alignedBox()
+    // generators draw from finite(), which emits subnormal coordinates that
+    // make the containment comparisons below meaningless.
+    const arbSegment = fc.tuple(wellScaledVector(2, -8, 8),
+        wellScaledVector(2, -8, 8))
+        .filter(([a, b]) => {
+            const d = sub(b, a);
+            return dot(d, d) > 1e-2;
+        })
+        .map(([a, b]) => Segment.fromEndpoints(a, b));
+    const arbBox = fc.tuple(wellScaledVector(2, -6, 6),
+        wellScaledVector(2, -6, 6))
+        .map(([a, b]) => {
+            const lo = new Vector(2), hi = new Vector(2);
+            for (let i = 0; i < 2; ++i) {
+                lo.set(i, Math.min(a.get(i), b.get(i)));
+                hi.set(i, Math.max(a.get(i), b.get(i)));
+            }
+            return AlignedBox.fromMinMax(lo, hi);
+        });
+    const arbPair = fc.tuple(arbSegment, arbBox);
+
+    // A sound separation certificate: both endpoints are strictly beyond the
+    // same box face, so no point of the segment is in the box.
+    function separatedByAxis(s: Segment, b: AlignedBox): boolean {
+        for (let d = 0; d < 2; ++d) {
+            const tol = 1e-6 * (1 + Math.abs(b.max.get(d))
+                + Math.abs(b.min.get(d)));
+            if (s.p[0].get(d) > b.max.get(d) + tol
+                && s.p[1].get(d) > b.max.get(d) + tol) {
+                return true;
+            }
+            if (s.p[0].get(d) < b.min.get(d) - tol
+                && s.p[1].get(d) < b.min.get(d) - tol) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    it('both queries report no intersection when an axis separates the'
+        + ' segment from the box', () => {
+        check(arbPair, ([s, b]) => {
+            if (separatedByAxis(s, b)) {
+                expect(ti.test(s, b).intersect).toBe(false);
+                expect(fi.find(s, b).intersect).toBe(false);
+            }
+        });
+    });
+
+    it('TI and FI agree on intersect away from tangential configurations',
+        () => {
+            // The TI query uses the method of separating axes while the FI
+            // query uses Liang-Barsky clipping followed by an interval
+            // intersection. For a segment that only touches the box the two
+            // computations differ by an ulp, so they can disagree; see the
+            // deterministic case below. The property therefore requires
+            // agreement only when the configuration is robustly one-sided.
+            check(arbPair, ([s, b]) => {
+                let insideMargin = false;
+                for (let k = 0; k <= 256 && !insideMargin; ++k) {
+                    const t = k / 256;
+                    const p = add(mul(s.p[0], 1 - t), mul(s.p[1], t));
+                    let all = true;
+                    for (let d = 0; d < 2 && all; ++d) {
+                        const tol = 1e-6 * (1 + Math.abs(p.get(d)));
+                        all = p.get(d) > b.min.get(d) + tol
+                            && p.get(d) < b.max.get(d) - tol;
+                    }
+                    insideMargin = all;
+                }
+                if (insideMargin) {
+                    expect(ti.test(s, b).intersect).toBe(true);
+                    expect(fi.find(s, b).intersect).toBe(true);
+                }
+                else if (separatedByAxis(s, b)) {
+                    expect(ti.test(s, b).intersect).toBe(false);
+                    expect(fi.find(s, b).intersect).toBe(false);
+                }
+            });
+        });
+
+    it('TI and FI can disagree for a segment that only touches the box'
+        + ' (structural, matches upstream)', () => {
+        // Degenerate box: the vertical segment from (0,-6) to (0,0). The query
+        // segment ends exactly on the box corner (0,0). The separating-axis
+        // test of the TI query finds |segOrigin[1]| == boxExtent[1] +
+        // segExtent, so it reports contact, while the clipped t-interval of
+        // the FI query starts one ulp beyond +segExtent, so it reports none.
+        const s = segment([0, 1.9974098846622947], [0, 0]);
+        const b = box([0, -5.9999999999990825], [0, 0]);
+        expect(ti.test(s, b).intersect).toBe(true);
+        expect(fi.find(s, b).intersect).toBe(false);
+    });
+
+    it('FI points are on the segment, inside the box and consistent with the'
+        + ' two parameter conventions', () => {
+        check(arbPair, ([s, b]) => {
+            const res = fi.find(s, b);
+            if (!res.intersect) {
+                expect(res.numIntersections).toBe(0);
+                return;
+            }
+            const { center, direction, extent } = s.getCenteredForm();
+            for (let i = 0; i < res.numIntersections; ++i) {
+                const t = res.parameter[i];
+                const sParam = res.cdeParameter[i];
+                expect(Number.isFinite(t)).toBe(true);
+                expect(Number.isFinite(sParam)).toBe(true);
+                // The endpoint-form parameter is in [0,1] and the centered
+                // form parameter is in [-e,e]; the two are related by
+                // t = (s/e + 1)/2.
+                expect(t).toBeGreaterThanOrEqual(-1e-12);
+                expect(t).toBeLessThanOrEqual(1 + 1e-12);
+                expect(Math.abs(sParam)).toBeLessThanOrEqual(
+                    extent * (1 + 1e-12) + 1e-12);
+                expectClose(t, (sParam / extent + 1) * 0.5, 1e-12, 1e-12);
+                // point[i] = C + s*D and, to rounding, (1-t)*P0 + t*P1.
+                expectVectorClose(res.point[i],
+                    add(center, mul(sParam, direction)), 1e-9, 1e-9);
+                expectVectorClose(res.point[i],
+                    add(mul(s.p[0], 1 - t), mul(s.p[1], t)), 1e-8, 1e-8);
+                // The point is in the (slightly grown) box.
+                for (let d = 0; d < 2; ++d) {
+                    const tol = 1e-8 * (1 + Math.abs(res.point[i].get(d)));
+                    expect(res.point[i].get(d))
+                        .toBeGreaterThanOrEqual(b.min.get(d) - tol);
+                    expect(res.point[i].get(d))
+                        .toBeLessThanOrEqual(b.max.get(d) + tol);
+                }
+            }
+        });
+    });
+
+    it('intersect is true whenever a finely sampled segment point is strictly'
+        + ' inside the box', () => {
+        check(arbPair, ([s, b]) => {
+            let inside = false;
+            for (let k = 0; k <= 512 && !inside; ++k) {
+                const t = k / 512;
+                const p = add(mul(s.p[0], 1 - t), mul(s.p[1], t));
+                let all = true;
+                for (let d = 0; d < 2 && all; ++d) {
+                    const tol = 1e-9 * (1 + Math.abs(p.get(d)));
+                    all = p.get(d) > b.min.get(d) + tol
+                        && p.get(d) < b.max.get(d) - tol;
+                }
+                inside = all;
+            }
+            if (inside) {
+                expect(ti.test(s, b).intersect).toBe(true);
+                expect(fi.find(s, b).intersect).toBe(true);
+            }
+        });
+    });
+
+    it('a degenerate segment intersects exactly when its point is in the box',
+        () => {
+            check(fc.tuple(wellScaledVector(2, -6, 6), arbBox), ([p, b]) => {
+                const s = Segment.fromEndpoints(p, p.clone());
+                const res = fi.find(s, b);
+                const contained = inContainerAlignedBox(p, b);
+                expect(res.intersect).toBe(contained);
+                if (contained) {
+                    expect(res.numIntersections).toBe(1);
+                    expect(res.parameter).toEqual([0, 0]);
+                    expect(res.cdeParameter).toEqual([0, 0]);
+                    expect(res.point[0].equals(p)).toBe(true);
+                    expect(res.point[1].equals(p)).toBe(true);
+                }
+            });
+        });
+
+    it('a segment touching the box only at a corner reports two coincident'
+        + ' points, as upstream forces numIntersections to 2', () => {
+        // The upstream DoQuery replaces numIntersections == 1 by 2 so that the
+        // caller always fills both point[] slots.
+        const s = segment([-1, 1], [1, -1]);
+        const b = box([0, 0], [2, 2]);
+        const res = fi.find(s, b);
+        expect(res.intersect).toBe(true);
+        expect(res.numIntersections).toBe(2);
+        expect(res.point[0].equals(vec(0, 0))).toBe(true);
+        expect(res.point[1].equals(vec(0, 0))).toBe(true);
+        expect(res.cdeParameter[0]).toBe(res.cdeParameter[1]);
+    });
+
+    it('a contained segment reports its own endpoints', () => {
+        const s = segment([-1, -1], [1, 1]);
+        const b = box([-4, -4], [4, 4]);
+        const res = fi.find(s, b);
+        expect(res.intersect).toBe(true);
+        expect(res.numIntersections).toBe(2);
+        expectClose(res.parameter[0], 0);
+        expectClose(res.parameter[1], 1);
+        expectVectorClose(res.point[0], vec(-1, -1));
+        expectVectorClose(res.point[1], vec(1, 1));
+    });
+
+    it('the result does not alias the input segment or box', () => {
+        const p0 = vec(-1, -1), p1 = vec(1, 1);
+        const s = Segment.fromEndpoints(p0, p1);
+        const b = box([-4, -4], [4, 4]);
+        const res = fi.find(s, b);
+        res.point[0].set(0, 99);
+        expect(s.p[0].get(0)).toBe(-1);
+        expect(p0.get(0)).toBe(-1);
+        expect(res.point[1].get(0)).toBe(1);
     });
 });
