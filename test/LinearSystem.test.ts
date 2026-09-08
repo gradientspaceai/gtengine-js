@@ -5,6 +5,9 @@ import type {
 } from '../src/LinearSystem.js';
 import { Matrix } from '../src/Matrix.js';
 import { Vector } from '../src/Vector.js';
+import {
+    check, expectClose, fc, invertibleMatrix, scaled, wellScaledVector
+} from './helpers/arbitraries.js';
 
 // A deterministic pseudorandom generator so the randomized cross-checks are
 // reproducible.
@@ -441,5 +444,230 @@ describe('LinearSystem conjugate gradient solvers', () => {
         const { iterations } = LinearSystem.solveSymmetricCG(n, A, B,
             maxIterations, 0);
         expect(iterations).toBe(maxIterations + 1);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V40): independent review against upstream LinearSystem.h.
+// ---------------------------------------------------------------------------
+
+describe('LinearSystem verification', () => {
+    // Dimension plus a well-conditioned matrix of that dimension. The
+    // determinant filter of invertibleMatrix is scale relative, so the
+    // residual tolerances below stay meaningful.
+    const sizedSystem = (minN: number, maxN: number) =>
+        fc.integer({ min: minN, max: maxN }).chain(n =>
+            fc.tuple(fc.constant(n), invertibleMatrix(n, 1e-2, -5, 5),
+                wellScaledVector(n, -5, 5)));
+
+    it('solve reproduces the right-hand side of an invertible system', () => {
+        check(sizedSystem(2, 6), ([n, A, B]) => {
+            const { X, invertible } = LinearSystem.solve(n, A.values,
+                B.values);
+            expect(invertible).toBe(true);
+            const AX = mulRowMajor(n, A.values, X);
+            // Relative to the magnitude of the terms that were summed: the
+            // residual of a solve cannot be smaller than the round-off of
+            // A*X itself, which is O(eps * ||A|| * ||X||).
+            let scale = 0;
+            for (let r = 0; r < n; ++r) {
+                for (let c = 0; c < n; ++c) {
+                    scale = Math.max(scale,
+                        Math.abs(A.get(r, c)) * Math.abs(X[c]));
+                }
+            }
+            for (let r = 0; r < n; ++r) {
+                expectClose(AX[r], B.get(r), 1e-8 + 1e-8 * scale, 1e-8);
+            }
+        });
+    });
+
+    it('agrees with the fixed-size solvers on 2x2, 3x3 and 4x4 systems', () => {
+        check(sizedSystem(2, 4), ([n, A, B]) => {
+            const general = LinearSystem.solve(n, A.values, B.values);
+            const fixed = n === 2 ? LinearSystem.solve2x2(A, B)
+                : (n === 3 ? LinearSystem.solve3x3(A, B)
+                    : LinearSystem.solve4x4(A, B));
+            expect(fixed.invertible).toBe(general.invertible);
+            for (let i = 0; i < n; ++i) {
+                // Cofactor inversion and Gaussian elimination are different
+                // algorithms, so only the solution agrees, not the digits.
+                expectClose(fixed.X.get(i), general.X[i], 1e-7, 1e-7);
+            }
+        });
+    });
+
+    it('solveMultiple solves each right-hand side column independently', () => {
+        check(fc.integer({ min: 2, max: 5 }).chain(n =>
+            fc.tuple(fc.constant(n), invertibleMatrix(n, 1e-2, -5, 5),
+                fc.array(scaled(-5, 5),
+                    { minLength: 3 * n, maxLength: 3 * n }))),
+        ([n, A, Bflat]) => {
+            const m = 3;
+            const many = LinearSystem.solveMultiple(n, m, A.values, Bflat);
+            expect(many.invertible).toBe(true);
+            for (let col = 0; col < m; ++col) {
+                const b: number[] = [];
+                for (let r = 0; r < n; ++r) { b.push(Bflat[col + m * r]); }
+                const one = LinearSystem.solve(n, A.values, b);
+                for (let r = 0; r < n; ++r) {
+                    expectClose(many.X[col + m * r], one.X[r], 1e-8, 1e-8);
+                }
+            }
+        });
+    });
+
+    it('honors the storage order flag', () => {
+        check(sizedSystem(2, 5), ([n, A, B]) => {
+            // The column-major flattening of A is the row-major flattening
+            // of A^T, so the two solves must agree when the transpose is
+            // passed in the other order.
+            const colMajor = new Array<number>(n * n).fill(0);
+            for (let r = 0; r < n; ++r) {
+                for (let c = 0; c < n; ++c) {
+                    colMajor[r + n * c] = A.get(r, c);
+                }
+            }
+            const rowResult = LinearSystem.solve(n, A.values, B.values, true);
+            const colResult = LinearSystem.solve(n, colMajor, B.values, false);
+            expect(colResult.invertible).toBe(rowResult.invertible);
+            for (let i = 0; i < n; ++i) {
+                expect(colResult.X[i]).toBe(rowResult.X[i]);
+            }
+        });
+    });
+
+    it('solves tridiagonal systems the way the general solver does', () => {
+        const tridiagonal = fc.integer({ min: 1, max: 8 }).chain(n =>
+            fc.tuple(fc.constant(n),
+                fc.array(scaled(-1, 1), { minLength: n, maxLength: n }),
+                fc.array(scaled(-1, 1), { minLength: n, maxLength: n }),
+                fc.array(scaled(-1, 1), { minLength: n, maxLength: n }),
+                fc.array(scaled(-5, 5), { minLength: n, maxLength: n })));
+        check(tridiagonal, ([n, sub, diag, sup, B]) => {
+            // Make the matrix strictly diagonally dominant, which is both
+            // nonsingular and well conditioned, so the two algorithms must
+            // reach the same solution.
+            const d = diag.map((v, i) => {
+                const off = (i > 0 ? Math.abs(sub[i - 1]) : 0)
+                    + (i + 1 < n ? Math.abs(sup[i]) : 0);
+                return (v >= 0 ? 1 : -1) * (off + 1 + Math.abs(v));
+            });
+            const fast = LinearSystem.solveTridiagonal(n, sub, d, sup, B);
+            expect(fast.solved).toBe(true);
+            const dense = tridiagonalToDense(n, sub, d, sup);
+            const general = LinearSystem.solve(n, dense, B);
+            expect(general.invertible).toBe(true);
+            for (let i = 0; i < n; ++i) {
+                expectClose(fast.X[i], general.X[i], 1e-8, 1e-8);
+            }
+        });
+    });
+
+    it('constant tridiagonal matches the general tridiagonal solver', () => {
+        check(fc.tuple(fc.integer({ min: 1, max: 8 }), scaled(-1, 1),
+            scaled(-1, 1), scaled(-1, 1)).chain(([n, sub, dv, sup]) =>
+            fc.tuple(fc.constant(n), fc.constant(sub), fc.constant(dv),
+                fc.constant(sup),
+                fc.array(scaled(-5, 5), { minLength: n, maxLength: n }))),
+        ([n, sub, dv, sup, B]) => {
+            const d = (dv >= 0 ? 1 : -1)
+                * (Math.abs(sub) + Math.abs(sup) + 1 + Math.abs(dv));
+            const constant = LinearSystem.solveConstantTridiagonal(n, sub, d,
+                sup, B);
+            const general = LinearSystem.solveTridiagonal(n,
+                new Array<number>(Math.max(n - 1, 0)).fill(sub),
+                new Array<number>(n).fill(d),
+                new Array<number>(Math.max(n - 1, 0)).fill(sup), B);
+            expect(constant.solved).toBe(general.solved);
+            // The two functions perform the same operations on the same
+            // values, so the results are bit-for-bit identical.
+            for (let i = 0; i < n; ++i) {
+                expect(constant.X[i]).toBe(general.X[i]);
+            }
+        });
+    });
+
+    // A = M^T*M + n*I, symmetric positive definite and well conditioned.
+    function spdFrom(n: number, Mflat: readonly number[]): number[] {
+        const A = new Array<number>(n * n).fill(0);
+        for (let r = 0; r < n; ++r) {
+            for (let c = 0; c < n; ++c) {
+                let sum = 0;
+                for (let k = 0; k < n; ++k) {
+                    sum += Mflat[r + n * k] * Mflat[c + n * k];
+                }
+                A[c + n * r] = sum + (r === c ? n : 0);
+            }
+        }
+        return A;
+    }
+
+    const spdSystem = fc.integer({ min: 2, max: 6 }).chain(n =>
+        fc.tuple(fc.constant(n),
+            fc.array(scaled(-1, 1), { minLength: n * n, maxLength: n * n }),
+            fc.array(scaled(-5, 5), { minLength: n, maxLength: n })));
+
+    it('conjugate gradient converges on symmetric positive definite systems',
+        () => {
+            check(spdSystem, ([n, Mflat, B]) => {
+                const A = spdFrom(n, Mflat);
+                const cg = LinearSystem.solveSymmetricCG(n, A, B, 4 * n,
+                    1e-12);
+                const exact = LinearSystem.solve(n, A, B);
+                expect(exact.invertible).toBe(true);
+                for (let i = 0; i < n; ++i) {
+                    expectClose(cg.X[i], exact.X[i], 1e-6, 1e-6);
+                }
+                // The returned count is upstream's loop counter, so it never
+                // exceeds maxIterations + 1.
+                expect(cg.iterations).toBeLessThanOrEqual(4 * n + 1);
+            });
+        });
+
+    it('the sparse and dense conjugate gradient solvers agree', () => {
+        check(spdSystem, ([n, Mflat, B]) => {
+            const A = spdFrom(n, Mflat);
+            // The sparse representation stores only the upper triangle,
+            // deliberately out of order, so the (row, col) sort inside the
+            // solver is exercised.
+            const entries: LinearSystemSparseEntry[] = [];
+            for (let r = n - 1; r >= 0; --r) {
+                for (let c = n - 1; c >= r; --c) {
+                    entries.push({ row: r, col: c, value: A[c + n * r] });
+                }
+            }
+            const sparse: LinearSystemSparseMatrix = entries;
+            const dense = LinearSystem.solveSymmetricCG(n, A, B, 4 * n, 1e-12);
+            const sp = LinearSystem.solveSymmetricCGSparse(n, sparse, B,
+                4 * n, 1e-12);
+            expect(sp.iterations).toBe(dense.iterations);
+            for (let i = 0; i < n; ++i) {
+                // Different accumulation orders in the matrix-vector
+                // product, so the iterates differ in the last digits.
+                expectClose(sp.X[i], dense.X[i], 1e-7, 1e-7);
+            }
+        });
+    });
+
+    it('rejects a zero-size tridiagonal system instead of wrapping the '
+        + 'scratch size (upstream #261)', () => {
+        // Upstream computes std::vector<Real> tmp(size_t(N) - 1), which
+        // wraps to SIZE_MAX for N = 0, and reads diagonal[0] and B[0] out of
+        // bounds. The port asserts instead.
+        expect(() => LinearSystem.solveTridiagonal(0, [], [], [], []))
+            .toThrow('Invalid size.');
+        expect(() => LinearSystem.solveConstantTridiagonal(0, 1, 1, 1, []))
+            .toThrow('Invalid size.');
+    });
+
+    it('reproduces the upstream zero-right-hand-side quirk of the conjugate '
+        + 'gradient solver (upstream #261)', () => {
+        // With B = 0 the exact solution is X = 0, which the solver starts
+        // from, but alpha = rho0 / Dot(P, W) = 0 / 0 = NaN overwrites it.
+        const A = [2, 0, 0, 3];
+        const result = LinearSystem.solveSymmetricCG(2, A, [0, 0], 8, 1e-12);
+        expect(Number.isNaN(result.X[0])).toBe(true);
+        expect(Number.isNaN(result.X[1])).toBe(true);
     });
 });

@@ -4,6 +4,9 @@ import {
 } from '../src/LevenbergMarquardtMinimizer.js';
 import { Matrix } from '../src/Matrix.js';
 import { Vector } from '../src/Vector.js';
+import {
+    check, expectClose, fc, invertibleMatrix, scaled, wellScaledVector
+} from './helpers/arbitraries.js';
 
 // A deterministic pseudorandom generator so the randomized cross-checks are
 // reproducible.
@@ -311,5 +314,199 @@ describe('LevenbergMarquardtMinimizer degenerate behavior', () => {
         const result = minimizer.minimize(p0, 32, 1e-12, 1e-14, 0.001, 10, 8);
         expect(p0.values).toEqual([1.5, -0.3]);
         expect(result.minLocation).not.toBe(p0);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V40): independent review against upstream
+// LevenbergMarquardtMinimizer.h.
+// ---------------------------------------------------------------------------
+
+// A consistent, overdetermined linear least-squares problem; see the same
+// construction in GaussNewtonMinimizer.test.ts. The unique minimizer is
+// pTrue and the minimum error is 0.
+function makeStackedProblem(A: Matrix, pTrue: Vector) {
+    const numP = A.numCols, numF = 2 * numP;
+    const S = new Matrix(numF, numP);
+    for (let r = 0; r < numP; ++r) {
+        for (let c = 0; c < numP; ++c) {
+            S.set(r, c, A.get(r, c));
+            S.set(r + numP, c, 0.5 * A.get(r, c));
+        }
+    }
+    const b = new Vector(numF);
+    for (let r = 0; r < numF; ++r) {
+        let sum = 0;
+        for (let c = 0; c < numP; ++c) { sum += S.get(r, c) * pTrue.get(c); }
+        b.set(r, sum);
+    }
+    const fFunction = (p: Vector, f: Vector): void => {
+        for (let r = 0; r < numF; ++r) {
+            let sum = -b.get(r);
+            for (let c = 0; c < numP; ++c) { sum += S.get(r, c) * p.get(c); }
+            f.set(r, sum);
+        }
+    };
+    const jFunction = (_p: Vector, j: Matrix): void => {
+        for (let r = 0; r < numF; ++r) {
+            for (let c = 0; c < numP; ++c) { j.set(r, c, S.get(r, c)); }
+        }
+    };
+    return { numP, numF, fFunction, jFunction };
+}
+
+// The "J plus" callback equivalent to a (fFunction, jFunction) pair, using
+// the same accumulation order as ComputeLinearSystemInputs so the two code
+// paths perform the same floating-point operations.
+function makeJPlus(numP: number, numF: number,
+    fFunction: (p: Vector, f: Vector) => void,
+    jFunction: (p: Vector, j: Matrix) => void) {
+    return (p: Vector, jtj: Matrix, negJTF: Vector): void => {
+        const j = new Matrix(numF, numP);
+        jFunction(p, j);
+        const f = new Vector(numF);
+        fFunction(p, f);
+        for (let r = 0; r < numP; ++r) {
+            for (let c = 0; c < numP; ++c) {
+                let sum = 0;
+                for (let i = 0; i < numF; ++i) {
+                    sum += j.get(i, r) * j.get(i, c);
+                }
+                jtj.set(r, c, sum);
+            }
+        }
+        for (let c = 0; c < numP; ++c) {
+            let sum = 0;
+            for (let r = 0; r < numF; ++r) { sum += f.get(r) * j.get(r, c); }
+            negJTF.set(c, -sum);
+        }
+    };
+}
+
+describe('LevenbergMarquardtMinimizer verification', () => {
+    const linearProblem = fc.integer({ min: 1, max: 4 }).chain(n =>
+        fc.tuple(invertibleMatrix(n, 1e-2, -3, 3), wellScaledVector(n, -3, 3),
+            wellScaledVector(n, -3, 3)));
+
+    it('converges to the least-squares minimizer of a linear model', () => {
+        check(fc.tuple(linearProblem, scaled(1e-4, 1e-1)),
+            ([[A, pTrue, p0], lambdaFactor]) => {
+                const { numP, numF, fFunction, jFunction } =
+                    makeStackedProblem(A, pTrue);
+                const result = LevenbergMarquardtMinimizer
+                    .fromJFunction(numP, numF, fFunction, jFunction)
+                    .minimize(p0, 64, 1e-14, 1e-20, lambdaFactor, 10, 8);
+                for (let i = 0; i < numP; ++i) {
+                    // The damped normal equations are solved through a
+                    // Cholesky factorization, which squares the condition
+                    // number of A; invertibleMatrix admits condition numbers
+                    // of order 1e3.
+                    expectClose(result.minLocation.get(i), pTrue.get(i), 1e-5,
+                        1e-5);
+                }
+            });
+    });
+
+    it('gives the same iterates through the J and J-plus callbacks on a '
+        + 'linear model', () => {
+        check(linearProblem, ([A, pTrue, p0]) => {
+            const { numP, numF, fFunction, jFunction } =
+                makeStackedProblem(A, pTrue);
+            const viaJ = LevenbergMarquardtMinimizer
+                .fromJFunction(numP, numF, fFunction, jFunction)
+                .minimize(p0, 8, 0, 0, 0.001, 10, 8);
+            const viaJPlus = LevenbergMarquardtMinimizer
+                .fromJPlusFunction(numP, numF, fFunction,
+                    makeJPlus(numP, numF, fFunction, jFunction))
+                .minimize(p0, 8, 0, 0, 0.001, 10, 8);
+            expect(viaJPlus.numIterations).toBe(viaJ.numIterations);
+            expect(viaJPlus.numAdjustments).toBe(viaJ.numAdjustments);
+            for (let i = 0; i < numP; ++i) {
+                expect(viaJPlus.minLocation.get(i))
+                    .toBe(viaJ.minLocation.get(i));
+            }
+            expect(viaJPlus.minError).toBe(viaJ.minError);
+        });
+    });
+
+    it('gives the same iterates through the J and J-plus callbacks when the '
+        + 'inner loop rejects candidates (upstream #261)', () => {
+        // E(x) = atan(x)^2 from |x0| >= 1.5: the undamped step overshoots,
+        // the error grows and the inner loop increases lambda. Upstream then
+        // forms -J^T*F from the residual of the rejected candidate, so the
+        // two callback paths - which are mathematically identical - diverge.
+        check(fc.tuple(fc.oneof(scaled(1.5, 6), scaled(-6, -1.5)),
+            fc.integer({ min: 1, max: 12 })), ([x0, maxIterations]) => {
+            let numJCalls = 0;
+            const countingJ = (p: Vector, j: Matrix): void => {
+                ++numJCalls;
+                atanJ(p, j);
+            };
+            const p0 = Vector.fromArray([x0]);
+            const viaJ = LevenbergMarquardtMinimizer
+                .fromJFunction(1, 1, atanF, countingJ)
+                .minimize(p0, maxIterations, 0, 0, 0.001, 10, 8);
+            const viaJPlus = LevenbergMarquardtMinimizer
+                .fromJPlusFunction(1, 1, atanF, atanJPlus)
+                .minimize(p0, maxIterations, 0, 0, 0.001, 10, 8);
+            expect(viaJ.numIterations).toBe(viaJPlus.numIterations);
+            // More Jacobian evaluations than outer iterations means the
+            // lambda-adjustment loop really did run more than once, which is
+            // the situation the upstream defect corrupts.
+            expect(numJCalls).toBeGreaterThan(viaJ.numIterations - 1);
+            expectClose(viaJ.minLocation.get(0), viaJPlus.minLocation.get(0),
+                1e-9, 1e-9);
+            expectClose(viaJ.minError, viaJPlus.minError, 1e-12, 1e-9);
+        });
+    });
+
+    it('reports minError as the squared length of F at minLocation', () => {
+        check(linearProblem, ([A, pTrue, p0]) => {
+            const { numP, numF, fFunction, jFunction } =
+                makeStackedProblem(A, pTrue);
+            const result = LevenbergMarquardtMinimizer
+                .fromJFunction(numP, numF, fFunction, jFunction)
+                .minimize(p0, 5, 0, 0, 0.001, 10, 8);
+            const f = new Vector(numF);
+            fFunction(result.minLocation, f);
+            let error = 0;
+            for (let r = 0; r < numF; ++r) { error += f.get(r) * f.get(r); }
+            expect(error).toBe(result.minError);
+        });
+    });
+
+    it('never increases the recorded error and reduces it monotonically',
+        () => {
+            check(fc.tuple(linearProblem, fc.integer({ min: 1, max: 12 })),
+                ([[A, pTrue, p0], maxIterations]) => {
+                    const { numP, numF, fFunction, jFunction } =
+                        makeStackedProblem(A, pTrue);
+                    const minimizer = LevenbergMarquardtMinimizer
+                        .fromJFunction(numP, numF, fFunction, jFunction);
+                    let previous = Number.POSITIVE_INFINITY;
+                    for (let k = 1; k <= maxIterations; ++k) {
+                        const error = minimizer
+                            .minimize(p0, k, 0, 0, 0.001, 10, 8).minError;
+                        expect(error).toBeLessThanOrEqual(previous);
+                        previous = error;
+                    }
+                });
+        });
+
+    it('does not alias the initial point across runs', () => {
+        check(linearProblem, ([A, pTrue, p0]) => {
+            const { numP, numF, fFunction, jFunction } =
+                makeStackedProblem(A, pTrue);
+            const before = p0.clone();
+            const minimizer = LevenbergMarquardtMinimizer
+                .fromJFunction(numP, numF, fFunction, jFunction);
+            const first = minimizer.minimize(p0, 3, 0, 0, 0.001, 10, 8);
+            const held = first.minLocation.clone();
+            minimizer.minimize(pTrue, 3, 0, 0, 0.001, 10, 8);
+            for (let i = 0; i < numP; ++i) {
+                expect(p0.get(i)).toBe(before.get(i));
+                expect(first.minLocation.get(i)).toBe(held.get(i));
+            }
+        });
     });
 });
