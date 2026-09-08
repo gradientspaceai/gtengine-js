@@ -6,6 +6,7 @@ import {
     type EigenTriple,
     type EigenBasis3
 } from '../src/SymmetricEigensolver3x3.js';
+import { check, expectClose, fc, wellScaled } from './helpers/arbitraries.js';
 
 // A simple deterministic pseudorandom generator so test runs are repeatable.
 function makeRandom(seed: number): () => number {
@@ -268,4 +269,210 @@ describe('SortEigenstuff', () => {
         expect(evals).toEqual([3, 1, 2]);
         expect(evecs[2]).toEqual([-0, -0, -1]);
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (group V38).
+// ---------------------------------------------------------------------------
+describe('SymmetricEigensolver3x3 verification', () => {
+    const solver = new SymmetricEigensolver3x3();
+    const niSolver = new NISymmetricEigensolver3x3();
+
+    // wellScaled snaps |x| < 1e-3 to exactly zero, so no entry is subnormal
+    // and the squares formed inside the solver stay in the normal range.
+    const sym3 = fc.tuple(wellScaled(-10, 10), wellScaled(-10, 10),
+        wellScaled(-10, 10), wellScaled(-10, 10), wellScaled(-10, 10),
+        wellScaled(-10, 10)).map(([a00, a01, a02, a11, a12, a22]): Sym3 =>
+            ({ a00, a01, a02, a11, a12, a22 }));
+
+    function normOf(m: Sym3): number {
+        return Math.max(Math.abs(m.a00), Math.abs(m.a01), Math.abs(m.a02),
+            Math.abs(m.a11), Math.abs(m.a12), Math.abs(m.a22), 1);
+    }
+
+    function traceOf(m: Sym3): number {
+        return m.a00 + m.a11 + m.a22;
+    }
+
+    function detOf(m: Sym3): number {
+        return m.a00 * (m.a11 * m.a22 - m.a12 * m.a12)
+            - m.a01 * (m.a01 * m.a22 - m.a12 * m.a02)
+            + m.a02 * (m.a01 * m.a12 - m.a11 * m.a02);
+    }
+
+    it('the iterative solver produces an eigensystem for every flag combination',
+        () => {
+            check(fc.tuple(sym3, fc.constantFrom(-1, 0, 1), fc.boolean()),
+                ([m, sortType, aggressive]) => {
+                    const { iterations, evals, evecs } = solver.solve(m.a00,
+                        m.a01, m.a02, m.a11, m.a12, m.a22, aggressive, sortType);
+                    expect(iterations).toBeGreaterThanOrEqual(0);
+                    checkEigensystem(m, evals, evecs, sortType,
+                        1e-12 * normOf(m));
+                });
+        });
+
+    it('the iterative solver preserves the trace and the determinant', () => {
+        check(sym3, m => {
+            const { evals } = solver.solve(m.a00, m.a01, m.a02, m.a11, m.a12,
+                m.a22, false, +1);
+            const norm = normOf(m);
+            expectClose(evals[0] + evals[1] + evals[2], traceOf(m),
+                1e-12 * norm, 1e-12);
+            expectClose(evals[0] * evals[1] * evals[2], detOf(m),
+                1e-10 * norm * norm * norm, 1e-10);
+        });
+    });
+
+    it('the noniterative solver agrees with the iterative one', () => {
+        check(fc.tuple(sym3, fc.constantFrom(-1, 0, 1)), ([m, sortType]) => {
+            const it3 = solver.solve(m.a00, m.a01, m.a02, m.a11, m.a12, m.a22,
+                false, sortType);
+            const ni = niSolver.solve(m.a00, m.a01, m.a02, m.a11, m.a12, m.a22,
+                sortType);
+            checkEigensystem(m, ni.evals, ni.evecs, sortType, 1e-7 * normOf(m));
+            // With sortType 0 neither solver promises an order, so compare
+            // the eigenvalues as sets. The two algorithms are independent (a
+            // QR-style iteration versus the closed-form cubic of the PDF), so
+            // they agree only to the conditioning of the eigenvalues: the
+            // closed form evaluates acos of a value clamped to [-1,1], which
+            // costs about half the mantissa for nearly equal eigenvalues.
+            const aIt = it3.evals.slice().sort((x, y) => x - y);
+            const aNi = ni.evals.slice().sort((x, y) => x - y);
+            for (let i = 0; i < 3; ++i) {
+                expectClose(aNi[i], aIt[i], 1e-7 * normOf(m), 1e-7);
+            }
+        });
+    });
+
+    it('both solvers report the diagonal entries of a diagonal matrix', () => {
+        check(fc.tuple(wellScaled(-10, 10), wellScaled(-10, 10),
+            wellScaled(-10, 10)), ([d0, d1, d2]) => {
+                const sorted = [d0, d1, d2].slice().sort((x, y) => x - y);
+                // The noniterative solver takes its 'norm == 0' branch here
+                // and returns the diagonal entries with no arithmetic at all.
+                const ni = niSolver.solve(d0, 0, 0, d1, 0, d2, +1);
+                for (let i = 0; i < 3; ++i) {
+                    // Not bit-exact: upstream divides the matrix by its
+                    // largest absolute entry and multiplies the eigenvalues
+                    // back afterwards, and d/max*max need not round-trip.
+                    expectClose(ni.evals[i], sorted[i], 0, 4 * Number.EPSILON);
+                }
+                expectClose(Math.abs(det3(ni.evecs)), 1, 1e-15, 0);
+
+                const itr = solver.solve(d0, 0, 0, d1, 0, d2, false, +1);
+                for (let i = 0; i < 3; ++i) {
+                    expectClose(itr.evals[i], sorted[i], 1e-13, 1e-13);
+                }
+            });
+    });
+
+    it('the zero matrix gives zero eigenvalues and an orthonormal basis', () => {
+        for (const sortType of [-1, 0, 1]) {
+            const ni = niSolver.solve(0, 0, 0, 0, 0, 0, sortType);
+            expect(ni.evals).toEqual([0, 0, 0]);
+            expect(ni.evecs).toEqual([[1, 0, 0], [0, 1, 0], [0, 0, 1]]);
+
+            const it3 = solver.solve(0, 0, 0, 0, 0, 0, false, sortType);
+            for (let i = 0; i < 3; ++i) {
+                expect(it3.evals[i] + 0).toBe(0);
+                expectClose(Math.sqrt(dot(it3.evecs[i], it3.evecs[i])), 1,
+                    1e-15, 0);
+            }
+            if (sortType !== 0) {
+                expectClose(det3(it3.evecs), 1, 1e-14, 0);
+            }
+        }
+    });
+
+    it('SortEigenstuff permutes eigenpairs together and keeps a right-handed basis',
+        () => {
+            // Cross-check against an independent sort of (value, vector) pairs.
+            check(fc.tuple(fc.tuple(wellScaled(-10, 10), wellScaled(-10, 10),
+                wellScaled(-10, 10)), fc.constantFrom(-1, 0, 1), fc.boolean()),
+                ([[d0, d1, d2], sortType, flip]) => {
+                    const evals: EigenTriple = [d0, d1, d2];
+                    // An orthonormal basis of known handedness. 'isRotation'
+                    // tells SortEigenstuff whether the incoming basis is a
+                    // rotation; it must be the truth about that basis, since
+                    // the routine uses it to decide whether to negate a row.
+                    const evecs: EigenBasis3 = flip
+                        ? [[-1, 0, 0], [0, 1, 0], [0, 0, 1]]
+                        : [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+                    new SortEigenstuff().sort(sortType, !flip, evals, evecs);
+
+                    const expected = [d0, d1, d2].slice();
+                    if (sortType > 0) { expected.sort((x, y) => x - y); }
+                    else if (sortType < 0) { expected.sort((x, y) => y - x); }
+                    for (let i = 0; i < 3; ++i) {
+                        expect(evals[i] + 0).toBe(expected[i] + 0);
+                    }
+                    // Each row is still a signed axis and the basis stays
+                    // right-handed, which is what the isRotation bookkeeping
+                    // is for.
+                    for (let i = 0; i < 3; ++i) {
+                        expectClose(dot(evecs[i], evecs[i]), 1, 0, 0);
+                    }
+                    expectClose(det3(evecs), 1, 0, 0);
+                    // Row i is +-e_j where d[j] is the eigenvalue now in slot i.
+                    for (let i = 0; i < 3; ++i) {
+                        const j = evecs[i].findIndex(x => x !== 0);
+                        expect([d0, d1, d2][j] + 0).toBe(evals[i] + 0);
+                    }
+                });
+        });
+
+    it('regression (#379): the iterative solver is scale equivariant over the whole exponent range',
+        () => {
+            // Upstream's GetCosSin computes sqrt(u*u + v*v) with no rescaling,
+            // unlike the 2x2 sibling. Before the port fix the squares overflow
+            // above 2^511 (the returned (c,s) is (0,0), so the eigenvectors
+            // have length 0 and the eigenvalues carry no correct digits) and
+            // underflow below 2^-511 (the eigenvalues are wrong by tens of
+            // percent). A*v = lambda*v is scale equivariant, so t*A must have
+            // the same eigenvectors and t times the eigenvalues for every t.
+            const B: Sym3 = {
+                a00: 3, a01: 1, a02: 0.5, a11: 2, a12: -0.25, a22: -1
+            };
+            const base = solver.solve(B.a00, B.a01, B.a02, B.a11, B.a12, B.a22,
+                false, +1);
+            for (const t of [1e-300, 1e-200, 1e-170, 1e-160, 1e-155, 1e-100, 1,
+                1e100, 1e155, 1e160, 1e200, 1e300]) {
+                const r = solver.solve(t * B.a00, t * B.a01, t * B.a02,
+                    t * B.a11, t * B.a12, t * B.a22, false, +1);
+                for (let i = 0; i < 3; ++i) {
+                    // Unit-length eigenvectors (length 0 before the fix).
+                    expectClose(Math.sqrt(dot(r.evecs[i], r.evecs[i])), 1,
+                        1e-14, 0);
+                    // Eigenvalues scale by exactly t, to full precision.
+                    expectClose(r.evals[i] / t, base.evals[i], 0, 1e-12);
+                }
+            }
+        });
+
+    it('regression (#379): a covariance-scale matrix keeps unit eigenvectors',
+        () => {
+            // The reported case: entries near 1e-160, where the squares formed
+            // by GetCosSin are subnormal. Every eigenpair must still satisfy
+            // A*v = lambda*v to full relative precision.
+            check(fc.tuple(sym3, fc.constantFrom(1e-170, 1e-160, 1e170, 1e160)),
+                ([m, t]) => {
+                    const scaled: Sym3 = {
+                        a00: t * m.a00, a01: t * m.a01, a02: t * m.a02,
+                        a11: t * m.a11, a12: t * m.a12, a22: t * m.a22
+                    };
+                    const r = solver.solve(scaled.a00, scaled.a01, scaled.a02,
+                        scaled.a11, scaled.a12, scaled.a22, false, +1);
+                    const norm = normOf(m);
+                    for (let i = 0; i < 3; ++i) {
+                        expectClose(Math.sqrt(dot(r.evecs[i], r.evecs[i])), 1,
+                            1e-14, 0);
+                        const av = matVec(scaled, r.evecs[i]);
+                        for (let j = 0; j < 3; ++j) {
+                            expect(Math.abs(av[j] - r.evals[i] * r.evecs[i][j]))
+                                .toBeLessThanOrEqual(1e-12 * t * norm);
+                        }
+                    }
+                }, 100);
+        });
 });
