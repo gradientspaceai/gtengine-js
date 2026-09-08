@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { Torus3 } from '../src/Torus3.js';
-import { Vector, dot, sub, length } from '../src/Vector.js';
+import { Vector, dot, sub, mul, length } from '../src/Vector.js';
+import { check, compareKeys, expectClose as expectCloseScalar,
+    expectStrictWeakOrder, fc, finite, positive, rotationFrame, vector }
+    from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -236,5 +239,131 @@ describe('Torus3 comparisons', () => {
         expect(base.greaterThanOrEqual(smaller)).toBe(true);
         expect(base.greaterThan(base.clone())).toBe(false);
         expect(base.greaterThanOrEqual(base.clone())).toBe(true);
+    });
+});
+
+describe('Torus3 verification', () => {
+    const torus = () => fc.tuple(vector(3, -5, 5), rotationFrame(3),
+        positive(5, 1), positive(1, 0.1))
+        .map(([c, frame, r0, r1]) => Torus3.fromCenterFrameRadii(c, frame[0],
+            frame[1], frame[2], r0, r1));
+    const key = (t: Torus3) => [...t.center.values, ...t.direction0.values,
+        ...t.direction1.values, ...t.normal.values, t.radius0, t.radius1];
+    const angle = () => finite(-Math.PI + 1e-3, Math.PI - 1e-3);
+
+    it('evaluated points satisfy the implicit equation', () => {
+        // [|P-C|^2 + r0^2 - r1^2]^2 - 4*r0^2*[|P-C|^2 - Dot(N,P-C)^2] = 0
+        check(fc.tuple(torus(), angle(), angle()), ([t, u, v]) => {
+            const x = t.evaluate(u, v, 0)[0];
+            const delta = sub(x, t.center);
+            const lenSqr = dot(delta, delta);
+            const nDot = dot(t.normal, delta);
+            const term = lenSqr + t.radius0 * t.radius0
+                - t.radius1 * t.radius1;
+            const value = term * term - 4 * t.radius0 * t.radius0
+                * (lenSqr - nDot * nDot);
+            // The implicit polynomial is quartic in the coordinates, so the
+            // residual scales with the fourth power of the radii.
+            const scale = Math.pow(t.radius0 + t.radius1, 4);
+            expect(Math.abs(value)).toBeLessThan(1e-9 * scale);
+        });
+    });
+
+    it('getParameters inverts evaluate on (-pi, pi)', () => {
+        check(fc.tuple(torus(), angle(), angle()), ([t, u, v]) => {
+            const x = t.evaluate(u, v, 0)[0];
+            const back = t.getParameters(x);
+            expectCloseScalar(back.u, u, 1e-9, 1e-9);
+            expectCloseScalar(back.v, v, 1e-9, 1e-9);
+        });
+    });
+
+    it('getParameters returns atan2 values in [-pi, pi], not [0, 2*pi)',
+        () => {
+            // Upstream #455: the comments document u, v in [0, 2*pi) but the
+            // function returns std::atan2 values. Preserved by the port.
+            check(fc.tuple(torus(), angle(), angle()), ([t, u, v]) => {
+                const back = t.getParameters(t.evaluate(u, v, 0)[0]);
+                expect(back.u).toBeGreaterThanOrEqual(-Math.PI);
+                expect(back.u).toBeLessThanOrEqual(Math.PI);
+                expect(back.v).toBeGreaterThanOrEqual(-Math.PI);
+                expect(back.v).toBeLessThanOrEqual(Math.PI);
+                // A negative parameter really is produced (it would be
+                // u + 2*pi if the documented range were implemented).
+                if (u < -0.1) { expect(back.u).toBeLessThan(0); }
+            });
+        });
+
+    it('evaluate fills 1, 3 or 6 jet entries by maxOrder', () => {
+        // Upstream guards the second-order block with 'maxOrder == 2', not
+        // '>= 2', so a larger maxOrder yields only the first-order jet.
+        check(fc.tuple(torus(), angle(), angle()), ([t, u, v]) => {
+            expect(t.evaluate(u, v, 0).length).toBe(1);
+            expect(t.evaluate(u, v, 1).length).toBe(3);
+            expect(t.evaluate(u, v, 2).length).toBe(6);
+            expect(t.evaluate(u, v, 3).length).toBe(3);
+        });
+    });
+
+    it('the jet derivatives match central differences', () => {
+        const h = 1e-4;
+        check(fc.tuple(torus(), angle(), angle()), ([t, u, v]) => {
+            const jet = t.evaluate(u, v, 2);
+            const du = mul(1 / (2 * h), sub(t.evaluate(u + h, v, 0)[0],
+                t.evaluate(u - h, v, 0)[0]));
+            const dv = mul(1 / (2 * h), sub(t.evaluate(u, v + h, 0)[0],
+                t.evaluate(u, v - h, 0)[0]));
+            // Central differences are accurate to O(h^2) = 1e-8; the scale is
+            // the radius sum.
+            const tol = 1e-6 * (t.radius0 + t.radius1);
+            for (let d = 0; d < 3; ++d) {
+                expectCloseScalar(jet[1].get(d), du.get(d), tol, 1e-6);
+                expectCloseScalar(jet[2].get(d), dv.get(d), tol, 1e-6);
+            }
+            // d2X/du2 = -(r0 + r1 cos v)*combo0, which is the negative of the
+            // in-plane part of the position.
+            const inPlane = sub(sub(jet[0], t.center),
+                mul(dot(t.normal, sub(jet[0], t.center)), t.normal));
+            for (let d = 0; d < 3; ++d) {
+                expectCloseScalar(jet[3].get(d), -inPlane.get(d), 1e-9, 1e-9);
+            }
+        }, 100);
+    });
+
+    it('the comparisons follow the upstream member order', () => {
+        check(fc.tuple(torus(), torus()), ([a, b]) => {
+            const cmp = compareKeys(key(a), key(b));
+            expect(a.lessThan(b)).toBe(cmp < 0);
+            expect(a.greaterThan(b)).toBe(cmp > 0);
+            expect(a.lessThanOrEqual(b)).toBe(cmp <= 0);
+            expect(a.greaterThanOrEqual(b)).toBe(cmp >= 0);
+            expect(a.equals(b)).toBe(cmp === 0);
+        });
+    });
+
+    it('lessThan is a strict weak ordering', () => {
+        check(fc.array(torus(), { minLength: 4, maxLength: 5 }), ts => {
+            expectStrictWeakOrder(ts, (x, y) => x.lessThan(y));
+        }, 30);
+    });
+
+    it('equals is element equality, so a NaN member breaks self-equality',
+        () => {
+            const t = Torus3.fromCenterFrameRadii(Vector.fromArray([NaN, 0, 0]),
+                Vector.fromArray([1, 0, 0]), Vector.fromArray([0, 1, 0]),
+                Vector.fromArray([0, 0, 1]), 2, 1);
+            expect(t.equals(t)).toBe(false);
+            expect(t.lessThan(t)).toBe(false);
+            expect(t.lessThanOrEqual(t)).toBe(true);
+        });
+
+    it('the factory and clone copy every vector', () => {
+        check(torus(), t => {
+            const cloned = t.clone();
+            t.center.set(0, 999);
+            t.direction0.set(1, 888);
+            expect(cloned.center.get(0)).not.toBe(999);
+            expect(cloned.direction0.get(1)).not.toBe(888);
+        }, 50);
     });
 });

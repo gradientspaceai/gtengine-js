@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { Lozenge3 } from '../src/Lozenge3.js';
 import { Rectangle } from '../src/Rectangle.js';
-import { Vector } from '../src/Vector.js';
+import { Vector, add, mul } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
+import { DistPointRectangle } from '../src/DistPointRectangle.js';
+import { check, compareKeys, expectClose, expectStrictWeakOrder, fc, finite,
+    positive, rotationFrame, vector } from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -86,5 +90,83 @@ describe('Lozenge3 comparisons', () => {
         expect(b.greaterThan(a)).toBe(true);
         expect(a.greaterThan(a.clone())).toBe(false);
         expect(a.greaterThanOrEqual(a.clone())).toBe(true);
+    });
+});
+
+describe('Lozenge3 verification', () => {
+    const rectangle3 = () => fc.tuple(vector(3, -5, 5), rotationFrame(3),
+        fc.array(positive(5), { minLength: 2, maxLength: 2 }))
+        .map(([c, frame, ext]) => Rectangle.fromCenterAxisExtent(c,
+            [frame[0], frame[1]], Vector.fromArray(ext)));
+    const lozenge = () => fc.tuple(rectangle3(), positive(5))
+        .map(([r, radius]) => Lozenge3.fromRectangleRadius(r, radius));
+    const key = (l: Lozenge3) => [...l.rectangle.center.values,
+        ...l.rectangle.axis[0].values, ...l.rectangle.axis[1].values,
+        ...l.rectangle.extent.values, l.radius];
+
+    it('the comparisons follow the (rectangle, radius) member order', () => {
+        check(fc.tuple(lozenge(), lozenge()), ([a, b]) => {
+            const cmp = compareKeys(key(a), key(b));
+            expect(a.lessThan(b)).toBe(cmp < 0);
+            expect(a.greaterThan(b)).toBe(cmp > 0);
+            expect(a.lessThanOrEqual(b)).toBe(cmp <= 0);
+            expect(a.greaterThanOrEqual(b)).toBe(cmp >= 0);
+            expect(a.equals(b)).toBe(cmp === 0);
+        });
+    });
+
+    it('a differing radius alone orders by the radius', () => {
+        check(fc.tuple(rectangle3(), positive(5), positive(5)),
+            ([r, r0, r1]) => {
+                const a = Lozenge3.fromRectangleRadius(r, r0);
+                const b = Lozenge3.fromRectangleRadius(r, r1);
+                expect(a.lessThan(b)).toBe(r0 < r1);
+            });
+    });
+
+    it('lessThan is a strict weak ordering', () => {
+        check(fc.array(lozenge(), { minLength: 4, maxLength: 5 }), ls => {
+            expectStrictWeakOrder(ls, (x, y) => x.lessThan(y));
+        }, 30);
+    });
+
+    it('the surface is at distance radius from the rectangle', () => {
+        // The definition: points equidistant from the rectangle. A point on
+        // the rectangle displaced by radius along the rectangle normal is on
+        // the lozenge boundary.
+        const query = new DistPointRectangle();
+        check(fc.tuple(lozenge(), finite(-1, 1), finite(-1, 1)),
+            ([l, s0, s1]) => {
+                const rect = l.rectangle;
+                const normal = cross(rect.axis[0], rect.axis[1]);
+                const p = add(rect.center,
+                    add(mul(s0 * rect.extent.get(0), rect.axis[0]),
+                        mul(s1 * rect.extent.get(1), rect.axis[1])));
+                const x = add(p, mul(l.radius, normal));
+                expectClose(query.compute(x, rect).distance, l.radius,
+                    1e-9, 1e-9);
+            }, 100);
+    });
+
+    it('equals is element equality, so a NaN axis breaks self-equality', () => {
+        const rect = Rectangle.fromCenterAxisExtent(
+            Vector.fromArray([0, 0, 0]),
+            [Vector.fromArray([NaN, 0, 0]), Vector.fromArray([0, 1, 0])],
+            Vector.fromArray([1, 1]));
+        const l = Lozenge3.fromRectangleRadius(rect, 1);
+        expect(l.equals(l)).toBe(false);
+        expect(l.lessThan(l)).toBe(false);
+        expect(l.lessThanOrEqual(l)).toBe(true);
+    });
+
+    it('the factory and clone copy the rectangle', () => {
+        check(rectangle3(), rect => {
+            const l = Lozenge3.fromRectangleRadius(rect, 1);
+            const cloned = l.clone();
+            rect.center.set(0, 999);
+            l.rectangle.axis[0].set(1, 888);
+            expect(l.rectangle.center.get(0)).not.toBe(999);
+            expect(cloned.rectangle.axis[0].get(1)).not.toBe(888);
+        }, 50);
     });
 });
