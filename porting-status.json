@@ -293,7 +293,8 @@
   "verified": 23
  },
  "CholeskyDecomposition.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 39
  },
  "Circle3.h": {
   "status": "ported"
@@ -899,7 +900,8 @@
   "verified": 38
  },
  "GaussNewtonMinimizer.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 40
  },
  "GenerateMeshUV.h": {
   "status": "ported"
@@ -1550,10 +1552,12 @@
   "verified": 38
  },
  "LDLTDecomposition.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 39
  },
  "LevenbergMarquardtMinimizer.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 40
  },
  "LexicoArray2.h": {
   "status": "ported",
@@ -1567,7 +1571,8 @@
   "status": "ported"
  },
  "LinearSystem.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 40
  },
  "Log2Estimate.h": {
   "status": "ported",
@@ -1647,10 +1652,12 @@
   "verified": 37
  },
  "Minimize1.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 39
  },
  "MinimizeN.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 39
  },
  "MinimumAreaBox2.h": {
   "status": "ported",
@@ -1737,16 +1744,20 @@
   "verified": 7
  },
  "OdeEuler.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 39
  },
  "OdeImplicitEuler.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 39
  },
  "OdeMidpoint.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 39
  },
  "OdeRungeKutta4.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 39
  },
  "OdeSolver.h": {
   "status": "ported",
@@ -1879,7 +1890,8 @@
   "status": "ported"
  },
  "RemezAlgorithm.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 39
  },
  "ReparameterizeByArclength.h": {
   "status": "ported",
@@ -1970,7 +1982,8 @@
   "verified": 23
  },
  "SingularValueDecomposition.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 39
  },
  "Slerp.h": {
   "status": "ported",
@@ -2029,7 +2042,8 @@
   "verified": 5
  },
  "SymmetricEigensolver.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 39
  },
  "SymmetricEigensolver2x2.h": {
   "status": "ported",
