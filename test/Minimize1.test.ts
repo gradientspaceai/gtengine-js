@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { Minimize1 } from '../src/Minimize1.js';
+import {
+    check, expectClose, fc, positive, scaled
+} from './helpers/arbitraries.js';
 
 // A brute-force scan of F on [t0,t1] used as an independent estimate of the
 // global minimum.
@@ -165,4 +168,180 @@ describe('Minimize1', () => {
         expect(tMin).toBeCloseTo(0.5, 6);
         expect(fMin).toBeLessThan(1e-6);
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V39): independent review against upstream Minimize1.h.
+//
+// The bracket-collapse defect described in the port notes of src/Minimize1.ts
+// (upstream #298) is fixed here; the first property below is its regression
+// test and fails on the unfixed algorithm.
+// ---------------------------------------------------------------------------
+
+describe('Minimize1 verification', () => {
+    // F(t) = (t^2 - A^2) * (1 + skew*t) + c*t on [-A, A].
+    //
+    // The first factor vanishes at both endpoints and is negative inside, so
+    // F(-A) and F(A) are equal up to the c*t term: exactly the situation that
+    // defeats the upstream bracket update, where the two endpoints of the
+    // search interval describe the same configuration and their function
+    // values differ only by round-off. The skew moves the minimum away from
+    // the midpoint, so a search that collapses onto the midpoint reports a
+    // value that is visibly too large.
+    const A = Math.PI / 2;
+
+    function nearSymmetric(skew: number, c: number) {
+        return (t: number) => (t * t - A * A) * (1 + skew * t) + c * t;
+    }
+
+    // The minimum of (t^2 - A^2) * (1 + skew*t) inside (-A, A): the root of
+    // the derivative 3*skew*t^2 + 2*t - skew*A^2 that lies in the interval.
+    function trueMinimum(skew: number): number {
+        if (skew === 0) { return 0; }
+        const a = 3 * skew, b = 2, d = -skew * A * A;
+        const disc = Math.sqrt(b * b - 4 * a * d);
+        const r0 = (-b + disc) / (2 * a);
+        const r1 = (-b - disc) / (2 * a);
+        return (r0 > -A && r0 < A) ? r0 : r1;
+    }
+
+    it('finds the minimum when the two endpoint values agree to round-off '
+        + '(upstream #298)', () => {
+        check(fc.tuple(fc.oneof(scaled(0.1, 0.6), scaled(-0.6, -0.1)),
+            fc.constantFrom(0, 1e-16, 5e-16, 1e-15, 1e-14, 1e-13, 1e-12,
+                1e-11, 1e-10, 1e-9)),
+        ([skew, c]) => {
+            for (const sign of [1, -1]) {
+                const F = nearSymmetric(skew, sign * c);
+                const tTrue = trueMinimum(skew);
+                const fTrue = nearSymmetric(skew, sign * c)(tTrue);
+                const { tMin, fMin } = new Minimize1(F, 8, 128)
+                    .getMinimum(-A, A);
+                // The search converges to the tolerance-limited neighborhood
+                // of the true minimizer, where F is flat to second order, so
+                // the value is far more accurate than the location.
+                expect(fMin).toBeLessThanOrEqual(fTrue + 1e-9);
+                expectClose(tMin, tTrue, 1e-3, 1e-3);
+                // The upstream collapse stops at the midpoint value.
+                expect(fMin).toBeLessThan(F(0));
+            }
+        });
+    });
+
+    it('reports a pair (tMin, fMin) with fMin = F(tMin) inside [t0,t1]',
+        () => {
+            check(fc.tuple(scaled(-0.6, 0.6), scaled(-1e-9, 1e-9),
+                fc.integer({ min: 1, max: 16 }),
+                fc.integer({ min: 1, max: 64 })),
+            ([skew, c, maxSubdivisions, maxBisections]) => {
+                let last = NaN;
+                const F = (t: number) => {
+                    last = nearSymmetric(skew, c)(t);
+                    return last;
+                };
+                const { tMin, fMin } = new Minimize1(F, maxSubdivisions,
+                    maxBisections).getMinimum(-A, A);
+                expect(tMin).toBeGreaterThanOrEqual(-A);
+                expect(tMin).toBeLessThanOrEqual(A);
+                // Every reported minimum is an evaluated sample, so
+                // re-evaluating F at tMin reproduces fMin exactly.
+                expect(F(tMin)).toBe(fMin);
+                expect(last).toBe(fMin);
+            });
+        });
+
+    it('never reports a worse minimum when the bisection budget grows', () => {
+        // The iteration for a budget of k bisections is a prefix of the one
+        // for k+1, and the recorded minimum only ever decreases along it.
+        check(fc.tuple(scaled(-0.6, 0.6), scaled(-1e-10, 1e-10)),
+            ([skew, c]) => {
+                const F = nearSymmetric(skew, c);
+                let previous = Number.POSITIVE_INFINITY;
+                for (const maxBisections of [1, 2, 3, 5, 8, 13, 21, 34]) {
+                    const { fMin } = new Minimize1(F, 8, maxBisections)
+                        .getMinimum(-A, A);
+                    expect(fMin).toBeLessThanOrEqual(previous);
+                    previous = fMin;
+                }
+            });
+    });
+
+    it('finds the minimum of a smooth unimodal function', () => {
+        check(fc.tuple(scaled(-3, 3), positive(4, 0.1), positive(2, 0.05)),
+            ([c, w, v]) => {
+                // F(t) = w*(t-c)^2 + v*(t-c)^4 is strictly convex with its
+                // only minimum at c, which lies inside [-4, 4].
+                const F = (t: number) => {
+                    const d = t - c;
+                    return w * d * d + v * d * d * d * d;
+                };
+                const { tMin, fMin } = new Minimize1(F, 16, 200, 1e-15, 1e-13)
+                    .getMinimum(-4, 4);
+                expect(fMin).toBeGreaterThanOrEqual(0);
+                // Parabolic interpolation on a smooth convex function
+                // converges superlinearly, so the value is essentially exact
+                // and the location is good to the square root of that.
+                expect(fMin).toBeLessThan(1e-12);
+                expectClose(tMin, c, 1e-5, 1e-5);
+            });
+    });
+
+    it('reports the smallest value it evaluated on a multimodal function',
+        () => {
+            check(fc.tuple(scaled(0.2, 1.5), scaled(-1, 1)), ([w, phase]) => {
+                // Several local minima on [-6, 6]. The search is not
+                // guaranteed to find the deepest one - the subdivision phase
+                // only refines brackets it happens to detect - but what it
+                // reports must be the smallest value it ever evaluated, and
+                // it must improve on the three samples it starts from.
+                const base = (t: number) => Math.sin(2 * t + phase)
+                    + (w * t * t) / 10;
+                const values: number[] = [];
+                const F = (t: number) => {
+                    const f = base(t);
+                    values.push(f);
+                    return f;
+                };
+                const { tMin, fMin } = new Minimize1(F, 12, 128, 1e-14, 1e-12)
+                    .getMinimum(-6, 6);
+                expect(fMin).toBe(Math.min(...values));
+                expect(base(tMin)).toBe(fMin);
+                expect(fMin).toBeLessThanOrEqual(
+                    Math.min(base(-6), base(0), base(6)));
+            });
+        });
+
+    it('returns an endpoint when the minimum is at an endpoint', () => {
+        check(fc.tuple(scaled(0.2, 3), fc.boolean()), ([slope, atLeft]) => {
+            // A strictly monotone function has its minimum at whichever
+            // endpoint the slope points to.
+            const F = (t: number) => (atLeft ? slope : -slope) * t;
+            const { tMin, fMin } = new Minimize1(F, 8, 64).getMinimum(-2, 3);
+            expect(tMin).toBe(atLeft ? -2 : 3);
+            expect(fMin).toBe(F(tMin));
+        });
+    });
+
+    it('is unaffected by the fix when the parabola vertex is resolvable',
+        () => {
+            // The two changes made for #298 only alter the iteration when
+            // the vertex of the interpolating parabola is within a few ulps
+            // of the middle sample, or when the parabola is degenerate. For
+            // an asymmetric bracket neither happens, and the search takes
+            // exactly the upstream path: the classical parabolic
+            // interpolation of a quadratic converges in one step.
+            check(fc.tuple(scaled(-1.5, 1.5), positive(4, 0.5)),
+                ([c, w]) => {
+                    const F = (t: number) => w * (t - c) * (t - c);
+                    let evaluations = 0;
+                    const counted = (t: number) => { ++evaluations; return F(t); };
+                    const { tMin, fMin } = new Minimize1(counted, 8, 64,
+                        1e-14, 1e-12).getMinimum(-2.25, 2.5);
+                    // Parabolic interpolation is exact for a quadratic, so
+                    // the very first vertex is the minimizer.
+                    expectClose(tMin, c, 1e-9, 1e-9);
+                    expect(fMin).toBeLessThan(1e-16);
+                    expect(evaluations).toBeGreaterThanOrEqual(4);
+                });
+        });
 });

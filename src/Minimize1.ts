@@ -19,6 +19,41 @@
 //
 // If the polyline is not V-shaped, both subintervals [t0,tm] and [tm,t1]
 // are searched for a minimum.
+//
+// Port notes.
+//
+// Upstream bug (fixed here, two parts). The bracket update in
+// GetBracketedMinimum is unusable whenever F(t0) and F(t1) agree to within
+// round-off, which is the normal situation for a function sampled over an
+// interval whose two endpoints describe the same configuration. In exact
+// arithmetic the vertex of the interpolating parabola is then the midpoint
+// of the bracket, and upstream has a branch for exactly that case: it
+// examines a neighborhood of the vertex, which keeps both halves of the
+// bracket in play. In floating-point arithmetic the vertex misses the
+// midpoint by a few ulps, so:
+//
+//  * The exact 'tv == tm' test fails, one of the asymmetric branches runs,
+//    and it discards everything on one side of a point that is a few ulps
+//    from the middle sample - a bracket collapse driven entirely by
+//    round-off, which throws away the half that may contain the minimum.
+//    The port compares tv with tm to within the floating-point resolution
+//    of the bracket (8 ulps of its largest endpoint) instead.
+//  * On the following iteration the collapsed bracket makes the parabola
+//    degenerate, |denom| <= epsilon, and upstream returns, abandoning the
+//    search after four function evaluations. The port instead continues
+//    with the same neighborhood examination that the vertex-at-the-midpoint
+//    case uses, and only the caller's maxBisections bounds the work.
+//
+// This is upstream issue #298, found through DistOrientedBox3Cone3, which
+// sweeps a quad angle over [-pi/2, pi/2] whose endpoint slices are the same
+// point set: for the configuration pinned in that file's tests the search
+// reported a distance of 0.3628 instead of the true 0.0775 near angle 0.22.
+// Both parts are needed; either alone leaves a range of near-symmetric
+// inputs broken. Neither changes the iteration when the parabola vertex is
+// resolvable, so a well-conditioned search is bit-for-bit as upstream.
+//
+// The output reference parameters and the two GetMinimum overloads are
+// mapped as described at their declarations below.
 
 import { logAssert } from './Logger.js';
 
@@ -35,6 +70,13 @@ export interface Minimize1Result {
 
 // The port of 'std::function<T(T)>'.
 export type Minimize1Function = (t: number) => number;
+
+// The three samples {(t0,f0),(tm,fm),(t1,f1)} that bracket a minimum. Used
+// only to return the six updated values of the bracket refinement, which
+// upstream performs by assigning to local variables in place.
+interface Minimize1Bracket {
+    t0: number; f0: number; tm: number; fm: number; t1: number; f1: number;
+}
 
 export class Minimize1 {
     private mFunction: Minimize1Function;
@@ -190,7 +232,15 @@ export class Minimize1 {
             const tmp1 = dt1m * df0m;
             const denom = tmp1 - tmp0;
             if (Math.abs(denom) <= this.mEpsilon) {
-                return;
+                // The parabola through the three samples is degenerate, so
+                // its vertex carries no information. Upstream returns here,
+                // abandoning the search; see the port note at the top of the
+                // file. The port instead continues with the same
+                // neighborhood examination it uses when the vertex lands on
+                // the middle sample.
+                ({ t0, f0, tm, fm, t1, f1 } =
+                    this.refineAroundMidpoint(t0, f0, tm, fm, t1, f1));
+                continue;
             }
 
             // Compute tv and clamp to [t0,t1] to offset floating-point
@@ -203,7 +253,14 @@ export class Minimize1 {
                 this.mFMin = fv;
             }
 
-            if (tv < tm) {
+            // The vertex is distinguishable from the middle sample only when
+            // it is farther from it than the floating-point resolution of the
+            // bracket. Upstream compares tv with tm exactly; see the port
+            // note at the top of the file.
+            const tvBound = 8 * Number.EPSILON
+                * Math.max(Math.abs(t0), Math.abs(t1));
+
+            if (tv < tm - tvBound) {
                 if (fv < fm) {
                     t1 = tm;
                     f1 = fm;
@@ -215,7 +272,7 @@ export class Minimize1 {
                     f0 = fv;
                 }
             }
-            else if (tv > tm) {
+            else if (tv > tm + tvBound) {
                 if (fv < fm) {
                     t0 = tm;
                     f0 = fm;
@@ -232,73 +289,55 @@ export class Minimize1 {
                 // point. A minimum could occur on either subinterval, but it
                 // is also possible the minimum occurs at the vertex. In
                 // either case, the search is continued by examining a
-                // neighborhood of the vertex. When two choices exist for a
-                // bracket, the one with the smallest function value at the
-                // midpoint is used.
-                const tm0 = half * (t0 + tm);
-                const fm0 = this.mFunction(tm0);
-                const tm1 = half * (tm + t1);
-                const fm1 = this.mFunction(tm1);
-
-                if (fm0 < fm) {
-                    if (fm1 < fm) {
-                        if (fm0 < fm1) {
-                            // {(t0,f0),(tm0,fm0),(tm,fm)}
-                            t1 = tm;
-                            f1 = fm;
-                            tm = tm0;
-                            fm = fm0;
-                        }
-                        else {
-                            // {(tm,fm),(tm1,fm1),(t1,f1)}
-                            t0 = tm;
-                            f0 = fm;
-                            tm = tm1;
-                            fm = fm1;
-                        }
-                    }
-                    else {
-                        // fm1 >= fm: {(t0,f0),(tm0,fm0),(tm,fm)}
-                        t1 = tm;
-                        f1 = fm;
-                        tm = tm0;
-                        fm = fm0;
-                    }
-                }
-                else if (fm0 > fm) {
-                    if (fm1 < fm) {
-                        // {(tm,fm),(tm1,fm1),(t1,f1)}
-                        t0 = tm;
-                        f0 = fm;
-                        tm = tm1;
-                        fm = fm1;
-                    }
-                    else {
-                        // fm1 >= fm: {(tm0,fm0),(tm,fm),(tm1,fm1)}
-                        t0 = tm0;
-                        f0 = fm0;
-                        t1 = tm1;
-                        f1 = fm1;
-                    }
-                }
-                else {
-                    // fm0 = fm
-                    if (fm1 < fm) {
-                        // {(tm,fm),(tm1,fm1),(t1,f1)}
-                        t0 = tm;
-                        f0 = fm;
-                        tm = tm1;
-                        fm = fm1;
-                    }
-                    else {
-                        // fm1 >= fm: {(tm0,fm0),(tm,fm),(tm1,fm1)}
-                        t0 = tm0;
-                        f0 = fm0;
-                        t1 = tm1;
-                        f1 = fm1;
-                    }
-                }
+                // neighborhood of the vertex.
+                ({ t0, f0, tm, fm, t1, f1 } =
+                    this.refineAroundMidpoint(t0, f0, tm, fm, t1, f1));
             }
+        }
+    }
+
+    // Examine a neighborhood of the middle sample and return the
+    // subinterval that brackets a minimum. When two choices exist for a
+    // bracket, the one with the smallest function value at the midpoint is
+    // used. This is upstream's 'vertex of the parabola is at the middle
+    // sample point' case, extracted so that the degenerate-parabola case can
+    // use it as well.
+    private refineAroundMidpoint(t0: number, f0: number, tm: number,
+        fm: number, t1: number, f1: number): Minimize1Bracket {
+        const half = 0.5;
+        const tm0 = half * (t0 + tm);
+        const fm0 = this.mFunction(tm0);
+        const tm1 = half * (tm + t1);
+        const fm1 = this.mFunction(tm1);
+
+        if (fm0 < fm) {
+            if (fm1 < fm) {
+                if (fm0 < fm1) {
+                    // {(t0,f0),(tm0,fm0),(tm,fm)}
+                    return { t0, f0, tm: tm0, fm: fm0, t1: tm, f1: fm };
+                }
+                // {(tm,fm),(tm1,fm1),(t1,f1)}
+                return { t0: tm, f0: fm, tm: tm1, fm: fm1, t1, f1 };
+            }
+            // fm1 >= fm: {(t0,f0),(tm0,fm0),(tm,fm)}
+            return { t0, f0, tm: tm0, fm: fm0, t1: tm, f1: fm };
+        }
+        else if (fm0 > fm) {
+            if (fm1 < fm) {
+                // {(tm,fm),(tm1,fm1),(t1,f1)}
+                return { t0: tm, f0: fm, tm: tm1, fm: fm1, t1, f1 };
+            }
+            // fm1 >= fm: {(tm0,fm0),(tm,fm),(tm1,fm1)}
+            return { t0: tm0, f0: fm0, tm, fm, t1: tm1, f1: fm1 };
+        }
+        else {
+            // fm0 = fm
+            if (fm1 < fm) {
+                // {(tm,fm),(tm1,fm1),(t1,f1)}
+                return { t0: tm, f0: fm, tm: tm1, fm: fm1, t1, f1 };
+            }
+            // fm1 >= fm: {(tm0,fm0),(tm,fm),(tm1,fm1)}
+            return { t0: tm0, f0: fm0, tm, fm, t1: tm1, f1: fm1 };
         }
     }
 }

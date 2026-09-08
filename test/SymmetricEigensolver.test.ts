@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { SymmetricEigensolver } from '../src/SymmetricEigensolver.js';
+import {
+    check, expectClose, fc, scaled
+} from './helpers/arbitraries.js';
 
 function makeRandom(seed: number): () => number {
     let state = seed >>> 0;
@@ -496,5 +499,252 @@ describe('SymmetricEigensolver', () => {
 
         solver.solve(a0, +1);
         expect(solver.getEigenvalues()).toEqual([2, 4, 6]);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V39): independent review against upstream
+// SymmetricEigensolver.h.
+//
+// The upstream defect the port fixes (Tridiagonalize storing 2 instead of 0
+// as the reflection parameter of a degenerate Householder step) is exercised
+// by the block-diagonal property below, which fails on the unfixed code.
+// ---------------------------------------------------------------------------
+
+describe('SymmetricEigensolver verification', () => {
+    // An n-by-n symmetric matrix, row-major, built from the lower triangle.
+    const symmetric = (n: number): fc.Arbitrary<number[]> =>
+        fc.array(scaled(-5, 5),
+            { minLength: (n * (n + 1)) / 2, maxLength: (n * (n + 1)) / 2 })
+            .map(values => {
+                const A = new Array<number>(n * n).fill(0);
+                let k = 0;
+                for (let r = 0; r < n; ++r) {
+                    for (let c = 0; c <= r; ++c, ++k) {
+                        A[c + n * r] = values[k];
+                        A[r + n * c] = values[k];
+                    }
+                }
+                return A;
+            });
+
+    const sized = fc.integer({ min: 2, max: 6 })
+        .chain(n => fc.tuple(fc.constant(n), symmetric(n)));
+
+    function lInfinity(A: readonly number[]): number {
+        let worst = 0;
+        for (const value of A) { worst = Math.max(worst, Math.abs(value)); }
+        return worst;
+    }
+
+    // The largest |(A*Q - Q*D)(r,c)| over the matrix, where the columns of Q
+    // are the eigenvectors and D is the diagonal of eigenvalues.
+    function eigenResidual(n: number, A: readonly number[],
+        Q: readonly number[], values: readonly number[]): number {
+        let worst = 0;
+        for (let c = 0; c < n; ++c) {
+            for (let r = 0; r < n; ++r) {
+                let sum = 0;
+                for (let k = 0; k < n; ++k) {
+                    sum += A[k + n * r] * Q[c + n * k];
+                }
+                worst = Math.max(worst,
+                    Math.abs(sum - values[c] * Q[c + n * r]));
+            }
+        }
+        return worst;
+    }
+
+    function orthonormalityError(n: number, Q: readonly number[]): number {
+        let worst = 0;
+        for (let r = 0; r < n; ++r) {
+            for (let c = 0; c < n; ++c) {
+                let sum = 0;
+                for (let k = 0; k < n; ++k) {
+                    sum += Q[r + n * k] * Q[c + n * k];
+                }
+                worst = Math.max(worst, Math.abs(sum - (r === c ? 1 : 0)));
+            }
+        }
+        return worst;
+    }
+
+    it('satisfies A*Q = Q*D with an orthonormal Q', () => {
+        check(fc.tuple(sized, fc.constantFrom(-1, 0, 1)),
+            ([[n, A], sortType]) => {
+                const solver = new SymmetricEigensolver(n, 4096);
+                const iterations = solver.solve(A, sortType);
+                expect(iterations).not
+                    .toBe(SymmetricEigensolver.noConvergence);
+
+                const values = solver.getEigenvalues();
+                const Q = solver.getEigenvectors();
+                const scale = Math.max(lInfinity(A), 1);
+                // Golub and Van Loan expect |Q^T*A*Q - D| to be about
+                // unitRoundoff*|A|; the bound allows for the O(n)
+                // accumulation of the residual products.
+                expect(eigenResidual(n, A, Q, values))
+                    .toBeLessThan(1e-11 * scale);
+                expect(orthonormalityError(n, Q)).toBeLessThan(1e-12);
+            }, 100);
+    });
+
+    it('orders the eigenvalues according to sortType', () => {
+        check(sized, ([n, A]) => {
+            const decreasing = new SymmetricEigensolver(n, 4096);
+            const increasing = new SymmetricEigensolver(n, 4096);
+            const unsorted = new SymmetricEigensolver(n, 4096);
+            decreasing.solve(A, -1);
+            increasing.solve(A, 1);
+            unsorted.solve(A, 0);
+
+            const down = decreasing.getEigenvalues();
+            const up = increasing.getEigenvalues();
+            const none = unsorted.getEigenvalues();
+            for (let i = 1; i < n; ++i) {
+                expect(down[i]).toBeLessThanOrEqual(down[i - 1]);
+                expect(up[i]).toBeGreaterThanOrEqual(up[i - 1]);
+            }
+            // The three runs differ only in the permutation applied at the
+            // end, so the multisets are identical bit for bit.
+            const sortedNone = none.slice().sort((p, q) => q - p);
+            for (let i = 0; i < n; ++i) {
+                expect(down[i]).toBe(sortedNone[i]);
+                expect(up[i]).toBe(sortedNone[n - 1 - i]);
+            }
+        }, 100);
+    });
+
+    it('agrees with its single-eigenpair accessors', () => {
+        check(fc.tuple(sized, fc.constantFrom(-1, 0, 1)),
+            ([[n, A], sortType]) => {
+                const solver = new SymmetricEigensolver(n, 4096);
+                solver.solve(A, sortType);
+                const values = solver.getEigenvalues();
+                const Q = solver.getEigenvectors();
+                for (let c = 0; c < n; ++c) {
+                    expect(solver.getEigenvalue(c)).toBe(values[c]);
+                    const v = solver.getEigenvector(c);
+                    expect(v.length).toBe(n);
+                    for (let r = 0; r < n; ++r) {
+                        // getEigenvector applies the reflections and
+                        // rotations incrementally in the opposite order, so
+                        // the digits differ from the accumulated matrix.
+                        expectClose(v[r], Q[c + n * r], 1e-11, 1e-11);
+                    }
+                }
+                // Out-of-range requests return the empty array, as
+                // documented.
+                expect(solver.getEigenvector(-1)).toEqual([]);
+                expect(solver.getEigenvector(n)).toEqual([]);
+            }, 60);
+    });
+
+    it('preserves the trace and the sum of squares', () => {
+        check(sized, ([n, A]) => {
+            const solver = new SymmetricEigensolver(n, 4096);
+            solver.solve(A, -1);
+            const values = solver.getEigenvalues();
+            let trace = 0, frobenius = 0;
+            for (let r = 0; r < n; ++r) {
+                trace += A[r + n * r];
+                for (let c = 0; c < n; ++c) {
+                    frobenius += A[c + n * r] * A[c + n * r];
+                }
+            }
+            let sum = 0, sumSquares = 0;
+            for (const value of values) {
+                sum += value;
+                sumSquares += value * value;
+            }
+            const scale = Math.max(lInfinity(A), 1);
+            expectClose(sum, trace, 1e-11 * scale, 1e-11);
+            // |A|_F^2 = sum of the squared eigenvalues for a symmetric A.
+            expectClose(sumSquares, frobenius, 1e-10 * scale * scale, 1e-10);
+        }, 100);
+    });
+
+    it('builds a correct Q when the tridiagonalization decouples '
+        + '(upstream #80)', () => {
+        // A block-diagonal symmetric matrix with a leading block of size k:
+        // at step i = k-1 of Tridiagonalize the subcolumn below the
+        // subdiagonal is entirely zero, so the Householder step degenerates.
+        // Upstream stores 2/Dot(v,v) = 2 as that step's reflection parameter
+        // even though the reflection it applied was the identity, and
+        // GetEigenvectors then rebuilds H = I - 2*e*e^T, flipping the sign of
+        // one row of Q. The eigenvalues are unaffected, so only the
+        // eigenvector residual detects it.
+        check(fc.integer({ min: 4, max: 6 }).chain(n =>
+            fc.tuple(fc.constant(n),
+                fc.integer({ min: 2, max: n - 2 }),
+                symmetric(n))), ([n, k, full]) => {
+            const A = full.slice();
+            for (let r = 0; r < n; ++r) {
+                for (let c = 0; c < n; ++c) {
+                    if ((r < k) !== (c < k)) {
+                        A[c + n * r] = 0;
+                    }
+                }
+            }
+            const solver = new SymmetricEigensolver(n, 4096);
+            expect(solver.solve(A, -1)).not
+                .toBe(SymmetricEigensolver.noConvergence);
+            const values = solver.getEigenvalues();
+            const Q = solver.getEigenvectors();
+            const scale = Math.max(lInfinity(A), 1);
+            expect(eigenResidual(n, A, Q, values))
+                .toBeLessThan(1e-11 * scale);
+            expect(orthonormalityError(n, Q)).toBeLessThan(1e-12);
+
+            // The incremental accessor rebuilds the same reflections, so it
+            // must agree with the accumulated matrix.
+            for (let c = 0; c < n; ++c) {
+                const v = solver.getEigenvector(c);
+                for (let r = 0; r < n; ++r) {
+                    expectClose(v[r], Q[c + n * r], 1e-11, 1e-11);
+                }
+            }
+        }, 100);
+    });
+
+    it('reports an eigenvector matrix type consistent with det(Q)', () => {
+        check(sized, ([n, A]) => {
+            const solver = new SymmetricEigensolver(n, 4096);
+            solver.solve(A, -1);
+            const Q = solver.getEigenvectors();
+            const type = solver.getEigenvectorMatrixType();
+            expect(type === 0 || type === 1).toBe(true);
+
+            // Determinant by Gaussian elimination with partial pivoting; Q is
+            // orthogonal, so the result is +1 or -1.
+            const M = Q.slice();
+            let det = 1;
+            for (let col = 0; col < n; ++col) {
+                let pivot = col;
+                for (let row = col + 1; row < n; ++row) {
+                    if (Math.abs(M[col + n * row])
+                        > Math.abs(M[col + n * pivot])) {
+                        pivot = row;
+                    }
+                }
+                if (pivot !== col) {
+                    for (let j = 0; j < n; ++j) {
+                        const t = M[j + n * col];
+                        M[j + n * col] = M[j + n * pivot];
+                        M[j + n * pivot] = t;
+                    }
+                    det = -det;
+                }
+                det *= M[col + n * col];
+                for (let row = col + 1; row < n; ++row) {
+                    const factor = M[col + n * row] / M[col + n * col];
+                    for (let j = col; j < n; ++j) {
+                        M[j + n * row] -= factor * M[j + n * col];
+                    }
+                }
+            }
+            expectClose(Math.abs(det), 1, 1e-9, 1e-9);
+            expect(det > 0 ? 1 : 0).toBe(type);
+        }, 100);
     });
 });

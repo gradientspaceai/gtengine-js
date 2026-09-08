@@ -3,10 +3,14 @@ import {
     BlockLDLTDecomposition, LDLTDecomposition
 } from '../src/LDLTDecomposition.js';
 import type { LDLTBlockVector } from '../src/LDLTDecomposition.js';
+import { LinearSystem } from '../src/LinearSystem.js';
 import {
-    Matrix, multiplyAB, multiplyABT, mulMatrix, transpose
+    Matrix, determinant, multiplyAB, multiplyABT, mulMatrix, transpose
 } from '../src/Matrix.js';
 import { Vector, sub } from '../src/Vector.js';
+import {
+    check, expectClose, fc, scaled, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function makeRng(seed: number): () => number {
     let state = seed >>> 0;
@@ -485,5 +489,249 @@ describe('BlockLDLTDecomposition factor and solve', () => {
         const Lfull = decomposer.convertBlockToMatrix(L);
         const Dfull = decomposer.convertBlockToMatrix(D);
         expect(maxAbsDiff(reconstruct(Lfull, Dfull), A)).toBeLessThan(1e-12);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V39): independent review against upstream LDLTDecomposition.h.
+// ---------------------------------------------------------------------------
+
+describe('LDLTDecomposition verification', () => {
+    // A symmetric positive definite n-by-n matrix, well conditioned because
+    // of the n*I shift.
+    const spdMatrix = (n: number): fc.Arbitrary<Matrix> =>
+        fc.array(scaled(-1, 1), { minLength: n * n, maxLength: n * n })
+            .map(m => {
+                const A = new Matrix(n, n);
+                for (let r = 0; r < n; ++r) {
+                    for (let c = 0; c < n; ++c) {
+                        let sum = 0;
+                        for (let k = 0; k < n; ++k) {
+                            sum += m[r + n * k] * m[c + n * k];
+                        }
+                        A.set(r, c, sum + (r === c ? n : 0));
+                    }
+                }
+                return A;
+            });
+
+    const sizedSpd = fc.integer({ min: 1, max: 7 })
+        .chain(n => fc.tuple(fc.constant(n), spdMatrix(n),
+            wellScaledVector(n, -5, 5)));
+
+    it('produces a unit lower-triangular L and a diagonal D with A = L*D*L^T',
+        () => {
+            check(sizedSpd, ([n, A, _b]) => {
+                const { success, L, D } = new LDLTDecomposition(n).factor(A);
+                expect(success).toBe(true);
+                for (let r = 0; r < n; ++r) {
+                    expect(L.get(r, r)).toBe(1);
+                    for (let c = r + 1; c < n; ++c) {
+                        expect(L.get(r, c)).toBe(0);
+                    }
+                    for (let c = 0; c < n; ++c) {
+                        if (r !== c) { expect(D.get(r, c)).toBe(0); }
+                    }
+                    // A is positive definite, so every pivot is positive.
+                    expect(D.get(r, r)).toBeGreaterThan(0);
+                }
+                const reconstructed = multiplyABT(mulMatrix(L, D), L);
+                for (let r = 0; r < n; ++r) {
+                    for (let c = 0; c < n; ++c) {
+                        expectClose(reconstructed.get(r, c), A.get(r, c),
+                            1e-9, 1e-9);
+                    }
+                }
+            });
+        });
+
+    it('uses only the lower-triangular portion of the input', () => {
+        check(fc.tuple(sizedSpd, fc.array(scaled(-50, 50),
+            { minLength: 49, maxLength: 49 })), ([[n, A, _b], noise]) => {
+            const decomposer = new LDLTDecomposition(n);
+            const clean = decomposer.factor(A);
+            const perturbed = A.clone();
+            for (let r = 0; r < n; ++r) {
+                for (let c = r + 1; c < n; ++c) {
+                    perturbed.set(r, c, noise[c + 7 * r]);
+                }
+            }
+            const dirty = decomposer.factor(perturbed);
+            expect(dirty.success).toBe(clean.success);
+            for (let i = 0; i < n * n; ++i) {
+                expect(dirty.L.values[i]).toBe(clean.L.values[i]);
+                expect(dirty.D.values[i]).toBe(clean.D.values[i]);
+            }
+        });
+    });
+
+    it('solves A*x = b the way the general linear solver does', () => {
+        check(sizedSpd, ([n, A, b]) => {
+            const decomposer = new LDLTDecomposition(n);
+            const { success, X } = decomposer.solve(A, b);
+            expect(success).toBe(true);
+            const reference = LinearSystem.solve(n, A.values, b.values);
+            expect(reference.invertible).toBe(true);
+            for (let i = 0; i < n; ++i) {
+                expectClose(X.get(i), reference.X[i], 1e-8, 1e-8);
+            }
+            // solve() is factor() followed by solveFactored(), so the two
+            // entry points agree bit for bit.
+            const { L, D } = decomposer.factor(A);
+            const Y = decomposer.solveFactored(L, D, b);
+            for (let i = 0; i < n; ++i) {
+                expect(Y.get(i)).toBe(X.get(i));
+            }
+        });
+    });
+
+    it('factors indefinite symmetric matrices whose pivots are nonzero',
+        () => {
+            // The documentation says A must be positive definite, but the
+            // implementation only rejects an exactly zero pivot; an
+            // indefinite matrix factors and yields negative entries of D.
+            // Integer entries keep the pivots away from zero.
+            check(fc.integer({ min: 1, max: 4 }).chain(n =>
+                fc.tuple(fc.constant(n),
+                    fc.array(fc.integer({ min: -4, max: 4 }),
+                        { minLength: n * n, maxLength: n * n }))),
+            ([n, values]) => {
+                const A = new Matrix(n, n);
+                for (let r = 0; r < n; ++r) {
+                    for (let c = 0; c <= r; ++c) {
+                        A.set(r, c, values[c + n * r]);
+                        A.set(c, r, values[c + n * r]);
+                    }
+                }
+                for (let k = 1; k <= n; ++k) {
+                    const leading = new Matrix(k, k);
+                    for (let r = 0; r < k; ++r) {
+                        for (let c = 0; c < k; ++c) {
+                            leading.set(r, c, A.get(r, c));
+                        }
+                    }
+                    // A vanishing leading minor makes the pivot zero, which
+                    // is the documented failure case; skip those draws.
+                    fc.pre(Math.abs(determinant(leading)) > 0.5);
+                }
+                const { success, L, D } = new LDLTDecomposition(n).factor(A);
+                expect(success).toBe(true);
+                const reconstructed = multiplyABT(mulMatrix(L, D), L);
+                for (let r = 0; r < n; ++r) {
+                    for (let c = 0; c < n; ++c) {
+                        expectClose(reconstructed.get(r, c), A.get(r, c),
+                            1e-9, 1e-9);
+                    }
+                }
+            });
+        });
+
+    it('round-trips matrices and vectors through the block layout', () => {
+        check(fc.tuple(fc.integer({ min: 1, max: 4 }),
+            fc.integer({ min: 1, max: 4 })).chain(([blockSize, numBlocks]) => {
+            const n = blockSize * numBlocks;
+            return fc.tuple(fc.constant(blockSize), fc.constant(numBlocks),
+                fc.array(scaled(-5, 5),
+                    { minLength: n * n, maxLength: n * n }),
+                wellScaledVector(n, -5, 5));
+        }), ([blockSize, numBlocks, values, v]) => {
+            const n = blockSize * numBlocks;
+            const decomposer = new BlockLDLTDecomposition(blockSize,
+                numBlocks);
+            const M = Matrix.fromArray(n, n, values);
+            const back = decomposer.convertBlockToMatrix(
+                decomposer.convertMatrixToBlock(M));
+            for (let i = 0; i < n * n; ++i) {
+                expect(back.values[i]).toBe(M.values[i]);
+            }
+            // convertBlockToVector is where upstream verifies the component
+            // count against NumBlocks instead of BlockSize (#209), so it
+            // rejects valid input whenever the two differ.
+            const backV = decomposer.convertBlockToVector(
+                decomposer.convertVectorToBlock(v));
+            for (let i = 0; i < n; ++i) {
+                expect(backV.get(i)).toBe(v.get(i));
+            }
+        });
+    });
+
+    it('block factorization agrees with the unblocked one', () => {
+        const shapes: [number, number][] = [[2, 3], [3, 2], [1, 4], [4, 1],
+        [2, 1], [1, 3]];
+        for (const [blockSize, numBlocks] of shapes) {
+            const n = blockSize * numBlocks;
+            check(fc.tuple(spdMatrix(n), wellScaledVector(n, -5, 5)),
+                ([A, b]) => {
+                    const decomposer = new BlockLDLTDecomposition(blockSize,
+                        numBlocks);
+                    const blocks = decomposer.convertMatrixToBlock(A);
+                    const B = decomposer.convertVectorToBlock(b);
+                    const { success, X } = decomposer.solve(blocks, B);
+                    expect(success).toBe(true);
+                    const flat = decomposer.convertBlockToVector(X);
+                    const reference = LinearSystem.solve(n, A.values,
+                        b.values);
+                    expect(reference.invertible).toBe(true);
+                    for (let i = 0; i < n; ++i) {
+                        expectClose(flat.get(i), reference.X[i], 1e-8, 1e-8);
+                    }
+
+                    // L is block unit lower triangular and D is block
+                    // diagonal, and the product reproduces A.
+                    const factored = decomposer.factor(blocks);
+                    expect(factored.success).toBe(true);
+                    const L = decomposer.convertBlockToMatrix(factored.L);
+                    const D = decomposer.convertBlockToMatrix(factored.D);
+                    for (let r = 0; r < numBlocks; ++r) {
+                        for (let c = 0; c < numBlocks; ++c) {
+                            for (let i = 0; i < blockSize; ++i) {
+                                for (let j = 0; j < blockSize; ++j) {
+                                    const row = i + blockSize * r;
+                                    const col = j + blockSize * c;
+                                    if (c > r) {
+                                        expect(L.get(row, col)).toBe(0);
+                                    }
+                                    if (c !== r) {
+                                        expect(D.get(row, col)).toBe(0);
+                                    } else if (r === c && i !== j) {
+                                        // The diagonal blocks of L are
+                                        // identity matrices.
+                                        expect(L.get(row, col)).toBe(0);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    const reconstructed = multiplyABT(mulMatrix(L, D), L);
+                    for (let r = 0; r < n; ++r) {
+                        for (let c = 0; c < n; ++c) {
+                            expectClose(reconstructed.get(r, c), A.get(r, c),
+                                1e-8, 1e-8);
+                        }
+                    }
+                }, 40);
+        }
+    });
+
+    it('block get/set address the full matrix as a table of scalars', () => {
+        check(fc.tuple(fc.integer({ min: 1, max: 4 }),
+            fc.integer({ min: 1, max: 4 })), ([blockSize, numBlocks]) => {
+            const n = blockSize * numBlocks;
+            const decomposer = new BlockLDLTDecomposition(blockSize,
+                numBlocks);
+            const blocks = decomposer.convertMatrixToBlock(new Matrix(n, n));
+            for (let r = 0; r < n; ++r) {
+                for (let c = 0; c < n; ++c) {
+                    decomposer.set(blocks, r, c, c + n * r);
+                }
+            }
+            const full = decomposer.convertBlockToMatrix(blocks);
+            for (let r = 0; r < n; ++r) {
+                for (let c = 0; c < n; ++c) {
+                    expect(decomposer.get(blocks, r, c)).toBe(c + n * r);
+                    expect(full.get(r, c)).toBe(c + n * r);
+                }
+            }
+        });
     });
 });

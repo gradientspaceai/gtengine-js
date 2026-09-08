@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { GaussNewtonMinimizer } from '../src/GaussNewtonMinimizer.js';
 import { Matrix } from '../src/Matrix.js';
 import { Vector } from '../src/Vector.js';
+import {
+    check, expectClose, fc, invertibleMatrix, scaled, wellScaledVector
+} from './helpers/arbitraries.js';
 
 // A deterministic pseudorandom generator so the randomized cross-checks are
 // reproducible.
@@ -274,5 +277,207 @@ describe('GaussNewtonMinimizer degenerate behavior', () => {
         const result = minimizer.minimize(p0, 16, 1e-14, 1e-16);
         expect(p0.values).toEqual([1.5, -0.3]);
         expect(result.minLocation).not.toBe(p0);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V40): independent review against upstream
+// GaussNewtonMinimizer.h.
+// ---------------------------------------------------------------------------
+
+// A consistent, overdetermined linear least-squares problem: the Jacobian is
+// the 2n-by-n matrix S = [A; A/2] with A invertible, and the data are
+// b = S*pTrue, so the unique least-squares minimizer is pTrue with error 0.
+// Gauss-Newton's normal equations are exact for a linear F, so a single
+// iteration from any starting point must land on pTrue.
+function makeStackedProblem(A: Matrix, pTrue: Vector) {
+    const numP = A.numCols, numF = 2 * numP;
+    const S = new Matrix(numF, numP);
+    for (let r = 0; r < numP; ++r) {
+        for (let c = 0; c < numP; ++c) {
+            S.set(r, c, A.get(r, c));
+            S.set(r + numP, c, 0.5 * A.get(r, c));
+        }
+    }
+    const b = new Vector(numF);
+    for (let r = 0; r < numF; ++r) {
+        let sum = 0;
+        for (let c = 0; c < numP; ++c) { sum += S.get(r, c) * pTrue.get(c); }
+        b.set(r, sum);
+    }
+    const fFunction = (p: Vector, f: Vector): void => {
+        for (let r = 0; r < numF; ++r) {
+            let sum = -b.get(r);
+            for (let c = 0; c < numP; ++c) { sum += S.get(r, c) * p.get(c); }
+            f.set(r, sum);
+        }
+    };
+    const jFunction = (_p: Vector, j: Matrix): void => {
+        for (let r = 0; r < numF; ++r) {
+            for (let c = 0; c < numP; ++c) { j.set(r, c, S.get(r, c)); }
+        }
+    };
+    return { S, b, numP, numF, fFunction, jFunction };
+}
+
+// The "J plus" callback equivalent to a (fFunction, jFunction) pair. The
+// accumulation order matches multiplyATB and the vector-times-matrix product
+// used inside ComputeLinearSystemInputs, so the two code paths perform the
+// same floating-point operations and must agree to the last bit.
+function makeJPlus(numP: number, numF: number,
+    fFunction: (p: Vector, f: Vector) => void,
+    jFunction: (p: Vector, j: Matrix) => void) {
+    return (p: Vector, jtj: Matrix, negJTF: Vector): void => {
+        const j = new Matrix(numF, numP);
+        jFunction(p, j);
+        const f = new Vector(numF);
+        fFunction(p, f);
+        for (let r = 0; r < numP; ++r) {
+            for (let c = 0; c < numP; ++c) {
+                let sum = 0;
+                for (let i = 0; i < numF; ++i) {
+                    sum += j.get(i, r) * j.get(i, c);
+                }
+                jtj.set(r, c, sum);
+            }
+        }
+        for (let c = 0; c < numP; ++c) {
+            let sum = 0;
+            for (let r = 0; r < numF; ++r) { sum += f.get(r) * j.get(r, c); }
+            negJTF.set(c, -sum);
+        }
+    };
+}
+
+// Rosenbrock in least-squares form: F(x, y) = (10*(y - x^2), 1 - x), whose
+// only zero is (1, 1). The Gauss-Newton step is the Newton step for F = 0,
+// which reaches x = 1 in one iteration and y = 1 in the next.
+function rosenbrockF(p: Vector, f: Vector): void {
+    f.set(0, 10 * (p.get(1) - p.get(0) * p.get(0)));
+    f.set(1, 1 - p.get(0));
+}
+
+function rosenbrockJ(p: Vector, j: Matrix): void {
+    j.set(0, 0, -20 * p.get(0));
+    j.set(0, 1, 10);
+    j.set(1, 0, -1);
+    j.set(1, 1, 0);
+}
+
+describe('GaussNewtonMinimizer verification', () => {
+    const linearProblem = fc.integer({ min: 1, max: 4 }).chain(n =>
+        fc.tuple(invertibleMatrix(n, 1e-2, -3, 3), wellScaledVector(n, -3, 3),
+            wellScaledVector(n, -3, 3)));
+
+    it('lands on the least-squares minimizer in one iteration', () => {
+        check(linearProblem, ([A, pTrue, p0]) => {
+            const { numP, numF, fFunction, jFunction } =
+                makeStackedProblem(A, pTrue);
+            const result = GaussNewtonMinimizer
+                .fromJFunction(numP, numF, fFunction, jFunction)
+                .minimize(p0, 1, 0, 0);
+            expect(result.numIterations).toBe(2);
+            for (let i = 0; i < numP; ++i) {
+                // The normal equations square the condition number of A, and
+                // invertibleMatrix admits condition numbers of order 1e3, so
+                // a few digits are lost even though the step is exact in
+                // exact arithmetic.
+                expectClose(result.minLocation.get(i), pTrue.get(i), 1e-6,
+                    1e-6);
+            }
+            expect(result.minError).toBeLessThan(1e-8);
+        });
+    });
+
+    it('gives the same iterates through the J and J-plus callbacks', () => {
+        check(linearProblem, ([A, pTrue, p0]) => {
+            const { numP, numF, fFunction, jFunction } =
+                makeStackedProblem(A, pTrue);
+            const viaJ = GaussNewtonMinimizer
+                .fromJFunction(numP, numF, fFunction, jFunction)
+                .minimize(p0, 4, 0, 0);
+            const viaJPlus = GaussNewtonMinimizer
+                .fromJPlusFunction(numP, numF, fFunction,
+                    makeJPlus(numP, numF, fFunction, jFunction))
+                .minimize(p0, 4, 0, 0);
+            expect(viaJPlus.numIterations).toBe(viaJ.numIterations);
+            expect(viaJPlus.converged).toBe(viaJ.converged);
+            for (let i = 0; i < numP; ++i) {
+                expect(viaJPlus.minLocation.get(i))
+                    .toBe(viaJ.minLocation.get(i));
+            }
+            expect(viaJPlus.minError).toBe(viaJ.minError);
+        });
+    });
+
+    it('reports minError as the squared length of F at minLocation', () => {
+        check(linearProblem, ([A, pTrue, p0]) => {
+            const { numP, numF, fFunction, jFunction } =
+                makeStackedProblem(A, pTrue);
+            const result = GaussNewtonMinimizer
+                .fromJFunction(numP, numF, fFunction, jFunction)
+                .minimize(p0, 3, 0, 0);
+            const f = new Vector(numF);
+            fFunction(result.minLocation, f);
+            let error = 0;
+            for (let r = 0; r < numF; ++r) { error += f.get(r) * f.get(r); }
+            // Both are Dot(F(minLocation), F(minLocation)) evaluated by the
+            // same code on the same input, so they agree exactly.
+            expect(error).toBe(result.minError);
+        });
+    });
+
+    it('solves the least-squares Rosenbrock problem from any start with '
+        + 'x != 0', () => {
+        check(fc.tuple(fc.oneof(scaled(-4, -0.2), scaled(0.2, 4)),
+            scaled(-4, 4)), ([x0, y0]) => {
+            const result = GaussNewtonMinimizer
+                .fromJFunction(2, 2, rosenbrockF, rosenbrockJ)
+                .minimize(Vector.fromArray([x0, y0]), 8, 0, 0);
+            expectClose(result.minLocation.get(0), 1, 1e-7, 1e-7);
+            expectClose(result.minLocation.get(1), 1, 1e-7, 1e-7);
+            expect(result.minError).toBeLessThan(1e-12);
+        });
+    });
+
+    it('does not alias the initial point or the internal scratch state',
+        () => {
+            check(linearProblem, ([A, pTrue, p0]) => {
+                const { numP, numF, fFunction, jFunction } =
+                    makeStackedProblem(A, pTrue);
+                const before = p0.clone();
+                const minimizer = GaussNewtonMinimizer
+                    .fromJFunction(numP, numF, fFunction, jFunction);
+                const first = minimizer.minimize(p0, 2, 0, 0);
+                const held = first.minLocation.clone();
+                // A second run must not disturb the result of the first.
+                minimizer.minimize(pTrue, 2, 0, 0);
+                for (let i = 0; i < numP; ++i) {
+                    expect(p0.get(i)).toBe(before.get(i));
+                    expect(first.minLocation.get(i)).toBe(held.get(i));
+                }
+            });
+        });
+
+    it('reports maxIterations + 1 when the loop is exhausted (upstream '
+        + 'quirk, preserved)', () => {
+        // Result::numIterations is the raw loop counter, so an exhausted
+        // loop reports maxIterations + 1 and maxIterations = 0 reports 1.
+        const problem = makeStackedProblem(
+            Matrix.fromArray(2, 2, [3, 1, 1, 2]),
+            Vector.fromArray([1, -2]));
+        const minimizer = GaussNewtonMinimizer.fromJFunction(problem.numP,
+            problem.numF, problem.fFunction, problem.jFunction);
+        expect(minimizer.minimize(Vector.fromArray([0, 0]), 0, 0, 0)
+            .numIterations).toBe(1);
+        for (const maxIterations of [1, 2, 5]) {
+            const result = minimizer.minimize(Vector.fromArray([4, 4]),
+                maxIterations, 0, 0);
+            // With zero tolerances the second step reproduces the exact
+            // minimizer, so the error never strictly decreases again and the
+            // loop runs to exhaustion.
+            expect(result.numIterations).toBe(maxIterations + 1);
+            expect(result.converged).toBe(false);
+        }
     });
 });

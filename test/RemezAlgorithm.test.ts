@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { REMEZ_FAILURE, RemezAlgorithm } from '../src/RemezAlgorithm.js';
+import {
+    check, expectClose, fc, scaled
+} from './helpers/arbitraries.js';
 
 // Sample the error F(x) - P(x) densely and return its extreme values.
 function sampleError(F: (x: number) => number, coefficients: readonly number[],
@@ -319,5 +322,278 @@ describe('RemezAlgorithm', () => {
             const remez = new RemezAlgorithm();
             expect(remez.execute(F, FDer, -1, 1, 4, 32, 1024, 128)).toBe(REMEZ_FAILURE);
         });
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V39): independent review against upstream RemezAlgorithm.h.
+//
+// Upstream limitation found here and preserved by the port: ComputeXExtremes
+// pins the first and last x-nodes to xMin and xMax, so the alternation set is
+// forced to contain both endpoints. When the true alternation set does not -
+// which happens as soon as the error function has an interior extremum just
+// inside an endpoint - the exchange converges to a fixed point that is not
+// the minimax polynomial, and the errors at those (wrong) nodes still
+// alternate, so the algorithm reports success. The last test in this block
+// pins the numbers for one such case.
+// ---------------------------------------------------------------------------
+
+describe('RemezAlgorithm verification', () => {
+    type Sample = {
+        F: (x: number) => number;
+        FDer: (x: number) => number;
+    };
+
+    // Functions with a derivative of constant sign and no inflection point on
+    // [-1,1]: their minimax error function attains its extreme values at the
+    // interval endpoints, which is the configuration upstream's node update
+    // assumes.
+    const convexFamily = fc.tuple(fc.boolean(), scaled(0.6, 2))
+        .map(([isExp, a]): Sample => (isExp
+            ? {
+                F: (x: number) => Math.exp(a * x),
+                FDer: (x: number) => a * Math.exp(a * x)
+            }
+            : {
+                F: (x: number) => 1 / (x + a + 1.5),
+                FDer: (x: number) => -1 / ((x + a + 1.5) * (x + a + 1.5))
+            }));
+
+    // The convex family plus a sinusoid, whose inflection point inside the
+    // interval is what defeats the pinned end nodes.
+    const family: fc.Arbitrary<Sample> = fc.oneof(convexFamily,
+        scaled(0.6, 2).map((a): Sample => ({
+            F: (x: number) => Math.sin(a * x + 0.3),
+            FDer: (x: number) => a * Math.cos(a * x + 0.3)
+        })));
+
+    // The largest |F(x) - P(x)| on [xMin,xMax], sampled densely.
+    function maxError(F: (x: number) => number,
+        coefficients: readonly number[], xMin: number, xMax: number): number {
+        const samples = 4001;
+        let worst = 0;
+        for (let i = 0; i <= samples; ++i) {
+            const x = xMin + ((xMax - xMin) * i) / samples;
+            let p = 0;
+            for (let k = coefficients.length - 1; k >= 0; --k) {
+                p = coefficients[k] + x * p;
+            }
+            worst = Math.max(worst, Math.abs(F(x) - p));
+        }
+        return worst;
+    }
+
+    // The degree-n polynomial interpolating F at the n+1 Chebyshev points of
+    // [xMin,xMax], in Lagrange form. It is a near-best approximation, so its
+    // error is a meaningful upper bound for the minimax error, and it is not
+    // an implementation of the algorithm under test.
+    function chebyshevInterpolantMaxError(F: (x: number) => number, n: number,
+        xMin: number, xMax: number): number {
+        const center = 0.5 * (xMax + xMin), radius = 0.5 * (xMax - xMin);
+        const nodes: number[] = [], values: number[] = [];
+        for (let k = 0; k <= n; ++k) {
+            const x = center + radius
+                * Math.cos((Math.PI * (2 * k + 1)) / (2 * n + 2));
+            nodes.push(x);
+            values.push(F(x));
+        }
+        const samples = 4001;
+        let worst = 0;
+        for (let i = 0; i <= samples; ++i) {
+            const x = xMin + ((xMax - xMin) * i) / samples;
+            let p = 0;
+            for (let k = 0; k <= n; ++k) {
+                let basis = 1;
+                for (let j = 0; j <= n; ++j) {
+                    if (j !== k) {
+                        basis *= (x - nodes[j]) / (nodes[k] - nodes[j]);
+                    }
+                }
+                p += values[k] * basis;
+            }
+            worst = Math.max(worst, Math.abs(F(x) - p));
+        }
+        return worst;
+    }
+
+    it('equioscillates at the x-nodes with the estimated maximum error',
+        () => {
+            check(fc.tuple(family, fc.integer({ min: 1, max: 5 })),
+                ([sample, degree]) => {
+                    const remez = new RemezAlgorithm();
+                    const iterations = remez.execute(sample.F, sample.FDer,
+                        -1, 1, degree, 32, 1024, 128);
+                    // The sentinel means no oscillatory node set was found;
+                    // that case has its own tests above.
+                    fc.pre(iterations !== REMEZ_FAILURE);
+
+                    const errors = remez.getErrors();
+                    const estimate = Math.abs(remez.getEstimatedMaxError());
+                    expect(errors.length).toBe(degree + 2);
+                    expect(estimate).toBeGreaterThan(0);
+                    for (let i = 0; i < errors.length; ++i) {
+                        // Equal magnitude at every node ...
+                        expectClose(Math.abs(errors[i]), estimate, 0, 1e-4);
+                        // ... with alternating signs.
+                        if (i > 0) {
+                            expect(errors[i] * errors[i - 1])
+                                .toBeLessThanOrEqual(0);
+                        }
+                    }
+
+                    // The level at the nodes is a lower bound for the true
+                    // maximum error of the returned polynomial, since the
+                    // nodes lie in the interval.
+                    const sampled = maxError(sample.F, remez.getCoefficients(),
+                        -1, 1);
+                    expect(sampled).toBeGreaterThanOrEqual(estimate
+                        * (1 - 1e-9));
+                }, 100);
+        });
+
+    it('is the minimax polynomial when the extremes are at the endpoints',
+        () => {
+            check(fc.tuple(convexFamily, fc.integer({ min: 1, max: 5 })),
+                ([sample, degree]) => {
+                    const remez = new RemezAlgorithm();
+                    const iterations = remez.execute(sample.F, sample.FDer,
+                        -1, 1, degree, 32, 1024, 128);
+                    fc.pre(iterations !== REMEZ_FAILURE);
+
+                    const estimate = Math.abs(remez.getEstimatedMaxError());
+                    const sampled = maxError(sample.F,
+                        remez.getCoefficients(), -1, 1);
+                    // The equioscillation level is the true maximum error: on
+                    // this family the observed gap over 200 values of the
+                    // shape parameter and five degrees never exceeds 1e-10
+                    // relative.
+                    expectClose(sampled, estimate, 0, 1e-8);
+
+                    // And no polynomial of the same degree does better, in
+                    // particular the Chebyshev interpolant (observed ratio at
+                    // most 0.92).
+                    const reference = chebyshevInterpolantMaxError(sample.F,
+                        degree, -1, 1);
+                    expect(sampled).toBeLessThanOrEqual(reference
+                        * (1 + 1e-9));
+                }, 100);
+        });
+
+    it('is invariant under an affine change of the interval', () => {
+        check(fc.tuple(family, fc.integer({ min: 1, max: 4 }),
+            scaled(-3, 3), scaled(0.5, 4)), ([sample, degree, c, r]) => {
+            // G(y) = F((y - c)/r) on [c - r, c + r] is F on [-1,1]
+            // reparameterized, so the minimax error is the same.
+            const G = (y: number) => sample.F((y - c) / r);
+            const GDer = (y: number) => sample.FDer((y - c) / r) / r;
+            const base = new RemezAlgorithm();
+            const it0 = base.execute(sample.F, sample.FDer, -1, 1, degree, 32,
+                1024, 128);
+            const moved = new RemezAlgorithm();
+            const it1 = moved.execute(G, GDer, c - r, c + r, degree, 32, 1024,
+                128);
+            fc.pre(it0 !== REMEZ_FAILURE && it1 !== REMEZ_FAILURE);
+            // The two runs perform different arithmetic, so only the value of
+            // the minimax error is comparable, not the digits.
+            expectClose(Math.abs(moved.getEstimatedMaxError()),
+                Math.abs(base.getEstimatedMaxError()), 0, 1e-6);
+        }, 100);
+    });
+
+    it('does no worse as the degree increases', () => {
+        check(convexFamily, sample => {
+            let previous = Number.POSITIVE_INFINITY;
+            for (let degree = 1; degree <= 5; ++degree) {
+                const remez = new RemezAlgorithm();
+                const iterations = remez.execute(sample.F, sample.FDer, -1, 1,
+                    degree, 32, 1024, 128);
+                if (iterations === REMEZ_FAILURE) { continue; }
+                const estimate = Math.abs(remez.getEstimatedMaxError());
+                expect(estimate).toBeLessThanOrEqual(previous);
+                previous = estimate;
+            }
+        }, 100);
+    });
+
+    it('reproduces the textbook degree-1 minimax approximation of exp on '
+        + '[0,1]', () => {
+        // The best linear approximation of a strictly convex F on [a,b] has
+        // slope m = (F(b)-F(a))/(b-a), touches F where F'(c) = m, and its
+        // error is E = (F(a) - F(c) + m*(c-a))/2. For F = exp on [0,1] this
+        // is the classical P(x) = 0.89406 + 1.71828 x with E = 0.10593.
+        const m = Math.E - 1;
+        const c = Math.log(m);
+        const E = (1 - m + m * c) / 2;
+        const p0 = (1 + m) / 2 - (m * c) / 2;
+        const remez = new RemezAlgorithm();
+        const iterations = remez.execute(x => Math.exp(x), x => Math.exp(x),
+            0, 1, 1, 32, 1024, 128);
+        expect(iterations).not.toBe(REMEZ_FAILURE);
+        const coefficients = remez.getCoefficients();
+        expectClose(coefficients[0], p0, 1e-12, 1e-12);
+        expectClose(coefficients[1], m, 1e-12, 1e-12);
+        expectClose(Math.abs(remez.getEstimatedMaxError()), E, 1e-12, 1e-12);
+    });
+
+    it('is at least as accurate as the upstream SinEstimate table', () => {
+        // SinEstimate.h approximates sin(x) on [-pi/2, pi/2] by an odd
+        // polynomial that interpolates sin at the origin; the Remez
+        // polynomial of the same total degree is the unconstrained minimax
+        // approximation, so it must be at least as accurate. The bounds are
+        // the C_SIN_EST_MAX_ERROR entries of src/SinEstimate.ts.
+        //
+        // The interval is [0, pi/2]: the SinEstimate polynomial is odd, so
+        // its maximum error over [-pi/2, pi/2] is attained on [0, pi/2] as
+        // well. Running Remez on the symmetric interval instead hits the
+        // no-alternation case, because for an odd F the error function is odd,
+        // its extrema come in +/- pairs, and an odd degree needs an odd
+        // number of alternation points.
+        const upstream: [number, number][] = [[3, 1.3481903639146e-2],
+        [5, 1.4001209384651e-4], [7, 1.0205878939740e-6],
+        [9, 5.2010783457846e-9], [11, 1.9323431743601e-11]];
+        for (const [degree, bound] of upstream) {
+            const remez = new RemezAlgorithm();
+            const iterations = remez.execute(x => Math.sin(x),
+                x => Math.cos(x), 0, Math.PI / 2, degree, 32, 1024, 128);
+            expect(iterations).not.toBe(REMEZ_FAILURE);
+            expect(Math.abs(remez.getEstimatedMaxError()))
+                .toBeLessThanOrEqual(bound);
+        }
+    });
+
+    it('records the upstream node-pinning limitation', () => {
+        // F(x) = sin(2x + 0.3) on [-1,1] has an inflection point at
+        // x = -0.15, and the alternation set of its degree-1 minimax
+        // polynomial does not contain x = -1. ComputeXExtremes pins the first
+        // node there anyway, so the exchange converges to a different fixed
+        // point: the errors at the three nodes alternate with magnitude
+        // 0.33346, the algorithm reports success, and yet the polynomial it
+        // returns has a true maximum error of 0.49382 - while the actual
+        // minimax error, found by a direct search over the two coefficients,
+        // is 0.36192. The reported estimate therefore understates the error
+        // of the returned polynomial by a third.
+        //
+        // The port preserves this: a fix means letting the outermost nodes
+        // move into the interior, which is a different node-exchange step
+        // rather than a local correction, and no file in the library consumes
+        // RemezAlgorithm. See the PR's upstream-bug section.
+        const F = (x: number) => Math.sin(2 * x + 0.3);
+        const FDer = (x: number) => 2 * Math.cos(2 * x + 0.3);
+        const remez = new RemezAlgorithm();
+        const iterations = remez.execute(F, FDer, -1, 1, 1, 32, 1024, 128);
+        expect(iterations).not.toBe(REMEZ_FAILURE);
+
+        const errors = remez.getErrors();
+        for (let i = 0; i < errors.length; ++i) {
+            expectClose(Math.abs(errors[i]), 0.3334601918959971, 1e-12, 1e-12);
+            if (i > 0) { expect(errors[i] * errors[i - 1]).toBeLessThan(0); }
+        }
+        expect(remez.getXNodes()[0]).toBe(-1);
+        expect(remez.getXNodes()[2]).toBe(1);
+
+        const sampled = maxError(F, remez.getCoefficients(), -1, 1);
+        expectClose(sampled, 0.4938154705205917, 1e-6, 1e-6);
+        expect(sampled / Math.abs(remez.getEstimatedMaxError()))
+            .toBeGreaterThan(1.4);
     });
 });
