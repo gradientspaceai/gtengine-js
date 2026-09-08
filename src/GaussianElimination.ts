@@ -27,6 +27,25 @@ import { logError } from './Logger.js';
 //   exists only to choose memcpy/memset versus element-wise assignment. Both
 //   branches have identical semantics, so the port keeps one element-wise
 //   implementation.
+//
+// KNOWN UPSTREAM DEFECT (preserved deliberately; gtengine-js issue #375).
+// The pivot search rejects a matrix only when the largest remaining absolute
+// entry is exactly zero. When that largest entry is subnormal, 1 / pivot
+// overflows to infinity, the row scaling produces infinity * 0 = NaN, and the
+// call reports invertible = true with NaN entries in inverseM (and, for some
+// matrices, a NaN determinant). Upstream behaves identically.
+//
+// The obvious "fix" -- reporting non-invertible whenever 1 / pivot is not
+// finite -- was considered and rejected during verification group V38,
+// because it would corrupt a result that is currently correct. The pivots are
+// chosen by full pivoting in decreasing order of magnitude, so a subnormal
+// pivot does not imply a determinant that underflows: M = diag(1e300, 1e-320)
+// has determinant 9.99988867182683e-21, which this code returns correctly
+// while the inverse (whose entries would need to be about 1e320) overflows
+// and comes back as NaN. Declaring that matrix singular would replace a
+// representable, nonzero determinant with 0. A NaN inverse announces itself
+// to the caller; a silently wrong determinant does not. Callers that need
+// the guarantee should test the inverse for finiteness.
 
 export interface GaussianEliminationOptions {
     // Compute the inverse of M.

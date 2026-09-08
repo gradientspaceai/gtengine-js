@@ -131,6 +131,13 @@ function frexpExponent(value: number): number {
     return biased - 1022;
 }
 
+// The band of magnitudes in which x*x is computed with neither overflow nor
+// underflow into the subnormal range: 2^-511 squares to the smallest normal
+// 2^-1022 and 2^511 squares to 2^1022, so a sum of two such squares is still
+// finite. Used by SymmetricEigensolver3x3.getCosSin.
+const COS_SIN_SAFE_MIN = 2 ** -511;
+const COS_SIN_SAFE_MAX = 2 ** 511;
+
 export class SymmetricEigensolver3x3 {
     // The input matrix must be symmetric, so only the unique elements must
     // be specified: a00, a01, a02, a11, a12, and a22.
@@ -335,7 +342,32 @@ export class SymmetricEigensolver3x3 {
     // c = cos(2*theta) and s = sin(2*theta). Having a negative cosine for
     // the double-angle term ensures that the single-angle terms
     // c = cos(theta) and s = sin(theta) satisfy |c| < 1/sqrt(2) < |s|.
+    //
+    // PORT FIX of an upstream defect (gtengine-js issue #379). Upstream
+    // evaluates sqrt(u*u + v*v) with no rescaling, unlike its 2x2 sibling
+    // SymmetricEigensolver2x2, which divides (u,v) by max(|u|,|v|) first and
+    // documents that division as necessary to "normalize (c2,s2) robustly,
+    // avoiding floating-point overflow in the sqrt call". Without it:
+    //   * max(|u|,|v|) above 2^511 makes u*u + v*v infinite, so this
+    //     function returns (0,0) instead of a unit 2-tuple and the caller
+    //     applies an arbitrary rotation. For A = 1e160*B with B a
+    //     well-conditioned symmetric matrix, the returned eigenvectors have
+    //     length 0 and the eigenvalues carry no correct digits;
+    //   * max(|u|,|v|) below 2^-511 makes both squares subnormal (or zero),
+    //     so the normalization loses most or all of its mantissa. For
+    //     A = 1e-170*B the eigenvalues are wrong by 36%.
+    // The rescaling below is applied only outside the band in which u*u and
+    // v*v are computed with neither overflow nor underflow into the
+    // subnormals, so for every input that upstream handles correctly this
+    // function evaluates the upstream expression unchanged and is
+    // bit-identical to it.
     private static getCosSin(u: number, v: number): { c: number; s: number } {
+        const maxAbsComp = Math.max(Math.abs(u), Math.abs(v));
+        if (maxAbsComp > COS_SIN_SAFE_MAX
+            || (maxAbsComp > 0 && maxAbsComp < COS_SIN_SAFE_MIN)) {
+            u /= maxAbsComp;  // in [-1,1]
+            v /= maxAbsComp;  // in [-1,1]
+        }
         const length = Math.sqrt(u * u + v * v);
         if (length > 0) {
             let c = u / length;
