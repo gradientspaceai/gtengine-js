@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { LCPSolver, LCPSolverResult } from '../src/LCPSolver.js';
+import { check, fc, scaled, seededRandom } from './helpers/arbitraries.js';
 
 function makeRandom(seed: number): () => number {
     let state = seed >>> 0;
@@ -237,5 +238,294 @@ describe('LCPSolver failure reporting', () => {
         } finally {
             LCPSolver.throwOnErrors = false;
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (group V38).
+// ---------------------------------------------------------------------------
+describe('LCPSolver verification', () => {
+    // Row-major M times z.
+    function apply(n: number, M: readonly number[], z: readonly number[]):
+        number[] {
+        const out = new Array<number>(n).fill(0);
+        for (let r = 0; r < n; ++r) {
+            let sum = 0;
+            for (let c = 0; c < n; ++c) { sum += M[r * n + c] * z[c]; }
+            out[r] = sum;
+        }
+        return out;
+    }
+
+    // The three LCP conditions, with a tolerance scaled by the data.
+    function expectSolves(n: number, q: readonly number[],
+        M: readonly number[], w: readonly number[], z: readonly number[],
+        tol: number): void {
+        const mz = apply(n, M, z);
+        for (let i = 0; i < n; ++i) {
+            expect(w[i]).toBeGreaterThanOrEqual(-tol);
+            expect(z[i]).toBeGreaterThanOrEqual(-tol);
+            expect(Math.abs(w[i] - (q[i] + mz[i]))).toBeLessThanOrEqual(tol);
+            // Complementarity: at most one of w[i], z[i] is nonzero. Lemke's
+            // method keeps one of each pair nonbasic, hence exactly zero.
+            expect(w[i] === 0 || z[i] === 0).toBe(true);
+        }
+    }
+
+    // M = A^T*A + s*I with A a random n x n matrix is symmetric positive
+    // definite, hence a P-matrix, for which Lemke's method always terminates
+    // with a solution.
+    const pMatrixProblem = fc.integer({ min: 1, max: 5 }).chain(n =>
+        fc.record({
+            n: fc.constant(n),
+            entries: fc.array(scaled(-2, 2),
+                { minLength: n * n, maxLength: n * n }),
+            shift: fc.double({ min: 0.5, max: 3, noNaN: true,
+                noDefaultInfinity: true }),
+            q: fc.array(scaled(-4, 4), { minLength: n, maxLength: n })
+        })).map(({ n, entries, shift, q }) => {
+            const M = new Array<number>(n * n).fill(0);
+            for (let r = 0; r < n; ++r) {
+                for (let c = 0; c < n; ++c) {
+                    let sum = (r === c ? shift : 0);
+                    for (let k = 0; k < n; ++k) {
+                        sum += entries[k * n + r] * entries[k * n + c];
+                    }
+                    M[r * n + c] = sum;
+                }
+            }
+            return { n, M, q };
+        });
+
+    it('solves every positive definite problem and the solution satisfies the '
+        + 'LCP conditions', () => {
+            check(pMatrixProblem, ({ n, M, q }) => {
+                const solver = new LCPSolver(n);
+                // The default budget of n*n is 1 for n = 1, which is one
+                // pivot short of the two a nontrivial 1x1 problem needs (see
+                // the 1x1 test above). Raise it so this property is about the
+                // algorithm and not about the arbitrary default.
+                solver.setMaxIterations(4 * n * n + 8);
+                const out = solver.solve(q, M);
+                expect(out.success).toBe(true);
+                expect([LCPSolverResult.HAS_TRIVIAL_SOLUTION,
+                    LCPSolverResult.HAS_NONTRIVIAL_SOLUTION])
+                    .toContain(out.result);
+                const scale = Math.max(...M.map(Math.abs),
+                    ...q.map(Math.abs), 1)
+                    * Math.max(...out.z.map(Math.abs), 1);
+                expectSolves(n, q, M, out.w, out.z, 1e-9 * scale);
+                expect(solver.getNumIterations())
+                    .toBeLessThanOrEqual(solver.getMaxIterations());
+            }, 150);
+        });
+
+    it('reports the trivial solution exactly when q >= 0', () => {
+        check(pMatrixProblem, ({ n, M, q }) => {
+            const nonNegativeQ = q.map(Math.abs);
+            const out = new LCPSolver(n).solve(nonNegativeQ, M);
+            expect(out.result).toBe(LCPSolverResult.HAS_TRIVIAL_SOLUTION);
+            expect(out.w).toEqual(nonNegativeQ);
+            expect(out.z).toEqual(new Array<number>(n).fill(0));
+
+            // And it is not the trivial one when some q[r] is strictly
+            // negative: the perturbation polynomial q[r] + t^(r+1) is then
+            // negative for small t.
+            const out2 = new LCPSolver(n).solve(q, M);
+            const anyNegative = q.some(x => x < 0);
+            expect(out2.result === LCPSolverResult.HAS_TRIVIAL_SOLUTION)
+                .toBe(!anyNegative);
+        }, 150);
+    });
+
+    it('rejects invalid input the way the port documents', () => {
+        check(fc.tuple(fc.integer({ min: -2, max: 4 }),
+            fc.integer({ min: 0, max: 5 }), fc.integer({ min: 0, max: 30 })),
+            ([n, qLen, mLen]) => {
+                const solver = new LCPSolver(n);
+                expect(solver.getDimension()).toBe(Math.max(n, 0));
+                const out = solver.solve(new Array<number>(qLen).fill(1),
+                    new Array<number>(mLen).fill(1));
+                const valid = n > 0 && n <= qLen && n * n <= mLen;
+                if (!valid) {
+                    expect(out.result).toBe(LCPSolverResult.INVALID_INPUT);
+                    expect(out.success).toBe(false);
+                    expect(out.w.length).toBe(Math.max(n, 0));
+                    expect(out.z.length).toBe(Math.max(n, 0));
+                } else {
+                    expect(out.result).not.toBe(LCPSolverResult.INVALID_INPUT);
+                }
+            });
+    });
+
+    it('setMaxIterations falls back to n*n for a nonpositive request', () => {
+        check(fc.tuple(fc.integer({ min: 1, max: 6 }),
+            fc.integer({ min: -5, max: 40 })), ([n, requested]) => {
+                const solver = new LCPSolver(n);
+                expect(solver.getMaxIterations()).toBe(n * n);
+                solver.setMaxIterations(requested);
+                expect(solver.getMaxIterations())
+                    .toBe(requested > 0 ? requested : n * n);
+            });
+    });
+
+    it('a solver object is reusable and its results do not alias its state',
+        () => {
+            check(fc.tuple(pMatrixProblem, pMatrixProblem),
+                ([first, second]) => {
+                    if (first.n !== second.n) { return; }
+                    const solver = new LCPSolver(first.n);
+                    solver.setMaxIterations(4 * first.n * first.n + 8);
+                    const a = solver.solve(first.q, first.M);
+                    const aw = a.w.slice();
+                    const az = a.z.slice();
+                    solver.solve(second.q, second.M);
+                    // The first result must be untouched by the second call.
+                    expect(a.w).toEqual(aw);
+                    expect(a.z).toEqual(az);
+                    // And re-solving the first problem reproduces it.
+                    const again = solver.solve(first.q, first.M);
+                    expect(again.w).toEqual(aw);
+                    expect(again.z).toEqual(az);
+                }, 100);
+        });
+
+    it('upstream (preserved, #431): a degenerate PSD problem reports a '
+        + 'nontrivial solution that does not satisfy w = q + M*z', () => {
+            // The box-quadrilateral Hessian of DistOrientedBox3Cone3 is the
+            // Gram matrix of five vectors in R^3, so its 10-D LCP is singular
+            // and the Lemke pivots divide by numerically zero denominators.
+            // Reproduce that shape: M is the Gram matrix of ten vectors in
+            // R^3, which is positive semidefinite of rank 3.
+            const rnd = seededRandom(12345);
+            const n = 10;
+            const A: number[][] = [];
+            for (let i = 0; i < n; ++i) {
+                A.push([2 * rnd() - 1, 2 * rnd() - 1, 2 * rnd() - 1]);
+            }
+            const M: number[] = [];
+            for (let i = 0; i < n; ++i) {
+                for (let j = 0; j < n; ++j) {
+                    M.push(A[i][0] * A[j][0] + A[i][1] * A[j][1]
+                        + A[i][2] * A[j][2]);
+                }
+            }
+            const q: number[] = [];
+            for (let i = 0; i < n; ++i) { q.push(2 * rnd() - 1); }
+
+            const out = new LCPSolver(n).solve(q, M);
+            expect(out.result).toBe(LCPSolverResult.HAS_NONTRIVIAL_SOLUTION);
+            expect(out.success).toBe(true);
+
+            // w >= 0, z >= 0 and complementarity still hold ...
+            for (let i = 0; i < n; ++i) {
+                expect(out.w[i]).toBeGreaterThanOrEqual(0);
+                expect(out.z[i]).toBeGreaterThanOrEqual(0);
+                expect(out.w[i] === 0 || out.z[i] === 0).toBe(true);
+            }
+            // ... but the reported w is not q + M*z: the pivots ran through
+            // denominators that are zero in exact arithmetic, and z blew up
+            // to about 1e15. Upstream produces the same failure; the port
+            // matches it, and this pins the signature.
+            const mz = apply(n, M, out.z);
+            let maxResidual = 0;
+            for (let i = 0; i < n; ++i) {
+                maxResidual = Math.max(maxResidual,
+                    Math.abs(out.w[i] - (q[i] + mz[i])));
+            }
+            expect(maxResidual).toBeGreaterThan(1);
+            expect(Math.max(...out.z)).toBeGreaterThan(1e12);
+        });
+
+    it('upstream: degenerate PSD problems break the LCP identity for a small '
+        + 'fraction of inputs', () => {
+            // The same construction over many draws: measure the rate rather
+            // than assert per-instance correctness, so that a regression that
+            // makes it dramatically worse (or a fix that removes it) is
+            // visible.
+            const rnd = seededRandom(20260907);
+            const n = 8;
+            let solved = 0;
+            let broken = 0;
+            for (let trial = 0; trial < 200; ++trial) {
+                const A: number[][] = [];
+                for (let i = 0; i < n; ++i) {
+                    A.push([2 * rnd() - 1, 2 * rnd() - 1, 2 * rnd() - 1]);
+                }
+                const M: number[] = [];
+                for (let i = 0; i < n; ++i) {
+                    for (let j = 0; j < n; ++j) {
+                        M.push(A[i][0] * A[j][0] + A[i][1] * A[j][1]
+                            + A[i][2] * A[j][2]);
+                    }
+                }
+                const q: number[] = [];
+                for (let i = 0; i < n; ++i) { q.push(2 * rnd() - 1); }
+                const out = new LCPSolver(n).solve(q, M);
+                if (out.result !== LCPSolverResult.HAS_NONTRIVIAL_SOLUTION) {
+                    continue;
+                }
+                ++solved;
+                const mz = apply(n, M, out.z);
+                let maxResidual = 0;
+                for (let i = 0; i < n; ++i) {
+                    maxResidual = Math.max(maxResidual,
+                        Math.abs(out.w[i] - (q[i] + mz[i])));
+                }
+                if (maxResidual > 1e-6) { ++broken; }
+            }
+            expect(solved).toBeGreaterThan(20);
+            // Deterministic given the seed; the assertion is a band, so an
+            // unrelated change that shifts the rate slightly does not fail
+            // but a qualitative change does.
+            expect(broken).toBeGreaterThan(0);
+            expect(broken).toBeLessThan(solved);
+        }, 30000);
+
+    it('upstream (preserved): a subnormal pivot overflows and turns an '
+        + 'infeasible problem into a reported solution', () => {
+            // M <= 0 entrywise with q < 0 is infeasible (w = q + M*z <= q < 0
+            // for every z >= 0), so the only correct answer is NO_SOLUTION.
+            // When the pivot Augmented(basic, driving) is subnormal, the
+            // reciprocal 1/pivot overflows to infinity and the pivoting
+            // produces an "answer" of z = infinity with w = 0, which the
+            // convergence test accepts. Upstream divides identically; this is
+            // the same family as GaussianElimination's #375. Preserved and
+            // pinned.
+            const q = [-2.1357582139478715, -0.8588343517869644];
+            const M = [-5.4e-323, -9.821122365124614e-284,
+                -8.4e-323, -7.600258093787983e-155];
+            const solver = new LCPSolver(2);
+            solver.setMaxIterations(32);
+            const out = solver.solve(q, M);
+            expect(out.result).toBe(LCPSolverResult.HAS_NONTRIVIAL_SOLUTION);
+            expect(out.z.every(Number.isFinite)).toBe(false);
+            // With no subnormal entries the same shape of problem is reported
+            // correctly.
+            const solver2 = new LCPSolver(2);
+            solver2.setMaxIterations(32);
+            expect(solver2.solve(q, [-1, -2, -3, -4]).result)
+                .toBe(LCPSolverResult.NO_SOLUTION);
+        });
+
+    it('a nonpositive M with a negative q has no solution', () => {
+        // With M <= 0 entrywise and z >= 0, w = q + M*z <= q < 0 for every
+        // feasible z, so the LCP is infeasible and the solver must say so
+        // rather than return a wrong answer.
+        check(fc.integer({ min: 1, max: 5 }).chain(n => fc.record({
+            n: fc.constant(n),
+            // scaled() draws from a uniform grid, so no entry is subnormal:
+            // see the pin below for what a subnormal pivot does here.
+            M: fc.array(scaled(-4, 0), { minLength: n * n, maxLength: n * n }),
+            q: fc.array(scaled(-4, -0.5), { minLength: n, maxLength: n })
+        })), ({ n, M, q }) => {
+            const solver = new LCPSolver(n);
+            solver.setMaxIterations(4 * n * n + 8);
+            const out = solver.solve(q, M);
+            expect(out.result).toBe(LCPSolverResult.NO_SOLUTION);
+            expect(out.success).toBe(false);
+            expect(out.w).toEqual(new Array<number>(n).fill(0));
+            expect(out.z).toEqual(new Array<number>(n).fill(0));
+        }, 100);
     });
 });

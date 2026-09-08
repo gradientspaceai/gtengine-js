@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { GaussianElimination } from '../src/GaussianElimination.js';
+import { Matrix } from '../src/Matrix.js';
+import { check, expectClose, fc, invertibleMatrix, scaled } from './helpers/arbitraries.js';
 
 function makeRandom(seed: number): () => number {
     let state = seed >>> 0;
@@ -233,4 +235,251 @@ describe('GaussianElimination', () => {
             }
         }
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (group V38).
+// ---------------------------------------------------------------------------
+describe('GaussianElimination verification', () => {
+    const ge = new GaussianElimination();
+
+    // Row-major flat array of an n x n Matrix.
+    function flat(m: Matrix): number[] {
+        const a: number[] = [];
+        for (let r = 0; r < m.numRows; ++r) {
+            for (let c = 0; c < m.numCols; ++c) { a.push(m.get(r, c)); }
+        }
+        return a;
+    }
+
+    function mulFlat(n: number, a: readonly number[], b: readonly number[],
+        bCols: number): number[] {
+        const out = new Array<number>(n * bCols).fill(0);
+        for (let r = 0; r < n; ++r) {
+            for (let c = 0; c < bCols; ++c) {
+                let sum = 0;
+                for (let k = 0; k < n; ++k) {
+                    sum += a[r * n + k] * b[k * bCols + c];
+                }
+                out[r * bCols + c] = sum;
+            }
+        }
+        return out;
+    }
+
+    // ||A||_inf, used to scale residual tolerances.
+    function normInf(n: number, a: readonly number[]): number {
+        let best = 0;
+        for (let r = 0; r < n; ++r) {
+            let sum = 0;
+            for (let c = 0; c < n; ++c) { sum += Math.abs(a[r * n + c]); }
+            best = Math.max(best, sum);
+        }
+        return best;
+    }
+
+    const sizedInvertible = (n: number) => invertibleMatrix(n, 1e-2)
+        .map(m => ({ n, a: flat(m) }));
+
+    const anyInvertible = fc.oneof(sizedInvertible(2), sizedInvertible(3),
+        sizedInvertible(4));
+
+    it('the inverse is a two-sided inverse with a conditioned residual', () => {
+        check(anyInvertible, ({ n, a }) => {
+            const r = ge.compute(n, a, { wantInverse: true });
+            expect(r.invertible).toBe(true);
+            const inv = r.inverseM as number[];
+            // ||A^-1 A - I|| <= c * cond(A) * eps. Estimate cond with the
+            // infinity norms of A and of the computed inverse.
+            const cond = normInf(n, a) * normInf(n, inv);
+            const tol = 1e-12 * Math.max(cond, 1);
+            const left = mulFlat(n, a, inv, n);
+            const right = mulFlat(n, inv, a, n);
+            for (let i = 0; i < n * n; ++i) {
+                const target = (i % n === Math.floor(i / n)) ? 1 : 0;
+                expect(Math.abs(left[i] - target)).toBeLessThanOrEqual(tol);
+                expect(Math.abs(right[i] - target)).toBeLessThanOrEqual(tol);
+            }
+        });
+    });
+
+    it('the determinant matches a cofactor expansion', () => {
+        check(fc.oneof(sizedInvertible(2), sizedInvertible(3)), ({ n, a }) => {
+            const r = ge.compute(n, a, {});
+            const expected = n === 2
+                ? a[0] * a[3] - a[1] * a[2]
+                : a[0] * (a[4] * a[8] - a[5] * a[7])
+                - a[1] * (a[3] * a[8] - a[5] * a[6])
+                + a[2] * (a[3] * a[7] - a[4] * a[6]);
+            const scale = Math.pow(normInf(n, a), n);
+            expectClose(r.determinant, expected, 1e-11 * scale, 1e-11);
+        });
+    });
+
+    it('the determinant is multiplicative and flips sign on a row swap', () => {
+        check(fc.tuple(sizedInvertible(3), sizedInvertible(3)),
+            ([{ a }, { a: b }]) => {
+                const n = 3;
+                const detA = ge.compute(n, a, {}).determinant;
+                const detB = ge.compute(n, b, {}).determinant;
+                const detAB = ge.compute(n, mulFlat(n, a, b, n), {}).determinant;
+                const scale = Math.pow(normInf(n, a) * normInf(n, b), n);
+                expectClose(detAB, detA * detB, 1e-10 * scale, 1e-10);
+
+                // Swapping two rows negates the determinant exactly (full
+                // pivoting picks the same pivots, only the parity changes).
+                const swapped = a.slice();
+                for (let c = 0; c < n; ++c) {
+                    swapped[0 * n + c] = a[1 * n + c];
+                    swapped[1 * n + c] = a[0 * n + c];
+                }
+                expectClose(ge.compute(n, swapped, {}).determinant, -detA,
+                    1e-11 * Math.pow(normInf(n, a), n), 1e-11);
+            }, 100);
+    });
+
+    it('solves M*X = B and M*Y = C consistently with the inverse', () => {
+        check(fc.tuple(anyInvertible,
+            fc.array(scaled(-6, 6), { minLength: 12, maxLength: 12 })),
+            ([{ n, a }, pool]) => {
+                const b = pool.slice(0, n);
+                const numCols = 2;
+                // C in row-major order.
+                const c = pool.slice(0, n * numCols);
+
+                const r = ge.compute(n, a, {
+                    wantInverse: true, B: b, C: c, numCols
+                });
+                expect(r.invertible).toBe(true);
+                const x = r.X as number[];
+                const y = r.Y as number[];
+                const inv = r.inverseM as number[];
+                const cond = normInf(n, a) * normInf(n, inv);
+                const tol = 1e-11 * Math.max(cond, 1)
+                    * Math.max(...b.map(Math.abs), ...c.map(Math.abs), 1);
+
+                // M*X = B and M*Y = C.
+                const mx = mulFlat(n, a, x, 1);
+                for (let i = 0; i < n; ++i) {
+                    expect(Math.abs(mx[i] - b[i])).toBeLessThanOrEqual(tol);
+                }
+                const my = mulFlat(n, a, y, numCols);
+                for (let i = 0; i < n * numCols; ++i) {
+                    expect(Math.abs(my[i] - c[i])).toBeLessThanOrEqual(tol);
+                }
+                // X = M^-1 * B.
+                const ib = mulFlat(n, inv, b, 1);
+                for (let i = 0; i < n; ++i) {
+                    expect(Math.abs(x[i] - ib[i])).toBeLessThanOrEqual(tol);
+                }
+                // Requesting only some outputs leaves the others null.
+                const only = ge.compute(n, a, { B: b });
+                expect(only.inverseM).toBeNull();
+                expect(only.Y).toBeNull();
+                expect(only.X).not.toBeNull();
+            });
+    });
+
+    it('column-major storage transposes the problem', () => {
+        check(sizedInvertible(3), ({ n, a }) => {
+            // Reading a row-major buffer as column major is reading A^T, so
+            // the column-major inverse of the same buffer is the row-major
+            // inverse of A^T, that is (A^-1)^T laid out column major, which
+            // is (A^-1) laid out row major.
+            const rowMajor = ge.compute(n, a, { wantInverse: true });
+            const colMajor = ge.compute(n, a,
+                { wantInverse: true, rowMajor: false });
+            expect(rowMajor.invertible).toBe(true);
+            expect(colMajor.invertible).toBe(true);
+            const scale = 1e-9 * Math.max(
+                ...(rowMajor.inverseM as number[]).map(Math.abs), 1);
+            for (let i = 0; i < n * n; ++i) {
+                expectClose((rowMajor.inverseM as number[])[i],
+                    (colMajor.inverseM as number[])[i], scale, 1e-9);
+            }
+            expectClose(rowMajor.determinant, colMajor.determinant,
+                1e-9 * Math.abs(rowMajor.determinant) + 1e-12, 1e-9);
+        });
+    });
+
+    it('a singular matrix zero-fills every requested output', () => {
+        check(fc.tuple(fc.integer({ min: 2, max: 4 }),
+            fc.array(scaled(-5, 5), { minLength: 16, maxLength: 16 }),
+            fc.array(scaled(-5, 5), { minLength: 8, maxLength: 8 })),
+            ([n, pool, rhs]) => {
+                // A matrix with a zero row is singular and is detected
+                // exactly: the elimination subtracts multiples of the pivot
+                // row scaled by that row's own (zero) entry, so the zero row
+                // stays zero and the pivot search eventually finds only
+                // zeros. (A matrix with two equal rows is mathematically
+                // singular but not detected: 1/pivot*pivot is not exactly 1,
+                // so the eliminated row keeps round-off residuals and the
+                // pivot search still finds a nonzero maximum.)
+                const a = new Array<number>(n * n).fill(0);
+                for (let r = 0; r < n; ++r) {
+                    if (r === 1) { continue; }
+                    for (let c = 0; c < n; ++c) {
+                        a[r * n + c] = pool[r * n + c];
+                    }
+                }
+                const b = rhs.slice(0, n);
+                const r = ge.compute(n, a, {
+                    wantInverse: true, B: b, C: b, numCols: 1
+                });
+                expect(r.invertible).toBe(false);
+                expect(r.determinant).toBe(0);
+                expect(r.inverseM).toEqual(new Array<number>(n * n).fill(0));
+                expect(r.X).toEqual(new Array<number>(n).fill(0));
+                expect(r.Y).toEqual(new Array<number>(n).fill(0));
+            });
+    });
+
+    it('never modifies the input arrays', () => {
+        check(fc.tuple(anyInvertible,
+            fc.array(scaled(-6, 6), { minLength: 8, maxLength: 8 })),
+            ([{ n, a }, pool]) => {
+                const aCopy = a.slice();
+                const b = pool.slice(0, n);
+                const bCopy = b.slice();
+                ge.compute(n, a, { wantInverse: true, B: b, C: b, numCols: 1 });
+                expect(a).toEqual(aCopy);
+                expect(b).toEqual(bCopy);
+            });
+    });
+
+    it('rejects invalid input', () => {
+        check(fc.integer({ min: -3, max: 0 }), n => {
+            expect(() => ge.compute(n, [1])).toThrow('Invalid input.');
+        });
+        expect(() => ge.compute(3, [1, 2, 3])).toThrow('Invalid input.');
+        expect(() => ge.compute(2, [1, 0, 0, 1], { C: [1, 1], numCols: 0 }))
+            .toThrow('Invalid input.');
+    });
+
+    it('upstream defect (preserved, #375): a subnormal pivot reports '
+        + 'invertible with NaN entries', () => {
+            // The pivot search only rejects an exactly zero maximum entry, so
+            // a subnormal pivot passes, 1/pivot overflows and the row scaling
+            // produces infinity * 0 = NaN.
+            const denormal = ge.compute(2,
+                [5e-324, 1e-323, 3e-324, 7e-324], { wantInverse: true });
+            expect(denormal.invertible).toBe(true);
+            // The determinant is not a number the caller can use either: the
+            // scaled pivots overflow.
+            expect(Number.isFinite(denormal.determinant)).toBe(false);
+            expect((denormal.inverseM as number[]).some(x => !Number.isFinite(x)))
+                .toBe(true);
+
+            // Why the port does not "fix" this by reporting non-invertible:
+            // full pivoting takes the largest entry first, so a subnormal
+            // pivot does not imply an underflowing determinant. Here the
+            // determinant is representable and correct while the inverse
+            // (about 1e320) is not.
+            const mixed = ge.compute(2, [1e300, 0, 0, 1e-320],
+                { wantInverse: true });
+            expect(mixed.invertible).toBe(true);
+            expectClose(mixed.determinant, 1e300 * 1e-320, 0, 1e-10);
+            expect((mixed.inverseM as number[]).some(x => !Number.isFinite(x)))
+                .toBe(true);
+        });
 });
