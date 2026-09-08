@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { ParticleSystem } from '../src/ParticleSystem.js';
 import { Vector, add, sub, mul, dot } from '../src/Vector.js';
+import { check, expectClose, fc, scaled } from './helpers/arbitraries.js';
 
 // A system whose particles all feel the same constant acceleration (for
 // example gravity).
@@ -415,4 +416,200 @@ describe('ParticleSystem', () => {
         expect(system.getPosition(0).get(1)).toBe(0);
         expect(system.getVelocity(0).get(1)).toBe(0);
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V41): property-based cross-checks of the Runge-Kutta solver
+// against an independent closed form and of the immovable-particle handling.
+// ---------------------------------------------------------------------------
+
+// A linear autonomous system a_i = sum_j K[i][j] * p_j + sum_j C[i][j] * v_j
+// + g_i in dimension 1. The state y = (p, v) satisfies y' = M*y + b with
+//   M = [[0, I], [K, C]],  b = (0, g),
+// so a single RK4 step has the closed form
+//   y1 = y0 + sum_{k=1..4} (h^k / k!) * M^{k-1} * (M*y0 + b),
+// because the RK4 stability function for a linear autonomous problem is the
+// degree-4 Taylor polynomial. This is an independent computation of the
+// solver output, not a restatement of its loop structure.
+class LinearSystem1D extends ParticleSystem {
+    private readonly mK: number[][];
+    private readonly mC: number[][];
+    private readonly mG: number[];
+
+    constructor(numParticles: number, step: number, K: number[][],
+        C: number[][], g: number[]) {
+        super(1, numParticles, step);
+        this.mK = K;
+        this.mC = C;
+        this.mG = g;
+    }
+
+    protected acceleration(i: number, _time: number,
+        position: readonly Vector[], velocity: readonly Vector[]): Vector {
+        let a = this.mG[i];
+        for (let j = 0; j < this.getNumParticles(); ++j) {
+            a += this.mK[i][j] * position[j].values[0]
+                + this.mC[i][j] * velocity[j].values[0];
+        }
+        return Vector.fromArray([a]);
+    }
+}
+
+function matVec(M: number[][], v: number[]): number[] {
+    return M.map(row => row.reduce((s, m, j) => s + m * v[j], 0));
+}
+
+function rk4LinearClosedForm(M: number[][], b: number[], y0: number[],
+    h: number): number[] {
+    // term = f(y0) = M*y0 + b; y1 = y0 + sum_{k=1..4} h^k/k! * M^{k-1} * term.
+    let term = matVec(M, y0).map((x, i) => x + b[i]);
+    const y1 = y0.slice();
+    let coeff = 1;
+    for (let k = 1; k <= 4; ++k) {
+        coeff *= h / k;
+        for (let i = 0; i < y1.length; ++i) { y1[i] += coeff * term[i]; }
+        term = matVec(M, term);
+    }
+    return y1;
+}
+
+const triple = (min = -3, max = 3) =>
+    fc.array(scaled(min, max, 256), { minLength: 3, maxLength: 3 });
+
+describe('ParticleSystem verification', () => {
+    it('setMass matches the upstream inverse-mass semantics', () => {
+        const masses = fc.oneof(
+            scaled(-5, 5, 256),
+            fc.constantFrom(0, 1, -1, Number.MAX_VALUE,
+                Number.POSITIVE_INFINITY, Number.MIN_VALUE, 1e-300));
+        check(masses, (mass) => {
+            const system = new ConstantAccelSystem(1, 1, 0.1, vec(1));
+            system.setMass(0, mass);
+            system.setVelocity(0, vec(3));
+            system.update(0);
+            if (mass > 0 && mass < Number.MAX_VALUE) {
+                expect(system.getMass(0)).toBe(mass);
+                // Movable: the constant acceleration moves the particle.
+                expect(system.getPosition(0).get(0)).not.toBe(0);
+            }
+            else {
+                expect(system.getMass(0)).toBe(Number.MAX_VALUE);
+                expect(system.getPosition(0).get(0)).toBe(0);
+                expect(system.getVelocity(0).get(0)).toBe(3);
+            }
+        });
+    });
+
+    it('one update matches the closed-form RK4 step of a linear system', () => {
+        const entry = scaled(-2, 2, 256);
+        const arb = fc.tuple(
+            fc.array(entry, { minLength: 4, maxLength: 4 }),   // K (2x2)
+            fc.array(entry, { minLength: 4, maxLength: 4 }),   // C (2x2)
+            fc.array(entry, { minLength: 2, maxLength: 2 }),   // g
+            fc.array(entry, { minLength: 2, maxLength: 2 }),   // p0
+            fc.array(entry, { minLength: 2, maxLength: 2 }),   // v0
+            fc.array(scaled(0.5, 4, 64), { minLength: 2, maxLength: 2 }),
+            scaled(0.01, 0.25, 64));                           // step
+        check(arb, ([kFlat, cFlat, g, p0, v0, mass, step]) => {
+            const K = [[kFlat[0], kFlat[1]], [kFlat[2], kFlat[3]]];
+            const C = [[cFlat[0], cFlat[1]], [cFlat[2], cFlat[3]]];
+            const system = new LinearSystem1D(2, step, K, C, g);
+            for (let i = 0; i < 2; ++i) {
+                system.setMass(i, mass[i]);
+                system.setPosition(i, vec(p0[i]));
+                system.setVelocity(i, vec(v0[i]));
+            }
+            system.update(7);   // the system is autonomous, so t is arbitrary
+
+            // y = (p0, p1, v0, v1).
+            const M = [
+                [0, 0, 1, 0],
+                [0, 0, 0, 1],
+                [K[0][0], K[0][1], C[0][0], C[0][1]],
+                [K[1][0], K[1][1], C[1][0], C[1][1]]];
+            const b = [0, 0, g[0], g[1]];
+            const y1 = rk4LinearClosedForm(M, b,
+                [p0[0], p0[1], v0[0], v0[1]], step);
+
+            for (let i = 0; i < 2; ++i) {
+                expectClose(system.getPosition(i).get(0), y1[i], 1e-12, 1e-11);
+                expectClose(system.getVelocity(i).get(0), y1[2 + i], 1e-12,
+                    1e-11);
+            }
+        }, 120);
+    });
+
+    it('immovable particles never move and never invoke the callback', () => {
+        const arb = fc.tuple(
+            fc.array(scaled(-3, 3, 64), { minLength: 3, maxLength: 3 }),
+            fc.array(scaled(-3, 3, 64), { minLength: 3, maxLength: 3 }),
+            fc.array(fc.boolean(), { minLength: 3, maxLength: 3 }),
+            scaled(0.01, 0.3, 32));
+        check(arb, ([p0, v0, movable, step]) => {
+            const called = new Set<number>();
+            const system = new CallbackSystem(1, 3, step,
+                (i, _t, position) => {
+                    called.add(i);
+                    const j = (i + 1) % 3;
+                    return vec(position[j].values[0] - position[i].values[0]);
+                });
+            for (let i = 0; i < 3; ++i) {
+                system.setMass(i, movable[i] ? 1 : Number.MAX_VALUE);
+                system.setPosition(i, vec(p0[i]));
+                system.setVelocity(i, vec(v0[i]));
+            }
+            system.update(0);
+            for (let i = 0; i < 3; ++i) {
+                if (movable[i]) {
+                    expect(called.has(i)).toBe(true);
+                }
+                else {
+                    expect(called.has(i)).toBe(false);
+                    expect(system.getPosition(i).get(0)).toBe(p0[i]);
+                    expect(system.getVelocity(i).get(0)).toBe(v0[i]);
+                }
+            }
+        });
+    });
+
+    it('constant acceleration integrates exactly (RK4 is exact here)', () => {
+        const arb = fc.tuple(triple(), triple(), triple(),
+            scaled(0.01, 0.5, 64), fc.integer({ min: 1, max: 6 }));
+        check(arb, ([p0, v0, a, step, numSteps]) => {
+            const system = new ConstantAccelSystem(3, 1, step,
+                Vector.fromArray(a));
+            system.setMass(0, 2);
+            system.setPosition(0, Vector.fromArray(p0));
+            system.setVelocity(0, Vector.fromArray(v0));
+            for (let k = 0; k < numSteps; ++k) { system.update(k * step); }
+            const t = numSteps * step;
+            for (let i = 0; i < 3; ++i) {
+                expectClose(system.getPosition(0).get(i),
+                    p0[i] + v0[i] * t + 0.5 * a[i] * t * t, 1e-12, 1e-11);
+                expectClose(system.getVelocity(0).get(i), v0[i] + a[i] * t,
+                    1e-12, 1e-11);
+            }
+        });
+    });
+
+    it('setPosition/setVelocity copy and the getters expose stable values',
+        () => {
+            check(fc.tuple(triple(), triple()), ([p, v]) => {
+                const system = new ConstantAccelSystem(3, 1, 0.1, vec(0, 0, 0));
+                system.setMass(0, 1);
+                const pv = Vector.fromArray(p);
+                const vv = Vector.fromArray(v);
+                system.setPosition(0, pv);
+                system.setVelocity(0, vv);
+                pv.set(0, 999);
+                vv.set(0, -999);
+                expect(system.getPosition(0).get(0)).toBe(p[0]);
+                expect(system.getVelocity(0).get(0)).toBe(v[0]);
+                // The value returned by the getter is never mutated in place
+                // by a subsequent update.
+                const held = system.getPosition(0);
+                system.update(0);
+                expect(held.get(0)).toBe(p[0]);
+            });
+        });
 });

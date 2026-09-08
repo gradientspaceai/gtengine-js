@@ -1,7 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { MassSpringVolume } from '../src/MassSpringVolume.js';
 import { MassSpringCurve } from '../src/MassSpringCurve.js';
-import { Vector, add, dot, length as vectorLength, sub } from '../src/Vector.js';
+import { Vector, add, dot, length as vectorLength, mul, sub } from '../src/Vector.js';
+import {
+    MassSpringArbitrary,
+    MassSpringArbitrarySpring
+} from '../src/MassSpringArbitrary.js';
+import { check, expectClose, fc, scaled } from './helpers/arbitraries.js';
+
+// Exposes the protected acceleration(...) of the arbitrary-topology system,
+// which the lattice acceleration is cross-checked against.
+class ArbitraryProbe extends MassSpringArbitrary {
+    accelerationAt(i: number, time: number, position: readonly Vector[],
+        velocity: readonly Vector[]): Vector {
+        return this.acceleration(i, time, position, velocity);
+    }
+}
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -415,4 +429,286 @@ describe('MassSpringVolume dynamics', () => {
                 volume.getVelocityAt(0, 0, c)))).toBeLessThan(1e-12);
         }
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V41): properties of the lattice mass-spring system, including
+// a cross-check against the arbitrary-topology system built from the same
+// springs.
+// ---------------------------------------------------------------------------
+
+interface LatticeSpec {
+    numSlices: number;
+    numRows: number;
+    numCols: number;
+    jitter: number[][];     // per-particle displacement from the lattice site
+    velocities: number[][];
+    masses: number[];
+    constants: number[];    // 3 per particle: S, R, C
+    lengths: number[];      // 3 per particle: S, R, C
+}
+
+const latticeSpec = (): fc.Arbitrary<LatticeSpec> =>
+    fc.tuple(fc.integer({ min: 1, max: 3 }), fc.integer({ min: 1, max: 3 }),
+        fc.integer({ min: 1, max: 3 }))
+        .chain(([numSlices, numRows, numCols]) => {
+            const n = numSlices * numRows * numCols;
+            const triple3 = (min: number, max: number) => fc.array(
+                fc.array(scaled(min, max, 128),
+                    { minLength: 3, maxLength: 3 }),
+                { minLength: n, maxLength: n });
+            return fc.record({
+                numSlices: fc.constant(numSlices),
+                numRows: fc.constant(numRows),
+                numCols: fc.constant(numCols),
+                jitter: triple3(-0.2, 0.2),
+                velocities: triple3(-1, 1),
+                masses: fc.array(scaled(0.5, 3, 64),
+                    { minLength: n, maxLength: n }),
+                constants: fc.array(scaled(0.1, 4, 64),
+                    { minLength: 3 * n, maxLength: 3 * n }),
+                lengths: fc.array(scaled(0.2, 2, 64),
+                    { minLength: 3 * n, maxLength: 3 * n })
+            });
+        });
+
+function buildVolume(spec: LatticeSpec, step: number): TestMassSpringVolume {
+    const volume = new TestMassSpringVolume(3, spec.numSlices, spec.numRows,
+        spec.numCols, step);
+    for (let s = 0; s < spec.numSlices; ++s) {
+        for (let r = 0; r < spec.numRows; ++r) {
+            for (let c = 0; c < spec.numCols; ++c) {
+                const i = volume.indexOf(s, r, c);
+                volume.setMassAt(s, r, c, spec.masses[i]);
+                volume.setPositionAt(s, r, c, v3(
+                    c + spec.jitter[i][0], r + spec.jitter[i][1],
+                    s + spec.jitter[i][2]));
+                volume.setVelocityAt(s, r, c, v3(spec.velocities[i][0],
+                    spec.velocities[i][1], spec.velocities[i][2]));
+                volume.setConstantS(s, r, c, spec.constants[3 * i]);
+                volume.setLengthS(s, r, c, spec.lengths[3 * i]);
+                volume.setConstantR(s, r, c, spec.constants[3 * i + 1]);
+                volume.setLengthR(s, r, c, spec.lengths[3 * i + 1]);
+                volume.setConstantC(s, r, c, spec.constants[3 * i + 2]);
+                volume.setLengthC(s, r, c, spec.lengths[3 * i + 2]);
+            }
+        }
+    }
+    return volume;
+}
+
+// The list of lattice springs as (i, j, constant, length) tuples, derived
+// from the documented adjacency: each mass owns the springs to (s+1,r,c),
+// (s,r+1,c) and (s,r,c+1).
+function latticeSprings(volume: TestMassSpringVolume):
+    { i: number, j: number, constant: number, length: number }[] {
+    const springs: { i: number, j: number, constant: number, length: number }[]
+        = [];
+    const S = volume.getNumSlices();
+    const R = volume.getNumRows();
+    const C = volume.getNumCols();
+    for (let s = 0; s < S; ++s) {
+        for (let r = 0; r < R; ++r) {
+            for (let c = 0; c < C; ++c) {
+                const i = volume.indexOf(s, r, c);
+                if (s + 1 < S) {
+                    springs.push({
+                        i, j: volume.indexOf(s + 1, r, c),
+                        constant: volume.getConstantS(s, r, c),
+                        length: volume.getLengthS(s, r, c)
+                    });
+                }
+                if (r + 1 < R) {
+                    springs.push({
+                        i, j: volume.indexOf(s, r + 1, c),
+                        constant: volume.getConstantR(s, r, c),
+                        length: volume.getLengthR(s, r, c)
+                    });
+                }
+                if (c + 1 < C) {
+                    springs.push({
+                        i, j: volume.indexOf(s, r, c + 1),
+                        constant: volume.getConstantC(s, r, c),
+                        length: volume.getLengthC(s, r, c)
+                    });
+                }
+            }
+        }
+    }
+    return springs;
+}
+
+function volumeMomentum(volume: MassSpringVolume): Vector {
+    let p = Vector.zero(3);
+    for (let i = 0; i < volume.getNumParticles(); ++i) {
+        p = add(p, mul(volume.getVelocity(i), volume.getMass(i)));
+    }
+    return p;
+}
+
+describe('MassSpringVolume verification', () => {
+    it('the lattice index and coordinates are mutual inverses', () => {
+        check(fc.tuple(fc.integer({ min: 1, max: 5 }),
+            fc.integer({ min: 1, max: 5 }), fc.integer({ min: 1, max: 5 })),
+            ([numSlices, numRows, numCols]) => {
+                const volume = new TestMassSpringVolume(3, numSlices, numRows,
+                    numCols, 0.01);
+                let expected = 0;
+                for (let s = 0; s < numSlices; ++s) {
+                    for (let r = 0; r < numRows; ++r) {
+                        for (let c = 0; c < numCols; ++c) {
+                            // Lexicographic order: index = c + C*(r + R*s).
+                            expect(volume.indexOf(s, r, c)).toBe(expected);
+                            const back = volume.coordinatesOf(expected);
+                            expect(back).toEqual({ s, r, c });
+                            ++expected;
+                        }
+                    }
+                }
+                expect(volume.getNumParticles()).toBe(expected);
+            });
+    });
+
+    it('acceleration agrees with the equivalent MassSpringArbitrary system',
+        () => {
+            check(latticeSpec(), (spec) => {
+                const volume = buildVolume(spec, 0.01);
+                const springs = latticeSprings(volume);
+                const n = volume.getNumParticles();
+
+                const graph = new ArbitraryProbe(3, n, springs.length,
+                    0.01);
+                for (let i = 0; i < n; ++i) {
+                    graph.setMass(i, volume.getMass(i));
+                    graph.setPosition(i, volume.getPosition(i));
+                    graph.setVelocity(i, volume.getVelocity(i));
+                }
+                for (let e = 0; e < springs.length; ++e) {
+                    graph.setSpring(e, new MassSpringArbitrarySpring(
+                        springs[e].i, springs[e].j, springs[e].constant,
+                        springs[e].length));
+                }
+
+                const position: Vector[] = [];
+                const velocity: Vector[] = [];
+                for (let i = 0; i < n; ++i) {
+                    position.push(volume.getPosition(i).clone());
+                    velocity.push(volume.getVelocity(i).clone());
+                }
+                for (let i = 0; i < n; ++i) {
+                    const a = volume.accelerationAt(i, 0, position, velocity);
+                    const b = graph.accelerationAt(i, 0, position, velocity);
+                    for (let k = 0; k < 3; ++k) {
+                        // Only the summation order differs, so the agreement
+                        // is at round-off level relative to the term sizes.
+                        expectClose(a.get(k), b.get(k), 1e-11, 1e-10);
+                    }
+                }
+            }, 120);
+        });
+
+    it('a configuration at the resting lengths with zero velocity is an ' +
+        'exact fixed point', () => {
+            check(latticeSpec(), (spec) => {
+                const volume = buildVolume(spec, 0.05);
+                const S = volume.getNumSlices();
+                const R = volume.getNumRows();
+                const C = volume.getNumCols();
+                for (let s = 0; s < S; ++s) {
+                    for (let r = 0; r < R; ++r) {
+                        for (let c = 0; c < C; ++c) {
+                            const p = volume.getPositionAt(s, r, c);
+                            volume.setVelocityAt(s, r, c, v3(0, 0, 0));
+                            if (s + 1 < S) {
+                                volume.setLengthS(s, r, c, vectorLength(sub(
+                                    volume.getPositionAt(s + 1, r, c), p)));
+                            }
+                            if (r + 1 < R) {
+                                volume.setLengthR(s, r, c, vectorLength(sub(
+                                    volume.getPositionAt(s, r + 1, c), p)));
+                            }
+                            if (c + 1 < C) {
+                                volume.setLengthC(s, r, c, vectorLength(sub(
+                                    volume.getPositionAt(s, r, c + 1), p)));
+                            }
+                        }
+                    }
+                }
+                const n = volume.getNumParticles();
+                const before: Vector[] = [];
+                for (let i = 0; i < n; ++i) {
+                    before.push(volume.getPosition(i).clone());
+                }
+                volume.update(0);
+                for (let i = 0; i < n; ++i) {
+                    for (let k = 0; k < 3; ++k) {
+                        expect(volume.getPosition(i).get(k))
+                            .toBe(before[i].get(k));
+                        expect(volume.getVelocity(i).get(k) + 0).toBe(0);
+                    }
+                }
+            }, 100);
+        });
+
+    it('conserves total linear momentum with no external force', () => {
+        check(fc.tuple(latticeSpec(), scaled(0.002, 0.02, 32)),
+            ([spec, step]) => {
+                const volume = buildVolume(spec, step);
+                const before = volumeMomentum(volume);
+                for (let k = 0; k < 6; ++k) { volume.update(k * step); }
+                const after = volumeMomentum(volume);
+                let scale = 0;
+                for (let i = 0; i < volume.getNumParticles(); ++i) {
+                    scale += volume.getMass(i)
+                        * vectorLength(volume.getVelocity(i));
+                }
+                const tol = 1e-10 * Math.max(1, scale);
+                for (let k = 0; k < 3; ++k) {
+                    expect(Math.abs(after.get(k) - before.get(k)))
+                        .toBeLessThanOrEqual(tol);
+                }
+            }, 80);
+    });
+
+    it('never moves immovable masses', () => {
+        check(fc.tuple(latticeSpec(), scaled(0.002, 0.02, 32),
+            fc.integer({ min: 0, max: 26 })), ([spec, step, pinned]) => {
+                const volume = buildVolume(spec, step);
+                const n = volume.getNumParticles();
+                const fixedIndex = pinned % n;
+                const { s, r, c } = volume.coordinatesOf(fixedIndex);
+                volume.setMassAt(s, r, c, Number.MAX_VALUE);
+                const p0 = volume.getPosition(fixedIndex).clone();
+                const v0 = volume.getVelocity(fixedIndex).clone();
+                for (let k = 0; k < 5; ++k) { volume.update(k * step); }
+                for (let k = 0; k < 3; ++k) {
+                    expect(volume.getPosition(fixedIndex).get(k))
+                        .toBe(p0.get(k));
+                    expect(volume.getVelocity(fixedIndex).get(k))
+                        .toBe(v0.get(k));
+                }
+            }, 80);
+    });
+
+    it('the per-direction constants and lengths are stored independently',
+        () => {
+            check(fc.tuple(latticeSpec(), fc.integer({ min: 0, max: 26 })),
+                ([spec, which]) => {
+                    const volume = buildVolume(spec, 0.01);
+                    const i = which % volume.getNumParticles();
+                    const { s, r, c } = volume.coordinatesOf(i);
+                    expect(volume.getConstantS(s, r, c))
+                        .toBe(spec.constants[3 * i]);
+                    expect(volume.getConstantR(s, r, c))
+                        .toBe(spec.constants[3 * i + 1]);
+                    expect(volume.getConstantC(s, r, c))
+                        .toBe(spec.constants[3 * i + 2]);
+                    expect(volume.getLengthS(s, r, c))
+                        .toBe(spec.lengths[3 * i]);
+                    expect(volume.getLengthR(s, r, c))
+                        .toBe(spec.lengths[3 * i + 1]);
+                    expect(volume.getLengthC(s, r, c))
+                        .toBe(spec.lengths[3 * i + 2]);
+                });
+        });
 });
