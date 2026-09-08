@@ -212,20 +212,23 @@ describe('DistOrientedBox3Cone3', () => {
                 ++misses;
             }
         }
-        // The upstream minimizer misses the global minimum for one of these
-        // configurations; see the limitation test below.
+        // Before the Minimize1 bracket-collapse fix (upstream #298) the
+        // minimizer missed the global minimum for one of these
+        // configurations; see the test below.
         expect(misses).toBeLessThanOrEqual(1);
     });
 
-    it('records the known upstream minimizer limitation', () => {
-        // This configuration defeats Minimize1: F(-pi/2) and F(+pi/2) are
-        // equal to within round-off (both angles describe the same
+    it('survives the near-symmetric angle sweep that defeated the upstream '
+        + 'minimizer', () => {
+        // This configuration used to defeat Minimize1: F(-pi/2) and F(+pi/2)
+        // are equal to within round-off (both angles describe the same
         // quadrilateral), so the interpolating parabola has its vertex a few
-        // ulps away from the midpoint of the bracket. Minimize1 then takes
-        // its asymmetric branch, collapses the bracket and stops at the
-        // midpoint value instead of the true minimum near angle 0.22. The
-        // port preserves upstream behavior; update this test if Minimize1 is
-        // ever made robust to a near-midpoint parabola vertex.
+        // ulps away from the midpoint of the bracket. Upstream's exact
+        // 'vertex == midpoint' test then failed, an asymmetric branch
+        // collapsed the bracket, and the search stopped at the midpoint value
+        // 0.362774519113053 instead of the true minimum near angle 0.22. The
+        // port fixes the bracket collapse (upstream #298; see the port notes
+        // in src/Minimize1.ts), so the query now reports the true minimum.
         const cone = frustum([0, 0, 0], [0, 0, 1], angle, 1, 4);
         const box = obox(
             [-1.3862013816833496, 2.672417163848877, 3.3069558143615723],
@@ -237,9 +240,10 @@ describe('DistOrientedBox3Cone3', () => {
         // The returned pair is a genuine box point and frustum point.
         expectConsistent(box, cone, result);
 
-        // But it is not the closest such pair.
-        expect(sampled).toBeLessThan(0.1);
-        expect(result.distance).toBeCloseTo(0.362774519113053, 6);
+        // And it is now the closest such pair, to within the resolution of
+        // the sampling used as the independent estimate.
+        expect(result.distance).toBeLessThanOrEqual(sampled);
+        expect(result.distance).toBeCloseTo(0.0775455784704954, 9);
     });
 });
 
@@ -250,12 +254,13 @@ describe('DistOrientedBox3Cone3', () => {
 // This query is the least robust in the group and the properties below are
 // chosen accordingly. Two upstream defects are involved:
 //
-//  * Minimize1 collapses its bracket when F(-pi/2) and F(+pi/2) agree to
+//  * Minimize1 collapsed its bracket when F(-pi/2) and F(+pi/2) agree to
 //    within round-off, which they always do here (both angles describe the
 //    same quadrilateral). The reported angle, and therefore the reported
-//    distance, is then whatever the truncated search happened to reach. This
-//    is recorded by the 'records the known upstream minimizer limitation'
-//    test above and in the port notes.
+//    distance, was then whatever the truncated search happened to reach.
+//    That defect (upstream #298) is fixed in src/Minimize1.ts; the search is
+//    still a heuristic global search, so a deep enough secondary minimum can
+//    still be missed.
 //  * The 5-variable box-quadrilateral subproblem has a rank-deficient
 //    Hessian (the Gram matrix of five vectors in R^3), so its 10-dimensional
 //    LCP is degenerate. For a small fraction of configurations Lemke's

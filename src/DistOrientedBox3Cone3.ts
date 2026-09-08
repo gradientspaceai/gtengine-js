@@ -22,17 +22,20 @@
 // plain flat number arrays here because they are only used to fill the
 // LCP matrix and vector.
 //
-// Known upstream limitation, preserved by the port. The angle parameter is
-// swept over [-pi/2,+pi/2] and the quadrilateral at -pi/2 is the same set as
-// the one at +pi/2, so F(-pi/2) and F(+pi/2) agree to within round-off for
+// Known upstream limitation, fixed in src/Minimize1.ts. The angle parameter
+// is swept over [-pi/2,+pi/2] and the quadrilateral at -pi/2 is the same set
+// as the one at +pi/2, so F(-pi/2) and F(+pi/2) agree to within round-off for
 // every input. When F is V-shaped over that bracket, Minimize1 fits a
 // parabola whose vertex lands at the midpoint of the bracket up to
-// round-off. Minimize1 has an exact 'vertex == midpoint' branch that handles
-// the symmetric case, but a vertex that is merely near the midpoint takes
-// the asymmetric branch instead, which collapses the bracket to a degenerate
-// interval and stops. The reported distance is then the distance for some
-// valid pair of points, but not necessarily the global minimum. See the
-// 'Upstream bug suspects' section of the port PR.
+// round-off. Upstream's exact 'vertex == midpoint' branch never fires for
+// such a vertex, so an asymmetric branch collapsed the bracket to a
+// degenerate interval and the search stopped, reporting the distance for
+// some valid pair of points rather than the global minimum. The port
+// compares the vertex with the midpoint to within the floating-point
+// resolution of the bracket and continues the search when the parabola is
+// degenerate; see the port notes in src/Minimize1.ts (upstream #298). The
+// search remains a heuristic global search, so a secondary minimum outside
+// every bracket it examines can still be missed.
 
 import type { Cone3 } from './Cone.js';
 import type { DCPQuery } from './DCPQuery.js';
