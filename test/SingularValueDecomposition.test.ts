@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { SingularValueDecomposition } from '../src/SingularValueDecomposition.js';
 import { SymmetricEigensolver } from '../src/SymmetricEigensolver.js';
+import {
+    check, expectClose, fc, scaled
+} from './helpers/arbitraries.js';
 
 function makeRandom(seed: number): () => number {
     let state = seed >>> 0;
@@ -442,4 +445,283 @@ describe('SingularValueDecomposition', () => {
         expect(values[1]).toBeCloseTo(3, 13);
         expect(values[2]).toBeCloseTo(2, 13);
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V39): independent review against upstream
+// SingularValueDecomposition.h.
+// ---------------------------------------------------------------------------
+
+describe('SingularValueDecomposition verification', () => {
+    // A shape (M >= N >= 2) with a row-major M-by-N matrix of that shape.
+    const shaped = fc.tuple(fc.integer({ min: 2, max: 5 }),
+        fc.integer({ min: 0, max: 3 })).chain(([numCols, extra]) => {
+            const numRows = numCols + extra;
+            return fc.tuple(fc.constant(numRows), fc.constant(numCols),
+                fc.array(scaled(-5, 5),
+                    { minLength: numRows * numCols,
+                        maxLength: numRows * numCols }));
+        });
+
+    function multiply(numRows: number, numCommon: number, numCols: number,
+        A: readonly number[], B: readonly number[]): number[] {
+        const C = new Array<number>(numRows * numCols).fill(0);
+        for (let r = 0; r < numRows; ++r) {
+            for (let c = 0; c < numCols; ++c) {
+                let sum = 0;
+                for (let k = 0; k < numCommon; ++k) {
+                    sum += A[k + numCommon * r] * B[c + numCols * k];
+                }
+                C[c + numCols * r] = sum;
+            }
+        }
+        return C;
+    }
+
+    function transpose(numRows: number, numCols: number,
+        A: readonly number[]): number[] {
+        const T = new Array<number>(numRows * numCols).fill(0);
+        for (let r = 0; r < numRows; ++r) {
+            for (let c = 0; c < numCols; ++c) {
+                T[r + numRows * c] = A[c + numCols * r];
+            }
+        }
+        return T;
+    }
+
+    function lInfinity(A: readonly number[]): number {
+        let worst = 0;
+        for (const value of A) { worst = Math.max(worst, Math.abs(value)); }
+        return worst;
+    }
+
+    // ||M^T*M - I||_inf for an n-by-n matrix M.
+    function orthonormalityError(n: number, M: readonly number[]): number {
+        let worst = 0;
+        for (let r = 0; r < n; ++r) {
+            for (let c = 0; c < n; ++c) {
+                let sum = 0;
+                for (let k = 0; k < n; ++k) {
+                    sum += M[r + n * k] * M[c + n * k];
+                }
+                worst = Math.max(worst, Math.abs(sum - (r === c ? 1 : 0)));
+            }
+        }
+        return worst;
+    }
+
+    it('reconstructs A = U*S*V^T with orthogonal U and V', () => {
+        check(shaped, ([numRows, numCols, A]) => {
+            const svd = new SingularValueDecomposition(numRows, numCols, 64);
+            const iterations = svd.solve(A);
+            expect(iterations).not
+                .toBe(SingularValueDecomposition.invalid);
+
+            const U = svd.getU(), S = svd.getS(), V = svd.getV();
+            const US = multiply(numRows, numRows, numCols, U, S);
+            const VT = transpose(numCols, numCols, V);
+            const USVT = multiply(numRows, numCols, numCols, US, VT);
+            const scale = Math.max(lInfinity(A), 1);
+            for (let i = 0; i < numRows * numCols; ++i) {
+                // Golub and Van Loan expect |U^T*A*V - S| to be about
+                // unitRoundoff*|A|; the bound below is that with room for the
+                // O(n) accumulation of the reconstruction products.
+                expectClose(USVT[i], A[i], 1e-11 * scale, 0);
+            }
+
+            // Both factors are products of Householder reflections and
+            // Givens rotations, so they are orthogonal to the same order.
+            expect(orthonormalityError(numRows, U)).toBeLessThan(1e-12);
+            expect(orthonormalityError(numCols, V)).toBeLessThan(1e-12);
+        }, 100);
+    });
+
+    it('reports nonnegative singular values in descending order, off the '
+        + 'diagonal zero', () => {
+        check(shaped, ([numRows, numCols, A]) => {
+            const svd = new SingularValueDecomposition(numRows, numCols, 64);
+            expect(svd.solve(A)).not.toBe(SingularValueDecomposition.invalid);
+
+            const S = svd.getS();
+            const values = svd.getSingularValues();
+            expect(values.length).toBe(numCols);
+            for (let i = 0; i < numCols; ++i) {
+                expect(values[i]).toBeGreaterThanOrEqual(0);
+                if (i > 0) {
+                    expect(values[i]).toBeLessThanOrEqual(values[i - 1]);
+                }
+                expect(svd.getSingularValue(i)).toBe(values[i]);
+            }
+            for (let r = 0; r < numRows; ++r) {
+                for (let c = 0; c < numCols; ++c) {
+                    if (r !== c) {
+                        expect(S[c + numCols * r]).toBe(0);
+                    } else {
+                        expect(S[c + numCols * r]).toBe(values[r]);
+                    }
+                }
+            }
+        }, 100);
+    });
+
+    it('agrees with the eigenvalues of A^T*A', () => {
+        check(shaped, ([numRows, numCols, A]) => {
+            // The singular values are the square roots of the eigenvalues of
+            // A^T*A. SymmetricEigensolver is a different algorithm
+            // (tridiagonalization plus QR iteration), so this is an
+            // independent computation.
+            const ATA = new Array<number>(numCols * numCols).fill(0);
+            for (let r = 0; r < numCols; ++r) {
+                for (let c = 0; c < numCols; ++c) {
+                    let sum = 0;
+                    for (let k = 0; k < numRows; ++k) {
+                        sum += A[r + numCols * k] * A[c + numCols * k];
+                    }
+                    ATA[c + numCols * r] = sum;
+                }
+            }
+            const eigen = new SymmetricEigensolver(numCols, 4096);
+            expect(eigen.solve(ATA, -1)).toBeGreaterThanOrEqual(0);
+            const eigenvalues = eigen.getEigenvalues();
+
+            const svd = new SingularValueDecomposition(numRows, numCols, 64);
+            expect(svd.solve(A)).not.toBe(SingularValueDecomposition.invalid);
+            const values = svd.getSingularValues();
+
+            const scale = Math.max(lInfinity(A), 1);
+            for (let i = 0; i < numCols; ++i) {
+                // The eigenvalues come back in decreasing order (sortType
+                // -1), matching the singular-value order. Forming A^T*A
+                // squares the condition number, so a small singular value is
+                // resolved only to about sqrt(eps)*|A|.
+                const expected = Math.sqrt(Math.max(eigenvalues[i], 0));
+                expectClose(values[i], expected, 1e-7 * scale, 1e-7);
+            }
+        }, 100);
+    });
+
+    it('places the exact singular values of a scaled orthogonal-like input',
+        () => {
+            check(fc.tuple(fc.integer({ min: 2, max: 5 }),
+                fc.integer({ min: 0, max: 3 })).chain(([numCols, extra]) => {
+                    const numRows = numCols + extra;
+                    return fc.tuple(fc.constant(numRows),
+                        fc.constant(numCols),
+                        fc.array(scaled(0.25, 8),
+                            { minLength: numCols, maxLength: numCols }));
+                }), ([numRows, numCols, d]) => {
+                // A is M-by-N with the diagonal entries d and zeros
+                // elsewhere, so its singular values are the |d| sorted in
+                // descending order.
+                const A = new Array<number>(numRows * numCols).fill(0);
+                for (let i = 0; i < numCols; ++i) {
+                    A[i + numCols * i] = d[i];
+                }
+                const svd = new SingularValueDecomposition(numRows, numCols,
+                    64);
+                expect(svd.solve(A)).not
+                    .toBe(SingularValueDecomposition.invalid);
+                const expected = d.map(Math.abs).sort((p, q) => q - p);
+                const values = svd.getSingularValues();
+                for (let i = 0; i < numCols; ++i) {
+                    expectClose(values[i], expected[i], 1e-12, 1e-12);
+                }
+            }, 100);
+        });
+
+    it('scales its singular values with the matrix', () => {
+        check(fc.tuple(shaped, scaled(0.05, 20), fc.boolean()),
+            ([[numRows, numCols, A], factor, negate]) => {
+                const scale = negate ? -factor : factor;
+                const scaled2 = A.map(value => scale * value);
+                const base = new SingularValueDecomposition(numRows, numCols,
+                    64);
+                const other = new SingularValueDecomposition(numRows, numCols,
+                    64);
+                expect(base.solve(A)).not
+                    .toBe(SingularValueDecomposition.invalid);
+                expect(other.solve(scaled2)).not
+                    .toBe(SingularValueDecomposition.invalid);
+                const v0 = base.getSingularValues();
+                const v1 = other.getSingularValues();
+                for (let i = 0; i < numCols; ++i) {
+                    // The algorithm is not scale invariant bit for bit (the
+                    // cutoffs are relative to |B|, but the arithmetic
+                    // differs), so compare with a relative tolerance.
+                    expectClose(v1[i], Math.abs(scale) * v0[i], 1e-9, 1e-9);
+                }
+            }, 100);
+    });
+
+    it('reports a rank deficiency as a zero singular value', () => {
+        check(fc.tuple(fc.integer({ min: 2, max: 4 }),
+            fc.integer({ min: 0, max: 2 })).chain(([numCols, extra]) => {
+                const numRows = numCols + extra;
+                return fc.tuple(fc.constant(numRows), fc.constant(numCols),
+                    fc.array(scaled(-5, 5),
+                        { minLength: numRows * numCols,
+                            maxLength: numRows * numCols }),
+                    scaled(-3, 3));
+            }), ([numRows, numCols, A, factor]) => {
+            // Replace the last column by 'factor' times the first, which
+            // makes the matrix rank deficient.
+            const M = A.slice();
+            for (let r = 0; r < numRows; ++r) {
+                M[(numCols - 1) + numCols * r] = factor * M[numCols * r];
+            }
+            const svd = new SingularValueDecomposition(numRows, numCols, 64);
+            expect(svd.solve(M)).not
+                .toBe(SingularValueDecomposition.invalid);
+            const values = svd.getSingularValues();
+            const scale = Math.max(lInfinity(M), 1);
+            // The smallest singular value is zero up to the round-off of the
+            // decomposition.
+            expect(values[numCols - 1]).toBeLessThan(1e-11 * scale);
+        }, 100);
+    });
+
+    it('exposes columns of U and V that match the full matrices', () => {
+        check(shaped, ([numRows, numCols, A]) => {
+            const svd = new SingularValueDecomposition(numRows, numCols, 64);
+            expect(svd.solve(A)).not.toBe(SingularValueDecomposition.invalid);
+            const U = svd.getU(), V = svd.getV();
+            for (let index = 0; index < numRows; ++index) {
+                const column = svd.getUColumn(index);
+                for (let row = 0; row < numRows; ++row) {
+                    expect(column[row]).toBe(U[index + numRows * row]);
+                }
+            }
+            for (let index = 0; index < numCols; ++index) {
+                const column = svd.getVColumn(index);
+                for (let row = 0; row < numCols; ++row) {
+                    expect(column[row]).toBe(V[index + numCols * row]);
+                }
+            }
+        }, 60);
+    });
+
+    it('rejects the shapes upstream excludes and out-of-range indices',
+        () => {
+            // Upstream requires N >= 2 and M >= N, so the 1xN and Nx1 cases
+            // are not supported at all.
+            expect(() => new SingularValueDecomposition(1, 1, 16))
+                .toThrow('Invalid input.');
+            expect(() => new SingularValueDecomposition(4, 1, 16))
+                .toThrow('Invalid input.');
+            expect(() => new SingularValueDecomposition(2, 4, 16))
+                .toThrow('Invalid input.');
+            expect(() => new SingularValueDecomposition(4, 2, 0))
+                .toThrow('Invalid input.');
+
+            const svd = new SingularValueDecomposition(3, 2, 32);
+            svd.solve([1, 2, 3, 4, 5, 6]);
+            expect(() => svd.getSingularValue(2)).toThrow('Invalid index');
+            // Upstream's index is a size_t, so a negative value wraps and
+            // trips the same assertion.
+            expect(() => svd.getSingularValue(-1)).toThrow('Invalid index');
+            expect(() => svd.getUColumn(-1)).toThrow('Invalid index');
+            expect(() => svd.getUColumn(3)).toThrow('Invalid index');
+            expect(() => svd.getVColumn(-1)).toThrow('Invalid index');
+            expect(() => svd.getVColumn(2)).toThrow('Invalid index');
+        });
 });

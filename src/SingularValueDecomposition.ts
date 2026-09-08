@@ -244,8 +244,11 @@ export class SingularValueDecomposition {
     }
 
     getSingularValue(index: number): number {
+        // Upstream's index is a size_t, so a negative value wraps to a huge
+        // one and its 'index < mNumCols' assertion fires; the port checks
+        // both ends to give the same behavior.
         logAssert(
-            index < this.mNumCols,
+            0 <= index && index < this.mNumCols,
             'Invalid index for singular value.');
 
         return this.mSMatrix[index + this.mNumCols * index];
@@ -253,8 +256,8 @@ export class SingularValueDecomposition {
 
     getUColumn(index: number): number[] {
         logAssert(
-            index < this.mNumRows,
-            'Invalid index or null pointer for U-column.');
+            0 <= index && index < this.mNumRows,
+            'Invalid index for U-column.');
 
         const uColumn = new Array<number>(this.mNumRows).fill(0);
         for (let row = 0; row < this.mNumRows; ++row) {
@@ -265,8 +268,8 @@ export class SingularValueDecomposition {
 
     getVColumn(index: number): number[] {
         logAssert(
-            index < this.mNumCols,
-            'Invalid index or null pointer for V-column.');
+            0 <= index && index < this.mNumCols,
+            'Invalid index for V-column.');
 
         const vColumn = new Array<number>(this.mNumCols).fill(0);
         for (let row = 0; row < this.mNumCols; ++row) {
