@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { Cylinder3 } from '../src/Cylinder3.js';
+import { computeOrthogonalComplement3 } from '../src/Vector3.js';
+import { DistPointLine } from '../src/DistPointLine.js';
+import { check, compareKeys, expectClose, expectStrictWeakOrder, fc, finite,
+    line, positive } from './helpers/arbitraries.js';
 import { Line } from '../src/Line.js';
-import { Vector } from '../src/Vector.js';
+import { Vector, add, mul } from '../src/Vector.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -120,5 +124,96 @@ describe('Cylinder3 comparisons', () => {
         expect(taller.greaterThanOrEqual(base)).toBe(true);
         expect(base.greaterThan(base.clone())).toBe(false);
         expect(base.greaterThanOrEqual(base.clone())).toBe(true);
+    });
+});
+
+describe('Cylinder3 verification', () => {
+    const cylinder = () => fc.tuple(line(3), positive(5), positive(5))
+        .map(([a, r, h]) => Cylinder3.fromAxisRadiusHeight(a, r, h));
+    const key = (c: Cylinder3) => [...c.axis.origin.values,
+        ...c.axis.direction.values, c.radius, c.height];
+
+    it('the height sentinel partitions finite from infinite cylinders', () => {
+        // Upstream uses height = -1 (not infinity()) for infinite cylinders,
+        // so IsFinite is height >= 0 and IsInfinite is height < 0.
+        check(finite(-5, 5), h => {
+            const c = Cylinder3.fromAxisRadiusHeight(new Line(3), 1, h);
+            expect(c.isFinite()).toBe(h >= 0);
+            expect(c.isInfinite()).toBe(h < 0);
+            expect(c.isFinite()).toBe(!c.isInfinite());
+        });
+    });
+
+    it('makeFiniteCylinder ignores negative heights and makeInfinite wins',
+        () => {
+            check(finite(-5, 5), h => {
+                const c = new Cylinder3();
+                c.makeInfiniteCylinder();
+                expect(c.height).toBe(-1);
+                expect(c.isInfinite()).toBe(true);
+                c.makeFiniteCylinder(h);
+                if (h >= 0) {
+                    expect(c.height).toBe(h);
+                    expect(c.isFinite()).toBe(true);
+                } else {
+                    // The negative height is rejected; the sentinel stands.
+                    expect(c.height).toBe(-1);
+                    expect(c.isInfinite()).toBe(true);
+                }
+            });
+        });
+
+    it('the finite cylinder wall is at distance radius from the axis', () => {
+        // The definition: points at distance R from the axis line. Checked
+        // against the library's point-line distance query.
+        const query = new DistPointLine();
+        check(fc.tuple(cylinder(), finite(-3, 3), finite(-Math.PI, Math.PI)),
+            ([c, t, angle]) => {
+                const basis = [c.axis.direction.clone(), new Vector(3),
+                    new Vector(3)];
+                computeOrthogonalComplement3(1, basis);
+                const x = add(add(c.axis.origin, mul(t, c.axis.direction)),
+                    add(mul(c.radius * Math.cos(angle), basis[1]),
+                        mul(c.radius * Math.sin(angle), basis[2])));
+                expectClose(query.compute(x, c.axis).distance, c.radius,
+                    1e-9, 1e-9);
+            }, 100);
+    });
+
+    it('the comparisons follow the (axis, radius, height) member order', () => {
+        check(fc.tuple(cylinder(), cylinder()), ([a, b]) => {
+            const cmp = compareKeys(key(a), key(b));
+            expect(a.lessThan(b)).toBe(cmp < 0);
+            expect(a.greaterThan(b)).toBe(cmp > 0);
+            expect(a.lessThanOrEqual(b)).toBe(cmp <= 0);
+            expect(a.greaterThanOrEqual(b)).toBe(cmp >= 0);
+            expect(a.equals(b)).toBe(cmp === 0);
+        });
+    });
+
+    it('lessThan is a strict weak ordering', () => {
+        check(fc.array(cylinder(), { minLength: 4, maxLength: 5 }), cs => {
+            expectStrictWeakOrder(cs, (x, y) => x.lessThan(y));
+        }, 30);
+    });
+
+    it('equals is element equality, so a NaN axis breaks self-equality', () => {
+        const c = Cylinder3.fromAxisRadiusHeight(
+            Line.fromOriginDirection(Vector.fromArray([0, 0, 0]),
+                Vector.fromArray([NaN, 0, 1])), 1, 1);
+        expect(c.equals(c)).toBe(false);
+        expect(c.lessThan(c)).toBe(false);
+        expect(c.lessThanOrEqual(c)).toBe(true);
+    });
+
+    it('the factory and clone copy the axis line', () => {
+        check(line(3), axis => {
+            const c = Cylinder3.fromAxisRadiusHeight(axis, 1, 1);
+            const cloned = c.clone();
+            axis.origin.set(0, 999);
+            c.axis.direction.set(1, 888);
+            expect(c.axis.origin.get(0)).not.toBe(999);
+            expect(cloned.axis.direction.get(1)).not.toBe(888);
+        });
     });
 });
