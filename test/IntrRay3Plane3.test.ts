@@ -291,6 +291,13 @@ describe('IntrRay3Plane3 verification', () => {
                 if (Math.abs(dot(R.direction, P.normal)) < 1e-6) {
                     return;
                 }
+                // Likewise a ray origin on (or within rounding of) the plane:
+                // the hit parameter is ~0 and its sign, hence `intersect`,
+                // flips under the transformed rounding.
+                const signedDistance = dot(P.normal, R.origin) - P.constant;
+                if (Math.abs(signedDistance) < 1e-6 * (1 + length(R.origin))) {
+                    return;
+                }
                 expect(r1.intersect).toBe(r0.intersect);
                 if (r0.intersect && r0.numIntersections === 1) {
                     expectClose(r1.parameter, r0.parameter, 1e-8, 1e-8);
