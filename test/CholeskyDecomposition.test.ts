@@ -5,8 +5,14 @@ import {
 import type {
     CholeskyBlockMatrix, CholeskyBlockVector
 } from '../src/CholeskyDecomposition.js';
-import { Matrix, multiplyABT, mulMatrix } from '../src/Matrix.js';
+import { LinearSystem } from '../src/LinearSystem.js';
+import {
+    Matrix, determinant, multiplyABT, mulMatrix
+} from '../src/Matrix.js';
 import { Vector, sub } from '../src/Vector.js';
+import {
+    check, expectClose, fc, scaled, wellScaledVector
+} from './helpers/arbitraries.js';
 
 // A deterministic pseudorandom generator so the randomized cross-checks are
 // reproducible.
@@ -444,5 +450,191 @@ describe('BlockCholeskyDecomposition factor and solve', () => {
         const blocks = toBlockMatrix(A, 2, 2);
         expect(new BlockCholeskyDecomposition(2, 2).factor(blocks))
             .toBe(false);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V39): independent review against upstream
+// CholeskyDecomposition.h.
+// ---------------------------------------------------------------------------
+
+describe('CholeskyDecomposition verification', () => {
+    // A symmetric positive definite n-by-n matrix, well conditioned because
+    // of the n*I shift.
+    const spdMatrix = (n: number): fc.Arbitrary<Matrix> =>
+        fc.array(scaled(-1, 1), { minLength: n * n, maxLength: n * n })
+            .map(m => {
+                const A = new Matrix(n, n);
+                for (let r = 0; r < n; ++r) {
+                    for (let c = 0; c < n; ++c) {
+                        let sum = 0;
+                        for (let k = 0; k < n; ++k) {
+                            sum += m[r + n * k] * m[c + n * k];
+                        }
+                        A.set(r, c, sum + (r === c ? n : 0));
+                    }
+                }
+                return A;
+            });
+
+    const sizedSpd = fc.integer({ min: 1, max: 7 })
+        .chain(n => fc.tuple(fc.constant(n), spdMatrix(n),
+            wellScaledVector(n, -5, 5)));
+
+    it('produces a lower-triangular L with A = L*L^T', () => {
+        check(sizedSpd, ([n, A, _b]) => {
+            const original = A.clone();
+            const decomposer = new CholeskyDecomposition(n);
+            expect(decomposer.factor(A)).toBe(true);
+            for (let r = 0; r < n; ++r) {
+                for (let c = 0; c < n; ++c) {
+                    if (c > r) {
+                        // Only the lower-triangular portion is modified.
+                        expect(A.get(r, c)).toBe(original.get(r, c));
+                    } else {
+                        let sum = 0;
+                        for (let k = 0; k <= Math.min(r, c); ++k) {
+                            sum += A.get(r, k) * A.get(c, k);
+                        }
+                        expectClose(sum, original.get(r, c), 1e-9, 1e-9);
+                    }
+                }
+            }
+            // The diagonal of L is positive, which is what makes the factor
+            // unique.
+            for (let r = 0; r < n; ++r) {
+                expect(A.get(r, r)).toBeGreaterThan(0);
+            }
+        });
+    });
+
+    it('solves A*x = b the way the general linear solver does', () => {
+        check(sizedSpd, ([n, A, b]) => {
+            const original = A.clone();
+            const decomposer = new CholeskyDecomposition(n);
+            expect(decomposer.factor(A)).toBe(true);
+            const x = b.clone();
+            decomposer.solveLower(A, x);
+            decomposer.solveUpper(A, x);
+            const reference = LinearSystem.solve(n, original.values,
+                b.values);
+            expect(reference.invertible).toBe(true);
+            for (let i = 0; i < n; ++i) {
+                expectClose(x.get(i), reference.X[i], 1e-8, 1e-8);
+            }
+        });
+    });
+
+    it('succeeds exactly when every leading principal minor is positive',
+        () => {
+            // Sylvester's criterion. The pivot the factorization tests at
+            // step c is minor(c+1)/minor(c), so the two conditions are the
+            // same. Integer entries keep the minors far from zero, which is
+            // what makes the sign comparison reliable in binary64.
+            const symmetricLattice = fc.integer({ min: 1, max: 4 })
+                .chain(n => fc.tuple(fc.constant(n),
+                    fc.array(fc.integer({ min: -4, max: 4 }),
+                        { minLength: n * n, maxLength: n * n })));
+            check(symmetricLattice, ([n, values]) => {
+                const A = new Matrix(n, n);
+                for (let r = 0; r < n; ++r) {
+                    for (let c = 0; c <= r; ++c) {
+                        A.set(r, c, values[c + n * r]);
+                        A.set(c, r, values[c + n * r]);
+                    }
+                }
+                let allPositive = true;
+                for (let k = 1; k <= n; ++k) {
+                    const leading = new Matrix(k, k);
+                    for (let r = 0; r < k; ++r) {
+                        for (let c = 0; c < k; ++c) {
+                            leading.set(r, c, A.get(r, c));
+                        }
+                    }
+                    const minor = determinant(leading);
+                    // A vanishing minor makes the criterion inconclusive for
+                    // the floating-point pivot test; skip those draws.
+                    fc.pre(Math.abs(minor) > 0.5);
+                    allPositive = allPositive && minor > 0;
+                }
+                const decomposer = new CholeskyDecomposition(n);
+                expect(decomposer.factor(A)).toBe(allPositive);
+            });
+        });
+
+    it('block factorization agrees with the unblocked one', () => {
+        // blockSize != numBlocks in every case below, which is what the
+        // upstream run-time specialization gets wrong (#209): it indexes
+        // inside a block with the block-level stride NumBlocks.
+        const shapes: [number, number][] = [[2, 3], [3, 2], [1, 4], [4, 1],
+        [2, 1], [1, 3]];
+        for (const [blockSize, numBlocks] of shapes) {
+            const n = blockSize * numBlocks;
+            check(fc.tuple(spdMatrix(n), wellScaledVector(n, -5, 5)),
+                ([A, b]) => {
+                    const decomposer = new BlockCholeskyDecomposition(
+                        blockSize, numBlocks);
+                    const blocks: CholeskyBlockMatrix = [];
+                    for (let i = 0; i < numBlocks * numBlocks; ++i) {
+                        blocks.push(new Matrix(blockSize, blockSize));
+                    }
+                    for (let r = 0; r < n; ++r) {
+                        for (let c = 0; c < n; ++c) {
+                            decomposer.set(blocks, r, c, A.get(r, c));
+                        }
+                    }
+                    expect(decomposer.factor(blocks)).toBe(true);
+
+                    const Y: CholeskyBlockVector = [];
+                    for (let r = 0; r < numBlocks; ++r) {
+                        const v = new Vector(blockSize);
+                        for (let j = 0; j < blockSize; ++j) {
+                            v.set(j, b.get(j + blockSize * r));
+                        }
+                        Y.push(v);
+                    }
+                    decomposer.solveLower(blocks, Y);
+                    decomposer.solveUpper(blocks, Y);
+
+                    const reference = LinearSystem.solve(n, A.values,
+                        b.values);
+                    expect(reference.invertible).toBe(true);
+                    for (let i = 0; i < n; ++i) {
+                        const value = Y[Math.floor(i / blockSize)]
+                            .get(i % blockSize);
+                        expectClose(value, reference.X[i], 1e-8, 1e-8);
+                    }
+                }, 40);
+        }
+    });
+
+    it('block get/set address the full matrix as a table of scalars', () => {
+        check(fc.tuple(fc.integer({ min: 1, max: 4 }),
+            fc.integer({ min: 1, max: 4 })), ([blockSize, numBlocks]) => {
+            const n = blockSize * numBlocks;
+            const decomposer = new BlockCholeskyDecomposition(blockSize,
+                numBlocks);
+            const blocks: CholeskyBlockMatrix = [];
+            for (let i = 0; i < numBlocks * numBlocks; ++i) {
+                blocks.push(new Matrix(blockSize, blockSize));
+            }
+            for (let r = 0; r < n; ++r) {
+                for (let c = 0; c < n; ++c) {
+                    decomposer.set(blocks, r, c, c + n * r);
+                }
+            }
+            for (let r = 0; r < n; ++r) {
+                for (let c = 0; c < n; ++c) {
+                    expect(decomposer.get(blocks, r, c)).toBe(c + n * r);
+                }
+            }
+            // Every slot of every block was written exactly once, so no two
+            // (row, col) pairs may collide.
+            const seen = new Set<number>();
+            for (const block of blocks) {
+                for (const value of block.values) { seen.add(value); }
+            }
+            expect(seen.size).toBe(n * n);
+        });
     });
 });
