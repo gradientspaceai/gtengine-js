@@ -21,6 +21,20 @@
 import { logAssert } from './Logger.js';
 import { Vector, add, sub, mul } from './Vector.js';
 
+// Element-by-element equality of equal-length vector arrays (the port of
+// std::array's operator==, which applies Vector's operator== to each
+// element). This is NOT 'compareAxes(...) === 0': the lexicographic compare
+// treats a NaN component as equivalent to itself, whereas '==' does not.
+function equalAxes(a0: readonly Vector[], a1: readonly Vector[]): boolean {
+    logAssert(a0.length === a1.length, 'OrientedBox: mismatched sizes.');
+    for (let i = 0; i < a0.length; ++i) {
+        if (a0[i].notEquals(a1[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
 // Lexicographic comparison of equal-length vector arrays (the port of
 // std::array's relational operators). Returns -1, 0 or +1.
 function compareAxes(a0: readonly Vector[], a1: readonly Vector[]): number {
@@ -108,7 +122,7 @@ export class OrientedBox {
     // Comparisons to support sorted containers.
     equals(box: OrientedBox): boolean {
         return this.center.equals(box.center)
-            && compareAxes(this.axis, box.axis) === 0
+            && equalAxes(this.axis, box.axis)
             && this.extent.equals(box.extent);
     }
 

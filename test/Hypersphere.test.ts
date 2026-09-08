@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { Hypersphere } from '../src/Hypersphere.js';
-import { Vector, sub, length } from '../src/Vector.js';
+import { Vector, add, sub, mul, length } from '../src/Vector.js';
+import { check, compareKeys, expectClose, expectStrictWeakOrder, fc, positive,
+    sphere, unitVector, vector } from './helpers/arbitraries.js';
 
 describe('Hypersphere construction', () => {
     it('the default constructor is the unit hypersphere at the origin', () => {
@@ -66,5 +68,60 @@ describe('Hypersphere comparisons', () => {
         expect(a.greaterThanOrEqual(sameAsA)).toBe(true);
         expect(b.greaterThan(a)).toBe(true);
         expect(a.greaterThan(sameAsA)).toBe(false);
+    });
+});
+
+describe('Hypersphere verification', () => {
+    const key = (h: Hypersphere) => [...h.center.values, h.radius];
+
+    it('points at parameter distance r are on the hypersphere', () => {
+        check(fc.tuple(sphere(3), unitVector(3)), ([s, u]) => {
+            const x = add(s.center, mul(s.radius, u));
+            expectClose(length(sub(x, s.center)), s.radius, 1e-12, 1e-12);
+        });
+    });
+
+    it('the comparisons follow the (center, radius) member order', () => {
+        check(fc.tuple(sphere(3), sphere(3)), ([a, b]) => {
+            const c = compareKeys(key(a), key(b));
+            expect(a.lessThan(b)).toBe(c < 0);
+            expect(a.greaterThan(b)).toBe(c > 0);
+            expect(a.lessThanOrEqual(b)).toBe(c <= 0);
+            expect(a.greaterThanOrEqual(b)).toBe(c >= 0);
+            expect(a.equals(b)).toBe(c === 0);
+        });
+    });
+
+    it('a differing radius alone orders by the radius', () => {
+        check(fc.tuple(vector(3), positive(5), positive(5)),
+            ([c, r0, r1]) => {
+                const a = Hypersphere.fromCenterRadius(c, r0);
+                const b = Hypersphere.fromCenterRadius(c, r1);
+                expect(a.lessThan(b)).toBe(r0 < r1);
+            });
+    });
+
+    it('lessThan is a strict weak ordering', () => {
+        check(fc.array(sphere(2), { minLength: 4, maxLength: 6 }), ss => {
+            expectStrictWeakOrder(ss, (x, y) => x.lessThan(y));
+        }, 50);
+    });
+
+    it('equals is element equality, so NaN members break self-equality', () => {
+        const s = Hypersphere.fromCenterRadius(Vector.fromArray([NaN, 0]), 1);
+        expect(s.equals(s)).toBe(false);
+        expect(s.lessThan(s)).toBe(false);
+        expect(s.lessThanOrEqual(s)).toBe(true);
+    });
+
+    it('fromCenterRadius and clone are independent of their inputs', () => {
+        check(vector(3), c => {
+            const s = Hypersphere.fromCenterRadius(c, 2);
+            const copy = s.clone();
+            c.set(0, 999);
+            s.center.set(1, 777);
+            expect(s.center.get(0)).not.toBe(999);
+            expect(copy.center.get(1)).not.toBe(777);
+        });
     });
 });

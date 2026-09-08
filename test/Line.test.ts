@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { Line } from '../src/Line.js';
-import { Vector, add, mul } from '../src/Vector.js';
+import { Vector, add, sub, mul, length } from '../src/Vector.js';
+import { check, compareKeys, expectClose, expectStrictWeakOrder, fc, finite,
+    line, unitVector, vector } from './helpers/arbitraries.js';
 
 describe('Line construction', () => {
     it('the default constructor is the x-axis through the origin', () => {
@@ -74,5 +76,72 @@ describe('Line comparisons', () => {
         expect(a.greaterThanOrEqual(sameAsA)).toBe(true);
         expect(c.greaterThan(a)).toBe(true);
         expect(a.greaterThan(sameAsA)).toBe(false);
+    });
+});
+
+describe('Line verification', () => {
+    const key = (l: Line) => [...l.origin.values, ...l.direction.values];
+
+    it('the parameterisation P + t*D reproduces the origin at t = 0 and is '
+        + 'affine in t', () => {
+            check(fc.tuple(line(3), finite(-5, 5), finite(-5, 5)),
+                ([l, s, t]) => {
+                    const p0 = add(l.origin, mul(s, l.direction));
+                    const p1 = add(l.origin, mul(t, l.direction));
+                    // |P(s) - P(t)| = |s - t| for a unit-length direction.
+                    expectClose(length(sub(p0, p1)), Math.abs(s - t),
+                        1e-12, 1e-12);
+                    // The point at t = 0 is the origin, exactly.
+                    expect(add(l.origin, mul(0, l.direction)).values)
+                        .toEqual(l.origin.values);
+                });
+        });
+
+    it('the comparisons follow the (origin, direction) member order', () => {
+        check(fc.tuple(line(3), line(3)), ([a, b]) => {
+            const c = compareKeys(key(a), key(b));
+            expect(a.lessThan(b)).toBe(c < 0);
+            expect(a.greaterThan(b)).toBe(c > 0);
+            expect(a.lessThanOrEqual(b)).toBe(c <= 0);
+            expect(a.greaterThanOrEqual(b)).toBe(c >= 0);
+            expect(a.equals(b)).toBe(c === 0);
+        });
+    });
+
+    it('a differing direction alone orders by the direction', () => {
+        check(fc.tuple(vector(3), unitVector(3), unitVector(3)),
+            ([o, d0, d1]) => {
+                const a = Line.fromOriginDirection(o, d0);
+                const b = Line.fromOriginDirection(o, d1);
+                expect(a.lessThan(b)).toBe(d0.lessThan(d1));
+            });
+    });
+
+    it('lessThan is a strict weak ordering', () => {
+        check(fc.array(line(2), { minLength: 4, maxLength: 6 }), ls => {
+            expectStrictWeakOrder(ls, (x, y) => x.lessThan(y));
+        }, 50);
+    });
+
+    it('equals is element equality, so a NaN line does not equal itself',
+        () => {
+            const l = Line.fromOriginDirection(Vector.fromArray([0, 0]),
+                Vector.fromArray([NaN, 1]));
+            expect(l.equals(l)).toBe(false);
+            expect(l.lessThan(l)).toBe(false);
+            expect(l.lessThanOrEqual(l)).toBe(true);
+        });
+
+    it('fromOriginDirection and clone are independent of their inputs', () => {
+        check(fc.tuple(vector(3), unitVector(3)), ([o, d]) => {
+            const l = Line.fromOriginDirection(o, d);
+            const copy = l.clone();
+            o.set(0, 999);
+            d.set(1, 888);
+            l.origin.set(2, 777);
+            expect(l.origin.get(0)).not.toBe(999);
+            expect(l.direction.get(1)).not.toBe(888);
+            expect(copy.origin.get(2)).not.toBe(777);
+        });
     });
 });

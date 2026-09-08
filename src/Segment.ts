@@ -23,6 +23,14 @@
 import { logAssert } from './Logger.js';
 import { Vector, add, sub, mul, negate, normalize } from './Vector.js';
 
+// Element-by-element equality of the two-element endpoint arrays (the port
+// of std::array's operator==, which applies Vector's operator== to each
+// element). This is NOT 'comparePoints(...) === 0': the lexicographic compare
+// treats a NaN component as equivalent to itself, whereas '==' does not.
+function equalPoints(p0: readonly Vector[], p1: readonly Vector[]): boolean {
+    return p0[0].equals(p1[0]) && p0[1].equals(p1[1]);
+}
+
 // Lexicographic comparison of the two-element endpoint arrays (the port of
 // std::array's relational operators). Returns -1, 0 or +1.
 function comparePoints(p0: readonly Vector[], p1: readonly Vector[]): number {
@@ -107,7 +115,7 @@ export class Segment {
 
     // Comparisons to support sorted containers.
     equals(segment: Segment): boolean {
-        return comparePoints(this.p, segment.p) === 0;
+        return equalPoints(this.p, segment.p);
     }
 
     notEquals(segment: Segment): boolean {

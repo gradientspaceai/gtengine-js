@@ -152,10 +152,15 @@ export class SegmentMesh {
             [pair[0], pair[1]]);
 
         if (validateIndices) {
+            // Upstream compares 'size_t' indices against 'vertices.size()',
+            // so a negative index is impossible there: it would have wrapped
+            // to a huge value and failed the test. TypeScript numbers are
+            // signed, so the lower bound is checked explicitly to reject the
+            // same inputs upstream rejects.
             for (let i = 0; i < indices.length; ++i) {
                 logAssert(
-                    indices[i][0] < vertices.length
-                    && indices[i][1] < vertices.length,
+                    0 <= indices[i][0] && indices[i][0] < vertices.length
+                    && 0 <= indices[i][1] && indices[i][1] < vertices.length,
                     'Invalid index into vertex array.');
             }
         }

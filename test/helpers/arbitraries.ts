@@ -257,3 +257,51 @@ export function check<T>(arb: fc.Arbitrary<T>, predicate: (t: T) => void | boole
 }
 
 export { fc };
+
+// ---- primitive value-type comparison helpers -------------------------------
+
+/**
+ * Lexicographic comparison of two equal-length key arrays, returning -1, 0
+ * or +1 with the semantics of the C++ relational operators: a NaN entry is
+ * neither less than nor greater than anything, so the comparison moves on to
+ * the next entry. Concatenating the components of a primitive's members in
+ * the upstream declaration order gives a key whose lexicographic order is
+ * exactly the order defined by upstream's chained operator<, because each
+ * member's own operator< is itself lexicographic.
+ */
+export function compareKeys(a: readonly number[],
+    b: readonly number[]): number {
+    expect(a.length).toBe(b.length);
+    for (let i = 0; i < a.length; ++i) {
+        if (a[i] < b[i]) { return -1; }
+        if (a[i] > b[i]) { return +1; }
+    }
+    return 0;
+}
+
+/**
+ * Assert that `lessThan` is a strict weak ordering on `items`: irreflexive,
+ * asymmetric and transitive, with transitive incomparability.
+ */
+export function expectStrictWeakOrder<T>(items: readonly T[],
+    lessThan: (x: T, y: T) => boolean): void {
+    const n = items.length;
+    const equiv = (x: T, y: T) => !lessThan(x, y) && !lessThan(y, x);
+    for (let i = 0; i < n; ++i) {
+        expect(lessThan(items[i], items[i])).toBe(false);
+        for (let j = 0; j < n; ++j) {
+            if (lessThan(items[i], items[j])) {
+                expect(lessThan(items[j], items[i])).toBe(false);
+            }
+            for (let k = 0; k < n; ++k) {
+                if (lessThan(items[i], items[j])
+                    && lessThan(items[j], items[k])) {
+                    expect(lessThan(items[i], items[k])).toBe(true);
+                }
+                if (equiv(items[i], items[j]) && equiv(items[j], items[k])) {
+                    expect(equiv(items[i], items[k])).toBe(true);
+                }
+            }
+        }
+    }
+}

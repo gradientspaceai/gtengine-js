@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { Triangle } from '../src/Triangle.js';
 import { Vector, sub, dot, length } from '../src/Vector.js';
+import { check, compareKeys, expectStrictWeakOrder, fc, triangle, vector }
+    from './helpers/arbitraries.js';
 
 describe('Triangle construction', () => {
     it('the default constructor is the standard corner triangle', () => {
@@ -105,5 +107,64 @@ describe('Triangle comparisons', () => {
         expect(a.greaterThan(sameAsA)).toBe(false);
         expect(c.greaterThan(a)).toBe(true);
         expect(c.greaterThanOrEqual(a)).toBe(true);
+    });
+});
+
+describe('Triangle verification', () => {
+    const key = (t: Triangle) => t.v.flatMap(x => [...x.values]);
+
+    it('the comparisons follow the lexicographic vertex order', () => {
+        check(fc.tuple(triangle(2), triangle(2)), ([a, b]) => {
+            const c = compareKeys(key(a), key(b));
+            expect(a.lessThan(b)).toBe(c < 0);
+            expect(a.greaterThan(b)).toBe(c > 0);
+            expect(a.lessThanOrEqual(b)).toBe(c <= 0);
+            expect(a.greaterThanOrEqual(b)).toBe(c >= 0);
+            expect(a.equals(b)).toBe(c === 0);
+            expect(a.notEquals(b)).toBe(c !== 0);
+        });
+    });
+
+    it('a permuted triangle is a different value type', () => {
+        // The comparisons are on the stored vertex tuple, not on the point
+        // set: a rotation of the vertices is not 'equal'.
+        check(triangle(3), t => {
+            const rotated = Triangle.fromVertices(t.v[1], t.v[2], t.v[0]);
+            expect(t.equals(rotated)).toBe(false);
+            expect(t.lessThan(rotated) || rotated.lessThan(t)).toBe(true);
+        });
+    });
+
+    it('lessThan is a strict weak ordering', () => {
+        check(fc.array(triangle(2), { minLength: 4, maxLength: 5 }), ts => {
+            expectStrictWeakOrder(ts, (x, y) => x.lessThan(y));
+        }, 30);
+    });
+
+    it('equals is element equality: a NaN vertex breaks self-equality', () => {
+        // Regression: upstream operator== is 'v == triangle.v', which is
+        // std::array's element-by-element == over Vector's ==. Comparing with
+        // the lexicographic ordering instead reports a NaN vertex as equal to
+        // itself.
+        const t = Triangle.fromVertices(Vector.fromArray([NaN, 0]),
+            Vector.fromArray([1, 0]), Vector.fromArray([0, 1]));
+        expect(t.equals(t)).toBe(false);
+        expect(t.notEquals(t)).toBe(true);
+        expect(t.lessThan(t)).toBe(false);
+        expect(t.lessThanOrEqual(t)).toBe(true);
+    });
+
+    it('the factories and clone are independent of their inputs', () => {
+        check(fc.tuple(vector(3), vector(3), vector(3)), ([a, b, c]) => {
+            const t = Triangle.fromVertices(a, b, c);
+            const u = Triangle.fromVertexArray([a, b, c]);
+            const cloned = t.clone();
+            a.set(0, 999);
+            b.set(1, 888);
+            t.v[2].set(2, 777);
+            expect(t.v[0].get(0)).not.toBe(999);
+            expect(u.v[1].get(1)).not.toBe(888);
+            expect(cloned.v[2].get(2)).not.toBe(777);
+        });
     });
 });
