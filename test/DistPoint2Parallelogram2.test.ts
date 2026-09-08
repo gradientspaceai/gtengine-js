@@ -179,8 +179,14 @@ describe('DistPoint2Parallelogram2 verification', () => {
 
     it('matches a brute-force minimization over the parallelogram', () => {
         check(fc.tuple(pointArb, pgmArb), ([p, g]) => {
-            expectClose(query.compute(p, g).distance, bruteForce(p, g), 1e-7,
-                1e-7);
+            const d = query.compute(p, g).distance;
+            const b = bruteForce(p, g);
+            // The query is the exact minimum, so it can never exceed the
+            // sampled value (sharp direction). The grid + axis-aligned
+            // refinement stalls on skewed axes (observed 6e-6 short of an
+            // interior zero), so the other direction is loose.
+            expect(d).toBeLessThanOrEqual(b + 1e-9);
+            expect(b - d).toBeLessThanOrEqual(1e-4);
         }, 60);
     }, 30000);
 
