@@ -4,12 +4,13 @@ import {
 } from '../src/LieGroupsAlgebras.js';
 import { GTE_C_PI } from '../src/Constants.js';
 import {
-    Matrix, addMatrix, mulMatrix, multiplyAB, multiplyABT, subMatrix,
-    transpose, lInfinityNorm
+    Matrix, addMatrix, hprojectMatrix, mulMatrix, multiplyAB, multiplyABT,
+    subMatrix, transpose, lInfinityNorm
 } from '../src/Matrix.js';
 import { inverse3x3 } from '../src/Matrix3x3.js';
 import { inverse4x4 } from '../src/Matrix4x4.js';
 import { Vector, dot, sub } from '../src/Vector.js';
+import { check, expectClose, fc, scaled } from './helpers/arbitraries.js';
 
 function maxDiff(A: Matrix, B: Matrix): number {
     return lInfinityNorm(subMatrix(A, B));
@@ -581,3 +582,292 @@ function trace(M: Matrix): number {
     }
     return sum;
 }
+
+// ---------------------------------------------------------------------------
+// Verification (V41): randomized round trips, group identities and the
+// angle = pi regression (upstream issue #313).
+// ---------------------------------------------------------------------------
+
+const lieAngle = (max = GTE_C_PI) => scaled(-max, max, 4096);
+
+// A rotation matrix built from three Euler angles (independent of LieSO3).
+const rotation3 = (): fc.Arbitrary<Matrix> =>
+    fc.tuple(lieAngle(), lieAngle(), lieAngle()).map(([a, b, c]) => {
+        const ca = Math.cos(a), sa = Math.sin(a);
+        const cb = Math.cos(b), sb = Math.sin(b);
+        const cc = Math.cos(c), sc = Math.sin(c);
+        const Rz = Matrix.fromArray(3, 3, [ca, -sa, 0, sa, ca, 0, 0, 0, 1]);
+        const Ry = Matrix.fromArray(3, 3, [cb, 0, sb, 0, 1, 0, -sb, 0, cb]);
+        const Rx = Matrix.fromArray(3, 3, [1, 0, 0, 0, cc, -sc, 0, sc, cc]);
+        return multiplyAB(multiplyAB(Rz, Ry), Rx);
+    });
+
+// An so(3) element of a prescribed angle range: a unit axis times an angle.
+const so3Element = (minAngle: number, maxAngle: number): fc.Arbitrary<Vector> =>
+    fc.tuple(fc.array(scaled(-1, 1, 512), { minLength: 3, maxLength: 3 }),
+        scaled(minAngle, maxAngle, 4096))
+        .filter(([axis]) => axis[0] ** 2 + axis[1] ** 2 + axis[2] ** 2 > 1e-4)
+        .map(([axis, angle]) => {
+            const len = Math.sqrt(axis[0] ** 2 + axis[1] ** 2 + axis[2] ** 2);
+            return Vector.fromArray(axis.map(v => (v * angle) / len));
+        });
+
+const translation3 = (max = 4) =>
+    fc.array(scaled(-max, max, 512), { minLength: 3, maxLength: 3 })
+        .map(a => Vector.fromArray(a));
+
+function se3Element(s: Vector, u: Vector): Vector {
+    return Vector.fromArray([s.values[0], s.values[1], s.values[2],
+        u.values[0], u.values[1], u.values[2]]);
+}
+
+function trace3(M: Matrix): number {
+    return M.get(0, 0) + M.get(1, 1) + M.get(2, 2);
+}
+
+describe('LieGroupsAlgebras verification', () => {
+    it('LieSO2: log and exp are mutually inverse on the principal branch',
+        () => {
+            check(lieAngle(GTE_C_PI - 1e-9), (x) => {
+                const Y = LieSO2.exp(x);
+                expect(isRotation(Y)).toBeLessThan(1e-15);
+                expectClose(LieSO2.log(Y), x, 1e-14, 1e-14);
+                expect(maxDiff(LieSO2.exp(LieSO2.log(Y)), Y))
+                    .toBeLessThan(1e-15);
+                expect(LieSO2.toAlgebra(LieSO2.toGroup(x))).toBe(x);
+                expect(LieSO2.adjoint(Y)).toBe(1);
+            });
+        });
+
+    it('LieSO2: geodesicPath connects the endpoints and the two overloads ' +
+        'agree', () => {
+            check(fc.tuple(lieAngle(1.5), lieAngle(1.5), scaled(0, 1, 256)),
+                ([a0, a1, t]) => {
+                    const M0 = LieSO2.exp(a0);
+                    const M1 = LieSO2.exp(a1);
+                    expect(maxDiff(LieSO2.geodesicPath(0, M0, M1), M0))
+                        .toBeLessThan(1e-14);
+                    expect(maxDiff(LieSO2.geodesicPath(1, M0, M1), M1))
+                        .toBeLessThan(1e-14);
+                    const precomputed = LieSO2.logM1M0Inv(M0, M1);
+                    expect(maxDiff(LieSO2.geodesicPath(t, M0, M1),
+                        LieSO2.geodesicPath(t, M0, precomputed)))
+                        .toBeLessThan(1e-15);
+                });
+        });
+
+    it('LieSE2: log(exp(x)) = x and exp(log(M)) = M', () => {
+        const arb = fc.tuple(lieAngle(GTE_C_PI - 1e-6), scaled(-4, 4, 512),
+            scaled(-4, 4, 512));
+        check(arb, ([angle, u0, u1]) => {
+            const x = Vector.fromArray([angle, u0, u1]);
+            const Y = LieSE2.exp(x);
+            expect(Y.get(2, 0)).toBe(0);
+            expect(Y.get(2, 1)).toBe(0);
+            expect(Y.get(2, 2)).toBe(1);
+            expect(vecMaxDiff(LieSE2.log(Y), x)).toBeLessThan(1e-13);
+            expect(maxDiff(LieSE2.exp(LieSE2.log(Y)), Y)).toBeLessThan(1e-13);
+            expect(vecMaxDiff(LieSE2.toAlgebra(LieSE2.toGroup(x)), x)).toBe(0);
+        });
+    });
+
+    it('LieSE2: the adjoint satisfies L(A(M)*x) = M*L(x)*inverse(M)', () => {
+        const arb = fc.tuple(lieAngle(), scaled(-4, 4, 512),
+            scaled(-4, 4, 512), lieAngle(), scaled(-4, 4, 512),
+            scaled(-4, 4, 512));
+        check(arb, ([angle, t0, t1, a, u0, u1]) => {
+            const M = makeSE2(angle, t0, t1);
+            const x = Vector.fromArray([a, u0, u1]);
+            const lhs = LieSE2.toGroup(mulMatrix(LieSE2.adjoint(M), x));
+            const rhs = multiplyAB(multiplyAB(M, LieSE2.toGroup(x)),
+                inverse3x3(M).inverse);
+            expect(maxDiff(lhs, rhs)).toBeLessThan(1e-12);
+        });
+    });
+
+    it('LieSO3: exp is a proper rotation and log inverts it below pi', () => {
+        check(so3Element(0, GTE_C_PI - 1e-3), (x) => {
+            const Y = LieSO3.exp(x);
+            expect(isRotation(Y)).toBeLessThan(1e-13);
+            // The generic log branch conditioning degrades like
+            // 1/sin(angle), so the tolerance grows near pi.
+            const angle = Math.sqrt(dot(x, x));
+            const tol = 1e-11 / Math.max(1e-3, Math.sin(angle));
+            expect(vecMaxDiff(LieSO3.log(Y), x)).toBeLessThan(tol);
+            expect(maxDiff(LieSO3.exp(LieSO3.log(Y)), Y))
+                .toBeLessThan(5e-11 / Math.max(1e-2, Math.sin(angle)));
+        });
+    });
+
+    it('LieSO3: log(Y^T) = -log(Y) away from the pi knife edge', () => {
+        check(so3Element(1e-3, GTE_C_PI - 0.05), (x) => {
+            const Y = LieSO3.exp(x);
+            const forward = LieSO3.log(Y);
+            const backward = LieSO3.log(transpose(Y));
+            expect(vecMaxDiff(backward,
+                Vector.fromArray(forward.values.map(v => -v))))
+                .toBeLessThan(1e-11);
+        });
+    });
+
+    it('LieSO3: exp(log(Y)) = Y for rotations by exactly pi (upstream #313)',
+        () => {
+            // Y = 2*n*n^T - I is the rotation by pi about the unit axis n.
+            // Whether trace(Y) rounds to exactly -1 decides which branch of
+            // log runs; this property covers the dedicated pi branch, whose
+            // upstream scale factor pi/sqrt(2) is wrong by 1/sqrt(2).
+            const axis = fc.array(scaled(-1, 1, 512),
+                { minLength: 3, maxLength: 3 })
+                .filter(a => a[0] ** 2 + a[1] ** 2 + a[2] ** 2 > 1e-2);
+            check(axis, (a) => {
+                const len = Math.sqrt(a[0] ** 2 + a[1] ** 2 + a[2] ** 2);
+                const n = a.map(v => v / len);
+                const Y = new Matrix(3, 3);
+                for (let r = 0; r < 3; ++r) {
+                    for (let c = 0; c < 3; ++c) {
+                        Y.set(r, c, 2 * n[r] * n[c] - (r === c ? 1 : 0));
+                    }
+                }
+                // Only the exact-trace case reaches the pi branch; the other
+                // side of the knife edge is the preserved upstream
+                // ill-conditioning documented in issue #313.
+                fc.pre(0.5 * (trace3(Y) - 1) <= -1);
+                const x = LieSO3.log(Y);
+                expectClose(Math.sqrt(dot(x, x)), GTE_C_PI, 1e-12, 1e-12);
+                const unit = Vector.fromArray(n);
+                const sign = dot(x, unit) >= 0 ? 1 : -1;
+                expect(vecMaxDiff(x, Vector.fromArray(
+                    n.map(v => sign * v * GTE_C_PI)))).toBeLessThan(1e-12);
+                expect(maxDiff(LieSO3.exp(x), Y)).toBeLessThan(1e-12);
+            });
+        });
+
+    it('LieSO3: the adjoint conjugation identity holds', () => {
+        check(fc.tuple(rotation3(), so3Element(0, 3)), ([M, x]) => {
+            const lhs = LieSO3.toGroup(mulMatrix(LieSO3.adjoint(M), x));
+            const rhs = multiplyABT(multiplyAB(M, LieSO3.toGroup(x)), M);
+            expect(maxDiff(lhs, rhs)).toBeLessThan(1e-13);
+            // The adjoint is a copy, not the argument itself.
+            expect(LieSO3.adjoint(M)).not.toBe(M);
+        });
+    });
+
+    it('LieSO3: exp(a)*exp(b) matches the Baker-Campbell-Hausdorff form for ' +
+        'small elements', () => {
+            const small = () => fc.array(scaled(-1, 1, 512),
+                { minLength: 3, maxLength: 3 })
+                .map(v => Vector.fromArray(v.map(x => x * 1e-3)));
+            check(fc.tuple(small(), small()), ([a, b]) => {
+                const product = multiplyAB(LieSO3.exp(a), LieSO3.exp(b));
+                // a + b + (a x b)/2 is the BCH series truncated after the
+                // first commutator. The leading neglected term is
+                // [a,[a,b]]/12, of size |a|^2*|b|/12 < 5e-10 here.
+                const cross = Vector.fromArray([
+                    a.values[1] * b.values[2] - a.values[2] * b.values[1],
+                    a.values[2] * b.values[0] - a.values[0] * b.values[2],
+                    a.values[0] * b.values[1] - a.values[1] * b.values[0]]);
+                const bch = Vector.fromArray([0, 1, 2].map(i =>
+                    a.values[i] + b.values[i] + 0.5 * cross.values[i]));
+                expect(maxDiff(LieSO3.exp(bch), product)).toBeLessThan(5e-9);
+            });
+        });
+
+    it('LieSO3: geodesicPath connects the endpoints and stays in SO(3)', () => {
+        check(fc.tuple(so3Element(0, 2), so3Element(0, 2), scaled(0, 1, 256)),
+            ([x0, x1, t]) => {
+                const M0 = LieSO3.exp(x0);
+                const M1 = LieSO3.exp(x1);
+                expect(maxDiff(LieSO3.geodesicPath(0, M0, M1), M0))
+                    .toBeLessThan(1e-13);
+                // The relative rotation M1*M0^T can be close to pi, where
+                // log is ill conditioned (see the knife-edge test above), so
+                // skip those draws rather than weaken the tolerance.
+                const rel = multiplyABT(M1, M0);
+                fc.pre(0.5 * (trace3(rel) - 1) > -0.999);
+                expect(maxDiff(LieSO3.geodesicPath(1, M0, M1), M1))
+                    .toBeLessThan(1e-9);
+                const mid = LieSO3.geodesicPath(t, M0, M1);
+                expect(isRotation(mid)).toBeLessThan(1e-12);
+                const precomputed = LieSO3.logM1M0Inv(M0, M1);
+                expect(maxDiff(mid, LieSO3.geodesicPath(t, M0, precomputed)))
+                    .toBeLessThan(1e-14);
+            });
+    });
+
+    it('LieSE3: log(exp(x)) = x and exp(log(M)) = M', () => {
+        check(fc.tuple(so3Element(0, GTE_C_PI - 1e-3), translation3()),
+            ([s, u]) => {
+                const x = se3Element(s, u);
+                const Y = LieSE3.exp(x);
+                for (let c = 0; c < 3; ++c) { expect(Y.get(3, c)).toBe(0); }
+                expect(Y.get(3, 3)).toBe(1);
+                const angle = Math.sqrt(dot(s, s));
+                const tol = 5e-11 / Math.max(1e-3, Math.sin(angle));
+                expect(vecMaxDiff(LieSE3.log(Y), x)).toBeLessThan(tol);
+                // The round trip inverts V = I + a1*S + a2*S^2, whose
+                // conditioning degrades as the angle approaches pi and the
+                // translation grows.
+                expect(maxDiff(LieSE3.exp(LieSE3.log(Y)), Y))
+                    .toBeLessThan(1e-8);
+                expect(vecMaxDiff(LieSE3.toAlgebra(LieSE3.toGroup(x)), x))
+                    .toBe(0);
+            });
+    });
+
+    it('LieSE3: exp(log(M)) = M for a rigid motion whose rotation is by pi',
+        () => {
+            const arb = fc.tuple(fc.array(scaled(-1, 1, 512),
+                { minLength: 3, maxLength: 3 })
+                .filter(a => a[0] ** 2 + a[1] ** 2 + a[2] ** 2 > 1e-2),
+                translation3());
+            check(arb, ([a, t]) => {
+                const len = Math.sqrt(a[0] ** 2 + a[1] ** 2 + a[2] ** 2);
+                const n = a.map(v => v / len);
+                const R = new Matrix(3, 3);
+                for (let r = 0; r < 3; ++r) {
+                    for (let c = 0; c < 3; ++c) {
+                        R.set(r, c, 2 * n[r] * n[c] - (r === c ? 1 : 0));
+                    }
+                }
+                fc.pre(0.5 * (trace3(R) - 1) <= -1);
+                const M = makeSE3(R, t);
+                // The rotation part of log is the pi branch of LieSO3.log, so
+                // this pins the propagation of the #313 fix into LieSE3.
+                expect(maxDiff(LieSE3.exp(LieSE3.log(M)), M))
+                    .toBeLessThan(1e-11);
+            });
+        });
+
+    it('LieSE3: the adjoint satisfies L(A(M)*x) = M*L(x)*inverse(M)', () => {
+        const arb = fc.tuple(rotation3(), translation3(),
+            so3Element(0, 2), translation3());
+        check(arb, ([R, t, s, u]) => {
+            const M = makeSE3(R, t);
+            const x = se3Element(s, u);
+            const lhs = LieSE3.toGroup(mulMatrix(LieSE3.adjoint(M), x));
+            const rhs = multiplyAB(multiplyAB(M, LieSE3.toGroup(x)),
+                inverse4x4(M).inverse);
+            expect(maxDiff(lhs, rhs)).toBeLessThan(1e-12);
+        });
+    });
+
+    it('LieSE3: geodesicPath connects the endpoints and stays rigid', () => {
+        const rigid = fc.tuple(rotation3(), translation3())
+            .map(([R, t]) => makeSE3(R, t));
+        check(fc.tuple(rigid, rigid, scaled(0, 1, 256)), ([M0, M1, t]) => {
+            expect(maxDiff(LieSE3.geodesicPath(0, M0, M1), M0))
+                .toBeLessThan(1e-11);
+            const end = LieSE3.geodesicPath(1, M0, M1);
+            // The rotation of M1*inverse(M0) may be by (nearly) pi, where
+            // log is ill conditioned upstream; skip those draws.
+            const rel = multiplyAB(M1, inverse4x4(M0).inverse);
+            fc.pre(0.5 * (trace3(hprojectMatrix(rel)) - 1) > -0.999);
+            expect(maxDiff(end, M1)).toBeLessThan(1e-9);
+            const mid = LieSE3.geodesicPath(t, M0, M1);
+            expect(isRotation(hprojectMatrix(mid))).toBeLessThan(1e-11);
+            const precomputed = LieSE3.logM1M0Inv(M0, M1);
+            expect(maxDiff(mid, LieSE3.geodesicPath(t, M0, precomputed)))
+                .toBeLessThan(1e-13);
+        });
+    });
+});

@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { HelmertTransformation7 } from '../src/HelmertTransformation7.js';
-import { Matrix, mulMatrix, multiplyAB } from '../src/Matrix.js';
+import { Matrix, mulMatrix, multiplyAB, transpose } from '../src/Matrix.js';
+import { determinant3x3 } from '../src/Matrix3x3.js';
 import { Vector, add, length, mul, sub } from '../src/Vector.js';
+import { check, expectClose, fc, scaled } from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -218,4 +220,226 @@ describe('HelmertTransformation7', () => {
                 .toBeLessThan(1e-6);
         }
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V41): properties of the 7-parameter Helmert fit.
+// ---------------------------------------------------------------------------
+
+const helmertCoord = () => scaled(-5, 5, 512);
+
+// n >= 7 correspondences of arbitrary (unrelated) points.
+const pointSets = (minCount = 7, maxCount = 12) =>
+    fc.integer({ min: minCount, max: maxCount }).chain(n => fc.tuple(
+        fc.array(fc.array(helmertCoord(), { minLength: 3, maxLength: 3 }),
+            { minLength: n, maxLength: n }),
+        fc.array(fc.array(helmertCoord(), { minLength: 3, maxLength: 3 }),
+            { minLength: n, maxLength: n })))
+        .map(([p, q]) => ({
+            p: p.map(a => Vector.fromArray(a)),
+            q: q.map(a => Vector.fromArray(a))
+        }))
+        // The scale is numer/denom with denom = sum |q_i - qAverage|^2, so
+        // reject the degenerate case of coincident q-points.
+        .filter(({ q }) => {
+            const c = q.reduce((s, v) => add(s, v), Vector.zero(3));
+            const avg = mul(c, 1 / q.length);
+            return q.reduce((s, v) => s + length(sub(v, avg)) ** 2, 0) > 1e-3;
+        });
+
+// The mean squared residual of the returned similarity, computed
+// independently of the class: (1/n) * sum |s*R*q_i + t - p_i|^2.
+function meanSquaredResidual(p: readonly Vector[], q: readonly Vector[],
+    scale: number, rotate: Matrix, translate: Vector): number {
+    let sum = 0;
+    for (let i = 0; i < p.length; ++i) {
+        const term = sub(add(mul(mulMatrix(rotate, q[i]), scale), translate),
+            p[i]);
+        sum += term.values[0] ** 2 + term.values[1] ** 2 + term.values[2] ** 2;
+    }
+    return sum / p.length;
+}
+
+function maxAbs(A: Matrix, B: Matrix): number {
+    let m = 0;
+    for (let i = 0; i < A.numElements; ++i) {
+        m = Math.max(m, Math.abs(A.values[i] - B.values[i]));
+    }
+    return m;
+}
+
+describe('HelmertTransformation7 verification', () => {
+    it('the reported function value is the mean squared residual of the ' +
+        'reported scale, rotation and translation', () => {
+            check(fc.tuple(pointSets(), fc.integer({ min: 0, max: 40 })),
+                ([{ p, q }, numIterations]) => {
+                    const result = new HelmertTransformation7()
+                        .execute(p, q, numIterations);
+                    const reference = meanSquaredResidual(p, q, result.scale,
+                        result.rotate, result.translate);
+                    // The magnitudes of the terms set the absolute tolerance:
+                    // the residual is a sum of squares of O(10) quantities.
+                    let scaleOfTerms = 1;
+                    for (let i = 0; i < p.length; ++i) {
+                        scaleOfTerms = Math.max(scaleOfTerms,
+                            length(p[i]) ** 2,
+                            (result.scale * length(q[i])) ** 2);
+                    }
+                    expectClose(result.functionValue, reference,
+                        1e-11 * scaleOfTerms, 1e-9);
+                }, 120);
+        });
+
+    it('returns a proper rotation (orthogonal with determinant 1)', () => {
+        check(fc.tuple(pointSets(), fc.integer({ min: 0, max: 30 })),
+            ([{ p, q }, numIterations]) => {
+                const R = new HelmertTransformation7()
+                    .execute(p, q, numIterations).rotate;
+                expect(maxAbs(multiplyAB(R, transpose(R)),
+                    Matrix.identity(3, 3))).toBeLessThan(1e-12);
+                expectClose(determinant3x3(R), 1, 1e-12, 1e-12);
+            }, 120);
+    });
+
+    it('the objective decreases monotonically in the iteration count and ' +
+        'the iteration count is the loop index at termination', () => {
+            check(pointSets(), ({ p, q }) => {
+                let previous = Number.POSITIVE_INFINITY;
+                let converged = -1;
+                for (let k = 0; k <= 12; ++k) {
+                    const result = new HelmertTransformation7()
+                        .execute(p, q, k);
+                    expect(result.iterations).toBeLessThanOrEqual(k);
+                    expect(result.functionValue)
+                        .toBeLessThanOrEqual(previous + 1e-14);
+                    previous = result.functionValue;
+                    if (result.iterations < k && converged < 0) {
+                        converged = result.iterations;
+                    }
+                }
+                if (converged >= 0) {
+                    // Once the coordinate descent stops improving, running
+                    // more iterations changes nothing.
+                    const a = new HelmertTransformation7()
+                        .execute(p, q, converged + 1);
+                    const b = new HelmertTransformation7()
+                        .execute(p, q, 60);
+                    expect(b.iterations).toBe(a.iterations);
+                    expect(b.functionValue).toBe(a.functionValue);
+                    expect(maxAbs(a.rotate, b.rotate)).toBe(0);
+                }
+            }, 60);
+        });
+
+    it('recovers a known similarity from exact correspondences', () => {
+        const angle = () => scaled(-0.5, 0.5, 256);
+        const arb = fc.tuple(
+            fc.array(fc.array(scaled(-2, 2, 256),
+                { minLength: 3, maxLength: 3 }),
+                { minLength: 9, maxLength: 9 }),
+            angle(), angle(), angle(), scaled(0.4, 2.5, 128),
+            fc.array(scaled(-4, 4, 128), { minLength: 3, maxLength: 3 }))
+            .filter(([qRaw]) => {
+                // Reject nearly collinear/coincident q-point clouds.
+                const q = qRaw.map(a => Vector.fromArray(a));
+                const c = q.reduce((s, v) => add(s, v), Vector.zero(3));
+                const avg = mul(c, 1 / q.length);
+                return q.reduce((s, v) => s + length(sub(v, avg)) ** 2, 0) > 1;
+            });
+        check(arb, ([qRaw, a0, a1, a2, scale, tRaw]) => {
+            const q = qRaw.map(a => Vector.fromArray(a));
+            const R = makeRotation(a0, a1, a2);
+            const t = Vector.fromArray(tRaw);
+            const p = applyTransform(q, scale, R, t);
+            const result = new HelmertTransformation7().execute(p, q, 400);
+            // The fit is exact, so the objective is at machine zero and every
+            // parameter is recovered.
+            expect(result.functionValue).toBeLessThan(1e-16);
+            expectClose(result.scale, scale, 1e-7, 1e-7);
+            expect(maxAbs(result.rotate, R)).toBeLessThan(1e-6);
+            expect(length(sub(result.translate, t))).toBeLessThan(1e-5);
+        }, 60);
+    });
+
+    it('is invariant under a permutation of the correspondences', () => {
+        const arb = fc.tuple(pointSets(8, 10),
+            fc.integer({ min: 0, max: 0xffff }));
+        check(arb, ([{ p, q }, seed]) => {
+            const rand = makePRNG(seed + 1);
+            const order = p.map((_, i) => i);
+            for (let i = order.length - 1; i > 0; --i) {
+                const j = Math.floor(rand() * (i + 1));
+                [order[i], order[j]] = [order[j], order[i]];
+            }
+            const base = new HelmertTransformation7().execute(p, q, 200);
+            const shuffled = new HelmertTransformation7().execute(
+                order.map(i => p[i]), order.map(i => q[i]), 200);
+            // The attained minimum and the scale agree to a few ulps. The
+            // rotation and translation are looser: the descent stops as
+            // soon as no Euler-angle update lowers F, so a change
+            // of summation order can stop it a half step earlier along a
+            // flat direction of the objective (see VERIFYING.md on
+            // path-dependent minimizers).
+            expectClose(shuffled.scale, base.scale, 1e-12, 1e-12);
+            expectClose(shuffled.functionValue, base.functionValue,
+                1e-12, 1e-11);
+            expect(maxAbs(shuffled.rotate, base.rotate)).toBeLessThan(1e-5);
+            expect(length(sub(shuffled.translate, base.translate)))
+                .toBeLessThan(1e-4);
+        }, 40);
+    });
+
+    it('is equivariant under translation of either point set', () => {
+        const arb = fc.tuple(pointSets(8, 10),
+            fc.array(scaled(-3, 3, 128), { minLength: 3, maxLength: 3 }));
+        check(arb, ([{ p, q }, cRaw]) => {
+            const c = Vector.fromArray(cRaw);
+            const base = new HelmertTransformation7().execute(p, q, 200);
+
+            // p -> p + c: the fit is unchanged except translate -> t + c,
+            // because the u-values and the working translation both shift by
+            // c and the v-values sum to zero.
+            const shiftedP = new HelmertTransformation7()
+                .execute(p.map(v => add(v, c)), q, 200);
+            expectClose(shiftedP.scale, base.scale, 1e-12, 1e-12);
+            expectClose(shiftedP.functionValue, base.functionValue,
+                1e-12, 1e-11);
+            expect(maxAbs(shiftedP.rotate, base.rotate)).toBeLessThan(1e-5);
+            expect(length(sub(shiftedP.translate,
+                add(base.translate, c)))).toBeLessThan(1e-4);
+
+            // q -> q + c: translate -> t - s*R*c so that the composed map is
+            // unchanged on the shifted points.
+            const shiftedQ = new HelmertTransformation7()
+                .execute(p, q.map(v => add(v, c)), 200);
+            expectClose(shiftedQ.scale, base.scale, 1e-12, 1e-12);
+            expectClose(shiftedQ.functionValue, base.functionValue,
+                1e-12, 1e-11);
+            expect(maxAbs(shiftedQ.rotate, base.rotate)).toBeLessThan(1e-5);
+            const expectedT = sub(base.translate,
+                mul(mulMatrix(base.rotate, c), base.scale));
+            expect(length(sub(shiftedQ.translate, expectedT)))
+                .toBeLessThan(1e-4);
+        }, 40);
+    });
+
+    it('preserves the upstream requirement of at least 7 correspondences',
+        () => {
+            check(fc.integer({ min: 0, max: 9 }), (n) => {
+                const p: Vector[] = [];
+                const q: Vector[] = [];
+                for (let i = 0; i < n; ++i) {
+                    p.push(v3(i, i * i, 1));
+                    q.push(v3(2 * i, i, -i));
+                }
+                const run = () =>
+                    new HelmertTransformation7().execute(p, q, 5);
+                if (n < 7) {
+                    expect(run).toThrow('Invalid input.');
+                }
+                else {
+                    expect(run).not.toThrow();
+                }
+            });
+        });
 });
