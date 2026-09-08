@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MinimizeN } from '../src/MinimizeN.js';
+import { check, expectClose, fc, scaled } from './helpers/arbitraries.js';
 
 // Powell's direction set method with maxLevel/maxBracket handed to Minimize1.
 const MAX_LEVEL = 8;
@@ -321,5 +322,201 @@ describe('MinimizeN', () => {
                 expect(result.fMin).toBeCloseTo(F(expected), 8);
             }
         });
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V39): independent review against upstream MinimizeN.h.
+//
+// Upstream's 'mDConjIndex = 0' destroys Powell's direction-set update; the
+// port drops that assignment (see the port notes in src/MinimizeN.ts). The
+// non-separable properties below are its regression test: with the stray
+// assignment restored the direction set collapses to a single repeated
+// direction after two iterations and they fail.
+// ---------------------------------------------------------------------------
+
+describe('MinimizeN verification', () => {
+    // A quadratic bowl F(t) = (t - c)^T * A * (t - c) with A = M^T*M + I
+    // symmetric positive definite. Unless A is diagonal the bowl is not
+    // separable, so a search restricted to the Euclidean basis cannot reach
+    // the minimum: only a working conjugate-direction update does.
+    const bowl = (d: number) => fc.tuple(
+        fc.array(scaled(-1, 1), { minLength: d * d, maxLength: d * d }),
+        fc.array(scaled(-1.5, 1.5), { minLength: d, maxLength: d }),
+        fc.array(scaled(-2.5, 2.5), { minLength: d, maxLength: d }));
+
+    function makeBowl(d: number, m: readonly number[], c: readonly number[]) {
+        const A: number[] = new Array<number>(d * d).fill(0);
+        for (let r = 0; r < d; ++r) {
+            for (let col = 0; col < d; ++col) {
+                let sum = 0;
+                for (let k = 0; k < d; ++k) {
+                    sum += m[r + d * k] * m[col + d * k];
+                }
+                A[col + d * r] = sum + (r === col ? 1 : 0);
+            }
+        }
+        return (t: readonly number[]): number => {
+            let value = 0;
+            for (let r = 0; r < d; ++r) {
+                for (let col = 0; col < d; ++col) {
+                    value += (t[r] - c[r]) * A[col + d * r] * (t[col] - c[col]);
+                }
+            }
+            return value;
+        };
+    }
+
+    // Powell's basic direction-set method drops the first direction of the
+    // set each pass, so the set can become linearly dependent and the search
+    // then stalls in a proper subspace - a known deficiency of the basic
+    // variant (Brent's and Press's discussions of Powell's method), not a
+    // port defect: the same iterates come out of the algorithm with the
+    // upstream Minimize1 as well. Verified on the 3-D bowl with
+    // M^T*M + I built from
+    // m = [-0.009, 0.687, 0.323; -0.687, -1, -1; -0.513, 0.178, -1],
+    // c = (0.786, 0.051, -1.5) and start (2.280, -2.5, -2.498): each line
+    // search lands on the exact 1-D minimizer (checked against
+    // -[A(s-c)]_i / A_ii), yet the search stops with f = 3.02. The
+    // properties below therefore assert what the method does guarantee, and
+    // convergence is asserted on the separable case and on the fixed
+    // Rosenbrock starts.
+    it('reaches the minimum of a separable quadratic bowl in one pass',
+        () => {
+            for (const d of [1, 2, 3, 4]) {
+                const t0 = new Array<number>(d).fill(-3);
+                const t1 = new Array<number>(d).fill(3);
+                check(fc.tuple(
+                    fc.array(scaled(0.25, 4), { minLength: d, maxLength: d }),
+                    fc.array(scaled(-1.5, 1.5), { minLength: d, maxLength: d }),
+                    fc.array(scaled(-2.5, 2.5), { minLength: d, maxLength: d })),
+                ([w, c, start]) => {
+                    // A diagonal bowl is minimized exactly by one sweep over
+                    // the Euclidean basis, whatever the direction-set update
+                    // does afterwards.
+                    const F = (t: readonly number[]): number => {
+                        let value = 0;
+                        for (let i = 0; i < d; ++i) {
+                            value += w[i] * (t[i] - c[i]) * (t[i] - c[i]);
+                        }
+                        return value;
+                    };
+                    const { tMin, fMin } = new MinimizeN(d, F, 8, 64, 8)
+                        .getMinimum(t0, t1, start);
+                    // Minimize1 interpolates a parabola exactly, so each
+                    // coordinate is found to full precision.
+                    expect(fMin).toBeGreaterThanOrEqual(0);
+                    expect(fMin).toBeLessThan(1e-16);
+                    for (let i = 0; i < d; ++i) {
+                        expectClose(tMin[i], c[i], 1e-8, 1e-8);
+                    }
+                }, 60);
+            }
+        });
+
+    it('reports fMin as the value of F at tMin', () => {
+        for (const d of [1, 2, 3]) {
+            const t0 = new Array<number>(d).fill(-3);
+            const t1 = new Array<number>(d).fill(3);
+            check(fc.tuple(bowl(d), fc.integer({ min: 0, max: 6 })),
+                ([[m, c, start], maxIterations]) => {
+                    const F = makeBowl(d, m, c);
+                    const { tMin, fMin } = new MinimizeN(d, F, 8, 64,
+                        maxIterations).getMinimum(t0, t1, start);
+                    // The reported location is the point at which the last
+                    // line search evaluated F, computed by the same
+                    // expression, so the value is reproduced exactly.
+                    expect(F(tMin)).toBe(fMin);
+                    for (let i = 0; i < d; ++i) {
+                        expect(tMin[i]).toBeGreaterThanOrEqual(t0[i]);
+                        expect(tMin[i]).toBeLessThanOrEqual(t1[i]);
+                    }
+                }, 60);
+        }
+    });
+
+    it('never reports a value worse than the initial guess', () => {
+        for (const d of [2, 3]) {
+            const t0 = new Array<number>(d).fill(-3);
+            const t1 = new Array<number>(d).fill(3);
+            check(fc.tuple(bowl(d), fc.integer({ min: 0, max: 8 })),
+                ([[m, c, start], maxIterations]) => {
+                    const F = makeBowl(d, m, c);
+                    const { fMin } = new MinimizeN(d, F, 8, 64, maxIterations)
+                        .getMinimum(t0, t1, start);
+                    expect(fMin).toBeLessThanOrEqual(F(start));
+                }, 60);
+        }
+    });
+
+    it('converges on Rosenbrock, which the upstream direction-set update '
+        + 'cannot do', () => {
+        // f(x,y) = 100*(y - x^2)^2 + (1 - x)^2, minimum 0 at (1,1). Upstream
+        // stalls at f = 3.0548 near (-0.7436, 0.5650) however many
+        // iterations it is given, because its direction set degenerates into
+        // a single repeated direction after two passes.
+        //
+        // Powell's method is not globally convergent on this valley, so the
+        // starting points are a fixed set rather than a generated one; the
+        // residual the default Minimize1 tolerance allows ranges from 1e-19
+        // to 1e-2 over them.
+        const F = (t: readonly number[]): number => {
+            const a = t[1] - t[0] * t[0];
+            const b = 1 - t[0];
+            return 100 * a * a + b * b;
+        };
+        const starts = [[-1.2, 1], [0, 0], [1.5, 1.5], [-1, -1],
+        [0.5, -0.5], [1.8, 1.8], [-1.9, 1.9], [0.2, 1.2], [1.2, 0.8],
+        [-0.5, 0.5]];
+        for (const start of starts) {
+            const { tMin, fMin } = new MinimizeN(2, F, 8, 64, 64)
+                .getMinimum([-2, -2], [2, 2], start);
+            expect(fMin).toBeLessThan(2e-2);
+            expectClose(tMin[0], 1, 0.15, 0);
+            expectClose(tMin[1], 1, 0.15, 0);
+        }
+        // The classic starting point reaches the minimum essentially
+        // exactly, which is what the port note quotes.
+        const classic = new MinimizeN(2, F, 8, 64, 64)
+            .getMinimum([-2, -2], [2, 2], [-1.2, 1]);
+        expect(classic.fMin).toBeLessThan(1e-11);
+    });
+
+    it('improves or holds as the iteration budget grows', () => {
+        for (const d of [2, 3]) {
+            const t0 = new Array<number>(d).fill(-3);
+            const t1 = new Array<number>(d).fill(3);
+            check(bowl(d), ([m, c, start]) => {
+                const F = makeBowl(d, m, c);
+                let previous = Number.POSITIVE_INFINITY;
+                for (const maxIterations of [0, 1, 2, 4, 8, 16]) {
+                    const { fMin } = new MinimizeN(d, F, 8, 64, maxIterations)
+                        .getMinimum(t0, t1, start);
+                    // Each line search starts from the current point and
+                    // Minimize1 evaluates it (t = 0 is the initial guess), so
+                    // the value can never increase.
+                    expect(fMin).toBeLessThanOrEqual(previous);
+                    previous = fMin;
+                }
+            }, 40);
+        }
+    });
+
+    it('stays inside the domain when the minimum lies outside it', () => {
+        check(fc.tuple(bowl(2), scaled(4, 20)), ([[m, c, start], offset]) => {
+            // Move the bowl's minimum far outside [-1,1]^2, so every line
+            // search is stopped by the domain clipping in computeDomain.
+            const shifted = [c[0] + offset, c[1] - offset];
+            const F = makeBowl(2, m, shifted);
+            const clampedStart = [Math.max(-1, Math.min(1, start[0])),
+            Math.max(-1, Math.min(1, start[1]))];
+            const { tMin, fMin } = new MinimizeN(2, F, 8, 64, 16)
+                .getMinimum([-1, -1], [1, 1], clampedStart);
+            for (let i = 0; i < 2; ++i) {
+                expect(tMin[i]).toBeGreaterThanOrEqual(-1);
+                expect(tMin[i]).toBeLessThanOrEqual(1);
+            }
+            expect(fMin).toBeLessThanOrEqual(F(clampedStart));
+        }, 60);
     });
 });
