@@ -2,7 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { Cone } from '../src/Cone.js';
 import { GTE_C_HALF_PI, GTE_C_QUARTER_PI, GTE_C_TWO_PI } from '../src/Constants.js';
 import { Ray } from '../src/Ray.js';
-import { Vector, dot, normalize, sub } from '../src/Vector.js';
+import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
+import { computeOrthogonalComplement3 } from '../src/Vector3.js';
+import {
+    check, expectClose, fc, finite, unitVector, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function V(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -401,5 +405,240 @@ describe('Cone', () => {
         const cone2 = new Cone(2);
         cone2.makeFiniteCone(1);
         expect(() => cone2.createMesh(8, true)).toThrow();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// V43 verification: the derived trigonometric values, the four cone kinds and
+// their -1 infinity convention, the quadratic containment test, and the
+// visualization mesh.
+// ---------------------------------------------------------------------------
+
+describe('Cone verification', () => {
+    // Angles bounded away from 0 and pi/2 so tan and 1/sin stay well scaled.
+    const angleArb = finite(0.05, GTE_C_HALF_PI - 0.05);
+
+    const rayArb = (n: number) =>
+        fc.tuple(wellScaledVector(n, -5, 5), unitVector(n))
+            .map(([origin, direction]) =>
+                Ray.fromOriginDirection(origin, direction));
+
+    it('derives cosAngle, sinAngle, tanAngle and invSinAngle', () => {
+        check(fc.tuple(fc.integer({ min: 2, max: 4 }), angleArb),
+            ([n, angle]) => {
+                const cone = new Cone(n);
+                cone.setAngle(angle);
+                expect(cone.angle).toBe(angle);
+                expectClose(cone.cosAngle, Math.cos(angle), 0, 0);
+                expectClose(cone.sinAngle, Math.sin(angle), 0, 0);
+                expectClose(cone.tanAngle, Math.tan(angle), 0, 0);
+                expectClose(cone.cosAngleSqr, cone.cosAngle * cone.cosAngle,
+                    0, 0);
+                expectClose(cone.sinAngleSqr, cone.sinAngle * cone.sinAngle,
+                    0, 0);
+                expectClose(cone.invSinAngle, 1 / cone.sinAngle, 0, 0);
+                // The identities the derived values must satisfy.
+                expectClose(cone.cosAngleSqr + cone.sinAngleSqr, 1,
+                    1e-15, 1e-15);
+                expectClose(cone.tanAngle * cone.cosAngle, cone.sinAngle,
+                    1e-15, 1e-15);
+                expect(cone.cosAngle).toBeGreaterThan(0);
+                expect(cone.sinAngle).toBeGreaterThan(0);
+            });
+    });
+
+    it('rejects angles outside (0, pi/2)', () => {
+        check(fc.oneof(finite(-10, 0), finite(GTE_C_HALF_PI, 10)), bad => {
+            const cone = new Cone(3);
+            expect(() => cone.setAngle(bad)).toThrow('Invalid angle.');
+        });
+    });
+
+    it('builds the four kinds with the -1 infinity convention', () => {
+        check(fc.tuple(rayArb(3), angleArb, finite(0, 5), finite(0.25, 5)),
+            ([ray, angle, hMin, extra]) => {
+                const hMax = hMin + extra;
+
+                const infinite = Cone.fromRayAngle(ray, angle);
+                expect(infinite.isInfinite()).toBe(true);
+                expect(infinite.isFinite()).toBe(false);
+                expect(infinite.getMinHeight()).toBe(0);
+                expect(infinite.getMaxHeight()).toBe(-1);
+
+                const truncated = Cone.fromRayAngleMinHeight(ray, angle, hMin);
+                expect(truncated.isInfinite()).toBe(true);
+                expect(truncated.getMinHeight()).toBe(hMin);
+                expect(truncated.getMaxHeight()).toBe(-1);
+
+                const frustum = Cone.fromRayAngleMinMaxHeight(ray, angle,
+                    hMin, hMax);
+                expect(frustum.isFinite()).toBe(true);
+                expect(frustum.isInfinite()).toBe(false);
+                expect(frustum.getMinHeight()).toBe(hMin);
+                expect(frustum.getMaxHeight()).toBe(hMax);
+
+                const finiteCone = Cone.fromRayAngle(ray, angle);
+                finiteCone.makeFiniteCone(hMax);
+                expect(finiteCone.getMinHeight()).toBe(0);
+                expect(finiteCone.getMaxHeight()).toBe(hMax);
+
+                // Every factory copies the ray (C++ value semantics).
+                ray.origin.set(0, ray.origin.get(0) + 100);
+                expect(frustum.ray.origin.get(0)).not.toBe(ray.origin.get(0));
+                ray.origin.set(0, ray.origin.get(0) - 100);
+            });
+    });
+
+    it('answers the height predicates consistently', () => {
+        check(fc.tuple(rayArb(3), angleArb, finite(0, 5), finite(0.25, 5),
+            finite(-10, 10)), ([ray, angle, hMin, extra, h]) => {
+            const hMax = hMin + extra;
+            for (const cone of [
+                Cone.fromRayAngleMinHeight(ray, angle, hMin),
+                Cone.fromRayAngleMinMaxHeight(ray, angle, hMin, hMax)]) {
+                // heightInRange is the conjunction of the two negations, for
+                // both the finite and the infinite (maxHeight == -1) case.
+                expect(cone.heightInRange(h))
+                    .toBe(!cone.heightLessThanMin(h)
+                        && !cone.heightGreaterThanMax(h));
+                expect(cone.heightLessThanMin(h)).toBe(h < cone.getMinHeight());
+                if (cone.isFinite()) {
+                    expect(cone.heightGreaterThanMax(h))
+                        .toBe(h > cone.getMaxHeight());
+                    expect(cone.heightInRange(h))
+                        .toBe(hMin <= h && h <= hMax);
+                } else {
+                    // The -1 sentinel must never be read as a real height.
+                    expect(cone.heightGreaterThanMax(h)).toBe(false);
+                    expect(cone.heightInRange(h)).toBe(hMin <= h);
+                }
+            }
+        });
+    });
+
+    it('the quadratic containment test matches the angle test', () => {
+        // Build a point at height h and radial distance r from the axis, then
+        // compare the quadratic solid-cone test with acos of the direction
+        // cosine. Points are kept away from the vertex and from the exact
+        // cone boundary so both tests are unambiguous.
+        check(fc.tuple(rayArb(3), angleArb, finite(0.25, 5), finite(0, 5),
+            finite(0, GTE_C_TWO_PI)), ([ray, angle, h, rScale, phi]) => {
+            const cone = Cone.fromRayAngle(ray, angle);
+            const basis = [cone.ray.direction.clone(), new Vector(3),
+                new Vector(3)];
+            computeOrthogonalComplement3(1, basis);
+            const r = rScale * h * cone.tanAngle;
+            if (Math.abs(rScale - 1) < 1e-4) {
+                return;  // too close to the cone boundary
+            }
+            const X = add(add(ray.origin, mul(basis[0], h)),
+                add(mul(basis[1], r * Math.cos(phi)),
+                    mul(basis[2], r * Math.sin(phi))));
+
+            const delta = sub(X, cone.ray.origin);
+            const height = dot(cone.ray.direction, delta);
+            const quadratic = cone.heightInRange(height)
+                && height * height >= dot(delta, delta) * cone.cosAngleSqr;
+            // The independent test: the angle between the axis and X - V.
+            const lenDelta = Math.sqrt(dot(delta, delta));
+            const theta = Math.acos(Math.min(1,
+                Math.max(-1, height / lenDelta)));
+            expect(quadratic).toBe(theta <= angle);
+            // r <= h*tan(A) is the same statement in cylindrical form.
+            expect(quadratic).toBe(r <= h * cone.tanAngle);
+        });
+    });
+
+    it('honours the height range in the quadratic test', () => {
+        check(fc.tuple(rayArb(3), angleArb, finite(0.25, 3), finite(0.25, 3),
+            finite(-2, 8)), ([ray, angle, hMin, extra, h]) => {
+            const hMax = hMin + extra;
+            const cone = Cone.fromRayAngleMinMaxHeight(ray, angle, hMin, hMax);
+            // A point on the axis at height h is inside the infinite cone.
+            const X = add(ray.origin, mul(ray.direction, h));
+            const delta = sub(X, cone.ray.origin);
+            const height = dot(cone.ray.direction, delta);
+            const inside = cone.heightInRange(height)
+                && height * height >= dot(delta, delta) * cone.cosAngleSqr;
+            // Axis points are inside exactly when the height is in range.
+            // Allow the round-off of the projection at the interval ends.
+            if (Math.abs(height - hMin) > 1e-9
+                && Math.abs(height - hMax) > 1e-9) {
+                expect(inside).toBe(hMin <= h && h <= hMax);
+            }
+        });
+    });
+
+    it('has a trichotomous comparison', () => {
+        const coneArb = fc.tuple(rayArb(3), angleArb, finite(0, 2))
+            .map(([ray, angle, hMin]) =>
+                Cone.fromRayAngleMinHeight(ray, angle, hMin));
+        check(fc.tuple(coneArb, coneArb), ([a, b]) => {
+            const lt = a.lessThan(b), gt = a.greaterThan(b), eq = a.equals(b);
+            expect([lt, gt, eq].filter(x => x).length).toBe(1);
+            expect(a.notEquals(b)).toBe(!eq);
+            expect(a.lessThanOrEqual(b)).toBe(!gt);
+            expect(a.greaterThanOrEqual(b)).toBe(!lt);
+        });
+        // clone() reproduces an equal cone with independent storage.
+        check(coneArb, cone => {
+            const copy = cone.clone();
+            expect(copy.equals(cone)).toBe(true);
+            copy.ray.origin.set(0, copy.ray.origin.get(0) + 1);
+            expect(copy.equals(cone)).toBe(false);
+        });
+    });
+
+    it('creates a frustum mesh that lies on the cone', () => {
+        check(fc.tuple(rayArb(3), angleArb, finite(0.25, 2), finite(0.25, 3),
+            fc.integer({ min: 3, max: 10 }), fc.boolean()),
+            ([ray, angle, hMin, extra, numMinVertices, inscribed]) => {
+                const hMax = hMin + extra;
+                const cone = Cone.fromRayAngleMinMaxHeight(ray, angle, hMin,
+                    hMax);
+                const { vertices, indices } = cone.createMesh(numMinVertices,
+                    inscribed);
+                expect(indices.length % 3).toBe(0);
+                expect(indices.length).toBeGreaterThan(0);
+                for (const i of indices) {
+                    expect(Number.isInteger(i)).toBe(true);
+                    expect(i).toBeGreaterThanOrEqual(0);
+                    expect(i).toBeLessThan(vertices.length);
+                }
+                // Every index is used and the vertices are unique.
+                const used = new Set(indices);
+                expect(used.size).toBe(vertices.length);
+                const seen = new Set(vertices.map(v => v.values.join(',')));
+                expect(seen.size).toBe(vertices.length);
+
+                for (const X of vertices) {
+                    const delta = sub(X, cone.ray.origin);
+                    const h = dot(cone.ray.direction, delta);
+                    // Every mesh vertex is at height hMin or hMax.
+                    const atMin = Math.abs(h - hMin) <= 1e-9 * (1 + hMax);
+                    const atMax = Math.abs(h - hMax) <= 1e-9 * (1 + hMax);
+                    expect(atMin || atMax).toBe(true);
+                    // Its distance from the axis is bounded by the radius of
+                    // the disk at that height. The inscribed polygon lies
+                    // inside the disk; the circumscribed one lies outside it
+                    // but inside the disk scaled by 1/cos(pi/numVertices).
+                    const radial = Math.sqrt(
+                        Math.max(0, dot(delta, delta) - h * h));
+                    const radius = h * cone.tanAngle;
+                    const bound = inscribed ? 1
+                        : 1 / Math.cos(Math.PI / numMinVertices);
+                    expect(radial).toBeLessThanOrEqual(
+                        radius * bound + 1e-9 * (1 + radius));
+                }
+            }, 50);
+    });
+
+    it('refuses to mesh an infinite cone', () => {
+        check(fc.tuple(rayArb(3), angleArb, finite(0, 3)),
+            ([ray, angle, hMin]) => {
+                const cone = Cone.fromRayAngleMinHeight(ray, angle, hMin);
+                expect(() => cone.createMesh(8, true))
+                    .toThrow('Meshes can be generated only for finite cones.');
+            });
     });
 });

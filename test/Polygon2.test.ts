@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { Polygon2 } from '../src/Polygon2.js';
 import { Vector, length, sub } from '../src/Vector.js';
+import { IntrSegment2Segment2TI } from '../src/IntrSegment2Segment2.js';
+import { Segment } from '../src/Segment.js';
+import { check, expectClose, fc, finite } from './helpers/arbitraries.js';
 
 function V(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -205,5 +208,225 @@ describe('Polygon2', () => {
                 expect(bad.isConvex()).toBe(false);
             }
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// V43 verification: the geometric queries against independent formulas, the
+// simple/convex classification on generated star-shaped and convex polygons,
+// and the failure semantics of the constructor.
+// ---------------------------------------------------------------------------
+
+describe('Polygon2 verification', () => {
+    // n points at strictly increasing angles around the origin. The angular
+    // jitter is bounded by 0.4 * (2*pi/n), so the angles stay ordered and
+    // separated and the polygon (traversed in index order) is star-shaped
+    // about the origin, hence simple.
+    const starPolygon = (minN: number, maxN: number) =>
+        fc.integer({ min: minN, max: maxN }).chain(n =>
+            fc.tuple(fc.constant(n),
+                fc.array(finite(-0.4, 0.4), { minLength: n, maxLength: n }),
+                fc.array(finite(1, 4), { minLength: n, maxLength: n })))
+            .map(([n, jitter, radii]) => {
+                const step = (2 * Math.PI) / n;
+                const pool: Vector[] = [];
+                for (let i = 0; i < n; ++i) {
+                    const a = (i + jitter[i]) * step;
+                    pool.push(Vector.fromArray(
+                        [radii[i] * Math.cos(a), radii[i] * Math.sin(a)]));
+                }
+                return pool;
+            });
+
+    // The same construction with all radii equal: the vertices lie on a
+    // circle at increasing angles, so the polygon is convex.
+    const convexPolygon = (minN: number, maxN: number) =>
+        fc.tuple(fc.integer({ min: minN, max: maxN }), finite(1, 4))
+            .chain(([n, radius]) =>
+                fc.tuple(fc.constant(n), fc.constant(radius),
+                    fc.array(finite(-0.4, 0.4),
+                        { minLength: n, maxLength: n })))
+            .map(([n, radius, jitter]) => {
+                const step = (2 * Math.PI) / n;
+                const pool: Vector[] = [];
+                for (let i = 0; i < n; ++i) {
+                    const a = (i + jitter[i]) * step;
+                    pool.push(Vector.fromArray(
+                        [radius * Math.cos(a), radius * Math.sin(a)]));
+                }
+                return pool;
+            });
+
+    const identity = (n: number) => Array.from({ length: n }, (_, i) => i);
+
+    it('computes area, perimeter and average by the standard formulas', () => {
+        check(starPolygon(3, 12), pool => {
+            const indices = identity(pool.length);
+            const polygon = new Polygon2(pool, indices, true);
+            expect(polygon.isValid()).toBe(true);
+            // The area matches the shoelace formula. The two summations
+            // group the terms differently, so the tolerance is relative to
+            // the area scale (radii are at most 4).
+            expectClose(polygon.computeArea(), shoelaceArea(pool, indices),
+                1e-12, 1e-12);
+            expectClose(polygon.computePerimeterLength(),
+                perimeter(pool, indices), 1e-12, 1e-12);
+            let sx = 0, sy = 0;
+            for (const v of pool) { sx += v.get(0); sy += v.get(1); }
+            const average = polygon.computeVertexAverage();
+            expectClose(average.get(0), sx / pool.length, 1e-12, 1e-12);
+            expectClose(average.get(1), sy / pool.length, 1e-12, 1e-12);
+        });
+    });
+
+    it('reports an orientation-independent absolute area', () => {
+        check(starPolygon(3, 10), pool => {
+            const indices = identity(pool.length);
+            const forward = new Polygon2(pool, indices, true);
+            const reversed = new Polygon2(pool, [...indices].reverse(), false);
+            // ComputeArea takes std::fabs, so reversing the traversal (which
+            // negates the signed area) does not change the result.
+            expectClose(forward.computeArea(), reversed.computeArea(),
+                1e-12, 1e-12);
+            expectClose(forward.computePerimeterLength(),
+                reversed.computePerimeterLength(), 1e-12, 1e-12);
+            // A cyclic rotation of the indices is the same polygon.
+            const rotated = [...indices.slice(1), indices[0]];
+            expectClose(new Polygon2(pool, rotated, true).computeArea(),
+                forward.computeArea(), 1e-12, 1e-12);
+        });
+    });
+
+    it('classifies star-shaped polygons as simple', () => {
+        check(starPolygon(4, 10), pool => {
+            const polygon = new Polygon2(pool, identity(pool.length), true);
+            expect(polygon.isSimple()).toBe(true);
+        }, 100);
+    });
+
+    it('classifies circle polygons as convex in their own orientation', () => {
+        check(convexPolygon(4, 10), pool => {
+            const indices = identity(pool.length);
+            // The angles increase, so the traversal is counterclockwise.
+            expect(new Polygon2(pool, indices, true).isConvex()).toBe(true);
+            // With the orientation flag reversed, every turn has the wrong
+            // sign, so IsConvexInternal rejects it.
+            expect(new Polygon2(pool, indices, false).isConvex()).toBe(false);
+            // Reversing the traversal makes it clockwise.
+            const rev = [...indices].reverse();
+            expect(new Polygon2(pool, rev, false).isConvex()).toBe(true);
+            expect(new Polygon2(pool, rev, true).isConvex()).toBe(false);
+            // Convex implies simple.
+            expect(new Polygon2(pool, indices, true).isSimple()).toBe(true);
+        }, 100);
+    });
+
+    it('matches an all-pairs simplicity test, including swapped polygons',
+        () => {
+            // IsSimpleInternal does not iterate over every non-adjacent pair
+            // of edges: its inner loop runs over the numeric range
+            // [(i0+2) % n, (i0-2+n) % n] and is empty when the range wraps.
+            // Cross-check it against an exhaustive all-pairs test so a missed
+            // pair would show up here.
+            const bruteForceSimple = (pool: readonly Vector[],
+                indices: readonly number[]): boolean => {
+                const n = indices.length;
+                const query = new IntrSegment2Segment2TI();
+                for (let i = 0; i < n; ++i) {
+                    const s0 = Segment.fromEndpoints(pool[indices[i]],
+                        pool[indices[(i + 1) % n]]);
+                    for (let j = i + 1; j < n; ++j) {
+                        // Skip the two adjacent pairs (they always share an
+                        // endpoint).
+                        if (j === i + 1 || (i === 0 && j === n - 1)) {
+                            continue;
+                        }
+                        const s1 = Segment.fromEndpoints(pool[indices[j]],
+                            pool[indices[(j + 1) % n]]);
+                        if (query.test(s0, s1).intersect) {
+                            return false;
+                        }
+                    }
+                }
+                return true;
+            };
+
+            check(fc.tuple(convexPolygon(5, 9), fc.nat(), fc.boolean()),
+                ([pool, raw, swap]) => {
+                    const n = pool.length;
+                    const indices = identity(n);
+                    if (swap) {
+                        // Swapping two non-adjacent vertices of a polygon
+                        // whose points are in convex position creates a
+                        // crossing.
+                        const j = 2 + (raw % (n - 3));
+                        [indices[0], indices[j]] = [indices[j], indices[0]];
+                    }
+                    const polygon = new Polygon2(pool, indices, true);
+                    const expected = bruteForceSimple(pool, indices);
+                    expect(polygon.isSimple()).toBe(expected);
+                    if (swap) {
+                        // The crossing must actually be there.
+                        expect(expected).toBe(false);
+                        expect(polygon.isConvex()).toBe(false);
+                    }
+                }, 100);
+
+            // The same cross-check on star-shaped polygons, which are simple.
+            check(starPolygon(4, 9), pool => {
+                const indices = identity(pool.length);
+                const polygon = new Polygon2(pool, indices, true);
+                expect(polygon.isSimple())
+                    .toBe(bruteForceSimple(pool, indices));
+            }, 100);
+        });
+
+    it('fails construction for short, duplicated or empty input', () => {
+        check(fc.tuple(starPolygon(3, 8), fc.nat()), ([pool, raw]) => {
+            const n = pool.length;
+            const indices = identity(n);
+
+            // Fewer than three indices.
+            const short = new Polygon2(pool, indices.slice(0, 2), true);
+            expect(short.isValid()).toBe(false);
+            expect(short.counterClockwise()).toBe(false);
+            expect(short.getIndices().length).toBe(0);
+            expect(short.getVertices().length).toBe(0);
+            // The queries of an invalid polygon return the zero values.
+            expect(short.computeArea()).toBe(0);
+            expect(short.computePerimeterLength()).toBe(0);
+            expect(short.computeVertexAverage().values).toEqual([0, 0]);
+            expect(short.isSimple()).toBe(false);
+            expect(short.isConvex()).toBe(false);
+
+            // A duplicated index.
+            const dup = [...indices];
+            dup[raw % n] = dup[(raw + 1) % n];
+            expect(new Polygon2(pool, dup, true).isValid()).toBe(false);
+
+            // A null or empty vertex pool. Upstream can only test the pointer
+            // for null; the port also rejects an empty array.
+            expect(new Polygon2(null, indices, true).isValid()).toBe(false);
+            expect(new Polygon2(pool, null, true).isValid()).toBe(false);
+            expect(new Polygon2([], indices, true).isValid()).toBe(false);
+        });
+    });
+
+    it('stores sorted unique vertices and a copy of the indices', () => {
+        check(starPolygon(3, 10), pool => {
+            const indices = identity(pool.length);
+            const rotated = [...indices.slice(2), ...indices.slice(0, 2)];
+            const polygon = new Polygon2(pool, rotated, true);
+            // getVertices is the sorted set (the std::set iteration order).
+            expect([...polygon.getVertices()]).toEqual(indices);
+            // getIndices keeps the polygon order.
+            expect([...polygon.getIndices()]).toEqual(rotated);
+            // The indices were copied, not aliased.
+            rotated[0] = 12345;
+            expect(polygon.getIndices()[0]).not.toBe(12345);
+            // The vertex pool is referenced, not copied (upstream keeps the
+            // caller's pointer).
+            expect(polygon.getVertexPool()).toBe(pool);
+        });
     });
 });
