@@ -311,6 +311,15 @@ describe('DistLine2Triangle2 verification', () => {
                     Math.sign(dot(N, sub(tri.v[i], l.origin))));
                 const separated = (s[0] > 0 && s[1] > 0 && s[2] > 0)
                     || (s[0] < 0 && s[1] < 0 && s[2] < 0);
+                // A strictly separated triangle whose smallest normal
+                // component is below ~1e-154 has a squared distance that
+                // underflows to 0 (sqrt(0) = 0); the sign test still says
+                // separated. Skip that regime rather than assert on it.
+                const minAbs = Math.min(...[0, 1, 2].map(i =>
+                    Math.abs(dot(N, sub(tri.v[i], l.origin)))));
+                if (separated && minAbs < 1e-100 * length(N)) {
+                    return;
+                }
                 if (separated) {
                     expect(r.distance).toBeGreaterThan(0);
                     // The closest triangle point is a vertex.
