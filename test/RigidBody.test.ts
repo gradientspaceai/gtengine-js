@@ -10,6 +10,7 @@ import { Quaternion } from '../src/Quaternion.js';
 import { Rotation } from '../src/Rotation.js';
 import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
 import { cross } from '../src/Vector3.js';
+import { check, expectClose, fc, scaled } from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -496,3 +497,405 @@ function transpose3(M: Matrix): Matrix {
     }
     return R;
 }
+
+// ---------------------------------------------------------------------------
+// Verification (V41): properties of the state bookkeeping, the Runge-Kutta
+// integrator (including the unit-quaternion regression of upstream issue
+// #313) and the contact impulse.
+// ---------------------------------------------------------------------------
+
+const rbCoord = (max = 3) => scaled(-max, max, 512);
+
+const unitQuaternion = (): fc.Arbitrary<Quaternion> =>
+    fc.array(scaled(-1, 1, 512), { minLength: 4, maxLength: 4 })
+        .filter(a => a.reduce((s, x) => s + x * x, 0) > 0.05)
+        .map(a => {
+            const q = new Quaternion(a[0], a[1], a[2], a[3]);
+            normalize(q);
+            return q;
+        });
+
+const unitVector3 = (): fc.Arbitrary<Vector> =>
+    fc.array(scaled(-1, 1, 512), { minLength: 3, maxLength: 3 })
+        .filter(a => a[0] ** 2 + a[1] ** 2 + a[2] ** 2 > 0.05)
+        .map(a => {
+            const v = Vector.fromArray(a);
+            normalize(v);
+            return v;
+        });
+
+const positiveInertia = (): fc.Arbitrary<Matrix> =>
+    fc.tuple(scaled(0.3, 4, 128), scaled(0.3, 4, 128), scaled(0.3, 4, 128))
+        .map(([a, b, c]) => diag3(a, b, c));
+
+const vector3 = (max = 3) =>
+    fc.array(rbCoord(max), { minLength: 3, maxLength: 3 })
+        .map(a => Vector.fromArray(a));
+
+// A movable body with a random state and no force or torque.
+const freeBody = (): fc.Arbitrary<RigidBody> =>
+    fc.tuple(scaled(0.4, 4, 128), positiveInertia(), unitQuaternion(),
+        vector3(), vector3(), vector3())
+        .map(([mass, inertia, q, position, linear, angular]) => {
+            const body = new RigidBody();
+            body.setMass(mass);
+            body.setBodyInertia(inertia);
+            body.setPosition(position);
+            body.setQOrientation(q);
+            body.setLinearMomentum(linear);
+            body.setAngularMomentum(angular);
+            body.force = zeroForce;
+            body.torque = zeroForce;
+            return body;
+        });
+
+function kineticEnergy(body: RigidBody): number {
+    const v = body.getLinearVelocity();
+    const w = body.getAngularVelocity();
+    return 0.5 * body.getMass() * dot(v, v)
+        + 0.5 * dot(w, body.getAngularMomentum());
+}
+
+describe('RigidBody verification', () => {
+    it('keeps the world inertia consistent with R*J*R^T and its inverse',
+        () => {
+            check(fc.tuple(scaled(0.4, 4, 128), positiveInertia(),
+                unitQuaternion()), ([mass, inertia, q]) => {
+                    const state = new RigidBodyState();
+                    state.setMass(mass);
+                    state.setBodyInertia(inertia);
+                    state.setQOrientation(q);
+                    const R = state.getROrientation();
+                    // R is a rotation because the port builds it from the
+                    // normalized quaternion (upstream #313 uses the raw
+                    // input, which is only a rotation when the caller passes
+                    // a unit quaternion).
+                    expect(maxDiff(multiplyABT(R, R), Matrix.identity(3, 3)))
+                        .toBeLessThan(1e-13);
+                    expect(maxDiff(state.getWorldInertia(),
+                        multiplyABT(mulMatrix(R, inertia), R)))
+                        .toBeLessThan(1e-12);
+                    expect(maxDiff(multiplyAB(state.getWorldInertia(),
+                        state.getWorldInverseInertia()),
+                        Matrix.identity(3, 3))).toBeLessThan(1e-11);
+                });
+        });
+
+    it('setQOrientation normalizes only when asked, and the rotation always ' +
+        'comes from the stored quaternion', () => {
+            check(fc.tuple(unitQuaternion(), scaled(0.2, 5, 128),
+                positiveInertia()), ([q, factor, inertia]) => {
+                    const scaledQ = new Quaternion(q.values[0] * factor,
+                        q.values[1] * factor, q.values[2] * factor,
+                        q.values[3] * factor);
+
+                    const normalized = new RigidBodyState();
+                    normalized.setMass(1);
+                    normalized.setBodyInertia(inertia);
+                    normalized.setQOrientation(scaledQ, true);
+                    expectClose(Math.sqrt(dot(normalized.getQOrientation(),
+                        normalized.getQOrientation())), 1, 1e-14, 1e-14);
+                    // The regression for upstream #313: the matrix is built
+                    // from the normalized member, so it stays a rotation.
+                    const R = normalized.getROrientation();
+                    expect(maxDiff(multiplyABT(R, R), Matrix.identity(3, 3)))
+                        .toBeLessThan(1e-13);
+                    expect(maxDiff(R, Rotation.fromQuaternion(q, 3).toMatrix()))
+                        .toBeLessThan(1e-13);
+
+                    const raw = new RigidBodyState();
+                    raw.setMass(1);
+                    raw.setBodyInertia(inertia);
+                    raw.setQOrientation(scaledQ);
+                    expect(vecMaxDiff(raw.getQOrientation(), scaledQ)).toBe(0);
+                });
+        });
+
+    it('setMass, setBodyInertia and the momentum setters honour immovability',
+        () => {
+            check(fc.tuple(scaled(-3, 3, 256), positiveInertia(), vector3()),
+                ([mass, inertia, momentum]) => {
+                    const state = new RigidBodyState();
+                    state.setMass(mass);
+                    state.setBodyInertia(inertia);
+                    state.setLinearMomentum(momentum);
+                    state.setAngularMomentum(momentum);
+                    if (mass > 0) {
+                        expect(state.isMovable()).toBe(true);
+                        expect(state.isImmovable()).toBe(false);
+                        expectClose(state.getInverseMass(), 1 / mass, 0, 1e-15);
+                        expect(vecMaxDiff(state.getLinearMomentum(), momentum))
+                            .toBe(0);
+                    }
+                    else {
+                        expect(state.getMass()).toBe(0);
+                        expect(state.getInverseMass()).toBe(0);
+                        expect(state.isImmovable()).toBe(true);
+                        // The setters are no-ops for an immovable body.
+                        expect(state.getLinearMomentum().values
+                            .every(x => x === 0)).toBe(true);
+                        expect(state.getAngularMomentum().values
+                            .every(x => x === 0)).toBe(true);
+                    }
+                });
+        });
+
+    it('free motion keeps the quaternion unit, the rotation orthonormal and ' +
+        'the momenta exactly constant', () => {
+            check(fc.tuple(freeBody(), scaled(0.005, 0.05, 64)),
+                ([body, dt]) => {
+                    const p0 = body.getLinearMomentum();
+                    const l0 = body.getAngularMomentum();
+                    const x0 = body.getPosition();
+                    for (let k = 0; k < 25; ++k) {
+                        body.update(k * dt, dt);
+                        const q = body.getQOrientation();
+                        // Every stage renormalizes, so the stored quaternion
+                        // is unit after every step (upstream #313).
+                        expectClose(Math.sqrt(dot(q, q)), 1, 1e-14, 1e-14);
+                        const R = body.getROrientation();
+                        expect(maxDiff(multiplyABT(R, R),
+                            Matrix.identity(3, 3))).toBeLessThan(1e-12);
+                    }
+                    // Zero force and torque leave both momenta untouched.
+                    expect(vecMaxDiff(body.getLinearMomentum(), p0)).toBe(0);
+                    expect(vecMaxDiff(body.getAngularMomentum(), l0)).toBe(0);
+                    // The center of mass travels in a straight line at the
+                    // constant linear velocity.
+                    const expected = add(x0, mul(body.getLinearVelocity(),
+                        25 * dt));
+                    expect(vecMaxDiff(body.getPosition(), expected))
+                        .toBeLessThan(1e-12);
+                });
+        });
+
+    it('conserves the kinetic energy of a torque-free body to the accuracy ' +
+        'of the integrator', () => {
+            // Free rigid-body motion conserves 0.5*m*|v|^2 + 0.5*w.L exactly;
+            // the numerical drift is the RK4 truncation error, which grows
+            // like (|w|*dt)^4 per step. The angular momentum and the step are
+            // kept small so that the bound below is far tighter than the
+            // error any coefficient mistake in the integrator would produce.
+            check(fc.tuple(scaled(0.4, 4, 128), positiveInertia(),
+                unitQuaternion(), vector3(0.5), scaled(0.002, 0.008, 64)),
+                ([mass, inertia, q, angular, dt]) => {
+                    const body = new RigidBody();
+                    body.setMass(mass);
+                    body.setBodyInertia(inertia);
+                    body.setPosition(Vector.zero(3));
+                    body.setQOrientation(q);
+                    body.setLinearMomentum(Vector.zero(3));
+                    body.setAngularMomentum(angular);
+                    body.force = zeroForce;
+                    body.torque = zeroForce;
+                    const e0 = kineticEnergy(body);
+                    for (let k = 0; k < 25; ++k) { body.update(k * dt, dt); }
+                    expectClose(kineticEnergy(body), e0, 1e-12, 1e-9);
+                }, 100);
+        });
+
+    it('integrates a constant force exactly (RK4 is exact for a quadratic)',
+        () => {
+            check(fc.tuple(scaled(0.4, 4, 128), positiveInertia(), vector3(),
+                vector3(), vector3(), scaled(0.005, 0.05, 64)),
+                ([mass, inertia, position, velocity, force, dt]) => {
+                    const body = new RigidBody();
+                    body.setMass(mass);
+                    body.setBodyInertia(inertia);
+                    body.setPosition(position);
+                    body.setQOrientation(Quaternion.identity());
+                    body.setLinearVelocity(velocity);
+                    body.setAngularMomentum(Vector.zero(3));
+                    body.force = () => force.clone();
+                    body.torque = zeroForce;
+                    const numSteps = 8;
+                    for (let k = 0; k < numSteps; ++k) {
+                        body.update(k * dt, dt);
+                    }
+                    const t = numSteps * dt;
+                    const expected = add(add(position, mul(velocity, t)),
+                        mul(force, (0.5 * t * t) / mass));
+                    expect(vecMaxDiff(body.getPosition(), expected))
+                        .toBeLessThan(1e-12);
+                    expect(vecMaxDiff(body.getLinearMomentum(),
+                        add(mul(velocity, mass), mul(force, t))))
+                        .toBeLessThan(1e-12);
+                });
+        });
+
+    it('rotates an isotropic torque-free body about a fixed axis at a ' +
+        'constant rate', () => {
+            check(fc.tuple(scaled(0.4, 4, 128), scaled(0.3, 3, 128),
+                vector3(2), scaled(0.002, 0.02, 64)),
+                ([mass, moment, angular, dt]) => {
+                    const body = new RigidBody();
+                    body.setMass(mass);
+                    body.setBodyInertia(diag3(moment, moment, moment));
+                    body.setPosition(Vector.zero(3));
+                    body.setQOrientation(Quaternion.identity());
+                    body.setAngularVelocity(angular);
+                    body.force = zeroForce;
+                    body.torque = zeroForce;
+                    const w0 = body.getAngularVelocity();
+                    const numSteps = 30;
+                    for (let k = 0; k < numSteps; ++k) {
+                        body.update(k * dt, dt);
+                    }
+                    // An isotropic body has no precession: the angular
+                    // velocity is constant in the world frame.
+                    expect(vecMaxDiff(body.getAngularVelocity(), w0))
+                        .toBeLessThan(1e-11);
+                    // The orientation is the rotation by |w|*t about w.
+                    const speed = len(w0);
+                    if (speed > 1e-3) {
+                        const axis = mul(w0, 1 / speed);
+                        const expected = Rotation.fromAxisAngle(
+                            new AxisAngle(axis, speed * numSteps * dt))
+                            .toMatrix();
+                        // The residual is the RK4 truncation error over the
+                        // run; the convergence-order property below pins the
+                        // stage weights that produce it.
+                        expect(maxDiff(body.getROrientation(), expected))
+                            .toBeLessThan(5e-8);
+                    }
+                });
+        });
+
+    it('converges at fourth order in the step size', () => {
+        // Integrating a torque-free isotropic body to a fixed final time with
+        // n and 2n steps must reduce the error against the analytic rotation
+        // by about 2^4; this is what distinguishes the RK4 stage weights from
+        // any lower-order combination.
+        check(fc.tuple(scaled(0.4, 4, 128), scaled(0.3, 3, 128), vector3(2)),
+            ([mass, moment, angular]) => {
+                const speed = len(angular);
+                fc.pre(speed > 0.5);
+                const finalTime = 1;
+                const axis = mul(angular, 1 / speed);
+                const exact = Rotation.fromAxisAngle(
+                    new AxisAngle(axis, speed * finalTime)).toMatrix();
+                const errorFor = (numSteps: number): number => {
+                    const body = new RigidBody();
+                    body.setMass(mass);
+                    body.setBodyInertia(diag3(moment, moment, moment));
+                    body.setPosition(Vector.zero(3));
+                    body.setQOrientation(Quaternion.identity());
+                    body.setAngularVelocity(angular);
+                    body.force = zeroForce;
+                    body.torque = zeroForce;
+                    const dt = finalTime / numSteps;
+                    for (let k = 0; k < numSteps; ++k) {
+                        body.update(k * dt, dt);
+                    }
+                    return maxDiff(body.getROrientation(), exact);
+                };
+                const coarse = errorFor(20);
+                const fine = errorFor(40);
+                // Skip draws where the coarse error is already at round-off,
+                // where the ratio carries no information.
+                fc.pre(coarse > 1e-11);
+                expect(fine).toBeLessThan(coarse / 8);
+            }, 60);
+    });
+
+    it('the contact impulse conserves total linear and angular momentum',
+        () => {
+            check(fc.tuple(freeBody(), freeBody(), vector3(), unitVector3(),
+                scaled(0, 1, 64)), ([A, B, P, N, restitution]) => {
+                    const contact = new RigidBodyContact();
+                    contact.A = A;
+                    contact.B = B;
+                    contact.P = P;
+                    contact.N = N;
+                    contact.restitution = restitution;
+
+                    const pBefore = add(A.getLinearMomentum(),
+                        B.getLinearMomentum());
+                    // Total angular momentum about the origin includes the
+                    // orbital term x_i x p_i.
+                    const lBefore = add(
+                        add(A.getAngularMomentum(),
+                            cross(A.getPosition(), A.getLinearMomentum())),
+                        add(B.getAngularMomentum(),
+                            cross(B.getPosition(), B.getLinearMomentum())));
+
+                    contact.applyImpulse();
+
+                    const pAfter = add(A.getLinearMomentum(),
+                        B.getLinearMomentum());
+                    const lAfter = add(
+                        add(A.getAngularMomentum(),
+                            cross(A.getPosition(), A.getLinearMomentum())),
+                        add(B.getAngularMomentum(),
+                            cross(B.getPosition(), B.getLinearMomentum())));
+
+                    const scale = Math.max(1, len(pBefore), len(lBefore));
+                    expect(vecMaxDiff(pAfter, pBefore))
+                        .toBeLessThan(1e-10 * scale);
+                    expect(vecMaxDiff(lAfter, lBefore))
+                        .toBeLessThan(1e-10 * scale);
+                });
+        });
+
+    it('the contact impulse reverses the normal relative velocity by the ' +
+        'restitution and preserves the tangential components', () => {
+            check(fc.tuple(freeBody(), freeBody(), vector3(), unitVector3(),
+                scaled(0, 1, 64)), ([A, B, P, N, restitution]) => {
+                    const contact = new RigidBodyContact();
+                    contact.A = A;
+                    contact.B = B;
+                    contact.P = P;
+                    contact.N = N;
+                    contact.restitution = restitution;
+
+                    const rA = sub(P, A.getPosition());
+                    const rB = sub(P, B.getPosition());
+                    const relative = (): Vector => sub(
+                        add(A.getLinearVelocity(),
+                            cross(A.getAngularVelocity(), rA)),
+                        add(B.getLinearVelocity(),
+                            cross(B.getAngularVelocity(), rB)));
+
+                    const before = relative();
+                    const normalBefore = dot(N, before);
+                    // T0 is the tangent direction the query builds; when the
+                    // relative velocity is parallel to N the fallback branch
+                    // runs and there is no tangential constraint.
+                    const T0 = sub(before, mul(N, normalBefore));
+                    const tangentLength = normalize(T0);
+
+                    contact.applyImpulse();
+
+                    const after = relative();
+                    // Both branches solve for the normal component:
+                    // N.v+ = -restitution * N.v-.
+                    const scale = Math.max(1, len(before));
+                    expectClose(dot(N, after), -restitution * normalBefore,
+                        1e-10 * scale, 1e-9);
+                    if (tangentLength > 0) {
+                        // The 3x3 system also pins both tangential
+                        // components of the relative velocity.
+                        const T1 = cross(N, T0);
+                        expectClose(dot(T0, after), dot(T0, before),
+                            1e-10 * scale, 1e-9);
+                        expectClose(dot(T1, after), dot(T1, before),
+                            1e-10 * scale, 1e-9);
+                    }
+                });
+        });
+
+    it('rejects an unset force, torque or contact body', () => {
+        const body = new RigidBody();
+        body.setMass(1);
+        expect(() => body.update(0, 0.1)).toThrow();
+        body.force = zeroForce;
+        expect(() => body.update(0, 0.1)).toThrow();
+        body.torque = zeroForce;
+        expect(() => body.update(0, 0.1)).not.toThrow();
+
+        const contact = new RigidBodyContact();
+        expect(() => contact.applyImpulse()).toThrow();
+        contact.A = body;
+        expect(() => contact.applyImpulse()).toThrow();
+    });
+});

@@ -5,6 +5,7 @@ import {
 } from '../src/MassSpringArbitrary.js';
 import { MassSpringCurve } from '../src/MassSpringCurve.js';
 import { Vector, add, dot, length as vectorLength, mul, sub } from '../src/Vector.js';
+import { check, expectClose, fc, scaled } from './helpers/arbitraries.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -338,4 +339,292 @@ describe('MassSpringArbitrary dynamics', () => {
                 .toBeLessThan(1e-12);
         }
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification (V41): properties of the arbitrary-topology mass-spring system.
+// ---------------------------------------------------------------------------
+
+// A random graph on numParticles nodes: distinct unordered pairs, positions,
+// masses, spring constants and resting lengths.
+interface Topology {
+    numParticles: number;
+    edges: [number, number][];
+    positions: number[][];
+    velocities: number[][];
+    masses: number[];
+    constants: number[];
+    lengths: number[];
+}
+
+const coord = () => scaled(-4, 4, 512);
+
+const topology = (): fc.Arbitrary<Topology> =>
+    fc.integer({ min: 2, max: 5 }).chain(numParticles => {
+        const pairs: [number, number][] = [];
+        for (let i = 0; i < numParticles; ++i) {
+            for (let j = i + 1; j < numParticles; ++j) { pairs.push([i, j]); }
+        }
+        return fc.record({
+            numParticles: fc.constant(numParticles),
+            edges: fc.uniqueArray(fc.constantFrom(...pairs),
+                { minLength: 1, maxLength: pairs.length }),
+            positions: fc.array(fc.array(coord(),
+                { minLength: 2, maxLength: 2 }),
+                { minLength: numParticles, maxLength: numParticles }),
+            velocities: fc.array(fc.array(scaled(-1, 1, 256),
+                { minLength: 2, maxLength: 2 }),
+                { minLength: numParticles, maxLength: numParticles }),
+            masses: fc.array(scaled(0.5, 3, 64),
+                { minLength: numParticles, maxLength: numParticles }),
+            constants: fc.array(scaled(0.1, 4, 64),
+                { minLength: 1, maxLength: pairs.length }),
+            lengths: fc.array(scaled(0.1, 3, 64),
+                { minLength: 1, maxLength: pairs.length })
+        });
+    })
+        // Reject configurations with coincident endpoints: the upstream
+        // acceleration divides by the spring length, which is 0 there.
+        .filter(t => t.edges.every(([i, j]) => {
+            const dx = t.positions[j][0] - t.positions[i][0];
+            const dy = t.positions[j][1] - t.positions[i][1];
+            return dx * dx + dy * dy > 1e-4;
+        }));
+
+function buildSystem(t: Topology, step: number): TestMassSpringArbitrary {
+    const system = new TestMassSpringArbitrary(2, t.numParticles,
+        t.edges.length, step);
+    for (let i = 0; i < t.numParticles; ++i) {
+        system.setMass(i, t.masses[i]);
+        system.setPosition(i, v2(t.positions[i][0], t.positions[i][1]));
+        system.setVelocity(i, v2(t.velocities[i][0], t.velocities[i][1]));
+    }
+    for (let e = 0; e < t.edges.length; ++e) {
+        system.setSpring(e, spring(t.edges[e][0], t.edges[e][1],
+            t.constants[e % t.constants.length],
+            t.lengths[e % t.lengths.length]));
+    }
+    return system;
+}
+
+function currentPositions(system: MassSpringArbitrary): Vector[] {
+    const out: Vector[] = [];
+    for (let i = 0; i < system.getNumParticles(); ++i) {
+        out.push(system.getPosition(i).clone());
+    }
+    return out;
+}
+
+function currentVelocities(system: MassSpringArbitrary): Vector[] {
+    const out: Vector[] = [];
+    for (let i = 0; i < system.getNumParticles(); ++i) {
+        out.push(system.getVelocity(i).clone());
+    }
+    return out;
+}
+
+// Total linear momentum sum_i m_i v_i.
+function momentum(system: MassSpringArbitrary): Vector {
+    let p = Vector.zero(2);
+    for (let i = 0; i < system.getNumParticles(); ++i) {
+        p = add(p, mul(system.getVelocity(i), system.getMass(i)));
+    }
+    return p;
+}
+
+// Kinetic plus spring potential energy.
+function energy(system: MassSpringArbitrary): number {
+    let e = 0;
+    for (let i = 0; i < system.getNumParticles(); ++i) {
+        const v = system.getVelocity(i);
+        e += 0.5 * system.getMass(i) * dot(v, v);
+    }
+    for (let s = 0; s < system.getNumSprings(); ++s) {
+        const sp = system.getSpring(s);
+        const d = vectorLength(sub(system.getPosition(sp.particle1),
+            system.getPosition(sp.particle0)));
+        e += 0.5 * sp.constant * (d - sp.length) * (d - sp.length);
+    }
+    return e;
+}
+
+describe('MassSpringArbitrary verification', () => {
+    it('acceleration equals the brute-force Hooke sum over adjacent springs',
+        () => {
+            check(topology(), (t) => {
+                const system = buildSystem(t, 0.01);
+                const position = currentPositions(system);
+                const velocity = currentVelocities(system);
+                for (let i = 0; i < t.numParticles; ++i) {
+                    // Independent computation: sum over the springs that
+                    // touch i of k*(1 - L/|d|)*d, divided by the mass.
+                    let force = Vector.zero(2);
+                    for (let e = 0; e < t.edges.length; ++e) {
+                        const sp = system.getSpring(e);
+                        let other = -1;
+                        if (sp.particle0 === i) { other = sp.particle1; }
+                        else if (sp.particle1 === i) { other = sp.particle0; }
+                        if (other < 0) { continue; }
+                        const d = sub(position[other], position[i]);
+                        const ratio = sp.length / vectorLength(d);
+                        force = add(force, mul(d, sp.constant * (1 - ratio)));
+                    }
+                    const expected = mul(force, 1 / t.masses[i]);
+                    const actual = system.accelerationAt(i, 0, position,
+                        velocity);
+                    for (let k = 0; k < 2; ++k) {
+                        expectClose(actual.get(k), expected.get(k), 1e-12,
+                            1e-11);
+                    }
+                }
+            }, 150);
+        });
+
+    it('obeys Newton third law: the spring forces on the two endpoints are ' +
+        'equal and opposite', () => {
+            const arb = fc.tuple(coord(), coord(), coord(), coord(),
+                scaled(0.1, 4, 64), scaled(0.1, 3, 64), scaled(0.5, 3, 64),
+                scaled(0.5, 3, 64))
+                .filter(([x0, y0, x1, y1]) =>
+                    (x1 - x0) ** 2 + (y1 - y0) ** 2 > 1e-4);
+            check(arb, ([x0, y0, x1, y1, k, restLength, m0, m1]) => {
+                const system = new TestMassSpringArbitrary(2, 2, 1, 0.01);
+                system.setMass(0, m0);
+                system.setMass(1, m1);
+                system.setPosition(0, v2(x0, y0));
+                system.setPosition(1, v2(x1, y1));
+                system.setSpring(0, spring(0, 1, k, restLength));
+                const position = currentPositions(system);
+                const velocity = currentVelocities(system);
+                const f0 = mul(system.accelerationAt(0, 0, position, velocity),
+                    m0);
+                const f1 = mul(system.accelerationAt(1, 0, position, velocity),
+                    m1);
+                for (let i = 0; i < 2; ++i) {
+                    expectClose(f0.get(i), -f1.get(i), 1e-12, 1e-11);
+                }
+            });
+        });
+
+    it('a configuration at the resting lengths with zero velocity is an ' +
+        'exact fixed point', () => {
+            check(topology(), (t) => {
+                const system = new TestMassSpringArbitrary(2, t.numParticles,
+                    t.edges.length, 0.05);
+                for (let i = 0; i < t.numParticles; ++i) {
+                    system.setMass(i, t.masses[i]);
+                    system.setPosition(i,
+                        v2(t.positions[i][0], t.positions[i][1]));
+                }
+                for (let e = 0; e < t.edges.length; ++e) {
+                    const [i, j] = t.edges[e];
+                    const rest = vectorLength(sub(system.getPosition(j),
+                        system.getPosition(i)));
+                    system.setSpring(e, spring(i, j,
+                        t.constants[e % t.constants.length], rest));
+                }
+                const position = currentPositions(system);
+                const velocity = currentVelocities(system);
+                for (let i = 0; i < t.numParticles; ++i) {
+                    const a = system.accelerationAt(i, 0, position, velocity);
+                    expect(a.get(0) + 0).toBe(0);
+                    expect(a.get(1) + 0).toBe(0);
+                }
+                system.update(0);
+                for (let i = 0; i < t.numParticles; ++i) {
+                    expect(system.getPosition(i).get(0)).toBe(t.positions[i][0]);
+                    expect(system.getPosition(i).get(1)).toBe(t.positions[i][1]);
+                    expect(system.getVelocity(i).get(0) + 0).toBe(0);
+                    expect(system.getVelocity(i).get(1) + 0).toBe(0);
+                }
+            }, 100);
+        });
+
+    it('conserves total linear momentum with no external force', () => {
+        check(fc.tuple(topology(), scaled(0.002, 0.02, 32)), ([t, step]) => {
+            const system = buildSystem(t, step);
+            const before = momentum(system);
+            for (let k = 0; k < 8; ++k) { system.update(k * step); }
+            const after = momentum(system);
+            let scale = 0;
+            for (let i = 0; i < t.numParticles; ++i) {
+                scale += t.masses[i]
+                    * vectorLength(v2(t.velocities[i][0], t.velocities[i][1]));
+            }
+            // Newton third law makes sum_i m_i a_i vanish at every stage, so
+            // the momentum drift is pure floating-point round-off.
+            const tol = 1e-11 * Math.max(1, scale);
+            expect(Math.abs(after.get(0) - before.get(0)))
+                .toBeLessThanOrEqual(tol);
+            expect(Math.abs(after.get(1) - before.get(1)))
+                .toBeLessThanOrEqual(tol);
+        }, 100);
+    });
+
+    it('keeps the total energy of an undamped system bounded over a run',
+        () => {
+            check(fc.tuple(topology(), scaled(0.001, 0.006, 32)),
+                ([t, step]) => {
+                    const system = buildSystem(t, step);
+                    const e0 = energy(system);
+                    let worst = 0;
+                    for (let k = 0; k < 40; ++k) {
+                        system.update(k * step);
+                        worst = Math.max(worst,
+                            Math.abs(energy(system) - e0));
+                    }
+                    // RK4 is not symplectic, but with these step sizes the
+                    // energy drift over 40 steps stays far below 1% of the
+                    // initial energy plus the spring scale.
+                    const scale = Math.max(e0, 1);
+                    expect(worst).toBeLessThanOrEqual(0.01 * scale);
+                }, 60);
+        });
+
+    it('never moves immovable particles', () => {
+        check(fc.tuple(topology(), scaled(0.002, 0.02, 32),
+            fc.integer({ min: 0, max: 4 })), ([t, step, pinned]) => {
+                const system = buildSystem(t, step);
+                const fixedIndex = pinned % t.numParticles;
+                system.setMass(fixedIndex, Number.MAX_VALUE);
+                const p0 = system.getPosition(fixedIndex).clone();
+                const v0 = system.getVelocity(fixedIndex).clone();
+                for (let k = 0; k < 5; ++k) { system.update(k * step); }
+                expect(system.getPosition(fixedIndex).get(0)).toBe(p0.get(0));
+                expect(system.getPosition(fixedIndex).get(1)).toBe(p0.get(1));
+                expect(system.getVelocity(fixedIndex).get(0)).toBe(v0.get(0));
+                expect(system.getVelocity(fixedIndex).get(1)).toBe(v0.get(1));
+            }, 100);
+    });
+
+    it('setSpring copies the spring and records both endpoints as adjacent',
+        () => {
+            check(fc.tuple(fc.integer({ min: 0, max: 3 }),
+                fc.integer({ min: 0, max: 3 }), scaled(0.1, 3, 32),
+                scaled(0.1, 3, 32)).filter(([i, j]) => i !== j),
+                ([i, j, k, restLength]) => {
+                    const system = new TestMassSpringArbitrary(2, 4, 1, 0.01);
+                    const input = spring(i, j, k, restLength);
+                    system.setSpring(0, input);
+                    input.constant = -12345;
+                    expect(system.getSpring(0).constant).toBe(k);
+                    // Both endpoints see a nonzero force when the spring is
+                    // stretched away from its resting length.
+                    for (let n = 0; n < 4; ++n) {
+                        system.setMass(n, 1);
+                        system.setPosition(n, v2(n, 0));
+                    }
+                    // Place the endpoints 4 apart, which the generated
+                    // resting length in (0.1, 3] can never equal, so both
+                    // endpoints feel a nonzero force.
+                    system.setPosition(i, v2(0, 0));
+                    system.setPosition(j, v2(4, 0));
+                    const position = currentPositions(system);
+                    const velocity = currentVelocities(system);
+                    const ai = system.accelerationAt(i, 0, position, velocity);
+                    const aj = system.accelerationAt(j, 0, position, velocity);
+                    expect(vectorLength(ai)).toBeGreaterThan(0);
+                    expect(vectorLength(aj)).toBeGreaterThan(0);
+                });
+        });
 });
