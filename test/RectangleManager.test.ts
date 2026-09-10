@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { RectangleManager } from '../src/RectangleManager.js';
 import { AlignedBox } from '../src/AlignedBox.js';
 import { Vector } from '../src/Vector.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 function rect(min: [number, number], max: [number, number]): AlignedBox {
     return AlignedBox.fromMinMax(Vector.fromArray(min), Vector.fromArray(max));
@@ -252,5 +253,123 @@ describe('RectangleManager', () => {
         manager.initialize();
         expect(managerOverlap(manager))
             .toEqual(bruteForceOverlap(rectangles));
+    });
+});
+
+// ---------------------------------------------------------------------------
+// V43 verification: the sort-and-sweep overlap set must equal brute force,
+// both after initialize() and after arbitrary sequences of moves + update().
+// Integer coordinates keep every comparison exact, so these properties hold
+// with no tolerance.
+// ---------------------------------------------------------------------------
+
+describe('RectangleManager verification', () => {
+    // A rectangle with integer corners in [0, 20]^2 and positive extents.
+    const rectArb = fc.tuple(fc.integer({ min: 0, max: 16 }),
+        fc.integer({ min: 1, max: 5 }), fc.integer({ min: 0, max: 16 }),
+        fc.integer({ min: 1, max: 5 }))
+        .map(([x, w, y, h]) => rect([x, y], [x + w, y + h]));
+
+    const rectsArb = (minLength: number, maxLength: number) =>
+        fc.array(rectArb, { minLength, maxLength });
+
+    it('initialize reproduces brute force', () => {
+        check(rectsArb(0, 12), rectangles => {
+            const manager = new RectangleManager(rectangles.map(r => r.clone()));
+            expect(managerOverlap(manager))
+                .toEqual(bruteForceOverlap(rectangles));
+        });
+    });
+
+    it('update reproduces brute force after arbitrary moves', () => {
+        const scenario = fc.tuple(rectsArb(2, 8),
+            fc.array(fc.tuple(fc.nat(), rectArb), { minLength: 1, maxLength: 12 }));
+        check(scenario, ([initial, moves]) => {
+            const owned = initial.map(r => r.clone());
+            const manager = new RectangleManager(owned);
+            for (const [rawIndex, moved] of moves) {
+                const i = rawIndex % initial.length;
+                manager.setRectangle(i, moved);
+            }
+            manager.update();
+            // owned[] is the array the manager writes through to, so it
+            // carries the moved rectangles.
+            expect(managerOverlap(manager)).toEqual(bruteForceOverlap(owned));
+        }, 100);
+    });
+
+    it('the incremental state stays consistent across repeated updates', () => {
+        const scenario = fc.tuple(rectsArb(2, 6),
+            fc.array(fc.array(fc.tuple(fc.nat(), rectArb),
+                { minLength: 1, maxLength: 4 }), { minLength: 2, maxLength: 4 }));
+        check(scenario, ([initial, rounds]) => {
+            const owned = initial.map(r => r.clone());
+            const manager = new RectangleManager(owned);
+            for (const round of rounds) {
+                for (const [rawIndex, moved] of round) {
+                    manager.setRectangle(rawIndex % initial.length, moved);
+                }
+                manager.update();
+                // The incrementally maintained set must equal both brute
+                // force and a manager built from scratch on the same input
+                // (which exercises the lookup tables: a stale lookup entry
+                // would make a later setRectangle write the wrong endpoint).
+                const expected = bruteForceOverlap(owned);
+                expect(managerOverlap(manager)).toEqual(expected);
+                const fresh = new RectangleManager(owned.map(r => r.clone()));
+                expect(managerOverlap(fresh)).toEqual(expected);
+            }
+        }, 60);
+    });
+
+    it('handles duplicated and degenerate rectangles', () => {
+        // Duplicates make every endpoint comparison a tie, which exercises
+        // the type-based tie break of Endpoint::operator<.
+        check(fc.tuple(rectArb, fc.integer({ min: 2, max: 5 })),
+            ([r, count]) => {
+                const rectangles: AlignedBox[] = [];
+                for (let i = 0; i < count; ++i) {
+                    rectangles.push(r.clone());
+                }
+                const manager = new RectangleManager(rectangles);
+                expect(managerOverlap(manager))
+                    .toEqual(bruteForceOverlap(rectangles));
+                // Every pair overlaps.
+                expect(manager.getOverlap().length)
+                    .toBe((count * (count - 1)) / 2);
+            });
+    });
+
+    it('reports pairs as (i,j) with i < j, sorted lexicographically', () => {
+        check(rectsArb(2, 10), rectangles => {
+            const manager = new RectangleManager(rectangles.map(r => r.clone()));
+            const keys = manager.getOverlap();
+            for (const key of keys) {
+                expect(key.V[0]).toBeLessThan(key.V[1]);
+            }
+            for (let k = 1; k < keys.length; ++k) {
+                const a = keys[k - 1], b = keys[k];
+                expect(a.V[0] < b.V[0]
+                    || (a.V[0] === b.V[0] && a.V[1] < b.V[1])).toBe(true);
+            }
+        });
+    });
+
+    it('copies rectangles in setRectangle and getRectangle', () => {
+        check(fc.tuple(rectsArb(1, 4), rectArb), ([rectangles, moved]) => {
+            const owned = rectangles.map(r => r.clone());
+            const manager = new RectangleManager(owned);
+            manager.setRectangle(0, moved);
+            // The manager stored a copy, not the caller's object.
+            moved.min.set(0, moved.min.get(0) - 100);
+            expect(manager.getRectangle(0).min.get(0))
+                .not.toBe(moved.min.get(0));
+            // getRectangle returns a copy: mutating it does not corrupt the
+            // manager.
+            const fetched = manager.getRectangle(0);
+            fetched.max.set(1, fetched.max.get(1) + 100);
+            expect(manager.getRectangle(0).max.get(1))
+                .not.toBe(fetched.max.get(1));
+        });
     });
 });
