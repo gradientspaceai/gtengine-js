@@ -231,8 +231,11 @@ describe('Parallelepiped3 verification', () => {
             expect(() => Parallelepiped3.fromCenterAxis(c,
                 [frame[1], frame[0], frame[2]]))
                 .toThrow('The axes must form a right-handed basis.');
+            // A zero axis makes DotCross exactly zero. (A repeated axis
+            // would be zero in exact arithmetic but can round to a tiny
+            // positive value, which the upstream '> 0' test accepts.)
             expect(() => Parallelepiped3.fromCenterAxis(c,
-                [frame[0], frame[1], frame[0]]))
+                [frame[0], frame[1], new Vector(3)]))
                 .toThrow('The axes must form a right-handed basis.');
         });
     });
