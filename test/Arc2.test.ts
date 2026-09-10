@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { Arc2 } from '../src/Arc2.js';
 import { Vector, sub, length } from '../src/Vector.js';
 import { check, compareKeys, expectStrictWeakOrder, fc, finite, positive,
-    vector } from './helpers/arbitraries.js';
+    scaled, vector } from './helpers/arbitraries.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -179,9 +179,12 @@ describe('Arc2 verification', () => {
             // The chord test dotPerp(P-E0, E1-E0) >= 0 selects the points of
             // the circle on the counterclockwise arc from E0 to E1, for any
             // subtended angle (including angles >= pi).
+            // The angles are drawn from a uniform grid: fc.double samples
+            // the bit patterns of its range, so tiny magnitudes dominate and
+            // the boundary-band precondition below would reject most draws.
             check(fc.tuple(vector(2, -5, 5), positive(5, 0.5),
-                finite(-Math.PI, Math.PI), finite(0.05, 2 * Math.PI - 0.05),
-                finite(0, 2 * Math.PI)),
+                scaled(-Math.PI, Math.PI), scaled(0.05, 2 * Math.PI - 0.05),
+                scaled(0, 2 * Math.PI)),
                 ([c, r, a0, delta, s]) => {
                     // Stay away from the two endpoints where the sign is a
                     // rounding-error coin flip.

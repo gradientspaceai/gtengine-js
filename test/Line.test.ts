@@ -89,11 +89,18 @@ describe('Line verification', () => {
                     const p0 = add(l.origin, mul(s, l.direction));
                     const p1 = add(l.origin, mul(t, l.direction));
                     // |P(s) - P(t)| = |s - t| for a unit-length direction.
+                    // The subtraction cancels the origin, so the absolute
+                    // error scales with the origin magnitude, not with |s-t|.
+                    const scale = 1 + Math.max(...l.origin.values.map(Math.abs));
                     expectClose(length(sub(p0, p1)), Math.abs(s - t),
-                        1e-12, 1e-12);
-                    // The point at t = 0 is the origin, exactly.
-                    expect(add(l.origin, mul(0, l.direction)).values)
-                        .toEqual(l.origin.values);
+                        1e-12 * scale, 1e-12);
+                    // The point at t = 0 is the origin, exactly. Compared
+                    // with '===' rather than toEqual: adding +0 to a -0
+                    // component yields +0, and toEqual uses Object.is.
+                    const at0 = add(l.origin, mul(0, l.direction));
+                    for (let i = 0; i < 3; ++i) {
+                        expect(at0.get(i) === l.origin.get(i)).toBe(true);
+                    }
                 });
         });
 
