@@ -7,7 +7,11 @@ import {
 } from '../src/BVTreeOfTriangles.js';
 import type { LinearTriangleResult } from '../src/BVTreeOfTriangles.js';
 import { Triangle } from '../src/Triangle.js';
-import { Vector, dot, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import {
+    check, fc, finite, unitVector, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -452,5 +456,230 @@ describe('OrientedBoxTreeOfTriangles queries', () => {
         expect(tree.leafIndices(BVTree.LINE_QUERY, P, v3(1, 0, 0)).length).toBe(0);
         expect(tree.execute(BVTree.LINE_QUERY, P, v3(1, 0, 0)).intersections.length)
             .toBe(0);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// V43 verification: every node's oriented box contains the vertices of its
+// range, the leaf box collapses along its *smallest* extent (upstream #343),
+// and execute() reproduces brute force.
+// ---------------------------------------------------------------------------
+
+function reachableNodes(tree: TestableTree): number[] {
+    const nodes = tree.getNodes();
+    const out: number[] = [];
+    const visit = (nodeIndex: number): void => {
+        out.push(nodeIndex);
+        const node = nodes[nodeIndex];
+        if (node.leftChild !== BVTreeNode.invalid &&
+            node.rightChild !== BVTreeNode.invalid) {
+            visit(node.leftChild);
+            visit(node.rightChild);
+        }
+    };
+    visit(0);
+    return out;
+}
+
+describe('OrientedBoxTreeOfTriangles verification', () => {
+    // Moderately scaled vertices: the Gaussian fit squares its inputs.
+    const meshArb = fc.array(wellScaledVector(3, -6, 6),
+        { minLength: 3, maxLength: 12 }).chain(vertices =>
+            fc.tuple(fc.constant(vertices),
+                fc.array(fc.tuple(fc.nat(), fc.nat(), fc.nat()),
+                    { minLength: 1, maxLength: 12 })))
+        .map(([vertices, raw]) => {
+            const n = vertices.length;
+            const triangles: Tri[] = raw.map(([a, b, c]) => {
+                const i0 = a % n;
+                const i1 = (i0 + 1 + (b % (n - 1))) % n;
+                let i2 = c % n;
+                if (i2 === i0 || i2 === i1) {
+                    i2 = (i1 + 1 + (c % (n - 1))) % n;
+                    if (i2 === i0) {
+                        i2 = (i2 + 1) % n;
+                    }
+                }
+                return [i0, i1, i2] as Tri;
+            });
+            return { vertices: vertices, triangles: triangles } as Mesh;
+        });
+
+    const queryArb = fc.tuple(fc.integer({ min: 0, max: 2 }),
+        wellScaledVector(3, -12, 12), unitVector(3), finite(1, 25));
+
+    it('bounds every vertex of a node range with a valid box', () => {
+        check(fc.tuple(meshArb, fc.option(fc.integer({ min: 0, max: 4 }),
+            { nil: undefined })), ([mesh, height]) => {
+            const tree = buildTree(mesh, height);
+            const nodes = tree.getNodes();
+            const partition = tree.getPartition();
+            for (const nodeIndex of reachableNodes(tree)) {
+                const node = nodes[nodeIndex];
+                expectValidBox(node.boundingVolume);
+                for (let i = node.minIndex; i <= node.maxIndex; ++i) {
+                    for (const j of mesh.triangles[partition[i]]) {
+                        expect(boxContains(node.boundingVolume,
+                            mesh.vertices[j], 1e-8)).toBe(true);
+                    }
+                }
+            }
+        }, 50);
+    });
+
+    it('collapses a single-triangle leaf along its smallest extent', () => {
+        // The three vertices of a triangle are coplanar, so the Gaussian fit
+        // produces one near-zero extent and ComputeLeafBoundingVolume zeroes
+        // it. Upstream's last comparison is 'absExtent > minAbsExtent' (a
+        // copy-paste slip from the maximum search in the segments file), so
+        // upstream zeroes the LARGEST extent and the leaf box no longer
+        // contains its triangle; the port uses '<' (upstream bug #343). This
+        // property fails on the upstream comparison.
+        check(meshArb, mesh => {
+            const tree = buildTree(mesh);
+            const nodes = tree.getNodes();
+            const partition = tree.getPartition();
+            for (const nodeIndex of reachableNodes(tree)) {
+                const node = nodes[nodeIndex];
+                if (node.minIndex !== node.maxIndex) {
+                    continue;
+                }
+                const box = node.boundingVolume.box;
+                const tri = mesh.triangles[partition[node.minIndex]];
+                const scale = 1 + Math.max(...tri.map(
+                    j => length(mesh.vertices[j])));
+                // Exactly one extent is zero and it is not the largest.
+                const extents = [...box.extent.values];
+                expect(extents.filter(e => e === 0).length)
+                    .toBeGreaterThanOrEqual(1);
+                const zeroIndex = extents.indexOf(0);
+                expect(zeroIndex).toBeGreaterThanOrEqual(0);
+                // The zeroed extent is a minimum of the three, so the box
+                // keeps its largest extent. (The generated triangles may be
+                // slivers or collinear, so the number of surviving nonzero
+                // extents is not fixed; containment below is the property
+                // that the upstream comparison breaks.)
+                for (const e of extents) {
+                    expect(e).toBeGreaterThanOrEqual(extents[zeroIndex]);
+                }
+                // The collapsed leaf box still contains its triangle.
+                for (const j of tri) {
+                    expect(boxContains(node.boundingVolume,
+                        mesh.vertices[j], 1e-8 * scale)).toBe(true);
+                }
+            }
+        }, 50);
+    });
+
+    it('keeps a large triangle inside its collapsed leaf box', () => {
+        // A deterministic regression for #343: the Gaussian fit orders the
+        // axes by increasing variance, so extent[0] is the near-zero one and
+        // extent[2] is the largest. Upstream's '>' therefore zeroes extent[2]
+        // and the box loses most of the triangle.
+        const mesh: Mesh = {
+            vertices: [v3(0, 0, 0), v3(10, 0, 0), v3(0, 4, 0)],
+            triangles: [[0, 1, 2]]
+        };
+        const tree = buildTree(mesh);
+        const bv = tree.getNodes()[0].boundingVolume;
+        const extents = [...bv.box.extent.values];
+        // Exactly one extent is zero and the other two are substantial.
+        expect(extents.filter(e => e === 0).length).toBe(1);
+        expect(extents.filter(e => e > 1).length).toBe(2);
+        for (const j of mesh.triangles[0]) {
+            expect(boxContains(bv, mesh.vertices[j], 1e-8)).toBe(true);
+        }
+        // The zeroed extent is the one along the triangle normal.
+        const zeroIndex = extents.indexOf(0);
+        const normal = v3(0, 0, 1);
+        expect(Math.abs(dot(bv.box.axis[zeroIndex], normal)))
+            .toBeCloseTo(1, 9);
+    });
+
+    it('execute finds exactly the brute-force intersections', () => {
+        // A triangle soup of independent, generically placed triangles.
+        const soupArb = fc.array(fc.tuple(wellScaledVector(3, -6, 6),
+            wellScaledVector(3, -6, 6), wellScaledVector(3, -6, 6)),
+            { minLength: 1, maxLength: 8 })
+            .map(tris => {
+                const vertices: Vector[] = [];
+                const triangles: Tri[] = [];
+                for (const [a, b, c] of tris) {
+                    const i = vertices.length;
+                    vertices.push(a, b, c);
+                    triangles.push([i, i + 1, i + 2]);
+                }
+                return { vertices: vertices, triangles: triangles } as Mesh;
+            });
+
+        // A configuration is "robust" when no triangle is a sliver, the query
+        // direction is not nearly parallel to any triangle plane, and the
+        // point where the query line meets each triangle plane is not near an
+        // edge of the triangle or near a ray/segment endpoint. Near those
+        // configurations the SAT-based box tests and the triangle tests
+        // legitimately disagree about measure-zero contact (see docs/API.md),
+        // so those draws are skipped rather than asserted.
+        const isRobust = (mesh: Mesh, queryType: number, P: Vector,
+            Q: Vector): boolean => {
+            const dir = (queryType === BVTree.SEGMENT_QUERY
+                ? sub(Q, P) : Q);
+            const dirLength = length(dir);
+            for (const tri of mesh.triangles) {
+                const p0 = mesh.vertices[tri[0]];
+                const p1 = mesh.vertices[tri[1]];
+                const p2 = mesh.vertices[tri[2]];
+                const n = cross(sub(p1, p0), sub(p2, p0));
+                const twiceArea = length(n);
+                if (twiceArea < 1e-2) {
+                    return false;
+                }
+                const denominator = dot(dir, n);
+                if (Math.abs(denominator) < 1e-3 * dirLength * twiceArea) {
+                    return false;
+                }
+                const t0 = dot(sub(p0, P), n) / denominator;
+                const X = add(P, mul(dir, t0));
+                const bary = [
+                    dot(cross(sub(p1, X), sub(p2, X)), n),
+                    dot(cross(sub(p2, X), sub(p0, X)), n),
+                    dot(cross(sub(p0, X), sub(p1, X)), n)
+                ].map(a => a / (twiceArea * twiceArea));
+                for (const a of bary) {
+                    if (Math.abs(a) < 1e-4) {
+                        return false;
+                    }
+                }
+                if (queryType === BVTree.RAY_QUERY
+                    && Math.abs(t0) < 1e-4) {
+                    return false;
+                }
+                if (queryType === BVTree.SEGMENT_QUERY
+                    && (Math.abs(t0) < 1e-4 || Math.abs(t0 - 1) < 1e-4)) {
+                    return false;
+                }
+            }
+            return true;
+        };
+
+        check(fc.tuple(soupArb, queryArb),
+            ([mesh, [queryType, P, D, len]]) => {
+                const Q = (queryType === BVTree.SEGMENT_QUERY
+                    ? add(P, mul(D, len)) : D);
+                if (!isRobust(mesh, queryType, P, Q)) {
+                    return;
+                }
+                const tree = buildTree(mesh);
+                const result = tree.execute(queryType, P, Q);
+                const expected = bruteForceExecute(mesh, queryType, P, Q);
+                // Every truly hit triangle lies inside all of its ancestor
+                // boxes, so the leaf is always reached and the triangle is
+                // retested; the result is therefore exactly the brute-force
+                // set. A node box that had lost part of its range (the
+                // upstream #343 collapse) would drop intersections here.
+                expect(result.intersections.map(h => h.triangleIndex))
+                    .toEqual(expected.map(h => h.triangleIndex));
+                expect(result.nodeIndices).toEqual(
+                    referenceLeaves(tree, queryType, P, Q));
+            }, 100);
     });
 });
