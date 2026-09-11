@@ -16,7 +16,8 @@
   "verified": 27
  },
  "AlignedBox.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 42
  },
  "AlignedBoxBV.h": {
   "status": "ported"
@@ -163,7 +164,8 @@
   "verified": 6
  },
  "Arc2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 42
  },
  "Array2.h": {
   "status": "ported",
@@ -279,10 +281,12 @@
   "verified": 7
  },
  "CanonicalBox.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 42
  },
  "Capsule.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 42
  },
  "ChebyshevRatio.h": {
   "status": "ported",
@@ -297,7 +301,8 @@
   "verified": 39
  },
  "Circle3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 42
  },
  "CircleThroughPointSpecifiedTangentAndRadius.h": {
   "status": "ported",
@@ -453,7 +458,8 @@
   "verified": 16
  },
  "Cylinder3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 42
  },
  "DarbouxFrame.h": {
   "status": "ported",
@@ -801,7 +807,8 @@
   "verified": 36
  },
  "Ellipse3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 42
  },
  "EllipsoidGeodesic.h": {
   "status": "ported",
@@ -881,7 +888,8 @@
   "verified": 17
  },
  "Frustum3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 42
  },
  "Functions.h": {
   "status": "ported",
@@ -923,7 +931,8 @@
   "verified": 1
  },
  "Halfspace.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 42
  },
  "HashCombine.h": {
   "status": "ported",
@@ -969,7 +978,8 @@
   "status": "ported"
  },
  "Hypersphere.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 42
  },
  "IEEEBinary.h": {
   "status": "ported",
@@ -1570,7 +1580,8 @@
   "verified": 41
  },
  "Line.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 42
  },
  "LinearSystem.h": {
   "status": "ported",
@@ -1590,7 +1601,8 @@
   "verified": 15
  },
  "Lozenge3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 42
  },
  "MarchingCubes.h": {
   "status": "ported",
@@ -1768,7 +1780,8 @@
   "verified": 38
  },
  "OrientedBox.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 42
  },
  "OrientedBoxBV.h": {
   "status": "ported"
@@ -1783,10 +1796,12 @@
   "status": "ported"
  },
  "Parallelepiped3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 42
  },
  "Parallelogram2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 42
  },
  "ParametricCurve.h": {
   "status": "ported",
@@ -1835,7 +1850,8 @@
   "verified": 41
  },
  "Polyhedron3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 42
  },
  "PolylineOffset.h": {
   "status": "ported",
@@ -1881,10 +1897,12 @@
   "notes": "C++ reverse-iterator adapter, not applicable in TS"
  },
  "Ray.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 42
  },
  "Rectangle.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 42
  },
  "RectangleManager.h": {
   "status": "ported"
@@ -1964,13 +1982,16 @@
   "verified": 17
  },
  "Sector2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 42
  },
  "Segment.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 42
  },
  "SegmentMesh.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 42
  },
  "SeparatePoints2.h": {
   "status": "ported",
@@ -2097,14 +2118,16 @@
   "verified": 15
  },
  "Torus3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 42
  },
  "Transform.h": {
   "status": "ported",
   "verified": 2
  },
  "Triangle.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 42
  },
  "TriangleKey.h": {
   "status": "ported",

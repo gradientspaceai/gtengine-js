@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { Ellipse3 } from '../src/Ellipse3.js';
 import { Vector, dot, sub, add, mul } from '../src/Vector.js';
 import { cross } from '../src/Vector3.js';
+import { check, compareKeys, expectClose, expectStrictWeakOrder, fc, finite,
+    positive, rotationFrame, vector } from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -137,5 +139,85 @@ describe('Ellipse3 comparisons', () => {
         expect(bigger.greaterThanOrEqual(base)).toBe(true);
         expect(base.greaterThan(base.clone())).toBe(false);
         expect(base.greaterThanOrEqual(base.clone())).toBe(true);
+    });
+});
+
+describe('Ellipse3 verification', () => {
+    // A right-handed orthonormal set {A0, A1, N} with e0 >= e1 > 0, as the
+    // class documentation requires.
+    const ellipse = () => fc.tuple(vector(3, -5, 5), rotationFrame(3),
+        positive(5), positive(5))
+        .map(([c, frame, a, b]) => Ellipse3.fromCenterNormalAxisExtent(c,
+            frame[2], [frame[0], frame[1]],
+            Vector.fromArray([Math.max(a, b), Math.min(a, b)])));
+    const key = (e: Ellipse3) => [...e.center.values, ...e.normal.values,
+        ...e.axis[0].values, ...e.axis[1].values, ...e.extent.values];
+
+    it('the parametric points lie in the plane and satisfy the quadratic',
+        () => {
+            check(fc.tuple(ellipse(), finite(-Math.PI, Math.PI)),
+                ([e, t]) => {
+                    const x = add(e.center,
+                        add(mul(e.extent.get(0) * Math.cos(t), e.axis[0]),
+                            mul(e.extent.get(1) * Math.sin(t), e.axis[1])));
+                    const delta = sub(x, e.center);
+                    expectClose(dot(e.normal, delta), 0, 1e-12, 1e-12);
+                    const y0 = dot(e.axis[0], delta) / e.extent.get(0);
+                    const y1 = dot(e.axis[1], delta) / e.extent.get(1);
+                    expectClose(y0 * y0 + y1 * y1, 1, 1e-9, 1e-9);
+                });
+        });
+
+    it('the comparisons follow the (center, normal, axis, extent) order',
+        () => {
+            check(fc.tuple(ellipse(), ellipse()), ([a, b]) => {
+                const cmp = compareKeys(key(a), key(b));
+                expect(a.lessThan(b)).toBe(cmp < 0);
+                expect(a.greaterThan(b)).toBe(cmp > 0);
+                expect(a.lessThanOrEqual(b)).toBe(cmp <= 0);
+                expect(a.greaterThanOrEqual(b)).toBe(cmp >= 0);
+                expect(a.equals(b)).toBe(cmp === 0);
+            });
+        });
+
+    it('the normal is compared before the axes and extents', () => {
+        const c = Vector.fromArray([0, 0, 0]);
+        const axis = [Vector.fromArray([1, 0, 0]), Vector.fromArray([0, 1, 0])];
+        const a = Ellipse3.fromCenterNormalAxisExtent(c,
+            Vector.fromArray([0, 0, -1]), axis, Vector.fromArray([9, 9]));
+        const b = Ellipse3.fromCenterNormalAxisExtent(c,
+            Vector.fromArray([0, 0, 1]), axis, Vector.fromArray([1, 1]));
+        expect(a.lessThan(b)).toBe(true);
+    });
+
+    it('lessThan is a strict weak ordering', () => {
+        check(fc.array(ellipse(), { minLength: 4, maxLength: 5 }), es => {
+            expectStrictWeakOrder(es, (x, y) => x.lessThan(y));
+        }, 30);
+    });
+
+    it('equals is element equality, so a NaN axis breaks self-equality', () => {
+        const e = Ellipse3.fromCenterNormalAxisExtent(
+            Vector.fromArray([0, 0, 0]), Vector.fromArray([0, 0, 1]),
+            [Vector.fromArray([NaN, 0, 0]), Vector.fromArray([0, 1, 0])],
+            Vector.fromArray([1, 1]));
+        expect(e.equals(e)).toBe(false);
+        expect(e.lessThan(e)).toBe(false);
+        expect(e.lessThanOrEqual(e)).toBe(true);
+    });
+
+    it('the factory and clone copy every vector', () => {
+        check(ellipse(), e => {
+            const axis = [e.axis[0].clone(), e.axis[1].clone()];
+            const copy = Ellipse3.fromCenterNormalAxisExtent(e.center,
+                e.normal, axis, e.extent);
+            const cloned = copy.clone();
+            axis[0].set(0, 999);
+            copy.axis[1].set(1, 888);
+            copy.extent.set(0, 777);
+            expect(copy.axis[0].get(0)).not.toBe(999);
+            expect(cloned.axis[1].get(1)).not.toBe(888);
+            expect(cloned.extent.get(0)).not.toBe(777);
+        }, 50);
     });
 });

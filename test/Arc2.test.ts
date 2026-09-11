@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { Arc2 } from '../src/Arc2.js';
-import { Vector } from '../src/Vector.js';
+import { Vector, sub, length } from '../src/Vector.js';
+import { check, compareKeys, expectStrictWeakOrder, fc, finite, positive,
+    scaled, vector } from './helpers/arbitraries.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -162,5 +164,102 @@ describe('Arc2 comparisons', () => {
         expect(other.greaterThanOrEqual(base)).toBe(true);
         expect(base.greaterThanOrEqual(base.clone())).toBe(true);
         expect(base.greaterThan(base.clone())).toBe(false);
+    });
+});
+
+describe('Arc2 verification', () => {
+    const onCircle = (c: Vector, r: number, t: number) =>
+        Vector.fromArray([c.get(0) + r * Math.cos(t),
+            c.get(1) + r * Math.sin(t)]);
+    const key = (a: Arc2) => [...a.center.values, a.radius,
+        ...a.end[0].values, ...a.end[1].values];
+
+    it('containsOnCircle accepts exactly the counterclockwise arc E0 -> E1',
+        () => {
+            // The chord test dotPerp(P-E0, E1-E0) >= 0 selects the points of
+            // the circle on the counterclockwise arc from E0 to E1, for any
+            // subtended angle (including angles >= pi).
+            // The angles are drawn from a uniform grid: fc.double samples
+            // the bit patterns of its range, so tiny magnitudes dominate and
+            // the boundary-band precondition below would reject most draws.
+            check(fc.tuple(vector(2, -5, 5), positive(5, 0.5),
+                scaled(-Math.PI, Math.PI), scaled(0.05, 2 * Math.PI - 0.05),
+                scaled(0, 2 * Math.PI)),
+                ([c, r, a0, delta, s]) => {
+                    // Stay away from the two endpoints where the sign is a
+                    // rounding-error coin flip.
+                    fc.pre(s > 1e-3 && Math.abs(s - delta) > 1e-3
+                        && s < 2 * Math.PI - 1e-3);
+                    const arc = Arc2.fromCenterRadiusEnds(c, r,
+                        onCircle(c, r, a0), onCircle(c, r, a0 + delta));
+                    const p = onCircle(c, r, a0 + s);
+                    expect(arc.containsOnCircle(p)).toBe(s < delta);
+                });
+        });
+
+    it('contains(P, eps) is the circle test and then the arc test', () => {
+        check(fc.tuple(vector(2, -5, 5), positive(5, 0.5),
+            finite(0.05, 2 * Math.PI - 0.05), finite(0, 2 * Math.PI),
+            finite(0.5, 2), positive(0.5, 0.01)),
+            ([c, r, delta, s, scale, eps]) => {
+                const arc = Arc2.fromCenterRadiusEnds(c, r, onCircle(c, r, 0),
+                    onCircle(c, r, delta));
+                // A point at radius r*scale, generally off the circle.
+                const p = onCircle(c, r * scale, s);
+                const off = Math.abs(length(sub(p, c)) - r);
+                expect(arc.contains(p, eps))
+                    .toBe(off <= eps && arc.containsOnCircle(p));
+            });
+    });
+
+    it('a negative tolerance rejects every point (upstream quirk #155)', () => {
+        // The upstream comment promises a negative epsilon behaves like zero,
+        // but ||P-C| - r| <= epsilon is false for every P when epsilon < 0.
+        check(fc.tuple(finite(0, 2 * Math.PI), positive(1, 1e-6)),
+            ([t, eps]) => {
+                const c = Vector.fromArray([0, 0]);
+                const arc = Arc2.fromCenterRadiusEnds(c, 1,
+                    Vector.fromArray([1, 0]), Vector.fromArray([0, 1]));
+                const p = onCircle(c, 1, t);
+                expect(arc.contains(p, -eps)).toBe(false);
+            });
+    });
+
+    it('the comparisons follow the (center, radius, end0, end1) order', () => {
+        const arc = fc.tuple(vector(2, -2, 2), positive(3),
+            vector(2, -2, 2), vector(2, -2, 2))
+            .map(([c, r, e0, e1]) => Arc2.fromCenterRadiusEnds(c, r, e0, e1));
+        check(fc.tuple(arc, arc), ([a, b]) => {
+            const cmp = compareKeys(key(a), key(b));
+            expect(a.lessThan(b)).toBe(cmp < 0);
+            expect(a.greaterThan(b)).toBe(cmp > 0);
+            expect(a.lessThanOrEqual(b)).toBe(cmp <= 0);
+            expect(a.greaterThanOrEqual(b)).toBe(cmp >= 0);
+            expect(a.equals(b)).toBe(cmp === 0);
+        });
+        check(fc.array(arc, { minLength: 4, maxLength: 5 }), arcs => {
+            expectStrictWeakOrder(arcs, (x, y) => x.lessThan(y));
+        }, 30);
+    });
+
+    it('equals is element equality, so NaN members break self-equality', () => {
+        const arc = Arc2.fromCenterRadiusEnds(Vector.fromArray([0, 0]), 1,
+            Vector.fromArray([NaN, 0]), Vector.fromArray([0, 1]));
+        expect(arc.equals(arc)).toBe(false);
+        expect(arc.lessThan(arc)).toBe(false);
+        expect(arc.lessThanOrEqual(arc)).toBe(true);
+    });
+
+    it('the factory and clone are independent of their inputs', () => {
+        check(fc.tuple(vector(2), vector(2), vector(2)), ([c, e0, e1]) => {
+            const arc = Arc2.fromCenterRadiusEnds(c, 1, e0, e1);
+            const cloned = arc.clone();
+            c.set(0, 999);
+            e0.set(1, 888);
+            arc.end[1].set(0, 777);
+            expect(arc.center.get(0)).not.toBe(999);
+            expect(arc.end[0].get(1)).not.toBe(888);
+            expect(cloned.end[1].get(0)).not.toBe(777);
+        });
     });
 });

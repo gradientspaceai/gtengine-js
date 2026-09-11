@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { AlignedBox } from '../src/AlignedBox.js';
 import { Vector } from '../src/Vector.js';
+import { alignedBox, check, compareKeys, expectClose, expectStrictWeakOrder, fc, vector }
+    from './helpers/arbitraries.js';
 
 describe('AlignedBox construction', () => {
     it('the default constructor sets min to -1 and max to +1', () => {
@@ -119,5 +121,84 @@ describe('AlignedBox comparisons', () => {
         expect(c.greaterThan(a)).toBe(true);
         expect(c.greaterThanOrEqual(a)).toBe(true);
         expect(a.lessThanOrEqual(c)).toBe(true);
+    });
+});
+
+describe('AlignedBox verification', () => {
+    const key = (b: AlignedBox) => [...b.min.values, ...b.max.values];
+
+    it('getVertices emits 2^N corners in the documented bit order', () => {
+        for (const n of [1, 2, 3, 4]) {
+            check(alignedBox(n), box => {
+                const vertex = box.getVertices();
+                expect(vertex.length).toBe(1 << n);
+                for (let i = 0; i < vertex.length; ++i) {
+                    for (let d = 0; d < n; ++d) {
+                        // vertex[i][d] = max[d] when bit d of i is set.
+                        const expected = ((i >> d) & 1) === 1
+                            ? box.max.get(d) : box.min.get(d);
+                        expect(vertex[i].get(d)).toBe(expected);
+                    }
+                }
+            }, 50);
+        }
+    });
+
+    it('getCenteredForm round trips to min and max', () => {
+        check(alignedBox(3), box => {
+            const { center, extent } = box.getCenteredForm();
+            for (let i = 0; i < 3; ++i) {
+                expect(extent.get(i)).toBeGreaterThanOrEqual(0);
+                expectClose(center.get(i) - extent.get(i), box.min.get(i));
+                expectClose(center.get(i) + extent.get(i), box.max.get(i));
+            }
+        });
+    });
+
+    it('the comparisons follow the lexicographic (min, max) member order',
+        () => {
+            check(fc.tuple(alignedBox(3, -2, 2), alignedBox(3, -2, 2)),
+                ([a, b]) => {
+                    const c = compareKeys(key(a), key(b));
+                    expect(a.lessThan(b)).toBe(c < 0);
+                    expect(a.greaterThan(b)).toBe(c > 0);
+                    expect(a.lessThanOrEqual(b)).toBe(c <= 0);
+                    expect(a.greaterThanOrEqual(b)).toBe(c >= 0);
+                    expect(a.equals(b)).toBe(c === 0);
+                    expect(a.notEquals(b)).toBe(c !== 0);
+                });
+        });
+
+    it('lessThan is a strict weak ordering', () => {
+        check(fc.array(alignedBox(2, -1, 1), { minLength: 4, maxLength: 6 }),
+            boxes => {
+                expectStrictWeakOrder(boxes, (x, y) => x.lessThan(y));
+            }, 50);
+    });
+
+    it('equals is element equality, so a NaN box does not equal itself', () => {
+        // Upstream operator== is 'min == box.min && max == box.max', which is
+        // Vector's element-by-element ==; NaN != NaN.
+        const box = AlignedBox.fromMinMax(Vector.fromArray([NaN, 0]),
+            Vector.fromArray([1, 1]));
+        expect(box.equals(box)).toBe(false);
+        expect(box.notEquals(box)).toBe(true);
+        // The ordering operators, in contrast, are lexicographic and treat
+        // the NaN as equivalent (matching the C++ operators built on '<').
+        expect(box.lessThan(box)).toBe(false);
+        expect(box.lessThanOrEqual(box)).toBe(true);
+    });
+
+    it('fromMinMax and clone are independent of their inputs', () => {
+        check(fc.tuple(vector(3), vector(3)), ([lo, hi]) => {
+            const box = AlignedBox.fromMinMax(lo, hi);
+            const copy = box.clone();
+            lo.set(0, 12345);
+            hi.set(2, -12345);
+            box.min.set(1, 999);
+            expect(box.min.get(0)).not.toBe(12345);
+            expect(box.max.get(2)).not.toBe(-12345);
+            expect(copy.min.get(1)).not.toBe(999);
+        });
     });
 });

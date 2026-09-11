@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { Rectangle } from '../src/Rectangle.js';
 import { Vector, dot, sub } from '../src/Vector.js';
+import { check, compareKeys, expectClose, expectStrictWeakOrder, fc, positive,
+    rotationFrame, vector } from './helpers/arbitraries.js';
 
 // Numeric equality that treats -0 and +0 as equal, as the C++ comparisons do.
 function expectVector(v: Vector, expected: readonly number[]): void {
@@ -130,5 +132,89 @@ describe('Rectangle comparisons', () => {
         expect(a.greaterThanOrEqual(sameAsA)).toBe(true);
         expect(a.greaterThan(sameAsA)).toBe(false);
         expect(d.greaterThan(a)).toBe(true);
+    });
+});
+
+describe('Rectangle verification', () => {
+    const rectangle = (n: number) =>
+        fc.tuple(vector(n), rotationFrame(n === 2 ? 2 : 3),
+            fc.array(positive(5), { minLength: 2, maxLength: 2 }))
+            .map(([c, frame, ext]) => Rectangle.fromCenterAxisExtent(c,
+                [frame[0], frame[1]], Vector.fromArray(ext)));
+    const key = (r: Rectangle) => [...r.center.values,
+        ...r.axis.flatMap(a => [...a.values]), ...r.extent.values];
+
+    it('getVertices emits the four corners in bit-pattern order', () => {
+        // vertex[i] = C + sign[0]*e0*A0 + sign[1]*e1*A1 with sign[d] = 2b[d]-1
+        // and i = b[1]b[0]. NOTE: the boundary traversal order is 0,1,3,2;
+        // several consumers (V22, V30) rely on this bit ordering.
+        for (const n of [2, 3]) {
+            check(rectangle(n), rect => {
+                const vertex = rect.getVertices();
+                expect(vertex.length).toBe(4);
+                for (let i = 0; i < 4; ++i) {
+                    const delta = sub(vertex[i], rect.center);
+                    for (let d = 0; d < 2; ++d) {
+                        const sign = ((i >> d) & 1) === 1 ? 1 : -1;
+                        expectClose(dot(rect.axis[d], delta),
+                            sign * rect.extent.get(d), 1e-12, 1e-12);
+                    }
+                }
+            }, 50);
+        }
+    });
+
+    it('the diagonals of the vertex quad share the center', () => {
+        check(rectangle(3), rect => {
+            for (const [i, j] of [[0, 3], [1, 2]]) {
+                for (let d = 0; d < 3; ++d) {
+                    expectClose(0.5 * (rect.getVertices()[i].get(d)
+                        + rect.getVertices()[j].get(d)),
+                        rect.center.get(d), 1e-12, 1e-12);
+                }
+            }
+        }, 50);
+    });
+
+    it('the comparisons follow the (center, axis, extent) member order',
+        () => {
+            check(fc.tuple(rectangle(3), rectangle(3)), ([a, b]) => {
+                const c = compareKeys(key(a), key(b));
+                expect(a.lessThan(b)).toBe(c < 0);
+                expect(a.greaterThan(b)).toBe(c > 0);
+                expect(a.lessThanOrEqual(b)).toBe(c <= 0);
+                expect(a.greaterThanOrEqual(b)).toBe(c >= 0);
+                expect(a.equals(b)).toBe(c === 0);
+            });
+        });
+
+    it('lessThan is a strict weak ordering', () => {
+        check(fc.array(rectangle(2), { minLength: 4, maxLength: 5 }), rs => {
+            expectStrictWeakOrder(rs, (x, y) => x.lessThan(y));
+        }, 30);
+    });
+
+    it('equals is element equality, so a NaN axis breaks self-equality', () => {
+        const rect = Rectangle.fromCenterAxisExtent(Vector.fromArray([0, 0]),
+            [Vector.fromArray([NaN, 0]), Vector.fromArray([0, 1])],
+            Vector.fromArray([1, 1]));
+        expect(rect.equals(rect)).toBe(false);
+        expect(rect.lessThan(rect)).toBe(false);
+        expect(rect.lessThanOrEqual(rect)).toBe(true);
+    });
+
+    it('fromCenterAxisExtent and clone copy every vector', () => {
+        check(rectangle(3), rect => {
+            const axis = rect.axis.map(a => a.clone());
+            const copy = Rectangle.fromCenterAxisExtent(rect.center, axis,
+                rect.extent);
+            const cloned = copy.clone();
+            axis[0].set(0, 999);
+            copy.axis[1].set(1, 888);
+            copy.extent.set(0, 777);
+            expect(copy.axis[0].get(0)).not.toBe(999);
+            expect(cloned.axis[1].get(1)).not.toBe(888);
+            expect(cloned.extent.get(0)).not.toBe(777);
+        }, 50);
     });
 });

@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { Sector2 } from '../src/Sector2.js';
 import { GTE_C_PI } from '../src/Constants.js';
-import { Vector } from '../src/Vector.js';
+import { Vector, add, mul } from '../src/Vector.js';
+import { check, compareKeys, expectStrictWeakOrder, fc, finite, positive,
+    unitVector, vector } from './helpers/arbitraries.js';
 
 function v2(x: number, y: number): Vector {
     return Vector.fromArray([x, y]);
@@ -172,5 +174,99 @@ describe('Sector2 comparisons', () => {
         expect(base.greaterThanOrEqual(smaller)).toBe(true);
         expect(base.greaterThan(base.clone())).toBe(false);
         expect(base.greaterThanOrEqual(base.clone())).toBe(true);
+    });
+});
+
+describe('Sector2 verification', () => {
+    const sector = () => fc.tuple(vector(2, -5, 5), positive(5, 0.5),
+        unitVector(2), finite(0.05, Math.PI - 0.05))
+        .map(([v, r, d, a]) =>
+            Sector2.fromVertexRadiusDirectionAngle(v, r, d, a));
+    const key = (s: Sector2) =>
+        [...s.vertex.values, s.radius, ...s.direction.values, s.angle];
+
+    it('contains agrees with the |X-C| <= R and angle <= A criterion', () => {
+        check(fc.tuple(sector(), finite(-Math.PI, Math.PI), positive(8)),
+            ([s, offset, distance]) => {
+                // A point at polar coordinates (distance, offset) about the
+                // sector direction. Skip points within a small band of the
+                // two boundaries, where the sign is decided by rounding.
+                fc.pre(Math.abs(distance - s.radius) > 1e-6
+                    && Math.abs(Math.abs(offset) - s.angle) > 1e-6);
+                const c = Math.cos(offset), sn = Math.sin(offset);
+                const dir = Vector.fromArray([
+                    c * s.direction.get(0) - sn * s.direction.get(1),
+                    sn * s.direction.get(0) + c * s.direction.get(1)]);
+                const p = add(s.vertex, mul(distance, dir));
+                expect(s.contains(p))
+                    .toBe(distance <= s.radius && Math.abs(offset) <= s.angle);
+            });
+    });
+
+    it('the vertex is contained by every sector', () => {
+        // length 0 <= radius and Dot(D, 0) = 0 >= 0 * cos(angle).
+        check(sector(), s => {
+            expect(s.contains(s.vertex.clone())).toBe(true);
+        });
+    });
+
+    it('setAngle keeps angle, cos and sin consistent', () => {
+        check(finite(-10, 10), a => {
+            const s = new Sector2();
+            s.setAngle(a);
+            expect(s.angle).toBe(a);
+            expect(s.cosAngle).toBe(Math.cos(a));
+            expect(s.sinAngle).toBe(Math.sin(a));
+        });
+    });
+
+    it('the comparisons follow the (vertex, radius, direction, angle) order',
+        () => {
+            check(fc.tuple(sector(), sector()), ([a, b]) => {
+                const cmp = compareKeys(key(a), key(b));
+                expect(a.lessThan(b)).toBe(cmp < 0);
+                expect(a.greaterThan(b)).toBe(cmp > 0);
+                expect(a.lessThanOrEqual(b)).toBe(cmp <= 0);
+                expect(a.greaterThanOrEqual(b)).toBe(cmp >= 0);
+                expect(a.equals(b)).toBe(cmp === 0);
+            });
+        });
+
+    it('the comparisons ignore the derived cos/sin members', () => {
+        check(sector(), s => {
+            const other = s.clone();
+            other.cosAngle = 12345;
+            other.sinAngle = -12345;
+            expect(s.equals(other)).toBe(true);
+            expect(s.lessThan(other)).toBe(false);
+            expect(other.lessThan(s)).toBe(false);
+        });
+    });
+
+    it('lessThan is a strict weak ordering', () => {
+        check(fc.array(sector(), { minLength: 4, maxLength: 5 }), ss => {
+            expectStrictWeakOrder(ss, (x, y) => x.lessThan(y));
+        }, 30);
+    });
+
+    it('equals is element equality, so NaN members break self-equality', () => {
+        const s = Sector2.fromVertexRadiusDirectionAngle(
+            Vector.fromArray([NaN, 0]), 1, Vector.fromArray([1, 0]), 1);
+        expect(s.equals(s)).toBe(false);
+        expect(s.lessThan(s)).toBe(false);
+        expect(s.lessThanOrEqual(s)).toBe(true);
+    });
+
+    it('the factory and clone are independent of their inputs', () => {
+        check(fc.tuple(vector(2), unitVector(2)), ([v, d]) => {
+            const s = Sector2.fromVertexRadiusDirectionAngle(v, 1, d, 1);
+            const cloned = s.clone();
+            v.set(0, 999);
+            d.set(1, 888);
+            s.vertex.set(1, 777);
+            expect(s.vertex.get(0)).not.toBe(999);
+            expect(s.direction.get(1)).not.toBe(888);
+            expect(cloned.vertex.get(1)).not.toBe(777);
+        });
     });
 });

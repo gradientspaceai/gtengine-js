@@ -17,6 +17,15 @@
 import { logAssert } from './Logger.js';
 import { Vector } from './Vector.js';
 
+// Element-by-element equality of the three-element vertex arrays (the port
+// of std::array's operator==, which applies Vector's operator== to each
+// element). This is NOT 'compareVertices(...) === 0': the lexicographic
+// compare treats a NaN component as equivalent to itself, whereas '==' does
+// not.
+function equalVertices(v0: readonly Vector[], v1: readonly Vector[]): boolean {
+    return v0[0].equals(v1[0]) && v0[1].equals(v1[1]) && v0[2].equals(v1[2]);
+}
+
 // Lexicographic comparison of the three-element vertex arrays (the port of
 // std::array's relational operators). Returns -1, 0 or +1.
 function compareVertices(v0: readonly Vector[], v1: readonly Vector[]): number {
@@ -70,7 +79,7 @@ export class Triangle {
 
     // Comparisons to support sorted containers.
     equals(triangle: Triangle): boolean {
-        return compareVertices(this.v, triangle.v) === 0;
+        return equalVertices(this.v, triangle.v);
     }
 
     notEquals(triangle: Triangle): boolean {

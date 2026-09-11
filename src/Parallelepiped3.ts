@@ -21,6 +21,14 @@ import { logAssert } from './Logger.js';
 import { Vector, add, sub } from './Vector.js';
 import { dotCross } from './Vector3.js';
 
+// Element-by-element equality of the three-element axis arrays (the port of
+// std::array's operator==, which applies Vector's operator== to each
+// element). This is NOT 'compareAxes(...) === 0': the lexicographic compare
+// treats a NaN component as equivalent to itself, whereas '==' does not.
+function equalAxes(a0: readonly Vector[], a1: readonly Vector[]): boolean {
+    return a0[0].equals(a1[0]) && a0[1].equals(a1[1]) && a0[2].equals(a1[2]);
+}
+
 // Lexicographic comparison of the three-element axis arrays (the port of
 // std::array's relational operators). Returns -1, 0 or +1.
 function compareAxes(a0: readonly Vector[], a1: readonly Vector[]): number {
@@ -100,7 +108,7 @@ export class Parallelepiped3 {
     // Comparisons to support sorted containers.
     equals(other: Parallelepiped3): boolean {
         return this.center.equals(other.center)
-            && compareAxes(this.axis, other.axis) === 0;
+            && equalAxes(this.axis, other.axis);
     }
 
     notEquals(other: Parallelepiped3): boolean {
