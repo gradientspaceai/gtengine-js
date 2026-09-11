@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { PolynomialCurve } from '../src/PolynomialCurve.js';
 import { Polynomial1 } from '../src/Polynomial1.js';
 import { Vector, length as vectorLength, sub, dot } from '../src/Vector.js';
+import { check, fc } from './helpers/arbitraries.js';
 
 function makeRandom(seed: number): () => number {
     let state = seed >>> 0;
@@ -342,5 +343,155 @@ describe('PolynomialCurve', () => {
         const q = curve.getPosition(0.5);
         expect(q.values[0]).toBeCloseTo(1.5, 14);
         expect(q.values[1]).toBeCloseTo(1.5, 14);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V44): property-based comparison against upstream
+// PolynomialCurve.h.
+// ---------------------------------------------------------------------------
+
+// Small integer coefficient lists so the jet comparison against the direct
+// derivative formula is exact in binary64.
+const curveCoefficients = fc.array(fc.integer({ min: -6, max: 6 }),
+    { minLength: 1, maxLength: 5 });
+
+const curveComponents = (n: number) =>
+    fc.array(curveCoefficients, { minLength: n, maxLength: n });
+
+describe('PolynomialCurve verification', () => {
+    it('stores the components and their first three derivatives', () => {
+        check(fc.tuple(fc.integer({ min: 1, max: 4 }), fc.integer({ min: -4, max: 4 }))
+            .chain(([n, t]) => fc.tuple(fc.constant(n), fc.constant(t),
+                curveComponents(n))),
+            ([n, t, lists]) => {
+                const curve = new PolynomialCurve(n, 0, 1,
+                    lists.map(c => poly(...c)));
+                for (let i = 0; i < n; ++i) {
+                    // Upstream SetPolynomial stores the polynomial and the
+                    // first-, second- and third-order derivatives.
+                    expect(curve.getPolynomial(i).evaluate(t))
+                        .toBe(evalDerivative(lists[i], t, 0));
+                    expect(curve.getDer1Polynomial(i).evaluate(t))
+                        .toBe(evalDerivative(lists[i], t, 1));
+                    expect(curve.getDer2Polynomial(i).evaluate(t))
+                        .toBe(evalDerivative(lists[i], t, 2));
+                    expect(curve.getDer3Polynomial(i).evaluate(t))
+                        .toBe(evalDerivative(lists[i], t, 3));
+                }
+            }, 100);
+    });
+
+    it('fills exactly the jet entries the order asks for', () => {
+        check(fc.tuple(fc.integer({ min: 1, max: 4 }), fc.integer({ min: -4, max: 4 }),
+            fc.integer({ min: 0, max: 3 }))
+            .chain(([n, t, order]) => fc.tuple(fc.constant(n), fc.constant(t),
+                fc.constant(order), curveComponents(n))),
+            ([n, t, order, lists]) => {
+                const curve = new PolynomialCurve(n, 0, 1,
+                    lists.map(c => poly(...c)));
+                const jet = curve.createJet();
+                // Poison every slot so an unwritten entry is detectable.
+                for (const v of jet) { v.values.fill(Number.NaN); }
+                curve.evaluate(t, order, jet);
+                for (let d = 0; d <= 3; ++d) {
+                    for (let i = 0; i < n; ++i) {
+                        if (d <= order) {
+                            expect(jet[d].values[i])
+                                .toBe(evalDerivative(lists[i], t, d));
+                        } else {
+                            // Upstream never touches the higher-order slots.
+                            expect(Number.isNaN(jet[d].values[i])).toBe(true);
+                        }
+                    }
+                }
+            }, 100);
+    });
+
+    it('copies the polynomial in, so a later mutation of the argument is not seen', () => {
+        check(fc.tuple(curveCoefficients, fc.integer({ min: -4, max: 4 })),
+            ([c, t]) => {
+                const source = poly(...c);
+                const curve = new PolynomialCurve(1, 0, 1);
+                curve.setPolynomial(0, source);
+                const before = curve.getPolynomial(0).evaluate(t);
+                // C++ stores a copy (mPolynomial[i] = poly); the port clones.
+                source.set(0, source.get(0) + 100);
+                expect(curve.getPolynomial(0).evaluate(t)).toBe(before);
+            });
+    });
+
+    it('setPolynomial replaces the component and all three derivatives', () => {
+        check(fc.tuple(curveCoefficients, curveCoefficients,
+            fc.integer({ min: -4, max: 4 })),
+            ([first, second, t]) => {
+                const curve = new PolynomialCurve(2, 0, 1,
+                    [poly(...first), poly(...first)]);
+                curve.setPolynomial(1, poly(...second));
+                // Component 0 is untouched; component 1 and its derivatives
+                // all follow the new polynomial.
+                for (let d = 0; d <= 3; ++d) {
+                    const getter = [
+                        (i: number) => curve.getPolynomial(i),
+                        (i: number) => curve.getDer1Polynomial(i),
+                        (i: number) => curve.getDer2Polynomial(i),
+                        (i: number) => curve.getDer3Polynomial(i)][d];
+                    expect(getter(0).evaluate(t)).toBe(evalDerivative(first, t, d));
+                    expect(getter(1).evaluate(t)).toBe(evalDerivative(second, t, d));
+                }
+            }, 100);
+    });
+
+    it('rejects an invalid dimension, component count or index', () => {
+        check(fc.tuple(fc.integer({ min: 1, max: 4 }), fc.integer({ min: -3, max: 0 })),
+            ([n, bad]) => {
+                expect(() => new PolynomialCurve(bad, 0, 1)).toThrow();
+                const curve = new PolynomialCurve(n, 0, 1);
+                expect(() => curve.setPolynomial(-1, poly(1))).toThrow();
+                expect(() => curve.setPolynomial(n, poly(1))).toThrow();
+                expect(() => new PolynomialCurve(n, 0, 1,
+                    new Array(n + 1).fill(poly(1)))).toThrow();
+            }, 50);
+    });
+
+    it('default construction gives the all-zero curve and a constructed flag', () => {
+        check(fc.tuple(fc.integer({ min: 1, max: 4 }), fc.integer({ min: -4, max: 4 })),
+            ([n, t]) => {
+                const curve = new PolynomialCurve(n, 0, 1);
+                // Upstream's default constructor leaves mConstructed false
+                // (it never sets it); the port sets it, per the port notes.
+                expect(curve.isConstructed()).toBe(true);
+                const jet = jetOf(curve, t, 3);
+                for (let d = 0; d <= 3; ++d) {
+                    for (let i = 0; i < n; ++i) {
+                        expect(jet[d].values[i] === 0).toBe(true);
+                    }
+                }
+                for (let i = 0; i < n; ++i) {
+                    expect(curve.getPolynomial(i).getDegree()).toBe(0);
+                    expect(curve.getPolynomial(i).get(0) === 0).toBe(true);
+                }
+            });
+    });
+
+    it('is linear in the component polynomials', () => {
+        // X(t) for the sum of two coefficient lists is the sum of the two
+        // curves' positions: a cheap end-to-end check of both SetPolynomial
+        // and Evaluate.
+        check(fc.tuple(curveCoefficients, curveCoefficients,
+            fc.integer({ min: -4, max: 4 })),
+            ([a, b, t]) => {
+                const pa = poly(...a);
+                const pb = poly(...b);
+                const ca = new PolynomialCurve(1, 0, 1, [pa]);
+                const cb = new PolynomialCurve(1, 0, 1, [pb]);
+                const cs = new PolynomialCurve(1, 0, 1, [pa.add(pb)]);
+                for (let d = 0; d <= 3; ++d) {
+                    const ja = jetOf(ca, t, 3)[d].values[0];
+                    const jb = jetOf(cb, t, 3)[d].values[0];
+                    const js = jetOf(cs, t, 3)[d].values[0];
+                    expect(js).toBe(ja + jb);
+                }
+            }, 100);
     });
 });
