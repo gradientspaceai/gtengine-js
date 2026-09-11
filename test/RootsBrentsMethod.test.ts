@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
+import { RootsBisection } from '../src/RootsBisection.js';
 import { RootsBrentsMethod } from '../src/RootsBrentsMethod.js';
+import {
+    check, expectClose, fc, positive, wellScaled
+} from './helpers/arbitraries.js';
 
 // Zero tolerances: iterate until F(t) is exactly zero or the bracket
 // collapses to consecutive floating-point numbers.
@@ -113,5 +117,141 @@ describe('RootsBrentsMethod', () => {
         const r = RootsBrentsMethod.find(F, 0, 1, 1, 0, 0, 0, 0);
         expect(r.found).toBe(true);
         expect(r.root).toBe(1 / 3);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V44): property-based comparison against upstream
+// RootsBrentsMethod.h.
+// ---------------------------------------------------------------------------
+
+// A strictly increasing function whose only real root is r.
+function monotoneF(r: number, c: number): (t: number) => number {
+    return (t: number) => {
+        const d = t - r;
+        return d * d * d + c * d;
+    };
+}
+
+const brentBracket = fc.tuple(wellScaled(-5, 5), positive(4, 0.5),
+    positive(3, 0.1), positive(3, 0.1));
+
+describe('RootsBrentsMethod verification', () => {
+    it('rejects every invalid parameter combination', () => {
+        check(fc.tuple(wellScaled(-5, 5), positive(3, 0.1), positive(1, 1e-3)),
+            ([r, width, eps]) => {
+                const F = monotoneF(r, 1);
+                const t0 = r - width, t1 = r + width;
+                const ok = (a: number, b: number, mi: number, nf: number,
+                    pf: number, st: number, ct: number) =>
+                    RootsBrentsMethod.find(F, a, b, mi, nf, pf, st, ct).found;
+                // t1 <= t0
+                expect(ok(t1, t0, 64, 0, 0, 0, 0)).toBe(false);
+                expect(ok(t0, t0, 64, 0, 0, 0, 0)).toBe(false);
+                // maxIterations == 0
+                expect(ok(t0, t1, 0, 0, 0, 0, 0)).toBe(false);
+                // negFTolerance > 0, posFTolerance < 0
+                expect(ok(t0, t1, 64, eps, 0, 0, 0)).toBe(false);
+                expect(ok(t0, t1, 64, 0, -eps, 0, 0)).toBe(false);
+                // stepTTolerance < 0, convTTolerance < 0
+                expect(ok(t0, t1, 64, 0, 0, -eps, 0)).toBe(false);
+                expect(ok(t0, t1, 64, 0, 0, 0, -eps)).toBe(false);
+            });
+    });
+
+    it('reports failure when the endpoint values have the same sign', () => {
+        check(fc.tuple(wellScaled(-5, 5), positive(4, 0.5), positive(3, 0.1),
+            positive(3, 0.1)),
+            ([r, c, gap, width]) => {
+                const F = monotoneF(r, c);
+                const out = RootsBrentsMethod.find(F, r + gap, r + gap + width,
+                    64, 0, 0, 0, 0);
+                expect(out.found).toBe(false);
+            });
+    });
+
+    it('accepts an endpoint that already satisfies the function tolerance', () => {
+        check(fc.tuple(wellScaled(-5, 5), positive(4, 0.5), positive(3, 0.1)),
+            ([r, c, width]) => {
+                const F = monotoneF(r, c);
+                const low = RootsBrentsMethod.find(F, r, r + width, 64, 0, 0, 0, 0);
+                expect(low.found).toBe(true);
+                expect(low.root === r).toBe(true);
+                const high = RootsBrentsMethod.find(F, r - width, r, 64, 0, 0, 0, 0);
+                expect(high.found).toBe(true);
+                // The low endpoint is tested first, so a root at the high
+                // endpoint is only reported after F(t0) fails the tolerance.
+                expect(high.root === r).toBe(true);
+            });
+    });
+
+    it('converges to the root with zero tolerances', () => {
+        check(brentBracket, ([r, c, below, above]) => {
+            const F = monotoneF(r, c);
+            const out = RootsBrentsMethod.find(F, r - below, r + above, 500,
+                0, 0, 0, 0);
+            expect(out.found).toBe(true);
+            expectClose(out.root, r, 1e-13, 1e-13);
+        });
+    });
+
+    it('agrees with RootsBisection on the same bracket', () => {
+        check(brentBracket, ([r, c, below, above]) => {
+            const F = monotoneF(r, c);
+            const t0 = r - below, t1 = r + above;
+            const brent = RootsBrentsMethod.find(F, t0, t1, 500, 0, 0, 0, 0);
+            const bisect = RootsBisection.find(F, t0, t1, 4096);
+            expect(brent.found).toBe(true);
+            expect(bisect.iterations).toBeGreaterThanOrEqual(1);
+            // Two independent algorithms on the same bracket must agree to
+            // the resolution of the doubles near the root.
+            expectClose(brent.root, bisect.root, 1e-13, 1e-13);
+        });
+    });
+
+    it('honors the function tolerance band', () => {
+        check(fc.tuple(brentBracket, positive(1e-2, 1e-6)),
+            ([[r, c, below, above], tol]) => {
+                const F = monotoneF(r, c);
+                const out = RootsBrentsMethod.find(F, r - below, r + above, 500,
+                    -tol, tol, 0, 0);
+                expect(out.found).toBe(true);
+                const f = F(out.root);
+                // Either the accepted estimate is inside the band, or the
+                // bracket collapsed to consecutive doubles / the convergence
+                // tolerance, both of which give a root accurate to an ulp.
+                const inBand = -tol <= f && f <= tol;
+                expect(inBand || Math.abs(out.root - r)
+                    <= 1e-13 * (1 + Math.abs(r))).toBe(true);
+            });
+    });
+
+    it('honors the subinterval convergence tolerance', () => {
+        check(fc.tuple(brentBracket, positive(1e-2, 1e-6)),
+            ([[r, c, below, above], convT]) => {
+                const F = monotoneF(r, c);
+                const out = RootsBrentsMethod.find(F, r - below, r + above, 500,
+                    0, 0, 0, convT);
+                expect(out.found).toBe(true);
+                // Terminating on |t1 - t0| <= convT leaves the estimate within
+                // convT of the true root; the other exits are far tighter.
+                expect(Math.abs(out.root - r))
+                    .toBeLessThanOrEqual(convT + 1e-13 * (1 + Math.abs(r)));
+            });
+    });
+
+    it('never returns a root outside the input bracket', () => {
+        check(fc.tuple(wellScaled(-3, 3), wellScaled(-3, 3), wellScaled(-3, 3),
+            wellScaled(-3, 3)),
+            ([a, b, c, d]) => {
+                const t0 = Math.min(a, b), t1 = Math.max(a, b);
+                const F = (t: number) => (t - c) * (t - d) * (t * t + 1);
+                const out = RootsBrentsMethod.find(F, t0, t1, 500, 0, 0, 0, 0);
+                if (!out.found) { return; }
+                expect(out.root).toBeGreaterThanOrEqual(t0);
+                expect(out.root).toBeLessThanOrEqual(t1);
+                const err = Math.min(Math.abs(out.root - c), Math.abs(out.root - d));
+                expect(err).toBeLessThanOrEqual(1e-11 * (1 + Math.abs(out.root)));
+            });
     });
 });

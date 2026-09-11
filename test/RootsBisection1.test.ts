@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { RootsBisection1 } from '../src/RootsBisection1.js';
+import {
+    check, expectClose, fc, positive, wellScaled
+} from './helpers/arbitraries.js';
 
 // Deterministic pseudorandom generator so failures are reproducible.
 function makeRng(seed: number): () => number {
@@ -178,5 +181,138 @@ describe('RootsBisection1 bisection', () => {
         const { iterations, root } = bisector.find((t) => t - root0, 1, 3);
         expect(iterations).toBeGreaterThan(2);
         expect(Math.abs(root - root0)).toBeLessThanOrEqual(Number.EPSILON);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V44): property-based comparison against upstream
+// RootsBisection1.h. Only the floating-point instantiation is ported; the
+// arbitrary-precision constructor (precision + maxIterations, with Convert
+// rounding in RoundInitial/RoundAverage) is deliberately not present, so no
+// property here exercises it.
+// ---------------------------------------------------------------------------
+
+// A strictly increasing function whose only real root is r.
+function monotoneF(r: number, c: number): (t: number) => number {
+    return (t: number) => {
+        const d = t - r;
+        return d * d * d + c * d;
+    };
+}
+
+const bracket = fc.tuple(wellScaled(-5, 5), positive(4, 0.5), positive(3, 0.1),
+    positive(3, 0.1));
+
+describe('RootsBisection1 verification', () => {
+    it('rejects a non-positive iteration budget and an unordered interval', () => {
+        check(fc.tuple(fc.integer({ min: -4, max: 0 }), wellScaled(-5, 5)),
+            ([maxIterations, t]) => {
+                expect(() => new RootsBisection1(maxIterations)).toThrow();
+                const bisector = new RootsBisection1(16);
+                expect(() => bisector.find(Math.cos, t, t)).toThrow();
+                expect(() => bisector.find(Math.cos, t + 1, t)).toThrow();
+            }, 50);
+    });
+
+    it('reports 0 with zeroed outputs when the endpoint signs agree', () => {
+        check(fc.tuple(wellScaled(-5, 5), positive(4, 0.5), positive(3, 0.1),
+            positive(3, 0.1)),
+            ([r, c, gap, width]) => {
+                const F = monotoneF(r, c);
+                const out = new RootsBisection1(64).find(F, r + gap, r + gap + width);
+                expect(out.iterations).toBe(0);
+                // Upstream writes tRoot = fAtTRoot = 0 on this path.
+                expect(out.root === 0).toBe(true);
+                expect(out.fAtRoot === 0).toBe(true);
+            });
+    });
+
+    it('reports 1 with fAtRoot = 0 for an exact endpoint root', () => {
+        check(fc.tuple(wellScaled(-5, 5), positive(4, 0.5), positive(3, 0.1)),
+            ([r, c, width]) => {
+                const F = monotoneF(r, c);
+                const bisector = new RootsBisection1(64);
+                const low = bisector.find(F, r, r + width);
+                expect(low.iterations).toBe(1);
+                expect(low.root === r).toBe(true);
+                // Upstream assigns the literal zero, not F(tRoot).
+                expect(low.fAtRoot === 0).toBe(true);
+                const high = bisector.find(F, r - width, r);
+                expect(high.iterations).toBe(1);
+                expect(high.root === r).toBe(true);
+                expect(high.fAtRoot === 0).toBe(true);
+            });
+    });
+
+    it('converges with fAtRoot equal to F(root)', () => {
+        check(bracket, ([r, c, below, above]) => {
+            const F = monotoneF(r, c);
+            const out = new RootsBisection1(4096).find(F, r - below, r + above);
+            expect(out.iterations).toBeGreaterThanOrEqual(2);
+            expect(out.iterations).toBeLessThanOrEqual(4097);
+            expectClose(out.root, r, 1e-14, 1e-14);
+            // Unlike the endpoint paths, this path reports the true value.
+            expect(out.fAtRoot === F(out.root)).toBe(true);
+        });
+    });
+
+    it('accepts precomputed endpoint values and only uses their signs', () => {
+        check(bracket, ([r, c, below, above]) => {
+            const F = monotoneF(r, c);
+            const t0 = r - below, t1 = r + above;
+            const bisector = new RootsBisection1(4096);
+            const plain = bisector.find(F, t0, t1);
+            const withValues = bisector.find(F, t0, t1, F(t0), F(t1));
+            expect(withValues.iterations).toBe(plain.iterations);
+            expect(withValues.root === plain.root).toBe(true);
+            // The documented use: pass sign(f) when |f| is infinite.
+            const withSigns = bisector.find(F, t0, t1, -1, +1);
+            expect(withSigns.iterations).toBe(plain.iterations);
+            expect(withSigns.root === plain.root).toBe(true);
+            const withInfinities = bisector.find(F, t0, t1, -Infinity, Infinity);
+            expect(withInfinities.root === plain.root).toBe(true);
+        });
+    });
+
+    it('respects the iteration budget and halves the bracket each step', () => {
+        check(fc.tuple(bracket, fc.integer({ min: 2, max: 20 })),
+            ([[r, c, below, above], maxIterations]) => {
+                const F = monotoneF(r, c);
+                const t0 = r - below, t1 = r + above;
+                const out = new RootsBisection1(maxIterations).find(F, t0, t1);
+                expect(out.iterations).toBeLessThanOrEqual(maxIterations + 1);
+                const k = Math.min(out.iterations, maxIterations) - 1;
+                expect(Math.abs(out.root - r))
+                    .toBeLessThanOrEqual((t1 - t0) / Math.pow(2, k) + 1e-15);
+            });
+    });
+
+    it('returns the documented zeros when the budget allows no bisection step', () => {
+        // Upstream leaves tRoot and fAtTRoot unwritten when maxIterations is
+        // 1 and the endpoints bracket a root (gtengine-js issue #84); the
+        // port returns zeros instead of uninitialized memory, and still
+        // reports iteration = 2 as upstream's loop counter does.
+        check(bracket, ([r, c, below, above]) => {
+            const F = monotoneF(r, c);
+            const out = new RootsBisection1(1).find(F, r - below, r + above);
+            expect(out.iterations).toBe(2);
+            expect(out.root === 0).toBe(true);
+            expect(out.fAtRoot === 0).toBe(true);
+        });
+    });
+
+    it('is reusable: a second call does not inherit state from the first', () => {
+        check(fc.tuple(bracket, bracket), ([a, b]) => {
+            const bisector = new RootsBisection1(4096);
+            const F0 = monotoneF(a[0], a[1]);
+            const F1 = monotoneF(b[0], b[1]);
+            const first = bisector.find(F0, a[0] - a[2], a[0] + a[3]);
+            const second = bisector.find(F1, b[0] - b[2], b[0] + b[3]);
+            const fresh = new RootsBisection1(4096)
+                .find(F1, b[0] - b[2], b[0] + b[3]);
+            expect(second.iterations).toBe(fresh.iterations);
+            expect(second.root === fresh.root).toBe(true);
+            expectClose(first.root, a[0], 1e-14, 1e-14);
+        }, 100);
     });
 });
