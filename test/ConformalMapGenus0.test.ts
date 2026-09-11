@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ConformalMapGenus0 } from '../src/ConformalMapGenus0.js';
 import { Vector, dot, length, normalize, sub } from '../src/Vector.js';
 import { cross } from '../src/Vector3.js';
+import { check, fc, finite } from './helpers/arbitraries.js';
 
 interface Mesh {
     positions: Vector[];
@@ -341,4 +342,184 @@ describe('ConformalMapGenus0', () => {
         expect(() => map.compute(mesh.positions, indices, 0))
             .toThrow('The mesh must be a closed manifold surface.');
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V46): property-based checks against ConformalMapGenus0.h.
+// ---------------------------------------------------------------------------
+
+// Relabel the vertices of a mesh by 'perm', where perm[oldIndex] is the new
+// index. The triangle order and each triangle's winding are unchanged.
+function relabel(mesh: Mesh, perm: readonly number[]): Mesh {
+    const positions = new Array<Vector>(mesh.positions.length);
+    for (let i = 0; i < mesh.positions.length; ++i) {
+        positions[perm[i]] = mesh.positions[i];
+    }
+    return { positions, indices: mesh.indices.map(v => perm[v]) };
+}
+
+// A jittered genus-0 mesh: the subdivided octahedron pushed onto the sphere
+// and then radially scaled by a per-vertex factor near one, which keeps the
+// surface star shaped and the triangles nondegenerate.
+function jitteredSphere(level: number, amounts: readonly number[]): Mesh {
+    const mesh = makeSphereMesh(level, true);
+    const positions = mesh.positions.map((p, i) => {
+        const scale = 1 + amounts[i % amounts.length];
+        return Vector.fromArray(p.values.map(x => scale * x));
+    });
+    return { positions, indices: mesh.indices };
+}
+
+// A permutation of {0, ..., n-1}.
+function permutation(n: number) {
+    const identity: number[] = [];
+    for (let i = 0; i < n; ++i) {
+        identity.push(i);
+    }
+    return fc.shuffledSubarray(identity, { minLength: n, maxLength: n });
+}
+
+describe('ConformalMapGenus0 verification', () => {
+    it('maps a jittered genus-0 mesh onto the unit sphere without folding',
+        () => {
+            check(fc.tuple(fc.array(finite(-0.25, 0.25),
+                { minLength: 3, maxLength: 9 }),
+                fc.integer({ min: 0, max: 31 })), ([amounts, puncture]) => {
+                    const mesh = jitteredSphere(1, amounts);
+                    const map = new ConformalMapGenus0();
+                    const converged = map.compute(mesh.positions, mesh.indices,
+                        puncture);
+                    expect(converged).toBe(true);
+
+                    const sphere = map.getSphereCoordinates();
+                    expect(sphere.length).toBe(mesh.positions.length);
+                    for (const s of sphere) {
+                        expect(length(s)).toBeCloseTo(1, 11);
+                    }
+                    expect(map.getSphereRadius()).toBeGreaterThan(0);
+                    expect(Number.isFinite(map.getSphereRadius())).toBe(true);
+
+                    // No triangle is folded and the images tile the sphere
+                    // exactly once.
+                    let total = 0;
+                    for (let t = 0; t < mesh.indices.length / 3; ++t) {
+                        const a = sphere[mesh.indices[3 * t]];
+                        const b = sphere[mesh.indices[3 * t + 1]];
+                        const c = sphere[mesh.indices[3 * t + 2]];
+                        expect(dot(a, cross(sub(b, a), sub(c, a))))
+                            .toBeGreaterThan(0);
+                        total += solidAngle(a, b, c);
+                    }
+                    expect(total).toBeCloseTo(4 * Math.PI, 6);
+                }, 30);
+        }, 30000);
+
+    it('is stable under a relabelling of the vertices', () => {
+        check(fc.tuple(permutation(18), fc.integer({ min: 0, max: 31 })),
+            ([perm, puncture]) => {
+                const mesh = makeSphereMesh(1, true);
+                expect(mesh.positions.length).toBe(18);
+                const permuted = relabel(mesh, perm);
+
+                const map0 = new ConformalMapGenus0();
+                map0.compute(mesh.positions, mesh.indices, puncture);
+                const map1 = new ConformalMapGenus0();
+                map1.compute(permuted.positions, permuted.indices, puncture);
+
+                // Relabelling changes the order in which the sparse matrix
+                // entries are accumulated by the conjugate gradient solver,
+                // so the agreement is only to solver accuracy (the solve
+                // itself runs to a 1e-6 residual tolerance).
+                expect(map1.getSphereRadius()).toBeCloseTo(
+                    map0.getSphereRadius(), 6);
+                const s0 = map0.getSphereCoordinates();
+                const s1 = map1.getSphereCoordinates();
+                for (let i = 0; i < s0.length; ++i) {
+                    expect(length(sub(s0[i], s1[perm[i]]))).toBeLessThan(1e-6);
+                }
+            }, 30);
+    }, 30000);
+
+    it('returns fresh coordinate arrays on every call', () => {
+        check(fc.tuple(fc.integer({ min: 0, max: 31 }),
+            fc.integer({ min: 0, max: 31 })), ([firstPuncture, secondPuncture]) => {
+                const mesh = makeSphereMesh(1, true);
+                const map = new ConformalMapGenus0();
+                map.compute(mesh.positions, mesh.indices, firstPuncture);
+                const firstSphere = map.getSphereCoordinates();
+                const firstPlane = map.getPlaneCoordinates();
+                const snapshot = firstSphere.map(s => s.clone());
+
+                map.compute(mesh.positions, mesh.indices, secondPuncture);
+                // The previously returned arrays must not have been rewritten
+                // in place by the second call.
+                for (let i = 0; i < snapshot.length; ++i) {
+                    expect(firstSphere[i].values[0]).toBe(snapshot[i].values[0]);
+                }
+                expect(map.getSphereCoordinates()).not.toBe(firstSphere);
+                expect(map.getPlaneCoordinates()).not.toBe(firstPlane);
+            });
+    });
+
+    it('centers the plane coordinates at their average and reports the extremes',
+        () => {
+            check(fc.tuple(fc.array(finite(-0.25, 0.25),
+                { minLength: 3, maxLength: 9 }),
+                fc.integer({ min: 0, max: 31 })), ([amounts, puncture]) => {
+                    const mesh = jitteredSphere(1, amounts);
+                    const map = new ConformalMapGenus0();
+                    map.compute(mesh.positions, mesh.indices, puncture);
+                    const plane = map.getPlaneCoordinates();
+
+                    let sx = 0, sy = 0;
+                    for (const p of plane) {
+                        sx += p.values[0];
+                        sy += p.values[1];
+                    }
+                    // The origin is subtracted after the average is taken,
+                    // so the recentered average is zero to rounding.
+                    const scale = plane.length;
+                    expect(Math.abs(sx) / scale).toBeLessThan(1e-9);
+                    expect(Math.abs(sy) / scale).toBeLessThan(1e-9);
+
+                    const lo = map.getMinPlaneCoordinate();
+                    const hi = map.getMaxPlaneCoordinate();
+                    for (const p of plane) {
+                        expect(p.values[0]).toBeGreaterThanOrEqual(lo.values[0]);
+                        expect(p.values[0]).toBeLessThanOrEqual(hi.values[0]);
+                        expect(p.values[1]).toBeGreaterThanOrEqual(lo.values[1]);
+                        expect(p.values[1]).toBeLessThanOrEqual(hi.values[1]);
+                    }
+                }, 30);
+        }, 30000);
+
+    it('places the plane coordinates on the sphere by inverse stereographic projection',
+        () => {
+            // The projection is an explicit formula in the plane coordinate
+            // and the sphere radius; recomputing it independently must
+            // reproduce getSphereCoordinates exactly.
+            check(fc.tuple(fc.array(finite(-0.25, 0.25),
+                { minLength: 3, maxLength: 9 }),
+                fc.integer({ min: 0, max: 31 })), ([amounts, puncture]) => {
+                    const mesh = jitteredSphere(1, amounts);
+                    const map = new ConformalMapGenus0();
+                    map.compute(mesh.positions, mesh.indices, puncture);
+                    const plane = map.getPlaneCoordinates();
+                    const sphere = map.getSphereCoordinates();
+                    const radius = map.getSphereRadius();
+                    const sqrRadius = radius * radius;
+                    for (let i = 0; i < plane.length; ++i) {
+                        const rSqr = dot(plane[i], plane[i]);
+                        const mult = 1 / (rSqr + sqrRadius);
+                        const inv = 1 / radius;
+                        const expected = [
+                            2 * mult * sqrRadius * plane[i].values[0] * inv,
+                            2 * mult * sqrRadius * plane[i].values[1] * inv,
+                            mult * radius * (rSqr - sqrRadius) * inv];
+                        for (let k = 0; k < 3; ++k) {
+                            expect(sphere[i].values[k]).toBe(expected[k]);
+                        }
+                    }
+                }, 30);
+        }, 30000);
 });

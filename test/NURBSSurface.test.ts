@@ -521,6 +521,23 @@ function jetOf(surface: NURBSSurface, u: number, v: number,
     return jet;
 }
 
+
+// A B-spline of degree d is only C^(d-1) at an interior knot, so a central
+// difference of a derivative straddling a knot has O(h) error instead of
+// O(h^2) and the comparison below would be meaningless. An open uniform
+// basis with numControls control points of degree 'degree' has its interior
+// knots at j/(numControls - degree); keep the sample away from all of them.
+function awayFromKnots(numControls: number, degree: number, t: number,
+    eps = 0.02): boolean {
+    const numSpans = numControls - degree;
+    for (let j = 1; j < numSpans; ++j) {
+        if (Math.abs(t - j / numSpans) < eps) {
+            return false;
+        }
+    }
+    return true;
+}
+
 describe('NURBSSurface verification', () => {
     it('reduces to the B-spline surface when all weights are equal', () => {
         // The weight cancels from numerator and denominator exactly when it
@@ -640,6 +657,8 @@ describe('NURBSSurface verification', () => {
         const h = 1e-4;
         check(fc.tuple(fc.integer({ min: 3, max: 5 }),
             fc.integer({ min: 3, max: 5 }), finite(0.2, 0.8), finite(0.2, 0.8))
+            .filter(([n0, n1, u, v]) => awayFromKnots(n0, 2, u)
+                && awayFromKnots(n1, 2, v))
             .chain(([n0, n1, u, v]) =>
                 netArb(n0, n1).map(net => ({ n0, n1, u, v, net }))),
             ({ n0, n1, u, v, net }) => {
@@ -669,6 +688,8 @@ describe('NURBSSurface verification', () => {
         const h = 1e-4;
         check(fc.tuple(fc.integer({ min: 3, max: 5 }),
             fc.integer({ min: 3, max: 5 }), finite(0.2, 0.8), finite(0.2, 0.8))
+            .filter(([n0, n1, u, v]) => awayFromKnots(n0, 2, u)
+                && awayFromKnots(n1, 2, v))
             .chain(([n0, n1, u, v]) =>
                 netArb(n0, n1).map(net => ({ n0, n1, u, v, net }))),
             ({ n0, n1, u, v, net }) => {

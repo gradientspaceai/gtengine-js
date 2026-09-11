@@ -476,6 +476,23 @@ function jetOfVolume(volume: NURBSVolume, u: number, v: number, w: number,
     return jet;
 }
 
+
+// A B-spline of degree d is only C^(d-1) at an interior knot, so a central
+// difference of a derivative straddling a knot has O(h) error instead of
+// O(h^2) and the comparison below would be meaningless. An open uniform
+// basis with numControls control points of degree 'degree' has its interior
+// knots at j/(numControls - degree); keep the sample away from all of them.
+function awayFromKnots(numControls: number, degree: number, t: number,
+    eps = 0.02): boolean {
+    const numSpans = numControls - degree;
+    for (let j = 1; j < numSpans; ++j) {
+        if (Math.abs(t - j / numSpans) < eps) {
+            return false;
+        }
+    }
+    return true;
+}
+
 describe('NURBSVolume verification', () => {
     it('reduces to the B-spline volume when all weights are equal', () => {
         check(fc.tuple(fc.integer({ min: 2, max: 4 }),
@@ -605,6 +622,8 @@ describe('NURBSVolume verification', () => {
         check(fc.tuple(fc.integer({ min: 3, max: 4 }),
             fc.integer({ min: 3, max: 4 }), fc.integer({ min: 3, max: 4 }),
             finite(0.2, 0.8), finite(0.2, 0.8), finite(0.2, 0.8))
+            .filter(([n0, n1, n2, u, v, w]) => awayFromKnots(n0, 2, u)
+                && awayFromKnots(n1, 2, v) && awayFromKnots(n2, 2, w))
             .chain(([n0, n1, n2, u, v, w]) => volumeNetArb(n0, n1, n2)
                 .map(net => ({ n0, n1, n2, u, v, w, net }))),
             ({ n0, n1, n2, u, v, w, net }) => {
@@ -638,6 +657,8 @@ describe('NURBSVolume verification', () => {
         check(fc.tuple(fc.integer({ min: 3, max: 4 }),
             fc.integer({ min: 3, max: 4 }), fc.integer({ min: 3, max: 4 }),
             finite(0.2, 0.8), finite(0.2, 0.8), finite(0.2, 0.8))
+            .filter(([n0, n1, n2, u, v, w]) => awayFromKnots(n0, 2, u)
+                && awayFromKnots(n1, 2, v) && awayFromKnots(n2, 2, w))
             .chain(([n0, n1, n2, u, v, w]) => volumeNetArb(n0, n1, n2)
                 .map(net => ({ n0, n1, n2, u, v, w, net }))),
             ({ n0, n1, n2, u, v, w, net }) => {

@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { QuadricSurface, QuadricSurfaceClassification } from '../src/QuadricSurface.js';
 import { Matrix } from '../src/Matrix.js';
 import { Vector } from '../src/Vector.js';
+import {
+    check, fc, finite, seededRandom, wellScaled, wellScaledMatrix,
+    wellScaledVector
+} from './helpers/arbitraries.js';
 
 const C = QuadricSurfaceClassification;
 
@@ -307,4 +311,224 @@ describe('QuadricSurface', () => {
         expect(fromQ([0, 0, 0, 0, 1, 0, 0, 1, 0, 1]).getClassification())
             .toBe(C.POINT);
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V46): property-based checks against QuadricSurface.h.
+// ---------------------------------------------------------------------------
+
+// Small-integer coefficient vectors keep every quantity the exact-rational
+// classifier computes representable in binary64, so the affine images below
+// are exact.
+const integerQ = fc.array(fc.integer({ min: -4, max: 4 }),
+    { minLength: 10, maxLength: 10 });
+
+// An invertible integer 3-by-3 matrix, as rows.
+const integerMatrix3 = fc.array(fc.integer({ min: -2, max: 2 }),
+    { minLength: 9, maxLength: 9 })
+    .map(a => [[a[0], a[1], a[2]], [a[3], a[4], a[5]], [a[6], a[7], a[8]]])
+    .filter(M => {
+        const det = M[0][0] * (M[1][1] * M[2][2] - M[1][2] * M[2][1])
+            - M[0][1] * (M[1][0] * M[2][2] - M[1][2] * M[2][0])
+            + M[0][2] * (M[1][0] * M[2][1] - M[1][1] * M[2][0]);
+        return det !== 0;
+    });
+
+const integerTranslation = fc.array(fc.integer({ min: -3, max: 3 }),
+    { minLength: 3, maxLength: 3 });
+
+// The explicit implicit polynomial, evaluated independently of the (A,b,c)
+// representation the class stores.
+function explicitF(q: readonly number[], x: number, y: number,
+    z: number): number {
+    return q[0] + q[1] * x + q[2] * y + q[3] * z + q[4] * x * x
+        + q[5] * x * y + q[6] * x * z + q[7] * y * y + q[8] * y * z
+        + q[9] * z * z;
+}
+
+describe('QuadricSurface verification', () => {
+    it('getQ inverts fromCoefficients exactly', () => {
+        // The halving in fromCoefficients and the doubling in getQ are both
+        // exact in binary floating point, so the round trip is the identity.
+        // wellScaled keeps subnormals out: halving a subnormal drops its
+        // lowest bit, in the port exactly as in C++ double.
+        check(fc.array(wellScaled(-20, 20), { minLength: 10, maxLength: 10 }),
+            q => {
+            const surface = fromQ(q);
+            const back = surface.getQ();
+            for (let i = 0; i < 10; ++i) {
+                expect(back[i] + 0).toBe(q[i] + 0);
+            }
+        });
+    });
+
+    it('f agrees with the explicit implicit polynomial', () => {
+        check(fc.tuple(fc.array(finite(-5, 5), { minLength: 10, maxLength: 10 }),
+            wellScaledVector(3, -5, 5)), ([q, p]) => {
+                const surface = fromQ(q);
+                const actual = surface.f(p);
+                const expected = explicitF(q, p.values[0], p.values[1],
+                    p.values[2]);
+                // The two groupings of the same sum differ only by rounding.
+                expect(Math.abs(actual - expected)).toBeLessThanOrEqual(
+                    1e-12 * (1 + Math.abs(expected)));
+            });
+    });
+
+    it('the gradient agrees with the analytic partial derivatives', () => {
+        check(fc.tuple(fc.array(finite(-5, 5), { minLength: 10, maxLength: 10 }),
+            wellScaledVector(3, -5, 5)), ([q, p]) => {
+                const surface = fromQ(q);
+                const [x, y, z] = [p.values[0], p.values[1], p.values[2]];
+                const gx = q[1] + 2 * q[4] * x + q[5] * y + q[6] * z;
+                const gy = q[2] + q[5] * x + 2 * q[7] * y + q[8] * z;
+                const gz = q[3] + q[6] * x + q[8] * y + 2 * q[9] * z;
+                expect(Math.abs(surface.fx(p) - gx)).toBeLessThanOrEqual(
+                    1e-12 * (1 + Math.abs(gx)));
+                expect(Math.abs(surface.fy(p) - gy)).toBeLessThanOrEqual(
+                    1e-12 * (1 + Math.abs(gy)));
+                expect(Math.abs(surface.fz(p) - gz)).toBeLessThanOrEqual(
+                    1e-12 * (1 + Math.abs(gz)));
+            });
+    });
+
+    it('the Hessian is the constant coefficient matrix', () => {
+        check(fc.array(wellScaled(-20, 20), { minLength: 10, maxLength: 10 }),
+            q => {
+            const surface = fromQ(q);
+            // 2 * (q/2) is exact, so these are bit-for-bit equalities.
+            expect(surface.fxx()).toBe(2 * q[4]);
+            expect(surface.fxy() + 0).toBe(q[5] + 0);
+            expect(surface.fxz() + 0).toBe(q[6] + 0);
+            expect(surface.fyy()).toBe(2 * q[7]);
+            expect(surface.fyz() + 0).toBe(q[8] + 0);
+            expect(surface.fzz()).toBe(2 * q[9]);
+        });
+    });
+
+    it('classifies affine images of the known quadrics the same way', () => {
+        // An invertible affine change of variables maps the solution set
+        // bijectively, so the classification is an affine invariant. All the
+        // arithmetic stays exact because the inputs are small integers.
+        check(fc.tuple(fc.integer({ min: 0, max: KNOWN.length - 1 }),
+            integerMatrix3, integerTranslation), ([which, M, t]) => {
+                const known = KNOWN[which];
+                const transformed = changeOfVariables(known.q, M, t);
+                expect(fromQ(transformed).getClassification())
+                    .toBe(known.expected);
+            });
+    });
+
+    it('classifies a nonzero multiple of a quadric the same way', () => {
+        // Scaling by s > 0 leaves A, b, c proportional and the derived sign
+        // tests unchanged. Scaling by s < 0 swaps the positive and negative
+        // eigenvalue counts and flips the sign of r, which every branch of
+        // the classifier compensates for.
+        check(fc.tuple(fc.integer({ min: 0, max: KNOWN.length - 1 }),
+            fc.constantFrom(-8, -4, -2, -1, -0.5, 0.5, 1, 2, 4, 8)),
+            ([which, s]) => {
+                const known = KNOWN[which];
+                const scaled = known.q.map(x => s * x);
+                expect(fromQ(scaled).getClassification()).toBe(known.expected);
+            });
+    });
+
+    it('never reports UNKNOWN and caches the result', () => {
+        check(integerQ, q => {
+            const surface = fromQ(q);
+            const first = surface.getClassification();
+            expect(first).not.toBe(C.UNKNOWN);
+            expect(surface.getClassification()).toBe(first);
+            // Recomputing from the same coefficients is deterministic.
+            expect(fromQ(q).getClassification()).toBe(first);
+        });
+    });
+
+    it('NO_SOLUTION means the function never vanishes and keeps one sign', () => {
+        // An independent falsifier: sample the implicit function and check
+        // that an empty solution set really has no sign change.
+        const random = seededRandom(20260911);
+        check(integerQ, q => {
+            const surface = fromQ(q);
+            if (surface.getClassification() !== C.NO_SOLUTION) {
+                return;
+            }
+            let sign = 0;
+            for (let k = 0; k < 200; ++k) {
+                const p = Vector.fromArray([20 * random() - 10,
+                    20 * random() - 10, 20 * random() - 10]);
+                const value = surface.f(p);
+                expect(value).not.toBe(0);
+                const s = Math.sign(value);
+                if (sign === 0) {
+                    sign = s;
+                } else {
+                    expect(s).toBe(sign);
+                }
+            }
+        }, 60);
+    }, 30000);
+
+    it('ENTIRE_SPACE happens exactly for the zero quadric', () => {
+        check(integerQ, q => {
+            const isZero = q.every(x => x === 0);
+            const classification = fromQ(q).getClassification();
+            expect(classification === C.ENTIRE_SPACE).toBe(isZero);
+        });
+    });
+
+    it('classifies from the upper triangle of A only, as upstream does', () => {
+        // Upstream copies A(0,1), A(0,2) and A(1,2) into the rational matrix
+        // and mirrors them, so the lower triangle of an asymmetric input is
+        // ignored by GetClassification while F, FX, FY and FZ use it. The
+        // port preserves that split (see the upstream bug notes).
+        check(fc.tuple(fc.array(fc.integer({ min: -3, max: 3 }),
+            { minLength: 9, maxLength: 9 }), wellScaledVector(3, -3, 3),
+            wellScaledVector(3, -3, 3), finite(-5, 5)),
+            ([a, b, p, c]) => {
+                const A = Matrix.fromArray(3, 3, a);
+                const symmetric = Matrix.fromArray(3, 3, [
+                    a[0], a[1], a[2],
+                    a[1], a[4], a[5],
+                    a[2], a[5], a[8]]);
+                const asym = QuadricSurface.fromMatrix(A, b, c);
+                const sym = QuadricSurface.fromMatrix(symmetric, b, c);
+                expect(asym.getClassification()).toBe(sym.getClassification());
+
+                // The evaluation does see the lower triangle: the two agree
+                // only when the input is already symmetric.
+                const isSymmetric = a[3] === a[1] && a[6] === a[2]
+                    && a[7] === a[5];
+                if (isSymmetric) {
+                    expect(asym.f(p)).toBe(sym.f(p));
+                } else {
+                    // X^T*A*X uses (A(i,j)+A(j,i)), so the values differ
+                    // whenever the asymmetric part does not annihilate X.
+                    const delta = (a[3] - a[1]) * p.values[0] * p.values[1]
+                        + (a[6] - a[2]) * p.values[0] * p.values[2]
+                        + (a[7] - a[5]) * p.values[1] * p.values[2];
+                    expect(Math.abs(asym.f(p) - sym.f(p) - delta))
+                        .toBeLessThanOrEqual(1e-12 * (1 + Math.abs(delta)));
+                }
+            });
+    });
+
+    it('fromMatrix copies its inputs and getQ reads back the stored matrix',
+        () => {
+            check(fc.tuple(wellScaledMatrix(3, 3, -5, 5),
+                wellScaledVector(3, -5, 5), finite(-5, 5)), ([A, b, c]) => {
+                    const surface = QuadricSurface.fromMatrix(A, b, c);
+                    const a00 = A.get(0, 0), b0 = b.values[0];
+                    A.set(0, 0, a00 + 100);
+                    b.values[0] = b0 + 100;
+                    expect(surface.getA().get(0, 0)).toBe(a00);
+                    expect(surface.getB().values[0]).toBe(b0);
+                    expect(surface.getC()).toBe(c);
+
+                    const q = surface.getQ();
+                    expect(q[0]).toBe(c);
+                    expect(q[1]).toBe(b0);
+                    expect(q[4]).toBe(a00);
+                });
+        });
 });
