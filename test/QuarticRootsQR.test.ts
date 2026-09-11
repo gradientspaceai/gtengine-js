@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { CubicRootsQR } from '../src/CubicRootsQR.js';
 import { QuarticRootsQR, type QuarticRootsQRMatrix } from '../src/QuarticRootsQR.js';
+import { RootsQuartic } from '../src/RootsQuartic.js';
+import { check, fc, nonzero, wellScaled } from './helpers/arbitraries.js';
 
 // Deterministic pseudorandom generator so failures are reproducible.
 function makeRng(seed: number): () => number {
@@ -191,6 +194,165 @@ describe('QuarticRootsQR', () => {
             const sorted = roots.slice(0, 2).sort((x, y) => x - y);
             expect(Math.abs(sorted[0] - a)).toBeLessThanOrEqual(1e-6);
             expect(Math.abs(sorted[1] - b)).toBeLessThanOrEqual(1e-6);
+        }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V44): property-based comparison against upstream
+// QuarticRootsQR.h.
+// ---------------------------------------------------------------------------
+
+const qrLattice = fc.integer({ min: -5, max: 5 });
+
+function derivative(c0: number, c1: number, c2: number, c3: number,
+    x: number): number {
+    return c1 + x * (2 * c2 + x * (3 * c3 + x * 4));
+}
+
+describe('QuarticRootsQR verification', () => {
+    it('returns the requested iteration count and no roots when it cannot uncouple', () => {
+        check(fc.tuple(wellScaled(-4, 4), wellScaled(-4, 4), wellScaled(-4, 4),
+            wellScaled(-4, 4)),
+            ([c0, c1, c2, c3]) => {
+                const out = new QuarticRootsQR().solve(0, c0, c1, c2, c3);
+                expect(out.iterations).toBe(0);
+                expect(out.numRoots).toBe(0);
+                expect(out.roots).toEqual([0, 0, 0, 0]);
+            });
+    });
+
+    it('finds all four roots of a quartic with distinct integer roots', () => {
+        check(fc.tuple(qrLattice, qrLattice, qrLattice, qrLattice)
+            .filter(rs => new Set(rs).size === 4),
+            rs => {
+                const [c0, c1, c2, c3] = coeffFromRoots([...rs]);
+                const out = new QuarticRootsQR().solve(MAX_ITERATIONS, c0, c1, c2, c3);
+                expect(out.numRoots).toBe(4);
+                const found = out.roots.slice(0, 4).sort((x, y) => x - y);
+                const expected = [...rs].sort((x, y) => x - y);
+                for (let i = 0; i < 4; ++i) {
+                    expect(Math.abs(found[i] - expected[i]))
+                        .toBeLessThanOrEqual(1e-7 * (1 + Math.abs(expected[i])));
+                }
+            }, 100);
+    });
+
+    it('reports only genuine roots for any integer-rooted quartic', () => {
+        check(fc.tuple(qrLattice, qrLattice, qrLattice, qrLattice), rs => {
+            const [c0, c1, c2, c3] = coeffFromRoots([...rs]);
+            const out = new QuarticRootsQR().solve(MAX_ITERATIONS, c0, c1, c2, c3);
+            expect(out.numRoots).toBeGreaterThanOrEqual(0);
+            expect(out.numRoots).toBeLessThanOrEqual(4);
+            for (let i = 0; i < out.numRoots; ++i) {
+                const f = out.roots[i];
+                const err = Math.min(...rs.map(e => Math.abs(f - e)));
+                // A root of multiplicity m carries about eps^(1/m) accuracy.
+                expect(err).toBeLessThanOrEqual(1e-3 * (1 + Math.abs(f)));
+            }
+            for (let i = out.numRoots; i < 4; ++i) {
+                expect(out.roots[i] === 0).toBe(true);
+            }
+        }, 100);
+    });
+
+    it('reports no real roots for a product of two irreducible quadratics', () => {
+        check(fc.tuple(fc.integer({ min: -3, max: 3 }), fc.integer({ min: 1, max: 8 }),
+            fc.integer({ min: -3, max: 3 }), fc.integer({ min: 1, max: 8 }))
+            .filter(([p1, p0, q1, q0]) =>
+                p1 * p1 - 4 * p0 < 0 && q1 * q1 - 4 * q0 < 0),
+            ([p1, p0, q1, q0]) => {
+                const [c0, c1, c2, c3] = coeffFromQuadratics(p1, p0, q1, q0);
+                const out = new QuarticRootsQR().solve(MAX_ITERATIONS, c0, c1, c2, c3);
+                expect(out.numRoots).toBe(0);
+            }, 100);
+    });
+
+    it('reports residuals at the level of the root conditioning', () => {
+        check(fc.tuple(nonzero(-3, 3, 0.1), nonzero(-3, 3, 0.1), nonzero(-3, 3, 0.1),
+            nonzero(-3, 3, 0.1)),
+            ([c0, c1, c2, c3]) => {
+                const out = new QuarticRootsQR().solve(MAX_ITERATIONS, c0, c1, c2, c3);
+                for (let i = 0; i < out.numRoots; ++i) {
+                    const x = out.roots[i];
+                    expect(Number.isFinite(x)).toBe(true);
+                    const slope = Math.abs(derivative(c0, c1, c2, c3, x));
+                    if (slope > 1e-2) {
+                        expect(Math.abs(evalQuartic(c0, c1, c2, c3, x)) / slope)
+                            .toBeLessThan(1e-7);
+                    }
+                }
+            });
+    });
+
+    it('agrees with the exact RootsQuartic classifier on well-separated roots', () => {
+        check(fc.tuple(nonzero(-3, 3, 0.2), nonzero(-3, 3, 0.2), nonzero(-3, 3, 0.2),
+            nonzero(-3, 3, 0.2)),
+            ([c0, c1, c2, c3]) => {
+                const qr = new QuarticRootsQR().solve(MAX_ITERATIONS, c0, c1, c2, c3);
+                const exact = RootsQuartic.solveMonic(true, c0, c1, c2, c3);
+                const found = qr.roots.slice(0, qr.numRoots);
+                for (const f of found) {
+                    const err = Math.min(...exact.map(r => Math.abs(f - r.x)),
+                        Number.POSITIVE_INFINITY);
+                    expect(err).toBeLessThanOrEqual(1e-3 * (1 + Math.abs(f)));
+                }
+                // The converse holds only for simple, well-separated roots:
+                // see the characterization test about even multiplicities.
+                const wellSeparated = exact.length > 0 && exact.every(r => r.m === 1)
+                    && exact.every((r, i) => i === 0 || r.x - exact[i - 1].x > 1e-2);
+                if (wellSeparated) {
+                    for (const r of exact) {
+                        const err = Math.min(...found.map(f => Math.abs(f - r.x)),
+                            Number.POSITIVE_INFINITY);
+                        expect(err).toBeLessThanOrEqual(1e-5 * (1 + Math.abs(r.x)));
+                    }
+                }
+            }, 100);
+    });
+
+    it('solves the companion matrix in place', () => {
+        check(fc.tuple(wellScaled(-3, 3), wellScaled(-3, 3), wellScaled(-3, 3),
+            wellScaled(-3, 3)),
+            ([c0, c1, c2, c3]) => {
+                const A: QuarticRootsQRMatrix = [
+                    [0, 0, 0, -c0], [1, 0, 0, -c1], [0, 1, 0, -c2], [0, 0, 1, -c3]];
+                const before = A.map(row => [...row]);
+                const out = new QuarticRootsQR().solveMatrix(MAX_ITERATIONS, A);
+                // solveMatrix mutates its argument, as upstream documents.
+                expect(A).not.toEqual(before);
+                for (let i = 0; i < out.numRoots; ++i) {
+                    const x = out.roots[i];
+                    const slope = Math.abs(derivative(c0, c1, c2, c3, x));
+                    if (slope > 1e-2) {
+                        expect(Math.abs(evalQuartic(c0, c1, c2, c3, x)) / slope)
+                            .toBeLessThan(1e-7);
+                    }
+                }
+            });
+    });
+});
+
+describe('QuarticRootsQR / CubicRootsQR even-multiplicity characterization', () => {
+    it('drops real roots of even multiplicity (upstream behavior, preserved)', () => {
+        // The deflated 2x2 block of a repeated real root has a zero
+        // discriminant in exact arithmetic; rounding makes it slightly
+        // negative and upstream's GetQuadraticRoots then emits nothing for
+        // that block. The roots are lost silently: the caller cannot tell
+        // this case from a genuine complex-conjugate pair. Recorded as an
+        // upstream suspect and preserved rather than "fixed" with a
+        // tolerance, since upstream defines the behavior.
+        const cubic = new CubicRootsQR().solve(MAX_ITERATIONS, 36, 24, -11);
+        // (x - 6)^2 (x + 1) = x^3 - 11x^2 + 24x + 36.
+        expect(cubic.numRoots).toBe(1);
+        expect(cubic.roots[0]).toBeCloseTo(-1, 10);
+
+        // (x - 1)^2 (x - 2)^2 = x^4 - 6x^3 + 13x^2 - 12x + 4: only the pair
+        // near 2 survives, split into two nearby simple roots.
+        const quartic = new QuarticRootsQR().solve(MAX_ITERATIONS, 4, -12, 13, -6);
+        expect(quartic.numRoots).toBe(2);
+        for (let i = 0; i < 2; ++i) {
+            expect(Math.abs(quartic.roots[i] - 2)).toBeLessThan(1e-6);
         }
     });
 });
