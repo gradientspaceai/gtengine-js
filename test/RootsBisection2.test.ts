@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { RootsBisection1 } from '../src/RootsBisection1.js';
 import { RootsBisection2 } from '../src/RootsBisection2.js';
+import { check, expectClose, fc, wellScaled } from './helpers/arbitraries.js';
 
 // Deterministic pseudorandom generator so failures are reproducible.
 function makeRng(seed: number): () => number {
@@ -296,5 +298,116 @@ describe('RootsBisection2 randomized cross-check', () => {
             expect(Math.abs(result.fAtRoot)).toBeLessThan(1e-9);
             expect(Math.abs(result.gAtRoot)).toBeLessThan(1e-9);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V44): property-based comparison against upstream
+// RootsBisection2.h. As with RootsBisection1 only the floating-point
+// instantiation is ported, so the (precision, xMaxIterations, yMaxIterations)
+// constructor is absent by design.
+// ---------------------------------------------------------------------------
+
+// F(x,y) = x + k*y - c and G(x,y) = k*x + y - d. The unique root of the pair
+// is the solution of the 2x2 linear system, and for |k| <= 1/4 the upstream
+// preconditions hold on [-2,2]^2 whenever the root lies in [-1,1]^2: for each
+// fixed y, F(-2,y) < 0 < F(2,y), and likewise for G in the y-direction.
+const linearPair = fc.tuple(wellScaled(-1, 1), wellScaled(-1, 1),
+    wellScaled(-0.25, 0.25));
+
+describe('RootsBisection2 verification', () => {
+    it('locates the root of a linear pair on a rectangle that brackets it', () => {
+        check(linearPair, ([xStar, yStar, k]) => {
+            const c = xStar + k * yStar;
+            const d = k * xStar + yStar;
+            const F = (x: number, y: number) => x + k * y - c;
+            const G = (x: number, y: number) => k * x + y - d;
+            const solver = new RootsBisection2(4096, 4096);
+            const out = solver.find(F, G, -2, 2, -2, 2);
+            expect(out.iterations).toBeGreaterThanOrEqual(1);
+            expectClose(out.xRoot, xStar, 1e-12, 1e-12);
+            expectClose(out.yRoot, yStar, 1e-12, 1e-12);
+            expect(Math.abs(out.fAtRoot)).toBeLessThan(1e-12);
+            expect(Math.abs(out.gAtRoot)).toBeLessThan(1e-12);
+            // Every inner and outer bisection bracketed a root.
+            expect(solver.noGuaranteeForRootBound()).toBe(false);
+        }, 100);
+    });
+
+    it('reports the x-bisection failure through iterations and the flag', () => {
+        // Shift the rectangle entirely to one side of the root in x, so
+        // F(x,h(x)) has the same sign at both x-endpoints.
+        check(linearPair, ([xStar, yStar, k]) => {
+            const c = xStar + k * yStar;
+            const d = k * xStar + yStar;
+            const F = (x: number, y: number) => x + k * y - c;
+            const G = (x: number, y: number) => k * x + y - d;
+            const solver = new RootsBisection2(64, 64);
+            const out = solver.find(F, G, 10, 12, -2, 2);
+            expect(out.iterations).toBe(0);
+            // RootsBisection1 zeroes its outputs on this path.
+            expect(out.xRoot === 0).toBe(true);
+            expect(out.fAtRoot === 0).toBe(true);
+            expect(solver.noGuaranteeForRootBound()).toBe(true);
+        }, 100);
+    });
+
+    it('keeps only the last y-bisection status, as upstream assigns the flag', () => {
+        // Upstream writes mNoGuaranteeForRootBound = (numYIterations == 0)
+        // inside the x-function, so an earlier y-failure is erased by a later
+        // y-success (gtengine-js issue #152). The quirk is preserved: the
+        // y-interval below brackets the root only for x below a threshold,
+        // and the final x-iterate is above it.
+        const F = (x: number, y: number) => x + 0.25 * y - 0.5;
+        const G = (x: number, y: number) => y - (x - 1);
+        const solver = new RootsBisection2(64, 64);
+        // For x in [0,2], G(x, .) changes sign on [-2,2] for every x, so all
+        // y-bisections succeed and the flag ends false even though the
+        // solver evaluated many different x.
+        const out = solver.find(F, G, 0, 2, -2, 2);
+        expect(out.iterations).toBeGreaterThanOrEqual(2);
+        expect(solver.noGuaranteeForRootBound()).toBe(false);
+        expect(Math.abs(out.fAtRoot)).toBeLessThan(1e-12);
+        // The reported y-root is the one from the LAST x-evaluation, which
+        // need not be the x that is reported: the y-outputs can therefore
+        // mismatch the returned x-root by a bisection step.
+        expectClose(out.gAtRoot, 0, 1e-9, 1e-9);
+    });
+
+    it('reports a y-bisection failure through the flag', () => {
+        check(wellScaled(-1, 1), xStar => {
+            // G(x,y) = y^2 + 1 never changes sign, so every y-bisection
+            // fails and the flag is set even though the x-bisection succeeds.
+            const F = (x: number, y: number) => x - xStar + 0 * y;
+            const G = (_x: number, y: number) => y * y + 1;
+            const solver = new RootsBisection2(64, 64);
+            const out = solver.find(F, G, -2, 2, -2, 2);
+            expect(solver.noGuaranteeForRootBound()).toBe(true);
+            // The y-bisection reported no root, so yRoot is the zeroed
+            // output of RootsBisection1 and F was evaluated at y = 0.
+            expect(out.yRoot === 0).toBe(true);
+            expectClose(out.xRoot, xStar, 1e-12, 1e-12);
+        }, 100);
+    });
+
+    it('matches a direct nested bisection on the same functions', () => {
+        check(linearPair, ([xStar, yStar, k]) => {
+            const c = xStar + k * yStar;
+            const d = k * xStar + yStar;
+            const F = (x: number, y: number) => x + k * y - c;
+            const G = (x: number, y: number) => k * x + y - d;
+            const out = new RootsBisection2(200, 200).find(F, G, -2, 2, -2, 2);
+
+            // Independent computation: bisect the composite directly.
+            const yBisector = new RootsBisection1(200);
+            const composite = (x: number) => {
+                const y = yBisector.find((t: number) => G(x, t), -2, 2).root;
+                return F(x, y);
+            };
+            const direct = new RootsBisection1(200).find(composite, -2, 2);
+            expect(out.iterations).toBe(direct.iterations);
+            expect(out.xRoot === direct.root).toBe(true);
+            expect(out.fAtRoot === direct.fAtRoot).toBe(true);
+        }, 60);
     });
 });

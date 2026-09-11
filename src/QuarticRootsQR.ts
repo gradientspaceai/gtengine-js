@@ -16,6 +16,16 @@
 // coefficients) and solveMatrix (from an upper Hessenberg matrix). Upstream
 // returns the iteration count and writes numRoots/roots to reference
 // parameters; the port returns { iterations, numRoots, roots }.
+//
+// Upstream behavior worth knowing (preserved, not "fixed"): GetQuadraticRoots
+// emits the roots of a deflated 2x2 block only when its discriminant is
+// non-negative. A real root of even multiplicity gives a zero discriminant in
+// exact arithmetic, so rounding can make it slightly negative and the block's
+// real roots are then dropped silently -- the caller cannot distinguish that
+// from a genuine complex-conjugate pair. For example (x - 1)^2 (x - 2)^2
+// reports only the pair near 2. Use RootsCubic/RootsQuartic when the
+// multiplicity classification matters; they classify with exact rational
+// arithmetic.
 
 import { CubicRootsQR, type CubicRootsQRMatrix } from './CubicRootsQR.js';
 

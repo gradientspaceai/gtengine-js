@@ -16,6 +16,15 @@
 // Hessenberg matrix). Upstream returns the iteration count and writes
 // numRoots/roots to reference parameters; the port returns
 // { iterations, numRoots, roots }.
+//
+// Upstream behavior worth knowing (preserved, not "fixed"): GetQuadraticRoots
+// emits the roots of a deflated 2x2 block only when its discriminant is
+// non-negative. A real root of even multiplicity gives a zero discriminant in
+// exact arithmetic, so rounding can make it slightly negative and the block's
+// real roots are then dropped silently -- the caller cannot distinguish that
+// from a genuine complex-conjugate pair. For example (x - 6)^2 (x + 1) reports
+// only the root -1. Use RootsCubic/RootsQuartic when the multiplicity
+// classification matters; they classify with exact rational arithmetic.
 
 // A 3x3 matrix stored as rows: A[r][c] is row r, column c, matching the
 // upstream std::array<std::array<Real, 3>, 3> layout.

@@ -44,6 +44,15 @@
 //   reported as two nearby simple roots or as a complex pair). For exact
 //   classification, use rational arithmetic as upstream suggests
 //   (BSRational); that path is not ported here.
+//   Two concrete consequences, pinned by tests: -x*(x+1)^2 (coefficients
+//   0, -1, -2, -1) is classified as a single simple root near 0, losing the
+//   double root at -1, because the depressed delta rounds to a tiny nonzero
+//   instead of exactly zero; and the coefficients (1, -2/3, 1/9), whose exact
+//   discriminant is negative, are classified as a double root at 3 because
+//   c0 = q0 - (q1/2)^2 rounds to exactly zero. Dependent files that still use
+//   this solver (for example IntrEllipse2Ellipse2's quartic) inherit that
+//   conditioning; RootsLinear/RootsQuadratic/RootsCubic/RootsQuartic classify
+//   with exact rational arithmetic and do not.
 // - Upstream accumulates roots in std::map<Real, int32_t>, whose iteration
 //   is ordered by key. The port replicates this explicitly with an array of
 //   { root, multiplicity } entries kept sorted ascending by root, and with

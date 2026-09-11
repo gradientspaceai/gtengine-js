@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { BSRational } from '../src/BSRational.js';
 import type { PolynomialRoot } from '../src/PolynomialRoot.js';
 import { RootsPolynomial } from '../src/RootsPolynomial.js';
+import { RootsLinear } from '../src/RootsLinear.js';
 import { RootsQuadratic, rationalSqrtViaQuadratic } from '../src/RootsQuadratic.js';
+import { check, fc, nonzero, wellScaled } from './helpers/arbitraries.js';
 
 const rat = (x: number, y?: number) => BSRational.fromNumber(x, y);
 
@@ -252,5 +254,200 @@ describe('RootsQuadratic randomized cross-checks', () => {
                 expect(roots[1].x).toBeCloseTo(1 + e, 8);
             }
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V44): property-based comparison against upstream
+// RootsQuadratic.h.
+// ---------------------------------------------------------------------------
+
+// Distinct roots of `rs` with their multiplicities, in increasing order.
+function classify(rs: readonly number[]): [number, number][] {
+    const sorted = [...rs].sort((a, b) => a - b);
+    const out: [number, number][] = [];
+    for (const r of sorted) {
+        if (out.length > 0 && out[out.length - 1][0] === r) {
+            ++out[out.length - 1][1];
+        } else {
+            out.push([r, 1]);
+        }
+    }
+    return out;
+}
+
+const smallInt = fc.integer({ min: -12, max: 12 });
+const nonzeroSmallInt = fc.integer({ min: -5, max: 5 }).filter(v => v !== 0);
+// Power-of-two scale factors multiply a double exactly.
+const powerOfTwo = fc.integer({ min: -20, max: 20 }).map(k => Math.pow(2, k));
+
+describe('RootsQuadratic verification', () => {
+    it('reproduces the exact classification of integer-rooted quadratics', () => {
+        check(fc.tuple(smallInt, smallInt, nonzeroSmallInt), ([a, b, lead]) => {
+            const p = fromRoots([a, b]).map(v => v * lead);
+            const expected = classify([a, b]);
+            for (const useBisection of BOTH) {
+                const roots = RootsQuadratic.solve(useBisection, p[0], p[1], p[2]);
+                expect(roots.length).toBe(expected.length);
+                for (let i = 0; i < roots.length; ++i) {
+                    // The multiplicity comes from the exact rational sign of
+                    // the depressed constant, so it must be exactly right.
+                    expect(roots[i].m).toBe(expected[i][1]);
+                    expect(Math.abs(roots[i].x - expected[i][0]))
+                        .toBeLessThanOrEqual(1e-12 * (1 + Math.abs(expected[i][0])));
+                }
+            }
+        });
+    });
+
+    it('reports no real roots exactly when the discriminant is negative', () => {
+        check(fc.tuple(smallInt, smallInt, nonzeroSmallInt, fc.boolean()),
+            ([g0, g1, g2, useBisection]) => {
+                const roots = RootsQuadratic.solve(useBisection, g0, g1, g2);
+                // The integer discriminant is exact in binary64.
+                const disc = g1 * g1 - 4 * g0 * g2;
+                if (disc < 0) {
+                    expect(roots).toEqual([]);
+                } else if (disc === 0) {
+                    expect(roots.length).toBe(1);
+                    expect(roots[0].m).toBe(2);
+                } else {
+                    expect(roots.length).toBe(2);
+                    expect(roots.map(r => r.m)).toEqual([1, 1]);
+                }
+            });
+    });
+
+    it('is invariant under exact (power-of-two) scaling of the coefficients', () => {
+        check(fc.tuple(smallInt, smallInt, nonzeroSmallInt, powerOfTwo, fc.boolean()),
+            ([g0, g1, g2, scale, useBisection]) => {
+                const base = RootsQuadratic.solve(useBisection, g0, g1, g2);
+                const scaled = RootsQuadratic.solve(useBisection, scale * g0,
+                    scale * g1, scale * g2);
+                expect(scaled.length).toBe(base.length);
+                for (let i = 0; i < base.length; ++i) {
+                    expect(scaled[i].m).toBe(base[i].m);
+                    // ComputeClassifiers divides by g2 in exact rational
+                    // arithmetic, so the depressed quadratic is identical.
+                    expect(scaled[i].x === base[i].x).toBe(true);
+                }
+            });
+    });
+
+    it('agrees between the bisection and closed-form solvers', () => {
+        check(fc.tuple(wellScaled(-8, 8), wellScaled(-8, 8), nonzero(-8, 8, 0.25)),
+            ([g0, g1, g2]) => {
+                const bisect = RootsQuadratic.solve(true, g0, g1, g2);
+                const closed = RootsQuadratic.solve(false, g0, g1, g2);
+                expect(closed.length).toBe(bisect.length);
+                for (let i = 0; i < bisect.length; ++i) {
+                    expect(closed[i].m).toBe(bisect[i].m);
+                    const tol = 1e-9 * (1 + Math.abs(bisect[i].x));
+                    expect(Math.abs(closed[i].x - bisect[i].x))
+                        .toBeLessThanOrEqual(tol);
+                }
+            });
+    });
+
+    it('returns roots in increasing order with multiplicities summing to at most 2', () => {
+        check(fc.tuple(wellScaled(-8, 8), wellScaled(-8, 8), wellScaled(-8, 8),
+            fc.boolean()),
+            ([g0, g1, g2, useBisection]) => {
+                const roots = RootsQuadratic.solve(useBisection, g0, g1, g2);
+                let sum = 0;
+                for (let i = 0; i < roots.length; ++i) {
+                    expect(Number.isFinite(roots[i].x)).toBe(true);
+                    sum += roots[i].m;
+                    if (i > 0) { expect(roots[i - 1].x < roots[i].x).toBe(true); }
+                }
+                expect(sum).toBeLessThanOrEqual(2);
+            });
+    });
+
+    it('keeps the backward error of every simple root near machine precision', () => {
+        check(fc.tuple(nonzero(-8, 8, 0.1), nonzero(-8, 8, 0.1), nonzero(-8, 8, 0.5),
+            fc.boolean()),
+            ([g0, g1, g2, useBisection]) => {
+                const p = [g0, g1, g2];
+                for (const r of RootsQuadratic.solve(useBisection, g0, g1, g2)) {
+                    if (r.m !== 1) { continue; }
+                    const slope = Math.abs(g1 + 2 * g2 * r.x);
+                    if (slope > 1e-2) {
+                        expect(Math.abs(evaluate(p, r.x)) / slope).toBeLessThan(1e-10);
+                    }
+                }
+            });
+    });
+
+    it('drops to the linear solver when the leading coefficient is zero', () => {
+        check(fc.tuple(wellScaled(-8, 8), wellScaled(-8, 8), fc.boolean()),
+            ([g0, g1, useBisection]) => {
+                expect(summarize(RootsQuadratic.solve(useBisection, g0, g1, 0)))
+                    .toEqual(summarize(RootsLinear.solve(g0, g1)));
+            });
+    });
+
+    it('agrees across the general, monic and depressed entry points', () => {
+        check(fc.tuple(wellScaled(-8, 8), wellScaled(-8, 8), fc.boolean()),
+            ([m0, m1, useBisection]) => {
+                expect(summarize(RootsQuadratic.solveMonic(useBisection, m0, m1)))
+                    .toEqual(summarize(RootsQuadratic.solve(useBisection, m0, m1, 1)));
+                expect(summarize(RootsQuadratic.solveDepressed(useBisection, m0)))
+                    .toEqual(summarize(
+                        RootsQuadratic.solveMonic(useBisection, m0, 0)));
+            });
+    });
+
+    it('matches the floating-point path on the rational instantiation', () => {
+        check(fc.tuple(smallInt, smallInt, nonzeroSmallInt, fc.boolean()),
+            ([g0, g1, g2, useBisection]) => {
+                const fp = RootsQuadratic.solve(useBisection, g0, g1, g2);
+                const r = RootsQuadratic.solveRational(useBisection,
+                    rat(g0), rat(g1), rat(g2));
+                expect(r.map(v => v.m)).toEqual(fp.map(v => v.m));
+                for (let i = 0; i < fp.length; ++i) {
+                    expect(Math.abs(r[i].x.toNumber() - fp[i].x))
+                        .toBeLessThanOrEqual(1e-12 * (1 + Math.abs(fp[i].x)));
+                }
+            });
+    });
+
+    it('extracts square roots through rationalSqrtViaQuadratic', () => {
+        // The port's stand-in for upstream's repeated
+        //   ComputeDepressedRoots(useBisection, -rV, rQRoots); rQRoots[1].x
+        // idiom, which reads a stale array entry when rV <= 0.
+        check(fc.tuple(fc.integer({ min: -20, max: 60 }), fc.boolean()),
+            ([v, useBisection]) => {
+                const s = rationalSqrtViaQuadratic(useBisection, rat(v));
+                if (v <= 0) {
+                    // No real square root (or zero): the port returns zero
+                    // instead of whatever the previous call left behind.
+                    expect(s.getSign()).toBe(0);
+                } else {
+                    expect(s.getSign()).toBeGreaterThan(0);
+                    const approx = s.toNumber();
+                    expect(Math.abs(approx * approx - v))
+                        .toBeLessThanOrEqual(1e-12 * v);
+                }
+            }, 100);
+    });
+
+    it('bounds every depressed root by max(1,|d0|), the upstream bisection bound', () => {
+        // The bisection path searches [0,b] with b = max(1,|d0|). The root of
+        // x^2 + d0 is sqrt(-d0) <= b for every d0 <= 0, so unlike the cubic
+        // the bound is valid and the search never returns an endpoint.
+        check(fc.tuple(wellScaled(-50, 0), fc.boolean()), ([d0, useBisection]) => {
+            const roots = RootsQuadratic.solveDepressed(useBisection, d0);
+            if (d0 === 0) {
+                expect(summarize(roots)).toEqual([[0, 2]]);
+                return;
+            }
+            expect(roots.length).toBe(2);
+            const b = Math.max(1, Math.abs(d0));
+            expect(roots[1].x).toBeLessThanOrEqual(b);
+            expect(roots[0].x === -roots[1].x).toBe(true);
+            expect(Math.abs(roots[1].x * roots[1].x + d0))
+                .toBeLessThanOrEqual(1e-12 * Math.abs(d0));
+        });
     });
 });
