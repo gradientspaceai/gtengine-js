@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { BSRational } from '../src/BSRational.js';
+import { RootsCubic } from '../src/RootsCubic.js';
 import { RootsGeneralPolynomial } from '../src/RootsGeneralPolynomial.js';
+import { RootsQuartic } from '../src/RootsQuartic.js';
+import { check, fc, nonzero, wellScaled } from './helpers/arbitraries.js';
 
 // The coefficients, in increasing order of power, of the monic polynomial
 // with the given roots.
@@ -316,5 +319,223 @@ describe('RootsGeneralPolynomial.solveRational', () => {
         const before = p.map(r => r.toNumber());
         RootsGeneralPolynomial.solveRational(p);
         expect(p.map(r => r.toNumber())).toEqual(before);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V44): property-based comparison against upstream
+// RootsGeneralPolynomial.h.
+// ---------------------------------------------------------------------------
+
+const rgpLattice = fc.integer({ min: -5, max: 5 });
+const rgpLead = fc.integer({ min: -4, max: 4 }).filter(v => v !== 0);
+// A power of two scales a double exactly, and the solver's first act is to
+// divide by the leading coefficient in exact rational arithmetic, so the
+// roots must come out bit-identical.
+const rgpPowerOfTwo = fc.integer({ min: -12, max: 12 }).map(k => Math.pow(2, k));
+
+// The multiplicity of each distinct root, which decides whether the solver
+// reports it: p(x) changes sign only at a root of odd multiplicity.
+function multiplicities(rs: readonly number[]): Map<number, number> {
+    const counts = new Map<number, number>();
+    for (const r of rs) { counts.set(r, (counts.get(r) ?? 0) + 1); }
+    return counts;
+}
+
+function oddMultiplicityRoots(rs: readonly number[]): [number, number][] {
+    return [...multiplicities(rs).entries()].filter(([, m]) => m % 2 === 1)
+        .sort((a, b) => a[0] - b[0]);
+}
+
+// Bisection on a floating-point evaluation of p resolves a root of
+// multiplicity m only to about eps^(1/m), because |p(x)| ~ |x - r|^m there.
+function rootTolerance(m: number): number {
+    return m === 1 ? 1e-9 : (m === 2 ? 1e-6 : 1e-4);
+}
+
+describe('RootsGeneralPolynomial verification', () => {
+    it('reports every root of odd multiplicity and nothing that is not a root', () => {
+        check(fc.tuple(fc.array(rgpLattice, { minLength: 1, maxLength: 4 }), rgpLead),
+            ([rs, lead]) => {
+                const p = fromRoots(rs).map(v => v * lead);
+                const roots = RootsGeneralPolynomial.solve(p);
+                const distinct = [...new Set(rs)].sort((a, b) => a - b);
+                // p(x) changes sign at a root of odd multiplicity, so the
+                // bisection always brackets it.
+                for (const [e, m] of oddMultiplicityRoots(rs)) {
+                    const err = Math.min(...roots.map(f => Math.abs(f - e)),
+                        Number.POSITIVE_INFINITY);
+                    expect(err)
+                        .toBeLessThanOrEqual(rootTolerance(m) * (1 + Math.abs(e)));
+                }
+                // A root of even multiplicity is reported only when a
+                // derivative root lands on it exactly (the rational value of
+                // p there is then exactly zero); it is never invented.
+                const mult = multiplicities(rs);
+                for (const f of roots) {
+                    const err = Math.min(...distinct.map(e =>
+                        Math.abs(f - e) / (rootTolerance(mult.get(e) ?? 1)
+                            * (1 + Math.abs(e)))));
+                    expect(err).toBeLessThanOrEqual(1);
+                }
+                expect(roots.length).toBeLessThanOrEqual(distinct.length);
+                // The roots are pushed in order of the bracketing intervals,
+                // so the output is sorted. Rounding can make two adjacent
+                // intervals report the same double, so the order is not
+                // strict.
+                for (let i = 1; i < roots.length; ++i) {
+                    expect(roots[i - 1] <= roots[i]).toBe(true);
+                }
+            }, 100);
+    });
+
+    it('reports an even-multiplicity root only via an exact derivative root', () => {
+        // (x - 5)^2: the derivative is linear, so the recursion's base case
+        // gives the derivative root exactly and p is exactly zero there.
+        expect(RootsGeneralPolynomial.solve(fromRoots([5, 5]))).toEqual([5]);
+        // (x + 3)(x + 2)^2: the derivative is a quadratic solved by bisection,
+        // so its root near -2 is off by an ulp and the double root is missed.
+        const roots = RootsGeneralPolynomial.solve(fromRoots([-3, -2, -2]));
+        expect(roots.length).toBe(1);
+        expect(roots[0]).toBeCloseTo(-3, 9);
+    });
+
+    it('ignores a complex-conjugate pair of factors', () => {
+        check(fc.tuple(fc.uniqueArray(rgpLattice, { minLength: 1, maxLength: 3 }),
+            fc.integer({ min: -3, max: 3 }), fc.integer({ min: 1, max: 8 }), rgpLead)
+            .filter(([, b, c]) => b * b - 4 * c < 0),
+            ([rs, b, c, lead]) => {
+                const p = timesQuadratic(fromRoots(rs), b, c).map(v => v * lead);
+                const roots = RootsGeneralPolynomial.solve(p);
+                const expected = [...rs].sort((x, y) => x - y);
+                expect(roots.length).toBe(expected.length);
+                for (let i = 0; i < roots.length; ++i) {
+                    expect(Math.abs(roots[i] - expected[i]))
+                        .toBeLessThanOrEqual(1e-9 * (1 + Math.abs(expected[i])));
+                }
+            }, 100);
+    });
+
+    it('is invariant under exact (power-of-two) scaling of the coefficients', () => {
+        check(fc.tuple(fc.array(rgpLattice, { minLength: 2, maxLength: 4 }), rgpLead,
+            rgpPowerOfTwo),
+            ([rs, lead, scale]) => {
+                const p = fromRoots(rs).map(v => v * lead);
+                const base = RootsGeneralPolynomial.solve(p);
+                const scaled = RootsGeneralPolynomial.solve(p.map(v => v * scale));
+                expect(scaled.length).toBe(base.length);
+                for (let i = 0; i < base.length; ++i) {
+                    // The monic normalization divides by the leading
+                    // coefficient in exact rational arithmetic, so the whole
+                    // recursion sees an identical polynomial.
+                    expect(scaled[i] === base[i]).toBe(true);
+                }
+            }, 100);
+    });
+
+    it('trims high-order zero coefficients without changing the answer', () => {
+        // Upstream sizes the rational coefficient array from p.size() but
+        // fills only degree+1 entries, so a zero-padded input is solved as a
+        // polynomial whose leading coefficient is zero -- contradicting the
+        // monic normalization that the Cauchy bound and the recursion assume
+        // (gtengine-js issue #319). The port allocates degree+1 entries.
+        check(fc.tuple(fc.array(rgpLattice, { minLength: 1, maxLength: 4 }), rgpLead,
+            fc.integer({ min: 1, max: 3 })),
+            ([rs, lead, pad]) => {
+                const p = fromRoots(rs).map(v => v * lead);
+                const padded = [...p, ...new Array<number>(pad).fill(0)];
+                const base = RootsGeneralPolynomial.solve(p);
+                const withPad = RootsGeneralPolynomial.solve(padded);
+                expect(withPad.length).toBe(base.length);
+                for (let i = 0; i < base.length; ++i) {
+                    expect(withPad[i] === base[i]).toBe(true);
+                }
+            }, 100);
+    });
+
+    it('handles the degenerate inputs exactly as upstream documents', () => {
+        check(fc.tuple(wellScaled(-5, 5), wellScaled(-5, 5)), ([a, b]) => {
+            // Order 0 and order 1 are constants: no roots, even for zero.
+            expect(RootsGeneralPolynomial.solve([])).toEqual([]);
+            expect(RootsGeneralPolynomial.solve([a])).toEqual([]);
+            expect(RootsGeneralPolynomial.solve([a, 0, 0])).toEqual([]);
+            if (b !== 0) {
+                // Degree 1 is answered directly, without the recursion.
+                expect(RootsGeneralPolynomial.solve([a, b])).toEqual([-a / b]);
+                expect(RootsGeneralPolynomial.solve([a, b, 0, 0]))
+                    .toEqual([-a / b]);
+            }
+        });
+    });
+
+    it('leaves a small backward error at every reported root', () => {
+        check(fc.tuple(nonzero(-4, 4, 0.1), nonzero(-4, 4, 0.1), nonzero(-4, 4, 0.1),
+            nonzero(-4, 4, 0.5)),
+            (p) => {
+                const dp = [p[1], 2 * p[2], 3 * p[3]];
+                for (const x of RootsGeneralPolynomial.solve([...p])) {
+                    expect(Number.isFinite(x)).toBe(true);
+                    const slope = Math.abs(evaluate(dp, x));
+                    if (slope > 1e-2) {
+                        expect(Math.abs(evaluate([...p], x)) / slope)
+                            .toBeLessThan(1e-9);
+                    }
+                }
+            });
+    });
+
+    it('agrees with the exactly classified RootsCubic and RootsQuartic', () => {
+        check(fc.tuple(fc.array(rgpLattice, { minLength: 3, maxLength: 4 }), rgpLead),
+            ([rs, lead]) => {
+                const p = fromRoots(rs).map(v => v * lead);
+                const general = RootsGeneralPolynomial.solve(p);
+                const exact = rs.length === 3
+                    ? RootsCubic.solve(true, p[0], p[1], p[2], p[3])
+                    : RootsQuartic.solve(true, p[0], p[1], p[2], p[3], p[4]);
+                // The closed-form solvers report every distinct real root with
+                // its multiplicity; the general solver reports only the ones
+                // of odd multiplicity. So the general roots are a subset.
+                for (const r of exact.filter(r => r.m % 2 === 1)) {
+                    const err = Math.min(...general.map(f => Math.abs(f - r.x)),
+                        Number.POSITIVE_INFINITY);
+                    expect(err).toBeLessThanOrEqual(
+                        rootTolerance(r.m) * (1 + Math.abs(r.x)));
+                }
+                for (const f of general) {
+                    const err = Math.min(...exact.map(r => Math.abs(f - r.x)
+                        / (rootTolerance(r.m) * (1 + Math.abs(r.x)))),
+                        Number.POSITIVE_INFINITY);
+                    expect(err).toBeLessThanOrEqual(1);
+                }
+                expect(general.length).toBeLessThanOrEqual(exact.length);
+            }, 100);
+    });
+
+    it('matches the rational entry point on representable coefficients', () => {
+        check(fc.tuple(fc.array(rgpLattice, { minLength: 1, maxLength: 4 }), rgpLead),
+            ([rs, lead]) => {
+                const p = fromRoots(rs).map(v => v * lead);
+                const fp = RootsGeneralPolynomial.solve(p);
+                const rational = RootsGeneralPolynomial.solveRational(
+                    p.map(v => BSRational.fromNumber(v)));
+                expect(rational.length).toBe(fp.length);
+                for (let i = 0; i < fp.length; ++i) {
+                    // solve() is solveRational() followed by one rounding of
+                    // each root to a double.
+                    expect(rational[i].toNumber() === fp[i]).toBe(true);
+                }
+            }, 60);
+    });
+
+    it('ignores the useThreading flag', () => {
+        check(fc.tuple(fc.array(rgpLattice, { minLength: 2, maxLength: 4 }), rgpLead),
+            ([rs, lead]) => {
+                const p = fromRoots(rs).map(v => v * lead);
+                // Upstream's threaded branch pushes the subinterval roots in
+                // the same order as the sequential branch, so the flag cannot
+                // change the answer; the port is single-threaded either way.
+                expect(RootsGeneralPolynomial.solve(p, true))
+                    .toEqual(RootsGeneralPolynomial.solve(p, false));
+            }, 60);
     });
 });
