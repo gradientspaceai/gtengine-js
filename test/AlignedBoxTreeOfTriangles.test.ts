@@ -7,7 +7,11 @@ import {
 } from '../src/BVTreeOfTriangles.js';
 import type { LinearTriangleResult } from '../src/BVTreeOfTriangles.js';
 import { Triangle } from '../src/Triangle.js';
-import { Vector } from '../src/Vector.js';
+import { Vector, add, length, mul, sub } from '../src/Vector.js';
+import { cross } from '../src/Vector3.js';
+import {
+    check, fc, finite, latticeVector, unitVector, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -391,5 +395,157 @@ describe('AlignedBoxTreeOfTriangles queries', () => {
         expect(tree.leafIndices(BVTree.LINE_QUERY, P, v3(1, 0, 0)).length).toBe(0);
         expect(tree.execute(BVTree.LINE_QUERY, P, v3(1, 0, 0)).intersections.length)
             .toBe(0);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// V43 verification: the tree invariants (tight boxes over triangle vertices,
+// nested boxes, partitioned ranges) and execute() against brute force.
+// ---------------------------------------------------------------------------
+
+function reachableNodes(tree: TestableTree): number[] {
+    const nodes = tree.getNodes();
+    const out: number[] = [];
+    const visit = (nodeIndex: number): void => {
+        out.push(nodeIndex);
+        const node = nodes[nodeIndex];
+        if (node.leftChild !== BVTreeNode.invalid &&
+            node.rightChild !== BVTreeNode.invalid) {
+            visit(node.leftChild);
+            visit(node.rightChild);
+        }
+    };
+    visit(0);
+    return out;
+}
+
+describe('AlignedBoxTreeOfTriangles verification', () => {
+    // Integer vertices keep the tight bounds exactly representable.
+    const meshArb = fc.array(latticeVector(3, -8, 8),
+        { minLength: 3, maxLength: 14 }).chain(vertices =>
+            fc.tuple(fc.constant(vertices),
+                fc.array(fc.tuple(fc.nat(), fc.nat(), fc.nat()),
+                    { minLength: 1, maxLength: 14 })))
+        .map(([vertices, raw]) => {
+            const n = vertices.length;
+            const triangles: Tri[] = raw.map(([a, b, c]) => {
+                const i0 = a % n;
+                const i1 = (i0 + 1 + (b % (n - 1))) % n;
+                let i2 = c % n;
+                if (i2 === i0 || i2 === i1) {
+                    i2 = (i1 + 1 + (c % (n - 1))) % n;
+                    if (i2 === i0) {
+                        i2 = (i2 + 1) % n;
+                    }
+                }
+                return [i0, i1, i2] as Tri;
+            });
+            return { vertices: vertices, triangles: triangles } as Mesh;
+        });
+
+    const queryArb = fc.tuple(fc.integer({ min: 0, max: 2 }),
+        wellScaledVector(3, -12, 12), unitVector(3), finite(1, 25));
+
+    it('gives every reachable node the tight box of its range', () => {
+        check(fc.tuple(meshArb, fc.option(fc.integer({ min: 0, max: 4 }),
+            { nil: undefined })), ([mesh, height]) => {
+            const tree = buildTree(mesh, height);
+            const nodes = tree.getNodes();
+            const partition = tree.getPartition();
+            for (const nodeIndex of reachableNodes(tree)) {
+                const node = nodes[nodeIndex];
+                const range: number[] = [];
+                for (let i = node.minIndex; i <= node.maxIndex; ++i) {
+                    range.push(partition[i]);
+                }
+                expect(range.length).toBeGreaterThan(0);
+                const bounds = tightBounds(mesh, range);
+                expect([...node.boundingVolume.box.min.values])
+                    .toEqual(bounds.min);
+                expect([...node.boundingVolume.box.max.values])
+                    .toEqual(bounds.max);
+            }
+        }, 100);
+    });
+
+    it('partitions the triangles across the children of every node', () => {
+        check(meshArb, mesh => {
+            const tree = buildTree(mesh);
+            const nodes = tree.getNodes();
+            for (const nodeIndex of reachableNodes(tree)) {
+                const node = nodes[nodeIndex];
+                if (node.leftChild === BVTreeNode.invalid) {
+                    continue;
+                }
+                const left = nodes[node.leftChild];
+                const right = nodes[node.rightChild];
+                expect(left.minIndex).toBe(node.minIndex);
+                expect(right.maxIndex).toBe(node.maxIndex);
+                expect(right.minIndex).toBe(left.maxIndex + 1);
+                for (const child of [left, right]) {
+                    for (let k = 0; k < 3; ++k) {
+                        expect(child.boundingVolume.box.min.get(k))
+                            .toBeGreaterThanOrEqual(
+                                node.boundingVolume.box.min.get(k));
+                        expect(child.boundingVolume.box.max.get(k))
+                            .toBeLessThanOrEqual(
+                                node.boundingVolume.box.max.get(k));
+                    }
+                }
+            }
+            expect([...tree.getPartition()].sort((a, b) => a - b))
+                .toEqual(mesh.triangles.map((_, i) => i));
+        }, 100);
+    });
+
+    it('execute finds exactly the brute-force intersections', () => {
+        // A truly intersected triangle lies inside every ancestor box, so the
+        // linear component meets those boxes and the leaf is always reached;
+        // execute() then tests the triangle itself, so the result is exactly
+        // the brute-force set (no false positives, no misses).
+        check(fc.tuple(meshArb, queryArb),
+            ([mesh, [queryType, P, D, len]]) => {
+                const tree = buildTree(mesh);
+                const Q = (queryType === BVTree.SEGMENT_QUERY
+                    ? add(P, mul(D, len)) : D);
+                const result = tree.execute(queryType, P, Q);
+                const expected = bruteForceExecute(mesh, queryType, P, Q);
+                expect(result.intersections.map(h => h.triangleIndex))
+                    .toEqual(expected.map(h => h.triangleIndex));
+                for (let i = 0; i < expected.length; ++i) {
+                    expect(result.intersections[i].parameter)
+                        .toBe(expected[i].parameter);
+                }
+                // The reported node indices are leaves, in depth-first order,
+                // and match the recursive reference.
+                expect(result.nodeIndices).toEqual(
+                    referenceLeaves(tree, queryType, P, Q));
+            }, 100);
+    });
+
+    it('reports intersections sorted by the linear parameter', () => {
+        check(fc.tuple(meshArb, queryArb),
+            ([mesh, [queryType, P, D, len]]) => {
+                const tree = buildTree(mesh);
+                const Q = (queryType === BVTree.SEGMENT_QUERY
+                    ? add(P, mul(D, len)) : D);
+                const { intersections } = tree.execute(queryType, P, Q);
+                for (let i = 1; i < intersections.length; ++i) {
+                    expect(intersections[i - 1].parameter)
+                        .toBeLessThanOrEqual(intersections[i].parameter);
+                }
+                // Each reported point lies on the line carrying the query.
+                // (The segment query reports its parameter in the centered
+                // form C + s*D, see docs/API.md, so the point is checked
+                // geometrically rather than through the parameter.)
+                const dir = (queryType === BVTree.SEGMENT_QUERY
+                    ? sub(Q, P) : Q);
+                for (const hit of intersections) {
+                    const offset = sub(hit.point, P);
+                    const perp = cross(offset, dir);
+                    const scale = (1 + length(offset)) * (1 + length(dir));
+                    expect(length(perp)).toBeLessThanOrEqual(1e-9 * scale);
+                }
+            }, 100);
     });
 });

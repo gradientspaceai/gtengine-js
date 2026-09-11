@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { AlignedBoxTreeOfPoints } from '../src/AlignedBoxTreeOfPoints.js';
 import { AlignedBoxBV } from '../src/AlignedBoxBV.js';
 import { BVTree, BVTreeNode } from '../src/BVTree.js';
-import { Vector } from '../src/Vector.js';
+import { Vector, add, mul } from '../src/Vector.js';
+import {
+    check, fc, finite, latticeVector, unitVector, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -321,5 +324,151 @@ describe('AlignedBoxTreeOfPoints queries', () => {
         const Q = v3(1, 0, 0);
         expect(tree.execute(BVTree.LINE_QUERY, P, Q))
             .toEqual(tree.leafIndices(BVTree.LINE_QUERY, P, Q));
+    });
+});
+
+// ---------------------------------------------------------------------------
+// V43 verification: the tree invariants (tight boxes, nested boxes,
+// partitioned ranges) and the stack-based traversal against a recursive one.
+// ---------------------------------------------------------------------------
+
+// The indices of the nodes reachable from the root, following only valid
+// children (unreachable preallocated nodes keep their default state).
+function reachableNodes(tree: TestableTree): number[] {
+    const nodes = tree.getNodes();
+    const out: number[] = [];
+    const visit = (nodeIndex: number): void => {
+        out.push(nodeIndex);
+        const node = nodes[nodeIndex];
+        if (node.leftChild !== BVTreeNode.invalid &&
+            node.rightChild !== BVTreeNode.invalid) {
+            visit(node.leftChild);
+            visit(node.rightChild);
+        }
+    };
+    visit(0);
+    return out;
+}
+
+describe('AlignedBoxTreeOfPoints verification', () => {
+    // Integer coordinates: the tight bounds are then exactly representable,
+    // so the box comparisons need no tolerance.
+    const pointsArb = fc.array(latticeVector(3, -8, 8),
+        { minLength: 1, maxLength: 20 });
+
+    const queryArb = fc.tuple(fc.integer({ min: 0, max: 2 }),
+        wellScaledVector(3, -12, 12), unitVector(3), finite(1, 25));
+
+    it('gives every reachable node the tight box of its range', () => {
+        check(fc.tuple(pointsArb, fc.option(fc.integer({ min: 0, max: 4 }),
+            { nil: undefined })), ([points, height]) => {
+            const tree = buildTree(points, height);
+            const nodes = tree.getNodes();
+            const partition = tree.getPartition();
+            for (const nodeIndex of reachableNodes(tree)) {
+                const node = nodes[nodeIndex];
+                const range: number[] = [];
+                for (let i = node.minIndex; i <= node.maxIndex; ++i) {
+                    range.push(partition[i]);
+                }
+                expect(range.length).toBeGreaterThan(0);
+                const bounds = tightBounds(points, range);
+                expect([...node.boundingVolume.box.min.values])
+                    .toEqual(bounds.min);
+                expect([...node.boundingVolume.box.max.values])
+                    .toEqual(bounds.max);
+            }
+        }, 100);
+    });
+
+    it('partitions the primitives across the children of every node', () => {
+        check(pointsArb, points => {
+            const tree = buildTree(points);
+            const nodes = tree.getNodes();
+            for (const nodeIndex of reachableNodes(tree)) {
+                const node = nodes[nodeIndex];
+                if (node.leftChild === BVTreeNode.invalid) {
+                    continue;
+                }
+                const left = nodes[node.leftChild];
+                const right = nodes[node.rightChild];
+                // The two child ranges tile the parent range with no gap and
+                // no overlap, and the sizes differ by at most one.
+                expect(left.minIndex).toBe(node.minIndex);
+                expect(right.maxIndex).toBe(node.maxIndex);
+                expect(right.minIndex).toBe(left.maxIndex + 1);
+                const nLeft = left.maxIndex - left.minIndex + 1;
+                const nRight = right.maxIndex - right.minIndex + 1;
+                expect(Math.abs(nLeft - nRight)).toBeLessThanOrEqual(1);
+
+                // The child boxes are inside the parent box.
+                for (const child of [left, right]) {
+                    for (let k = 0; k < 3; ++k) {
+                        expect(child.boundingVolume.box.min.get(k))
+                            .toBeGreaterThanOrEqual(
+                                node.boundingVolume.box.min.get(k));
+                        expect(child.boundingVolume.box.max.get(k))
+                            .toBeLessThanOrEqual(
+                                node.boundingVolume.box.max.get(k));
+                    }
+                }
+            }
+            // The partition is a permutation of the primitive indices.
+            expect([...tree.getPartition()].sort((a, b) => a - b))
+                .toEqual(points.map((_, i) => i));
+        }, 100);
+    });
+
+    it('matches a recursive traversal and covers every primitive', () => {
+        check(fc.tuple(pointsArb, queryArb),
+            ([points, [queryType, P, D, len]]) => {
+                const tree = buildTree(points);
+                const Q = (queryType === BVTree.SEGMENT_QUERY
+                    ? add(P, mul(D, len)) : D);
+                const reported = tree.execute(queryType, P, Q);
+                expect(reported).toEqual(
+                    referenceLeaves(tree, queryType, P, Q));
+
+                // No leaf is reported twice, and every reported node is a
+                // leaf of the tree.
+                expect(new Set(reported).size).toBe(reported.length);
+                const nodes = tree.getNodes();
+                for (const nodeIndex of reported) {
+                    expect(nodes[nodeIndex].leftChild)
+                        .toBe(BVTreeNode.invalid);
+                    expect(nodes[nodeIndex].rightChild)
+                        .toBe(BVTreeNode.invalid);
+                }
+            }, 100);
+    });
+
+    it('finds every point whose box the linear component meets', () => {
+        // The reported leaves are a superset of the truly hit leaves, because
+        // BVTree::GetLeafIndices never tests a leaf's own bounding volume
+        // (upstream quirk, preserved). Check the superset relation against a
+        // brute-force scan of the leaf boxes.
+        check(fc.tuple(pointsArb, queryArb),
+            ([points, [queryType, P, D, len]]) => {
+                const tree = buildTree(points);
+                const Q = (queryType === BVTree.SEGMENT_QUERY
+                    ? add(P, mul(D, len)) : D);
+                const reported = new Set(tree.execute(queryType, P, Q));
+                const nodes = tree.getNodes();
+                for (const nodeIndex of reachableNodes(tree)) {
+                    const node = nodes[nodeIndex];
+                    if (node.leftChild !== BVTreeNode.invalid) {
+                        continue;
+                    }
+                    const bv = node.boundingVolume;
+                    const hit = queryType === BVTree.LINE_QUERY
+                        ? AlignedBoxBV.intersectLine(P, Q, bv)
+                        : (queryType === BVTree.RAY_QUERY
+                            ? AlignedBoxBV.intersectRay(P, Q, bv)
+                            : AlignedBoxBV.intersectSegment(P, Q, bv));
+                    if (hit) {
+                        expect(reported.has(nodeIndex)).toBe(true);
+                    }
+                }
+            }, 100);
     });
 });
