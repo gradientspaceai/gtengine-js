@@ -537,7 +537,9 @@ describe('SplitMeshByPlane verification', () => {
                 result.clipVertices.map(coords));
         }, 150);
         expect(trials - skipped).toBeGreaterThan(140);
-        expect(actuallySplit).toBeGreaterThan(40);
+        // Non-vacuity only: the split fraction of random planes varies with
+        // the seed (observed as low as 34 of 150), so the bound is loose.
+        expect(actuallySplit).toBeGreaterThan(20);
     }, 30000);
 
     it('sends a mesh that misses the plane entirely to one side', () => {
