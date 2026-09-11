@@ -3,8 +3,9 @@ import { Hyperplane } from '../src/Hyperplane.js';
 import { Vector, dot, sub, add, mul, normalize, length } from '../src/Vector.js';
 import { cross } from '../src/Vector3.js';
 import {
-    check, expectClose, expectVectorClose, fc, invertibleMatrix, unitVector,
-    wellScaled, wellScaledVector
+    check, compareKeys, expectClose, expectStrictWeakOrder,
+    expectVectorClose, fc, invertibleMatrix, unitVector, wellScaled,
+    wellScaledVector
 } from './helpers/arbitraries.js';
 
 function makeRandom(seed: number): () => number {
@@ -403,5 +404,21 @@ describe('Hyperplane verification', () => {
             expect(a.lessThanOrEqual(b)).toBe(!gt);
             expect(a.greaterThanOrEqual(b)).toBe(!lt);
         });
+    });
+
+    it('orders by the upstream member sequence, a strict weak ordering', () => {
+        const key = (h: Hyperplane): number[] =>
+            [...h.normal.values, ...h.origin.values, h.constant];
+        const small = fc.tuple(fc.integer({ min: -1, max: 1 }),
+            fc.integer({ min: -1, max: 1 }))
+            .map(([d, c]) => Hyperplane.fromNormalConstant(
+                Vector.fromArray([d, 0, 1 - Math.abs(d)]), c));
+        check(fc.tuple(small, small), ([a, b]) => {
+            expect(a.lessThan(b)).toBe(compareKeys(key(a), key(b)) < 0);
+            expect(a.equals(b)).toBe(compareKeys(key(a), key(b)) === 0);
+        });
+        check(fc.array(small, { minLength: 3, maxLength: 5 }), items => {
+            expectStrictWeakOrder(items, (x, y) => x.lessThan(y));
+        }, 50);
     });
 });

@@ -5,7 +5,8 @@ import { Ray } from '../src/Ray.js';
 import { Vector, add, dot, mul, normalize, sub } from '../src/Vector.js';
 import { computeOrthogonalComplement3 } from '../src/Vector3.js';
 import {
-    check, expectClose, fc, finite, unitVector, wellScaledVector
+    check, compareKeys, expectClose, expectStrictWeakOrder, fc, finite,
+    unitVector, wellScaledVector
 } from './helpers/arbitraries.js';
 
 function V(x: number, y: number, z: number): Vector {
@@ -640,5 +641,25 @@ describe('Cone verification', () => {
                 expect(() => cone.createMesh(8, true))
                     .toThrow('Meshes can be generated only for finite cones.');
             });
+    });
+
+    it('orders by the upstream member sequence, a strict weak ordering', () => {
+        // Upstream chains ray < angle < minHeight < maxHeight, and Ray's own
+        // operator< chains origin < direction.
+        const key = (c: Cone): number[] => [
+            ...c.ray.origin.values, ...c.ray.direction.values,
+            c.angle, c.getMinHeight(), c.getMaxHeight()];
+        const small = fc.tuple(fc.integer({ min: -1, max: 1 }),
+            fc.integer({ min: 0, max: 2 }), fc.integer({ min: 0, max: 1 }))
+            .map(([o, d, h]) => Cone.fromRayAngleMinHeight(
+                Ray.fromOriginDirection(Vector.fromArray([o, 0, 0]),
+                    Vector.unit(3, d)), GTE_C_QUARTER_PI, h));
+        check(fc.tuple(small, small), ([a, b]) => {
+            expect(a.lessThan(b)).toBe(compareKeys(key(a), key(b)) < 0);
+            expect(a.equals(b)).toBe(compareKeys(key(a), key(b)) === 0);
+        });
+        check(fc.array(small, { minLength: 3, maxLength: 5 }), items => {
+            expectStrictWeakOrder(items, (x, y) => x.lessThan(y));
+        }, 50);
     });
 });

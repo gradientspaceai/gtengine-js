@@ -3,8 +3,8 @@ import { Tetrahedron3 } from '../src/Tetrahedron3.js';
 import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
 import { cross, dotCross, unitCross } from '../src/Vector3.js';
 import {
-    check, expectClose, expectVectorClose, fc, invertibleMatrix,
-    wellScaledVector
+    check, compareKeys, expectClose, expectStrictWeakOrder,
+    expectVectorClose, fc, invertibleMatrix, wellScaledVector
 } from './helpers/arbitraries.js';
 
 function V(x: number, y: number, z: number): Vector {
@@ -496,5 +496,24 @@ describe('Tetrahedron3 verification', () => {
         expect(() => Tetrahedron3.getEdgeIndices(6)).toThrow('Invalid edge.');
         expect(() => Tetrahedron3.getVertexAugmented(4))
             .toThrow('Invalid vertex.');
+    });
+
+    it('orders by the vertex array, a strict weak ordering', () => {
+        const key = (t: Tetrahedron3): number[] =>
+            t.v.flatMap(x => [...x.values]);
+        const small = fc.array(fc.integer({ min: -1, max: 1 }),
+            { minLength: 4, maxLength: 4 })
+            .map(a => Tetrahedron3.fromVertices(
+                Vector.fromArray([a[0], 0, 0]),
+                Vector.fromArray([1, a[1], 0]),
+                Vector.fromArray([0, 1, a[2]]),
+                Vector.fromArray([a[3], 0, 1])));
+        check(fc.tuple(small, small), ([a, b]) => {
+            expect(a.lessThan(b)).toBe(compareKeys(key(a), key(b)) < 0);
+            expect(a.equals(b)).toBe(compareKeys(key(a), key(b)) === 0);
+        });
+        check(fc.array(small, { minLength: 3, maxLength: 5 }), items => {
+            expectStrictWeakOrder(items, (x, y) => x.lessThan(y));
+        }, 50);
     });
 });

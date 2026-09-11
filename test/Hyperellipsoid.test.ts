@@ -7,8 +7,9 @@ import {
 } from '../src/Matrix.js';
 import { Vector, dot, sub, add, mul, normalize } from '../src/Vector.js';
 import {
-    check, expectClose, expectVectorClose, fc, finite, orthonormalFrame,
-    rotationFrame, unitVector, wellScaledVector
+    check, compareKeys, expectClose, expectStrictWeakOrder,
+    expectVectorClose, fc, finite, orthonormalFrame, rotationFrame,
+    unitVector, wellScaledVector
 } from './helpers/arbitraries.js';
 
 // A small deterministic pseudorandom generator (mulberry32) so the randomized
@@ -566,5 +567,30 @@ describe('Hyperellipsoid verification', () => {
                 expect(a.lessThanOrEqual(b)).toBe(!gt);
                 expect(a.greaterThanOrEqual(b)).toBe(!lt);
             });
+    });
+
+    it('orders by the upstream member sequence, a strict weak ordering', () => {
+        // Upstream chains center < axis < extent, and each member's own
+        // operator< is lexicographic, so the concatenated components are an
+        // equivalent sort key.
+        const key = (h: Hyperellipsoid): number[] => {
+            const out = [...h.center.values];
+            for (const u of h.axis) { out.push(...u.values); }
+            out.push(...h.extent.values);
+            return out;
+        };
+        const small = fc.tuple(fc.integer({ min: -1, max: 1 }),
+            fc.integer({ min: -1, max: 1 }), fc.integer({ min: 1, max: 2 }))
+            .map(([cx, cy, e]) => Hyperellipsoid.fromCenterAxisExtent(
+                Vector.fromArray([cx, cy]),
+                [Vector.fromArray([1, 0]), Vector.fromArray([0, 1])],
+                Vector.fromArray([e, e])));
+        check(fc.tuple(small, small), ([a, b]) => {
+            expect(a.lessThan(b)).toBe(compareKeys(key(a), key(b)) < 0);
+            expect(a.equals(b)).toBe(compareKeys(key(a), key(b)) === 0);
+        });
+        check(fc.array(small, { minLength: 3, maxLength: 5 }), items => {
+            expectStrictWeakOrder(items, (x, y) => x.lessThan(y));
+        }, 50);
     });
 });
