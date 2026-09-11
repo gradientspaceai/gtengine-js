@@ -440,7 +440,8 @@
   "verified": 23
  },
  "CubicRootsQR.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 44
  },
  "CurvatureFlow2.h": {
   "status": "ported",
@@ -1870,13 +1871,16 @@
   "verified": 17
  },
  "Polynomial1.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 44
  },
  "PolynomialCurve.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 44
  },
  "PolynomialRoot.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 44
  },
  "PrimalQuery2.h": {
   "status": "ported",
@@ -1898,7 +1902,8 @@
   "status": "ported"
  },
  "QuarticRootsQR.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 44
  },
  "Quaternion.h": {
   "status": "ported",
@@ -1949,36 +1954,46 @@
   "verified": 41
  },
  "RootsBisection.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 44
  },
  "RootsBisection1.h": {
   "status": "ported",
-  "note": "floating-point instantiation only; arbitrary-precision path deferred until BSNumber exists"
+  "note": "floating-point instantiation only; arbitrary-precision path deferred until BSNumber exists",
+  "verified": 44
  },
  "RootsBisection2.h": {
   "status": "ported",
-  "note": "floating-point instantiation only; arbitrary-precision path deferred until BSNumber-based numeric support"
+  "note": "floating-point instantiation only; arbitrary-precision path deferred until BSNumber-based numeric support",
+  "verified": 44
  },
  "RootsBrentsMethod.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 44
  },
  "RootsCubic.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 45
  },
  "RootsGeneralPolynomial.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 44
  },
  "RootsLinear.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 44
  },
  "RootsPolynomial.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 44
  },
  "RootsQuadratic.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 44
  },
  "RootsQuartic.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 45
  },
  "RotatingCalipers.h": {
   "status": "ported",
