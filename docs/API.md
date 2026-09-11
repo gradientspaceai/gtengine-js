@@ -89,6 +89,18 @@ class per query and names `operator()` by kind:
   higher-arity one is declared, so a colliding name binds silently to the
   wrong method. `Delaunay2Mesh`, `Delaunay3Mesh` and `PlanarMesh` implement
   the interfaces.
+- Root finders report different things under similar names. The closed-form
+  solvers (`RootsQuadratic`/`RootsCubic`/`RootsQuartic`, `RootsPolynomial`)
+  return distinct roots with multiplicities; `RootsGeneralPolynomial` returns
+  only sign-change roots, so even multiplicities are normally invisible; the
+  QR solvers (`CubicRootsQR`/`QuarticRootsQR`) return one entry per
+  eigenvalue with no multiplicity and can drop an even-multiplicity real root
+  whose discriminant rounds negative. `RootsPolynomial`'s classification uses
+  `number` where upstream uses a `Rational` template parameter, so a double
+  root can be reported as simple or a near-double pair as a double root
+  (this is the conditioning `IntrEllipse2Ellipse2` inherits).
+  `RootsBisection1`/`RootsBisection2` port only the floating-point
+  instantiation.
 - `TI` and `FI` are not always two halves of one predicate. For circles
   upstream's TI tests the solid disks (`|C0 - C1| <= r0 + r1`) while FI
   intersects the curves, so nested circles give TI `true` and FI
