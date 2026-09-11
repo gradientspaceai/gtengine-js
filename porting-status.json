@@ -20,16 +20,20 @@
   "verified": 42
  },
  "AlignedBoxBV.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 43
  },
  "AlignedBoxTreeOfPoints.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 43
  },
  "AlignedBoxTreeOfSegments.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 43
  },
  "AlignedBoxTreeOfTriangles.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 43
  },
  "APConversion.h": {
   "status": "ported",
@@ -317,7 +321,8 @@
   "verified": 17
  },
  "Cone.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 43
  },
  "ConformalMapGenus0.h": {
   "status": "ported"
@@ -972,10 +977,12 @@
   "verified": 24
  },
  "Hyperellipsoid.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 43
  },
  "Hyperplane.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 43
  },
  "Hypersphere.h": {
   "status": "ported",
@@ -1784,16 +1791,20 @@
   "verified": 42
  },
  "OrientedBoxBV.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 43
  },
  "OrientedBoxTreeOfPoints.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 43
  },
  "OrientedBoxTreeOfSegments.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 43
  },
  "OrientedBoxTreeOfTriangles.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 43
  },
  "Parallelepiped3.h": {
   "status": "ported",
@@ -1835,7 +1846,8 @@
   "verified": 37
  },
  "Polygon2.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 43
  },
  "PolygonTree.h": {
   "status": "ported",
@@ -1905,13 +1917,16 @@
   "verified": 42
  },
  "RectangleManager.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 43
  },
  "RectangleMesh.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 43
  },
  "RectanglePatchMesh.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 43
  },
  "RemezAlgorithm.h": {
   "status": "ported",
@@ -2094,7 +2109,8 @@
   "verified": 25
  },
  "Tetrahedron3.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 43
  },
  "TetrahedronKey.h": {
   "status": "ported",
