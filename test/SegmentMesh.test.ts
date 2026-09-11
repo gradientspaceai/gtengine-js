@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { SegmentMesh, SegmentMeshTopology } from '../src/SegmentMesh.js';
 import { Vector } from '../src/Vector.js';
+import { check, fc, vector } from './helpers/arbitraries.js';
 
 // A vertex pool V[i] = (i, 2*i) so a vertex is identifiable by its contents.
 function pool(count: number): Vector[] {
@@ -198,4 +199,109 @@ describe('SegmentMesh vertex dimension', () => {
         expect(() => SegmentMesh.fromContiguous(vertices, true))
             .toThrow('SegmentMesh: mismatched vertex dimensions.');
     });
+});
+
+describe('SegmentMesh verification', () => {
+    const poolArb = (min = 2, max = 9) =>
+        fc.array(vector(2), { minLength: min, maxLength: max });
+
+    it('DISJOINT builds floor(L/2) pairs S[i] = {2*i, 2*i+1}', () => {
+        check(poolArb(), vertices => {
+            const mesh = SegmentMesh.fromDisjoint(vertices);
+            const indices = mesh.getIndices();
+            expect(mesh.getTopology())
+                .toBe(SegmentMeshTopology.DISJOINT);
+            expect(indices.length).toBe(Math.floor(vertices.length / 2));
+            for (let i = 0; i < indices.length; ++i) {
+                expect(indices[i]).toEqual([2 * i, 2 * i + 1]);
+            }
+        });
+    });
+
+    it('CONTIGUOUS_OPEN builds L-1 pairs S[i] = {i, i+1}', () => {
+        check(poolArb(), vertices => {
+            const mesh = SegmentMesh.fromContiguous(vertices, true);
+            const indices = mesh.getIndices();
+            expect(indices.length).toBe(vertices.length - 1);
+            for (let i = 0; i < indices.length; ++i) {
+                expect(indices[i]).toEqual([i, i + 1]);
+            }
+        });
+    });
+
+    it('CONTIGUOUS_CLOSED stores the documented segment set, rotated', () => {
+        // Upstream quirk (issue #78): the enum documents S[i] = {i,(i+1)%L}
+        // but the loop stores S[i] = {i-1, i}, i.e. the wrap-around segment
+        // lands at index 0. The sets agree; the positions do not.
+        check(poolArb(), vertices => {
+            const L = vertices.length;
+            const indices = SegmentMesh.fromContiguous(vertices, false)
+                .getIndices();
+            expect(indices.length).toBe(L);
+            expect(indices[0]).toEqual([L - 1, 0]);
+            for (let i = 1; i < L; ++i) {
+                expect(indices[i]).toEqual([i - 1, i]);
+            }
+            const asSet = (ps: readonly (readonly number[])[]) =>
+                ps.map(p => `${p[0]},${p[1]}`).sort();
+            const documented: number[][] = [];
+            for (let i = 0; i < L; ++i) {
+                documented.push([i, (i + 1) % L]);
+            }
+            expect(asSet(indices)).toEqual(asSet(documented));
+        });
+    });
+
+    it('every generated index is a valid vertex index', () => {
+        check(poolArb(), vertices => {
+            for (const mesh of [SegmentMesh.fromDisjoint(vertices),
+                SegmentMesh.fromContiguous(vertices, true),
+                SegmentMesh.fromContiguous(vertices, false)]) {
+                for (const [i0, i1] of mesh.getIndices()) {
+                    expect(i0).toBeGreaterThanOrEqual(0);
+                    expect(i1).toBeGreaterThanOrEqual(0);
+                    expect(i0).toBeLessThan(vertices.length);
+                    expect(i1).toBeLessThan(vertices.length);
+                }
+            }
+        });
+    });
+
+    it('the vertex pool and the index pairs are copied', () => {
+        check(poolArb(4, 6), vertices => {
+            const pairs: [number, number][] = [[0, 1], [1, 2]];
+            const mesh = SegmentMesh.fromIndexed(vertices, pairs, true);
+            vertices[0].set(0, 999);
+            pairs[0][0] = 3;
+            expect(mesh.getVertices()[0].get(0)).not.toBe(999);
+            expect(mesh.getIndices()[0]).toEqual([0, 1]);
+        });
+    });
+
+    it('index validation rejects out-of-range and negative indices', () => {
+        // Upstream compares size_t indices against vertices.size(), so a
+        // negative index wraps to a huge value and is rejected. The port
+        // checks the lower bound explicitly to reject the same inputs.
+        const vertices = [Vector.fromArray([0, 0]), Vector.fromArray([1, 0]),
+            Vector.fromArray([0, 1])];
+        expect(() => SegmentMesh.fromIndexed(vertices, [[0, 3]], true))
+            .toThrow('Invalid index into vertex array.');
+        expect(() => SegmentMesh.fromIndexed(vertices, [[-1, 1]], true))
+            .toThrow('Invalid index into vertex array.');
+        expect(() => SegmentMesh.fromIndexed(vertices, [[0, -2]], true))
+            .toThrow('Invalid index into vertex array.');
+        // With validation disabled the constructor accepts anything, as
+        // upstream does.
+        expect(SegmentMesh.fromIndexed(vertices, [[0, 3]], false)
+            .getIndices().length).toBe(1);
+    });
+
+    it('the default mesh has no topology, vertices, indices or dimension',
+        () => {
+            const mesh = new SegmentMesh();
+            expect(mesh.getTopology()).toBe(SegmentMeshTopology.UNKNOWN);
+            expect(mesh.getVertices().length).toBe(0);
+            expect(mesh.getIndices().length).toBe(0);
+            expect(mesh.dimension).toBe(0);
+        });
 });

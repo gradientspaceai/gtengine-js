@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { Segment } from '../src/Segment.js';
 import { Vector, add, sub, mul, length } from '../src/Vector.js';
+import { check, compareKeys, expectClose, expectStrictWeakOrder, fc, positive,
+    segment, unitVector, vector } from './helpers/arbitraries.js';
 
 // Numeric equality that treats -0 and +0 as equal, as the C++ comparisons do.
 function expectVector(v: Vector, expected: readonly number[]): void {
@@ -144,5 +146,99 @@ describe('Segment comparisons', () => {
         const reversed = Segment.fromEndpoints(a.p[1], a.p[0]);
         expect(a.equals(reversed)).toBe(false);
         expect(a.lessThan(reversed)).toBe(true);
+    });
+});
+
+describe('Segment verification', () => {
+    const key = (s: Segment) => [...s.p[0].values, ...s.p[1].values];
+
+    it('getCenteredForm reports the exact half-length and the unit '
+        + 'direction', () => {
+            check(segment(3), s => {
+                const { center, direction, extent } = s.getCenteredForm();
+                // extent = 0.5 * Normalize(p1 - p0) uses the same
+                // sqrt(Dot(d,d)) as length(), so the value is bit-identical.
+                expect(extent).toBe(0.5 * length(sub(s.p[1], s.p[0])));
+                expectClose(length(direction), 1, 1e-12, 1e-12);
+                for (let i = 0; i < 3; ++i) {
+                    expectClose(center.get(i),
+                        0.5 * (s.p[0].get(i) + s.p[1].get(i)));
+                    // Endpoints recovered from the centered form (upstream
+                    // warns this is only accurate up to round-off).
+                    expectClose(center.get(i) - extent * direction.get(i),
+                        s.p[0].get(i), 1e-9, 1e-9);
+                    expectClose(center.get(i) + extent * direction.get(i),
+                        s.p[1].get(i), 1e-9, 1e-9);
+                }
+            });
+        });
+
+    it('setCenteredForm is the inverse of getCenteredForm', () => {
+        check(fc.tuple(vector(3), unitVector(3), positive(5)),
+            ([c, d, e]) => {
+                const s = Segment.fromCenteredForm(c, d, e);
+                const back = s.getCenteredForm();
+                expectClose(back.extent, e, 1e-9, 1e-9);
+                for (let i = 0; i < 3; ++i) {
+                    expectClose(back.center.get(i), c.get(i), 1e-9, 1e-9);
+                    expectClose(back.direction.get(i), d.get(i), 1e-9, 1e-9);
+                }
+            });
+    });
+
+    it('a degenerate segment has zero extent and a zero direction', () => {
+        // Upstream Normalize() sets the vector to zero when its length is
+        // zero, so the direction is (0,0,0) rather than NaN.
+        check(vector(3), p => {
+            const s = Segment.fromEndpoints(p, p);
+            const { direction, extent } = s.getCenteredForm();
+            expect(extent).toBe(0);
+            expect(direction.values.map(x => x + 0)).toEqual([0, 0, 0]);
+        });
+    });
+
+    it('the comparisons follow the lexicographic endpoint order', () => {
+        check(fc.tuple(segment(2), segment(2)), ([a, b]) => {
+            const c = compareKeys(key(a), key(b));
+            expect(a.lessThan(b)).toBe(c < 0);
+            expect(a.greaterThan(b)).toBe(c > 0);
+            expect(a.lessThanOrEqual(b)).toBe(c <= 0);
+            expect(a.greaterThanOrEqual(b)).toBe(c >= 0);
+            expect(a.equals(b)).toBe(c === 0);
+        });
+    });
+
+    it('lessThan is a strict weak ordering', () => {
+        check(fc.array(segment(2), { minLength: 4, maxLength: 6 }), ss => {
+            expectStrictWeakOrder(ss, (x, y) => x.lessThan(y));
+        }, 50);
+    });
+
+    it('equals is element equality: a NaN endpoint breaks self-equality',
+        () => {
+            // Regression: upstream operator== is 'p == segment.p', which is
+            // std::array's element-by-element == over Vector's ==. Comparing
+            // with the lexicographic ordering instead reports a NaN endpoint
+            // as equal to itself.
+            const s = Segment.fromEndpoints(Vector.fromArray([NaN, 0]),
+                Vector.fromArray([1, 1]));
+            expect(s.equals(s)).toBe(false);
+            expect(s.notEquals(s)).toBe(true);
+            expect(s.lessThan(s)).toBe(false);
+            expect(s.lessThanOrEqual(s)).toBe(true);
+        });
+
+    it('the factories and clone are independent of their inputs', () => {
+        check(fc.tuple(vector(3), vector(3)), ([p0, p1]) => {
+            const s = Segment.fromEndpoints(p0, p1);
+            const t = Segment.fromPointArray([p0, p1]);
+            const cloned = s.clone();
+            p0.set(0, 999);
+            p1.set(1, 888);
+            s.p[0].set(2, 777);
+            expect(s.p[0].get(0)).not.toBe(999);
+            expect(t.p[1].get(1)).not.toBe(888);
+            expect(cloned.p[0].get(2)).not.toBe(777);
+        });
     });
 });

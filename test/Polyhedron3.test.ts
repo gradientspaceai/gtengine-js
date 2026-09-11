@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { Polyhedron3 } from '../src/Polyhedron3.js';
-import { Vector } from '../src/Vector.js';
+import { Vector, add, sub, mul, length } from '../src/Vector.js';
+import { cross, dotCross } from '../src/Vector3.js';
+import { check, expectClose, fc, rotationFrame, vector }
+    from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -180,5 +183,124 @@ describe('Polyhedron3 geometric queries: the unit tetrahedron', () => {
 
     it('the volume is 1/6', () => {
         expect(poly.computeVolume()).toBeCloseTo(1 / 6, 12);
+    });
+});
+
+describe('Polyhedron3 verification', () => {
+    // A tetrahedron with a comfortably nonzero volume, as a vertex pool for
+    // the module-level tetraIndices faces (12 indices, the minimum).
+    const tetra = () => fc.tuple(vector(3, -4, 4), vector(3, -4, 4),
+        vector(3, -4, 4), vector(3, -4, 4))
+        .filter(vs => Math.abs(dotCross(sub(vs[1], vs[0]), sub(vs[2], vs[0]),
+            sub(vs[3], vs[0]))) > 1)
+        .map(vs => vs.map(v => v.clone()));
+
+    it('the volume of a tetrahedron is |DotCross(e0,e1,e2)|/6', () => {
+        check(tetra(), vs => {
+            const p = new Polyhedron3(vs, 12, tetraIndices, true);
+            expect(p.isValid()).toBe(true);
+            const expected = Math.abs(dotCross(sub(vs[1], vs[0]),
+                sub(vs[2], vs[0]), sub(vs[3], vs[0]))) / 6;
+            expectClose(p.computeVolume(), expected, 1e-9, 1e-9);
+        });
+    });
+
+    it('the surface area is the sum of the four triangle areas', () => {
+        check(tetra(), vs => {
+            const p = new Polyhedron3(vs, 12, tetraIndices, true);
+            let expected = 0;
+            for (let t = 0; t < 4; ++t) {
+                const a = vs[tetraIndices[3 * t]];
+                const b = vs[tetraIndices[3 * t + 1]];
+                const c = vs[tetraIndices[3 * t + 2]];
+                expected += 0.5 * length(cross(sub(b, a), sub(c, a)));
+            }
+            expectClose(p.computeSurfaceArea(), expected, 1e-9, 1e-9);
+        });
+    });
+
+    it('the volume and area of a closed mesh are rigid-motion invariant',
+        () => {
+            // ComputeVolume sums DotCross(V0,V1,V2) over the faces, which is
+            // the divergence-theorem formula: translation invariant only
+            // because the mesh is closed.
+            check(fc.tuple(tetra(), rotationFrame(3), vector(3, -20, 20)),
+                ([vs, frame, shift]) => {
+                    const p = new Polyhedron3(vs, 12, tetraIndices, true);
+                    const moved = vs.map(v => add(shift,
+                        add(mul(v.get(0), frame[0]),
+                            add(mul(v.get(1), frame[1]),
+                                mul(v.get(2), frame[2])))));
+                    const q = new Polyhedron3(moved, 12, tetraIndices, true);
+                    expectClose(q.computeVolume(), p.computeVolume(),
+                        1e-9, 1e-9);
+                    expectClose(q.computeSurfaceArea(),
+                        p.computeSurfaceArea(), 1e-9, 1e-9);
+                }, 100);
+        });
+
+    it('the vertex average uses the unique indices, not the whole pool', () => {
+        check(fc.tuple(tetra(), vector(3, -100, 100)), ([vs, unused]) => {
+            const pool = [...vs, unused];
+            const p = new Polyhedron3(pool, 12, tetraIndices, true);
+            const average = p.computeVertexAverage();
+            for (let d = 0; d < 3; ++d) {
+                expectClose(average.get(d), 0.25 * (vs[0].get(d)
+                    + vs[1].get(d) + vs[2].get(d) + vs[3].get(d)),
+                    1e-9, 1e-9);
+            }
+        });
+    });
+
+    it('the unique indices are ascending and duplicate free', () => {
+        check(fc.array(fc.integer({ min: 0, max: 5 }),
+            { minLength: 12, maxLength: 12 }).map(a => a.map(x => x)),
+            indices => {
+                const pool = [];
+                for (let i = 0; i < 6; ++i) {
+                    pool.push(Vector.fromArray([i, 0, 0]));
+                }
+                const p = new Polyhedron3(pool, 12, indices, true);
+                const unique = p.getUniqueIndices();
+                for (let i = 1; i < unique.length; ++i) {
+                    expect(unique[i]).toBeGreaterThan(unique[i - 1]);
+                }
+                expect(new Set(indices).size).toBe(unique.length);
+            });
+    });
+
+    it('the vertex pool is shared and the index array is copied', () => {
+        check(tetra(), vs => {
+            const indices = [...tetraIndices];
+            const p = new Polyhedron3(vs, 12, indices, true);
+            indices[0] = 3;
+            expect(p.getIndices()[0]).toBe(0);
+            // Upstream stores the shared_ptr, so pool edits are visible.
+            const before = p.computeVertexAverage().get(0);
+            vs[0].set(0, vs[0].get(0) + 4);
+            expectClose(p.computeVertexAverage().get(0), before + 1,
+                1e-9, 1e-9);
+        });
+    });
+
+    it('rejects index counts below 12 or not a multiple of 3', () => {
+        check(fc.integer({ min: 0, max: 20 }), numIndices => {
+            const pool = [];
+            for (let i = 0; i < 8; ++i) {
+                pool.push(Vector.fromArray([i, 0, 0]));
+            }
+            const indices = new Array<number>(24).fill(0);
+            const p = new Polyhedron3(pool, numIndices, indices, true);
+            expect(p.isValid())
+                .toBe(numIndices >= 12 && numIndices % 3 === 0);
+            if (!p.isValid()) {
+                expect(p.counterClockwise()).toBe(false);
+                expect(p.getIndices().length).toBe(0);
+                expect(p.getUniqueIndices().length).toBe(0);
+                expect(p.computeVolume()).toBe(0);
+                expect(p.computeSurfaceArea()).toBe(0);
+                expect(p.computeVertexAverage().values).toEqual([0, 0, 0]);
+            }
+        });
     });
 });

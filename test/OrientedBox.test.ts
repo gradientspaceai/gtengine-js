@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { OrientedBox } from '../src/OrientedBox.js';
 import { Vector, dot, sub } from '../src/Vector.js';
+import { check, compareKeys, expectClose, expectStrictWeakOrder, fc,
+    orientedBox } from './helpers/arbitraries.js';
 
 // Numeric equality that treats -0 and +0 as equal, as the C++ comparisons do.
 function expectVector(v: Vector, expected: readonly number[]): void {
@@ -145,5 +147,104 @@ describe('OrientedBox comparisons', () => {
         expect(a.greaterThan(sameAsA)).toBe(false);
         expect(d.greaterThan(a)).toBe(true);
         expect(d.greaterThanOrEqual(a)).toBe(true);
+    });
+});
+
+describe('OrientedBox verification', () => {
+    const key = (b: OrientedBox) => [...b.center.values,
+        ...b.axis.flatMap(a => [...a.values]), ...b.extent.values];
+
+    it('getVertices emits 2^N corners with sign[d] = 2*b[d] - 1', () => {
+        for (const n of [2, 3]) {
+            check(orientedBox(n), box => {
+                const vertex = box.getVertices();
+                expect(vertex.length).toBe(1 << n);
+                for (let i = 0; i < vertex.length; ++i) {
+                    // Recover the box coordinates of the corner; for an
+                    // orthonormal frame y[d] = Dot(U[d], V - C).
+                    const delta = sub(vertex[i], box.center);
+                    for (let d = 0; d < n; ++d) {
+                        const sign = ((i >> d) & 1) === 1 ? 1 : -1;
+                        expectClose(dot(box.axis[d], delta),
+                            sign * box.extent.get(d), 1e-12, 1e-12);
+                    }
+                }
+            }, 50);
+        }
+    });
+
+    it('opposite corners average to the center', () => {
+        check(orientedBox(3), box => {
+            const vertex = box.getVertices();
+            for (let i = 0; i < 8; ++i) {
+                const opposite = vertex[7 - i];
+                for (let d = 0; d < 3; ++d) {
+                    expectClose(0.5 * (vertex[i].get(d) + opposite.get(d)),
+                        box.center.get(d), 1e-12, 1e-12);
+                }
+            }
+        }, 50);
+    });
+
+    it('the comparisons follow the (center, axis, extent) member order',
+        () => {
+            check(fc.tuple(orientedBox(2), orientedBox(2)), ([a, b]) => {
+                const c = compareKeys(key(a), key(b));
+                expect(a.lessThan(b)).toBe(c < 0);
+                expect(a.greaterThan(b)).toBe(c > 0);
+                expect(a.lessThanOrEqual(b)).toBe(c <= 0);
+                expect(a.greaterThanOrEqual(b)).toBe(c >= 0);
+                expect(a.equals(b)).toBe(c === 0);
+            });
+        });
+
+    it('the axis array is compared before the extent', () => {
+        // Same center, axes differing in the first component of axis[0]: the
+        // axis comparison must decide the order, whatever the extents are.
+        const c = Vector.fromArray([0, 0]);
+        const lo = OrientedBox.fromCenterAxisExtent(c,
+            [Vector.fromArray([0, 1]), Vector.fromArray([-1, 0])],
+            Vector.fromArray([9, 9]));
+        const hi = OrientedBox.fromCenterAxisExtent(c,
+            [Vector.fromArray([1, 0]), Vector.fromArray([0, 1])],
+            Vector.fromArray([1, 1]));
+        expect(lo.lessThan(hi)).toBe(true);
+        expect(hi.lessThan(lo)).toBe(false);
+    });
+
+    it('lessThan is a strict weak ordering', () => {
+        check(fc.array(orientedBox(2), { minLength: 4, maxLength: 5 }),
+            boxes => {
+                expectStrictWeakOrder(boxes, (x, y) => x.lessThan(y));
+            }, 30);
+    });
+
+    it('equals is element equality: a NaN axis breaks self-equality', () => {
+        // Regression: upstream operator== is 'center == box.center &&
+        // axis == box.axis && extent == box.extent' where std::array's
+        // operator== applies Vector's element-by-element ==. Comparing the
+        // axes with the lexicographic ordering instead reports a NaN axis as
+        // equal to itself.
+        const box = OrientedBox.fromCenterAxisExtent(Vector.fromArray([0, 0]),
+            [Vector.fromArray([NaN, 0]), Vector.fromArray([0, 1])],
+            Vector.fromArray([1, 1]));
+        expect(box.equals(box)).toBe(false);
+        expect(box.notEquals(box)).toBe(true);
+        // The ordering operators are lexicographic and unaffected.
+        expect(box.lessThan(box)).toBe(false);
+        expect(box.lessThanOrEqual(box)).toBe(true);
+    });
+
+    it('fromCenterAxisExtent and clone copy every vector', () => {
+        check(orientedBox(3), box => {
+            const axis = box.axis.map(a => a.clone());
+            const copy = OrientedBox.fromCenterAxisExtent(box.center, axis,
+                box.extent);
+            const cloned = copy.clone();
+            axis[0].set(0, 999);
+            copy.axis[1].set(1, 888);
+            expect(copy.axis[0].get(0)).not.toBe(999);
+            expect(cloned.axis[1].get(1)).not.toBe(888);
+        }, 50);
     });
 });
