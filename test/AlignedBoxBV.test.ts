@@ -239,7 +239,21 @@ function robustSlab(box: AlignedBox, P: Vector, D: Vector, t0: number,
 }
 
 describe('AlignedBoxBV verification', () => {
+    // Any box, including degenerate ones, for the arithmetic properties.
     const bvArb = alignedBox(3, -5, 5).map(box => AlignedBoxBV.fromBox(box));
+
+    // A box with extents bounded away from zero, for the intersection
+    // properties. The SAT-based segment/box test treats measure-zero contact
+    // with a flat box as separation (see docs/API.md), and alignedBox() emits
+    // subnormal coordinates, so with a degenerate box "does the linear
+    // component meet the box" is ill-posed rather than wrong.
+    const fatBvArb = fc.tuple(wellScaledVector(3, -5, 5),
+        fc.array(finite(0.5, 4), { minLength: 3, maxLength: 3 }))
+        .map(([center, e]) => {
+            const extent = Vector.fromArray(e);
+            return AlignedBoxBV.fromBox(AlignedBox.fromMinMax(
+                sub(center, extent), add(center, extent)));
+        });
 
     it('splits through the center along the axis of largest extent', () => {
         check(bvArb, bv => {
@@ -270,7 +284,7 @@ describe('AlignedBoxBV verification', () => {
     });
 
     it('agrees with the slab clipper for lines, rays and segments', () => {
-        check(fc.tuple(bvArb, wellScaledVector(3, -8, 8), unitVector(3),
+        check(fc.tuple(fatBvArb, wellScaledVector(3, -8, 8), unitVector(3),
             finite(0.5, 12)), ([bv, P, D, len]) => {
             const Q = add(P, mul(D, len));
             const line = robustSlab(bv.box, P, D, -Infinity, Infinity);
@@ -291,7 +305,7 @@ describe('AlignedBoxBV verification', () => {
     });
 
     it('is monotone in segment, ray and line', () => {
-        check(fc.tuple(bvArb, wellScaledVector(3, -8, 8), unitVector(3),
+        check(fc.tuple(fatBvArb, wellScaledVector(3, -8, 8), unitVector(3),
             finite(0.5, 12)), ([bv, P, D, len]) => {
             const Q = add(P, mul(D, len));
             const seg = AlignedBoxBV.intersectSegment(P, Q, bv);
@@ -304,17 +318,6 @@ describe('AlignedBoxBV verification', () => {
     });
 
     it('hits when an endpoint is inside the box', () => {
-        // A box with extents bounded away from zero: the SAT-based segment
-        // and box tests treat measure-zero contact with a degenerate box as
-        // separation (see docs/API.md), so a flat box is not a fair test of
-        // "the endpoint is inside".
-        const fatBvArb = fc.tuple(wellScaledVector(3, -5, 5),
-            fc.array(finite(0.5, 4), { minLength: 3, maxLength: 3 }))
-            .map(([center, e]) => {
-                const extent = Vector.fromArray(e);
-                return AlignedBoxBV.fromBox(AlignedBox.fromMinMax(
-                    sub(center, extent), add(center, extent)));
-            });
         check(fc.tuple(fatBvArb, wellScaledVector(3, -0.9, 0.9),
             wellScaledVector(3, -8, 8)), ([bv, t, Q]) => {
             // A point strictly inside the box.
