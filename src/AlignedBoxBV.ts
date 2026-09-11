@@ -14,6 +14,9 @@
 // the unit-length direction; for a segment, P and Q are the endpoints.
 
 import { AlignedBox } from './AlignedBox.js';
+import type {
+    BVTreeBoundingVolume, BVTreeSplittingAxis
+} from './BVTree.js';
 import { IntrLine3AlignedBox3TI } from './IntrLine3AlignedBox3.js';
 import { IntrRay3AlignedBox3TI } from './IntrRay3AlignedBox3.js';
 import { IntrSegment3AlignedBox3TI } from './IntrSegment3AlignedBox3.js';
@@ -22,16 +25,17 @@ import { Ray } from './Ray.js';
 import { Segment } from './Segment.js';
 import { Vector, add, mul, sub } from './Vector.js';
 
-export class AlignedBoxBV {
+export class AlignedBoxBV implements BVTreeBoundingVolume {
     // Public member access.
     box: AlignedBox;
 
-    // The port of the default constructor, which value-initializes the box.
-    // The port's AlignedBox default constructor sets the minimum values to
-    // -1 and the maximum values to +1, so the box is set explicitly to the
-    // zero-initialized C++ state.
+    // The port of the default constructor. Upstream is 'box{}', which
+    // value-initializes an AlignedBox3<T>; because AlignedBox has a
+    // user-provided default constructor, value-initialization calls it and
+    // does not zero the members, so the default box is the one upstream
+    // documents: minimum values -1 and maximum values +1.
     constructor() {
-        this.box = AlignedBox.fromMinMax(new Vector(3), new Vector(3));
+        this.box = new AlignedBox(3);
     }
 
     // The port of 'AlignedBoxBV' constructed around an existing box. The box
@@ -42,7 +46,7 @@ export class AlignedBoxBV {
         return bv;
     }
 
-    getSplittingAxis(): { origin: Vector, direction: Vector } {
+    getSplittingAxis(): BVTreeSplittingAxis {
         const half = 0.5;
 
         const origin = mul(add(this.box.max, this.box.min), half);

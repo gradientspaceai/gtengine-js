@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { OrientedBoxTreeOfSegments } from '../src/OrientedBoxTreeOfSegments.js';
 import { OrientedBoxBV } from '../src/OrientedBoxBV.js';
 import { BVTree, BVTreeNode } from '../src/BVTree.js';
-import { Vector, dot, sub } from '../src/Vector.js';
+import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
+import {
+    check, fc, finite, unitVector, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -353,5 +356,149 @@ describe('OrientedBoxTreeOfSegments queries', () => {
         // A line far from every segment reports nothing at all.
         expect(tree.execute(BVTree.LINE_QUERY, v3(500, 500, 500), v3(0, 0, 1))
             .length).toBe(0);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// V43 verification: every node's oriented box contains the endpoints of its
+// range, leaf boxes keep exactly one nonzero extent, and the traversal
+// matches a recursive reference.
+// ---------------------------------------------------------------------------
+
+function reachableNodes(tree: TestableTree): number[] {
+    const nodes = tree.getNodes();
+    const out: number[] = [];
+    const visit = (nodeIndex: number): void => {
+        out.push(nodeIndex);
+        const node = nodes[nodeIndex];
+        if (node.leftChild !== BVTreeNode.invalid &&
+            node.rightChild !== BVTreeNode.invalid) {
+            visit(node.leftChild);
+            visit(node.rightChild);
+        }
+    };
+    visit(0);
+    return out;
+}
+
+describe('OrientedBoxTreeOfSegments verification', () => {
+    // Moderately scaled vertices: the Gaussian fit squares its inputs.
+    const meshArb = fc.array(wellScaledVector(3, -6, 6),
+        { minLength: 2, maxLength: 14 }).chain(vertices =>
+            fc.tuple(fc.constant(vertices),
+                fc.array(fc.tuple(fc.nat(), fc.nat()),
+                    { minLength: 1, maxLength: 14 })))
+        .map(([vertices, raw]) => {
+            const segments: Seg[] = raw.map(([a, b]) => {
+                const i0 = a % vertices.length;
+                let i1 = b % vertices.length;
+                if (i1 === i0) {
+                    i1 = (i0 + 1) % vertices.length;
+                }
+                return [i0, i1] as Seg;
+            });
+            return { vertices: vertices, segments: segments } as Mesh;
+        });
+
+    const queryArb = fc.tuple(fc.integer({ min: 0, max: 2 }),
+        wellScaledVector(3, -12, 12), unitVector(3), finite(1, 25));
+
+    it('bounds every endpoint of a node range with a valid box', () => {
+        check(fc.tuple(meshArb, fc.option(fc.integer({ min: 0, max: 4 }),
+            { nil: undefined })), ([mesh, height]) => {
+            const tree = buildTree(mesh, height);
+            const nodes = tree.getNodes();
+            const partition = tree.getPartition();
+            for (const nodeIndex of reachableNodes(tree)) {
+                const node = nodes[nodeIndex];
+                expectValidBox(node.boundingVolume);
+                for (let i = node.minIndex; i <= node.maxIndex; ++i) {
+                    for (const j of mesh.segments[partition[i]]) {
+                        expect(boxContains(node.boundingVolume,
+                            mesh.vertices[j], 1e-8)).toBe(true);
+                    }
+                }
+            }
+        }, 50);
+    });
+
+    it('collapses a single-segment leaf box to its longest axis', () => {
+        check(meshArb, mesh => {
+            const tree = buildTree(mesh);
+            const nodes = tree.getNodes();
+            const partition = tree.getPartition();
+            for (const nodeIndex of reachableNodes(tree)) {
+                const node = nodes[nodeIndex];
+                if (node.minIndex !== node.maxIndex) {
+                    continue;
+                }
+                const box = node.boundingVolume.box;
+                const seg = mesh.segments[partition[node.minIndex]];
+                const p0 = mesh.vertices[seg[0]];
+                const p1 = mesh.vertices[seg[1]];
+                // Two extents are set to exactly zero; the surviving one is
+                // the largest in magnitude, so it is the one along the
+                // segment and the box still contains both endpoints.
+                const zeros = [...box.extent.values].filter(e => e === 0);
+                expect(zeros.length).toBeGreaterThanOrEqual(2);
+                const scale = 1 + length(sub(p1, p0));
+                expect(boxContains(node.boundingVolume, p0, 1e-8 * scale))
+                    .toBe(true);
+                expect(boxContains(node.boundingVolume, p1, 1e-8 * scale))
+                    .toBe(true);
+                // The half-length of the surviving extent is half the segment
+                // length (the fit centers the box on the segment midpoint).
+                const maxExtent = Math.max(...box.extent.values);
+                expect(Math.abs(2 * maxExtent - length(sub(p1, p0))))
+                    .toBeLessThanOrEqual(1e-8 * scale);
+            }
+        }, 50);
+    });
+
+    it('nests the endpoints of the children inside the parent box', () => {
+        check(meshArb, mesh => {
+            const tree = buildTree(mesh);
+            const nodes = tree.getNodes();
+            const partition = tree.getPartition();
+            for (const nodeIndex of reachableNodes(tree)) {
+                const node = nodes[nodeIndex];
+                if (node.leftChild === BVTreeNode.invalid) {
+                    continue;
+                }
+                const left = nodes[node.leftChild];
+                const right = nodes[node.rightChild];
+                expect(left.minIndex).toBe(node.minIndex);
+                expect(right.maxIndex).toBe(node.maxIndex);
+                expect(right.minIndex).toBe(left.maxIndex + 1);
+                for (const child of [left, right]) {
+                    for (let i = child.minIndex; i <= child.maxIndex; ++i) {
+                        for (const j of mesh.segments[partition[i]]) {
+                            expect(boxContains(node.boundingVolume,
+                                mesh.vertices[j], 1e-8)).toBe(true);
+                        }
+                    }
+                }
+            }
+            expect([...tree.getPartition()].sort((a, b) => a - b))
+                .toEqual(mesh.segments.map((_, i) => i));
+        }, 50);
+    });
+
+    it('matches a recursive traversal and reports only leaves', () => {
+        check(fc.tuple(meshArb, queryArb),
+            ([mesh, [queryType, P, D, len]]) => {
+                const tree = buildTree(mesh);
+                const Q = (queryType === BVTree.SEGMENT_QUERY
+                    ? add(P, mul(D, len)) : D);
+                const reported = tree.execute(queryType, P, Q);
+                expect(reported).toEqual(
+                    referenceLeaves(tree, queryType, P, Q));
+                expect(new Set(reported).size).toBe(reported.length);
+                const nodes = tree.getNodes();
+                for (const nodeIndex of reported) {
+                    expect(nodes[nodeIndex].leftChild)
+                        .toBe(BVTreeNode.invalid);
+                }
+            }, 50);
     });
 });

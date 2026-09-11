@@ -3,7 +3,11 @@ import { OrientedBoxBV, orientedBoxBVOps } from '../src/OrientedBoxBV.js';
 import { BVTree, BVTreeNode } from '../src/BVTree.js';
 import { BVTreeOfPoints } from '../src/BVTreeOfPoints.js';
 import { OrientedBox } from '../src/OrientedBox.js';
-import { Vector, dot, sub } from '../src/Vector.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import {
+    check, expectVectorClose, fc, finite, rotationFrame, unitVector,
+    wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -255,5 +259,133 @@ describe('OrientedBoxBV as a BVTree bounding volume', () => {
             }
             expect(candidates.has(t)).toBe(true);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// V43 verification: the splitting axis and the three linear-component
+// predicates against an independent slab clipper in box coordinates.
+// ---------------------------------------------------------------------------
+
+// Clip the parameter interval [t0, t1] of P + t*D against the slabs
+// |x[k]| <= extent[k] of the box. Independent of the ported Intr* code.
+function obbSlabHit(box: OrientedBox, P: Vector, D: Vector, t0: number,
+    t1: number): boolean {
+    const delta = sub(P, box.center);
+    let tmin = t0;
+    let tmax = t1;
+    for (let k = 0; k < 3; ++k) {
+        const p = dot(delta, box.axis[k]);
+        const d = dot(D, box.axis[k]);
+        const e = box.extent.get(k);
+        if (d !== 0) {
+            const a = (-e - p) / d;
+            const b = (e - p) / d;
+            tmin = Math.max(tmin, Math.min(a, b));
+            tmax = Math.min(tmax, Math.max(a, b));
+            if (tmin > tmax) {
+                return false;
+            }
+        } else if (p < -e || p > e) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// The slab answer is trustworthy only away from tangency, so ask it on a
+// slightly shrunk and a slightly grown box; when the two agree the
+// configuration is robust and the query must return that answer.
+function robustObbSlab(box: OrientedBox, P: Vector, D: Vector, t0: number,
+    t1: number): boolean | undefined {
+    const eps = 1e-9;
+    const shrunk = box.clone();
+    const grown = box.clone();
+    for (let k = 0; k < 3; ++k) {
+        shrunk.extent.set(k, box.extent.get(k) - eps);
+        grown.extent.set(k, box.extent.get(k) + eps);
+    }
+    const a = obbSlabHit(shrunk, P, D, t0, t1);
+    const b = obbSlabHit(grown, P, D, t0, t1);
+    return a === b ? a : undefined;
+}
+
+describe('OrientedBoxBV verification', () => {
+    const bvArb = fc.tuple(wellScaledVector(3, -5, 5), rotationFrame(3),
+        fc.array(finite(0.25, 4), { minLength: 3, maxLength: 3 }))
+        .map(([center, axis, e]) => OrientedBoxBV.fromBox(
+            OrientedBox.fromCenterAxisExtent(center, axis,
+                Vector.fromArray(e))));
+
+    it('splits through the center along the axis of largest extent', () => {
+        check(bvArb, bv => {
+            const { origin, direction } = bv.getSplittingAxis();
+            expectVectorClose(origin, bv.box.center, 0, 0);
+            let maxIndex = 0;
+            for (let k = 1; k < 3; ++k) {
+                if (bv.box.extent.get(k) > bv.box.extent.get(maxIndex)) {
+                    maxIndex = k;
+                }
+            }
+            expectVectorClose(direction, bv.box.axis[maxIndex], 0, 0);
+            // The axis is returned as a copy of the box axis, not an alias.
+            direction.set(0, direction.get(0) + 1);
+            expect(bv.box.axis[maxIndex].get(0))
+                .not.toBe(direction.get(0));
+        });
+    });
+
+    it('agrees with the slab clipper for lines, rays and segments', () => {
+        check(fc.tuple(bvArb, wellScaledVector(3, -8, 8), unitVector(3),
+            finite(0.5, 12)), ([bv, P, D, len]) => {
+            const Q = add(P, mul(D, len));
+            const line = robustObbSlab(bv.box, P, D, -Infinity, Infinity);
+            if (line !== undefined) {
+                expect(OrientedBoxBV.intersectLine(P, D, bv)).toBe(line);
+            }
+            const ray = robustObbSlab(bv.box, P, D, 0, Infinity);
+            if (ray !== undefined) {
+                expect(OrientedBoxBV.intersectRay(P, D, bv)).toBe(ray);
+            }
+            const seg = robustObbSlab(bv.box, P, sub(Q, P), 0, 1);
+            if (seg !== undefined) {
+                expect(OrientedBoxBV.intersectSegment(P, Q, bv)).toBe(seg);
+            }
+        });
+    });
+
+    it('is monotone in segment, ray and line', () => {
+        check(fc.tuple(bvArb, wellScaledVector(3, -8, 8), unitVector(3),
+            finite(0.5, 12)), ([bv, P, D, len]) => {
+            const Q = add(P, mul(D, len));
+            if (OrientedBoxBV.intersectSegment(P, Q, bv)) {
+                expect(OrientedBoxBV.intersectRay(P, D, bv)).toBe(true);
+            }
+            if (OrientedBoxBV.intersectRay(P, D, bv)) {
+                expect(OrientedBoxBV.intersectLine(P, D, bv)).toBe(true);
+            }
+        });
+    });
+
+    it('hits when an endpoint is inside the box', () => {
+        check(fc.tuple(bvArb, wellScaledVector(3, -0.9, 0.9),
+            wellScaledVector(3, -8, 8)), ([bv, t, Q]) => {
+            let P = bv.box.center.clone();
+            for (let k = 0; k < 3; ++k) {
+                P = add(P, mul(bv.box.axis[k],
+                    t.get(k) * bv.box.extent.get(k)));
+            }
+            expect(OrientedBoxBV.intersectSegment(P, Q, bv)).toBe(true);
+        });
+    });
+
+    it('copies the box in fromBox', () => {
+        check(bvArb, bv => {
+            const copy = OrientedBoxBV.fromBox(bv.box);
+            copy.box.center.set(0, copy.box.center.get(0) + 100);
+            copy.box.axis[0].set(1, 42);
+            expect(bv.box.center.get(0)).not.toBe(copy.box.center.get(0));
+            expect(bv.box.axis[0].get(1)).not.toBe(42);
+        });
     });
 });

@@ -2,8 +2,15 @@ import { describe, it, expect } from 'vitest';
 import {
     Hyperellipsoid, hyperellipsoidNumCoefficients
 } from '../src/Hyperellipsoid.js';
-import { Matrix, multiplyAB, mulMatrix } from '../src/Matrix.js';
+import {
+    Matrix, addMatrix, lInfinityNorm, multiplyAB, mulMatrix, outerProduct
+} from '../src/Matrix.js';
 import { Vector, dot, sub, add, mul, normalize } from '../src/Vector.js';
+import {
+    check, compareKeys, expectClose, expectStrictWeakOrder,
+    expectVectorClose, fc, finite, orthonormalFrame, rotationFrame,
+    unitVector, wellScaledVector
+} from './helpers/arbitraries.js';
 
 // A small deterministic pseudorandom generator (mulberry32) so the randomized
 // cross-checks are reproducible.
@@ -374,5 +381,216 @@ describe('Hyperellipsoid', () => {
         expect(hyperellipsoidNumCoefficients(2)).toBe(6);
         expect(hyperellipsoidNumCoefficients(3)).toBe(10);
         expect(hyperellipsoidNumCoefficients(4)).toBe(15);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// V43 verification: property-based cross-checks against the upstream algebra.
+// ---------------------------------------------------------------------------
+
+describe('Hyperellipsoid verification', () => {
+    // Center, rotation frame and extents that are well scaled and well
+    // separated, so the eigen-decomposition in fromCoefficients is well
+    // conditioned.
+    const hyperellipsoidArb = (n: number) =>
+        fc.tuple(wellScaledVector(n, -3, 3),
+            n <= 3 ? rotationFrame(n) : orthonormalFrame(n),
+            fc.array(finite(0.5, 3), { minLength: n, maxLength: n }))
+            .map(([center, axis, e]) => Hyperellipsoid.fromCenterAxisExtent(
+                center, axis, Vector.fromArray(e)));
+
+    // A point on the boundary: X = K + sum e[d]*u[d]*U[d] with |u| = 1.
+    function boundaryPoint(he: Hyperellipsoid, u: Vector): Vector {
+        let X = he.center.clone();
+        for (let d = 0; d < he.dimension; ++d) {
+            X = add(X, mul(he.axis[d], he.extent.get(d) * u.get(d)));
+        }
+        return X;
+    }
+
+    function quadraticForm(M: Matrix, X: Vector, K: Vector): number {
+        const diff = sub(X, K);
+        return dot(diff, mulMatrix(M, diff) as Vector);
+    }
+
+    it('satisfies (X-K)^T M (X-K) = 1 on the boundary (N = 2, 3)', () => {
+        for (const n of [2, 3]) {
+            check(fc.tuple(hyperellipsoidArb(n), unitVector(n)), ([he, u]) => {
+                const M = he.getM();
+                const X = boundaryPoint(he, u);
+                // The quadratic form is a sum of n terms of unit scale, so
+                // 1e-12 covers the accumulated rounding.
+                expectClose(quadraticForm(M, X, he.center), 1, 1e-12, 1e-12);
+            });
+        }
+    });
+
+    it('classifies interior and exterior points by the quadratic form', () => {
+        for (const n of [2, 3]) {
+            check(fc.tuple(hyperellipsoidArb(n), unitVector(n),
+                finite(0.05, 0.9), finite(1.1, 4)), ([he, u, inS, outS]) => {
+                const M = he.getM();
+                const K = he.center;
+                const inside = boundaryPoint(he, mul(u, inS));
+                const outside = boundaryPoint(he, mul(u, outS));
+                expect(quadraticForm(M, inside, K)).toBeLessThan(1);
+                expect(quadraticForm(M, outside, K)).toBeGreaterThan(1);
+                // The scaled radius is recovered by the form.
+                expectClose(quadraticForm(M, inside, K), inS * inS,
+                    1e-12, 1e-12);
+            });
+        }
+    });
+
+    it('getMInverse inverts getM', () => {
+        for (const n of [2, 3, 4]) {
+            check(hyperellipsoidArb(n), he => {
+                const product = multiplyAB(he.getM(), he.getMInverse());
+                expectClose(maxAbsDifference(product, Matrix.identity(n, n)),
+                    0, 1e-12, 0);
+            });
+        }
+    });
+
+    it('evaluates the (A,B,C) quadratic to zero on the boundary', () => {
+        for (const n of [2, 3]) {
+            check(fc.tuple(hyperellipsoidArb(n), unitVector(n)), ([he, u]) => {
+                const { A, B, C } = he.toCoefficientsABC();
+                const X = boundaryPoint(he, u);
+                const value = C + dot(B, X)
+                    + dot(X, mulMatrix(A, X) as Vector);
+                // The three terms are each of size |X|^2 * |A|, and they
+                // cancel, so the tolerance is relative to that scale.
+                const scale = 1 + dot(X, X) * lInfinityNorm(A);
+                expectClose(value, 0, 1e-11 * scale, 0);
+            });
+        }
+    });
+
+    it('normalizes toCoefficients by the largest quadratic coefficient', () => {
+        for (const n of [2, 3]) {
+            check(hyperellipsoidArb(n), he => {
+                const coeff = he.toCoefficients();
+                expect(coeff.length).toBe(hyperellipsoidNumCoefficients(n));
+                let maxAbs = 0;
+                for (let i = n + 1; i < coeff.length; ++i) {
+                    maxAbs = Math.max(maxAbs, Math.abs(coeff[i]));
+                }
+                expectClose(maxAbs, 1, 1e-12, 1e-12);
+            });
+        }
+    });
+
+    it('round-trips center and M through the coefficient array', () => {
+        for (const n of [2, 3]) {
+            check(hyperellipsoidArb(n), he => {
+                const coeff = he.toCoefficients();
+                const recovered = new Hyperellipsoid(n);
+                expect(recovered.fromCoefficients(coeff)).toBe(true);
+                expectVectorClose(recovered.center, he.center, 1e-8, 1e-8);
+                // The axis/extent pairs come back sorted by eigenvalue, so
+                // compare the coordinate-free matrix M instead.
+                expectClose(maxAbsDifference(recovered.getM(), he.getM()),
+                    0, 1e-8, 0);
+                // The extents are the same multiset: solve() sorts the
+                // eigenvalues nondecreasing, hence extents nonincreasing.
+                const expected = [...he.extent.values].sort((a, b) => b - a);
+                for (let d = 0; d < n; ++d) {
+                    expectClose(recovered.extent.get(d), expected[d],
+                        1e-8, 1e-8);
+                    expectClose(dot(recovered.axis[d], recovered.axis[d]), 1,
+                        1e-10, 1e-10);
+                }
+            });
+        }
+    });
+
+    it('round-trips through the (A,B,C) form', () => {
+        for (const n of [2, 3]) {
+            check(hyperellipsoidArb(n), he => {
+                const { A, B, C } = he.toCoefficientsABC();
+                const recovered = new Hyperellipsoid(n);
+                expect(recovered.fromCoefficientsABC(A, B, C)).toBe(true);
+                expectVectorClose(recovered.center, he.center, 1e-8, 1e-8);
+                expectClose(maxAbsDifference(recovered.getM(), he.getM()),
+                    0, 1e-8, 0);
+            });
+        }
+    });
+
+    it('recovers boundary points after a coefficient round trip', () => {
+        for (const n of [2, 3]) {
+            check(fc.tuple(hyperellipsoidArb(n), unitVector(n)), ([he, u]) => {
+                const recovered = new Hyperellipsoid(n);
+                expect(recovered.fromCoefficients(he.toCoefficients()))
+                    .toBe(true);
+                const X = boundaryPoint(he, u);
+                expectClose(quadraticForm(recovered.getM(), X,
+                    recovered.center), 1, 1e-8, 1e-8);
+            });
+        }
+    });
+
+    it('drops the term of a zero extent, as Vector operator/ does', () => {
+        check(fc.tuple(rotationFrame(3), fc.integer({ min: 0, max: 2 })),
+            ([axis, d]) => {
+                const extent = Vector.fromArray([1, 2, 3]);
+                extent.set(d, 0);
+                const he = Hyperellipsoid.fromCenterAxisExtent(
+                    new Vector(3), axis, extent);
+                // Upstream 'axis[d] / extent[d]' yields the zero vector when
+                // extent[d] == 0, so M omits that outer product and stays
+                // finite (rank 2 here) rather than becoming NaN.
+                const M = he.getM();
+                for (const value of M.values) {
+                    expect(Number.isFinite(value)).toBe(true);
+                }
+                let expected = Matrix.zero(3, 3);
+                for (let k = 0; k < 3; ++k) {
+                    if (k === d) { continue; }
+                    const ratio = mul(axis[k], 1 / extent.get(k));
+                    expected = addMatrix(expected, outerProduct(ratio, ratio));
+                }
+                expectClose(maxAbsDifference(M, expected), 0, 1e-12, 0);
+            });
+    });
+
+    it('has a trichotomous comparison', () => {
+        check(fc.tuple(hyperellipsoidArb(2), hyperellipsoidArb(2)),
+            ([a, b]) => {
+                expect(a.equals(a)).toBe(true);
+                expect(a.notEquals(b)).toBe(!a.equals(b));
+                // Exactly one of <, >, == holds.
+                const lt = a.lessThan(b), gt = a.greaterThan(b);
+                const eq = a.equals(b);
+                expect([lt, gt, eq].filter(x => x).length).toBe(1);
+                expect(a.lessThanOrEqual(b)).toBe(!gt);
+                expect(a.greaterThanOrEqual(b)).toBe(!lt);
+            });
+    });
+
+    it('orders by the upstream member sequence, a strict weak ordering', () => {
+        // Upstream chains center < axis < extent, and each member's own
+        // operator< is lexicographic, so the concatenated components are an
+        // equivalent sort key.
+        const key = (h: Hyperellipsoid): number[] => {
+            const out = [...h.center.values];
+            for (const u of h.axis) { out.push(...u.values); }
+            out.push(...h.extent.values);
+            return out;
+        };
+        const small = fc.tuple(fc.integer({ min: -1, max: 1 }),
+            fc.integer({ min: -1, max: 1 }), fc.integer({ min: 1, max: 2 }))
+            .map(([cx, cy, e]) => Hyperellipsoid.fromCenterAxisExtent(
+                Vector.fromArray([cx, cy]),
+                [Vector.fromArray([1, 0]), Vector.fromArray([0, 1])],
+                Vector.fromArray([e, e])));
+        check(fc.tuple(small, small), ([a, b]) => {
+            expect(a.lessThan(b)).toBe(compareKeys(key(a), key(b)) < 0);
+            expect(a.equals(b)).toBe(compareKeys(key(a), key(b)) === 0);
+        });
+        check(fc.array(small, { minLength: 3, maxLength: 5 }), items => {
+            expectStrictWeakOrder(items, (x, y) => x.lessThan(y));
+        }, 50);
     });
 });

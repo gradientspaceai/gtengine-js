@@ -2,6 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { Tetrahedron3 } from '../src/Tetrahedron3.js';
 import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
 import { cross, dotCross, unitCross } from '../src/Vector3.js';
+import {
+    check, compareKeys, expectClose, expectStrictWeakOrder,
+    expectVectorClose, fc, invertibleMatrix, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function V(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -279,5 +283,237 @@ describe('Tetrahedron3', () => {
         expect(a.lessThan(b)).toBe(true);
         expect(b.greaterThan(a)).toBe(true);
         expect(b.lessThanOrEqual(a)).toBe(false);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// V43 verification: the face/edge/vertex normals, the face planes (including
+// the #268 origin fix), the centroid and the comparisons.
+// ---------------------------------------------------------------------------
+
+describe('Tetrahedron3 verification', () => {
+    // Four points whose simplex is nondegenerate: the base vertex plus the
+    // columns of a well-conditioned invertible matrix.
+    const tetrahedronArb = fc.tuple(wellScaledVector(3, -5, 5),
+        invertibleMatrix(3))
+        .map(([p0, M]) => Tetrahedron3.fromVertices(p0,
+            add(p0, M.getCol(0)), add(p0, M.getCol(1)),
+            add(p0, M.getCol(2))));
+
+    // The signed volume of <v0,v1,v2,v3>, positive when the vertex ordering
+    // matches the documented outward-face convention.
+    function signedVolume(t: Tetrahedron3): number {
+        return dotCross(sub(t.v[1], t.v[0]), sub(t.v[2], t.v[0]),
+            sub(t.v[3], t.v[0])) / 6;
+    }
+
+    it('computes unit face normals that point away from the opposite vertex',
+        () => {
+            check(tetrahedronArb, t => {
+                for (let face = 0; face < 4; ++face) {
+                    const indices = Tetrahedron3.getFaceIndices(face);
+                    const n = t.computeFaceNormal(face);
+                    expectClose(length(n), 1, 1e-12, 1e-12);
+                    // The normal is orthogonal to the face edges.
+                    const e10 = sub(t.v[indices[1]], t.v[indices[0]]);
+                    const e20 = sub(t.v[indices[2]], t.v[indices[0]]);
+                    expectClose(dot(n, e10), 0, 1e-11 * (1 + length(e10)), 0);
+                    expectClose(dot(n, e20), 0, 1e-11 * (1 + length(e20)), 0);
+                    // ComputeFaceNormal is UnitCross(e10, e20), which points
+                    // outward only when the vertex ordering is the documented
+                    // one (positive signed volume). Check the sign against
+                    // the vertex not on the face.
+                    const other = [0, 1, 2, 3].find(
+                        i => !indices.includes(i)) as number;
+                    const toOther = sub(t.v[other], t.v[indices[0]]);
+                    const outward = signedVolume(t) > 0;
+                    expect(dot(n, toOther) < 0).toBe(outward);
+                }
+            });
+        });
+
+    it('computes edge and vertex normals from the shared faces', () => {
+        check(tetrahedronArb, t => {
+            // The edge normal is the normalized sum of the normals of the two
+            // faces sharing the edge (upstream derives E23 x E10 for it).
+            for (let edge = 0; edge < 6; ++edge) {
+                const a = Tetrahedron3.getEdgeAugmented(edge);
+                const n = t.computeEdgeNormal(edge);
+                expectClose(length(n), 1, 1e-12, 1e-12);
+                // Faces <v0,v2,v1> and <v0,v1,v3>.
+                const f0 = cross(sub(t.v[a[2]], t.v[a[0]]),
+                    sub(t.v[a[1]], t.v[a[0]]));
+                const f1 = cross(sub(t.v[a[1]], t.v[a[0]]),
+                    sub(t.v[a[3]], t.v[a[0]]));
+                const sum = add(f0, f1);
+                // n is parallel to the sum and has the same direction.
+                const scale = length(sum);
+                expectVectorClose(mul(n, scale), sum, 1e-10 * (1 + scale), 0);
+            }
+
+            // The vertex normal is the normalized sum of the three face
+            // normals at the vertex, and upstream notes it is the negative of
+            // the normal of the opposite face.
+            for (let vertex = 0; vertex < 4; ++vertex) {
+                const a = Tetrahedron3.getVertexAugmented(vertex);
+                const n = t.computeVertexNormal(vertex);
+                expectClose(length(n), 1, 1e-12, 1e-12);
+                const f0 = cross(sub(t.v[a[1]], t.v[a[0]]),
+                    sub(t.v[a[2]], t.v[a[0]]));
+                const f1 = cross(sub(t.v[a[2]], t.v[a[0]]),
+                    sub(t.v[a[3]], t.v[a[0]]));
+                const f2 = cross(sub(t.v[a[3]], t.v[a[0]]),
+                    sub(t.v[a[1]], t.v[a[0]]));
+                const sum = add(add(f0, f1), f2);
+                const scale = length(sum);
+                expectVectorClose(mul(n, scale), sum, 1e-10 * (1 + scale), 0);
+            }
+        });
+    });
+
+    it('builds face planes that contain their faces with outward normals',
+        () => {
+            check(tetrahedronArb, t => {
+                const planes = t.getPlanes();
+                expect(planes.length).toBe(4);
+                const centroid = t.computeCentroid();
+                for (let face = 0; face < 4; ++face) {
+                    const plane = planes[face];
+                    const indices = Tetrahedron3.getFaceIndices(face);
+                    expectClose(length(plane.normal), 1, 1e-12, 1e-12);
+                    // Every vertex of the face is on the plane.
+                    for (const i of indices) {
+                        const scale = 1 + length(t.v[i]);
+                        expectClose(dot(plane.normal, t.v[i]), plane.constant,
+                            1e-11 * scale, 0);
+                    }
+                    // The normal points away from the interior.
+                    expect(dot(plane.normal, centroid) - plane.constant)
+                        .toBeLessThan(0);
+                    // Upstream leaves Plane3::origin at (0,0,0) while setting
+                    // a nonzero constant, which breaks the Hyperplane
+                    // invariant Dot(normal, origin) == constant (upstream bug
+                    // #268). The port sets all three members consistently.
+                    expectClose(dot(plane.normal, plane.origin),
+                        plane.constant, 1e-12, 1e-12);
+                    expectVectorClose(plane.origin,
+                        mul(plane.normal, plane.constant), 0, 0);
+                }
+                // The four planes separate the interior from the exterior:
+                // the centroid is strictly inside all of them.
+                for (const plane of planes) {
+                    expect(dot(plane.normal, centroid))
+                        .toBeLessThan(plane.constant);
+                }
+            });
+        });
+
+    it('has the closed-form centroid and volume', () => {
+        check(tetrahedronArb, t => {
+            const centroid = t.computeCentroid();
+            for (let k = 0; k < 3; ++k) {
+                const expected = 0.25 * (((t.v[0].get(k) + t.v[1].get(k))
+                    + t.v[2].get(k)) + t.v[3].get(k));
+                // Upstream evaluates the vertex sum left to right; floating
+                // point addition is not associative, so the grouping is part
+                // of the numerical behaviour and must match exactly.
+                expect(centroid.get(k)).toBe(expected);
+            }
+            // The centroid has barycentric coordinates (1/4,1/4,1/4,1/4), so
+            // it is inside the tetrahedron.
+            const volume = Math.abs(signedVolume(t));
+            expect(volume).toBeGreaterThan(0);
+            // The four corner tetrahedra built on the centroid partition the
+            // whole tetrahedron into four equal quarters.
+            let sum = 0;
+            for (let i = 0; i < 4; ++i) {
+                const w = t.v.map((x, k) => (k === i ? centroid : x));
+                sum += Math.abs(dotCross(sub(w[1], w[0]), sub(w[2], w[0]),
+                    sub(w[3], w[0])) / 6);
+            }
+            expectClose(sum, volume, 1e-10 * (1 + volume), 0);
+        });
+    });
+
+    it('reproduces the left-to-right vertex sum of the centroid', () => {
+        // A regression test for the associativity of the vertex sum. With
+        // these vertices the upstream left-to-right sum is
+        // ((v0+v1)+v2)+v3 = (1,1,1), so the centroid is (0.25,0.25,0.25),
+        // while the pairwise grouping (v0+v1)+(v2+v3) the port used before
+        // cancels to (0,0,0).
+        const big = 1e16;
+        const t = Tetrahedron3.fromVertices(
+            Vector.fromArray([big, big, big]),
+            Vector.fromArray([1, 1, 1]),
+            Vector.fromArray([-big, -big, -big]),
+            Vector.fromArray([1, 1, 1]));
+        expect(t.computeCentroid().values).toEqual([0.25, 0.25, 0.25]);
+    });
+
+    it('has element-wise equality and a trichotomous ordering', () => {
+        check(fc.tuple(tetrahedronArb, tetrahedronArb), ([a, b]) => {
+            const lt = a.lessThan(b), gt = a.greaterThan(b), eq = a.equals(b);
+            expect([lt, gt, eq].filter(x => x).length).toBe(1);
+            expect(a.notEquals(b)).toBe(!eq);
+            expect(a.lessThanOrEqual(b)).toBe(!gt);
+            expect(a.greaterThanOrEqual(b)).toBe(!lt);
+            expect(a.equals(a.clone())).toBe(true);
+        });
+        // Upstream's operator== is the element-wise std::array ==, so a NaN
+        // vertex makes a tetrahedron unequal to itself, while the
+        // lexicographic ordering treats NaN as equivalent.
+        const nan = Tetrahedron3.fromVertices(
+            Vector.fromArray([NaN, 0, 0]), Vector.unit(3, 0),
+            Vector.unit(3, 1), Vector.unit(3, 2));
+        expect(nan.equals(nan.clone())).toBe(false);
+        expect(nan.notEquals(nan.clone())).toBe(true);
+    });
+
+    it('keeps the index tables immutable and consistent', () => {
+        const all = Tetrahedron3.getAllFaceIndices();
+        for (let face = 0; face < 4; ++face) {
+            const indices = Tetrahedron3.getFaceIndices(face);
+            expect([...indices]).toEqual(
+                [all[3 * face], all[3 * face + 1], all[3 * face + 2]]);
+        }
+        const allEdges = Tetrahedron3.getAllEdgeIndices();
+        for (let edge = 0; edge < 6; ++edge) {
+            const indices = Tetrahedron3.getEdgeIndices(edge);
+            expect([...indices]).toEqual(
+                [allEdges[2 * edge], allEdges[2 * edge + 1]]);
+            // The edge-augmented table starts with the edge itself.
+            const aug = Tetrahedron3.getEdgeAugmented(edge);
+            expect([aug[0], aug[1]]).toEqual([...indices]);
+            // The remaining two entries are the other two vertices.
+            expect([...aug].slice(0).sort()).toEqual([0, 1, 2, 3]);
+        }
+        for (let vertex = 0; vertex < 4; ++vertex) {
+            const aug = Tetrahedron3.getVertexAugmented(vertex);
+            expect(aug[0]).toBe(vertex);
+            expect([...aug].slice(0).sort()).toEqual([0, 1, 2, 3]);
+        }
+        expect(() => Tetrahedron3.getFaceIndices(4)).toThrow('Invalid face.');
+        expect(() => Tetrahedron3.getEdgeIndices(6)).toThrow('Invalid edge.');
+        expect(() => Tetrahedron3.getVertexAugmented(4))
+            .toThrow('Invalid vertex.');
+    });
+
+    it('orders by the vertex array, a strict weak ordering', () => {
+        const key = (t: Tetrahedron3): number[] =>
+            t.v.flatMap(x => [...x.values]);
+        const small = fc.array(fc.integer({ min: -1, max: 1 }),
+            { minLength: 4, maxLength: 4 })
+            .map(a => Tetrahedron3.fromVertices(
+                Vector.fromArray([a[0], 0, 0]),
+                Vector.fromArray([1, a[1], 0]),
+                Vector.fromArray([0, 1, a[2]]),
+                Vector.fromArray([a[3], 0, 1])));
+        check(fc.tuple(small, small), ([a, b]) => {
+            expect(a.lessThan(b)).toBe(compareKeys(key(a), key(b)) < 0);
+            expect(a.equals(b)).toBe(compareKeys(key(a), key(b)) === 0);
+        });
+        check(fc.array(small, { minLength: 3, maxLength: 5 }), items => {
+            expectStrictWeakOrder(items, (x, y) => x.lessThan(y));
+        }, 50);
     });
 });

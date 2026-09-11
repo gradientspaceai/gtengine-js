@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { AlignedBoxTreeOfSegments } from '../src/AlignedBoxTreeOfSegments.js';
 import { AlignedBoxBV } from '../src/AlignedBoxBV.js';
 import { BVTree, BVTreeNode } from '../src/BVTree.js';
-import { Vector } from '../src/Vector.js';
+import { Vector, add, mul } from '../src/Vector.js';
+import {
+    check, fc, finite, latticeVector, unitVector, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -347,5 +350,161 @@ describe('AlignedBoxTreeOfSegments queries', () => {
         const Q = v3(1, 0, 0);
         expect(tree.execute(BVTree.LINE_QUERY, P, Q))
             .toEqual(tree.leafIndices(BVTree.LINE_QUERY, P, Q));
+    });
+});
+
+// ---------------------------------------------------------------------------
+// V43 verification: the tree invariants (tight boxes over segment endpoints,
+// nested boxes, partitioned ranges) and the traversal against a recursive one.
+// ---------------------------------------------------------------------------
+
+function reachableNodes(tree: TestableTree): number[] {
+    const nodes = tree.getNodes();
+    const out: number[] = [];
+    const visit = (nodeIndex: number): void => {
+        out.push(nodeIndex);
+        const node = nodes[nodeIndex];
+        if (node.leftChild !== BVTreeNode.invalid &&
+            node.rightChild !== BVTreeNode.invalid) {
+            visit(node.leftChild);
+            visit(node.rightChild);
+        }
+    };
+    visit(0);
+    return out;
+}
+
+describe('AlignedBoxTreeOfSegments verification', () => {
+    // Integer endpoints make the tight bounds exactly representable, so the
+    // box comparisons need no tolerance.
+    const curveArb = fc.array(latticeVector(3, -8, 8),
+        { minLength: 2, maxLength: 16 }).chain(vertices =>
+            fc.tuple(fc.constant(vertices),
+                fc.array(fc.tuple(fc.nat(), fc.nat()),
+                    { minLength: 1, maxLength: 16 })))
+        .map(([vertices, raw]) => {
+            const segments: Seg[] = raw.map(([a, b]) => {
+                const i0 = a % vertices.length;
+                let i1 = b % vertices.length;
+                if (i1 === i0) {
+                    i1 = (i0 + 1) % vertices.length;
+                }
+                return [i0, i1] as Seg;
+            });
+            return { vertices: vertices, segments: segments } as Curve;
+        });
+
+    const queryArb = fc.tuple(fc.integer({ min: 0, max: 2 }),
+        wellScaledVector(3, -12, 12), unitVector(3), finite(1, 25));
+
+    it('gives every reachable node the tight box of its range', () => {
+        check(fc.tuple(curveArb, fc.option(fc.integer({ min: 0, max: 4 }),
+            { nil: undefined })), ([curve, height]) => {
+            const tree = buildTree(curve, height);
+            const nodes = tree.getNodes();
+            const partition = tree.getPartition();
+            for (const nodeIndex of reachableNodes(tree)) {
+                const node = nodes[nodeIndex];
+                const range: number[] = [];
+                for (let i = node.minIndex; i <= node.maxIndex; ++i) {
+                    range.push(partition[i]);
+                }
+                expect(range.length).toBeGreaterThan(0);
+                const bounds = tightBounds(curve, range);
+                expect([...node.boundingVolume.box.min.values])
+                    .toEqual(bounds.min);
+                expect([...node.boundingVolume.box.max.values])
+                    .toEqual(bounds.max);
+                // The box contains both endpoints of every segment in range.
+                for (const s of range) {
+                    for (const j of curve.segments[s]) {
+                        for (let k = 0; k < 3; ++k) {
+                            expect(curve.vertices[j].get(k))
+                                .toBeGreaterThanOrEqual(
+                                    node.boundingVolume.box.min.get(k));
+                            expect(curve.vertices[j].get(k))
+                                .toBeLessThanOrEqual(
+                                    node.boundingVolume.box.max.get(k));
+                        }
+                    }
+                }
+            }
+        }, 100);
+    });
+
+    it('partitions the segments across the children of every node', () => {
+        check(curveArb, curve => {
+            const tree = buildTree(curve);
+            const nodes = tree.getNodes();
+            for (const nodeIndex of reachableNodes(tree)) {
+                const node = nodes[nodeIndex];
+                if (node.leftChild === BVTreeNode.invalid) {
+                    continue;
+                }
+                const left = nodes[node.leftChild];
+                const right = nodes[node.rightChild];
+                expect(left.minIndex).toBe(node.minIndex);
+                expect(right.maxIndex).toBe(node.maxIndex);
+                expect(right.minIndex).toBe(left.maxIndex + 1);
+                for (const child of [left, right]) {
+                    for (let k = 0; k < 3; ++k) {
+                        expect(child.boundingVolume.box.min.get(k))
+                            .toBeGreaterThanOrEqual(
+                                node.boundingVolume.box.min.get(k));
+                        expect(child.boundingVolume.box.max.get(k))
+                            .toBeLessThanOrEqual(
+                                node.boundingVolume.box.max.get(k));
+                    }
+                }
+            }
+            expect([...tree.getPartition()].sort((a, b) => a - b))
+                .toEqual(curve.segments.map((_, i) => i));
+        }, 100);
+    });
+
+    it('matches a recursive traversal and reports only leaves', () => {
+        check(fc.tuple(curveArb, queryArb),
+            ([curve, [queryType, P, D, len]]) => {
+                const tree = buildTree(curve);
+                const Q = (queryType === BVTree.SEGMENT_QUERY
+                    ? add(P, mul(D, len)) : D);
+                const reported = tree.execute(queryType, P, Q);
+                expect(reported).toEqual(
+                    referenceLeaves(tree, queryType, P, Q));
+                expect(new Set(reported).size).toBe(reported.length);
+                const nodes = tree.getNodes();
+                for (const nodeIndex of reported) {
+                    expect(nodes[nodeIndex].leftChild)
+                        .toBe(BVTreeNode.invalid);
+                }
+                // Every leaf whose own box the linear component meets is
+                // reported (GetLeafIndices never tests a leaf's own volume,
+                // so the reported set is a superset).
+                for (const nodeIndex of reachableNodes(tree)) {
+                    const node = nodes[nodeIndex];
+                    if (node.leftChild !== BVTreeNode.invalid) {
+                        continue;
+                    }
+                    const bv = node.boundingVolume;
+                    const hit = queryType === BVTree.LINE_QUERY
+                        ? AlignedBoxBV.intersectLine(P, Q, bv)
+                        : (queryType === BVTree.RAY_QUERY
+                            ? AlignedBoxBV.intersectRay(P, Q, bv)
+                            : AlignedBoxBV.intersectSegment(P, Q, bv));
+                    if (hit) {
+                        expect(reported.includes(nodeIndex)).toBe(true);
+                    }
+                }
+            }, 100);
+    });
+
+    it('copies the vertices and segments handed to createFromSegments', () => {
+        check(curveArb, curve => {
+            const tree = buildTree(curve);
+            const before = tree.getVertices()[0].get(0);
+            curve.vertices[0].set(0, curve.vertices[0].get(0) + 100);
+            expect(tree.getVertices()[0].get(0)).toBe(before);
+            curve.vertices[0].set(0, curve.vertices[0].get(0) - 100);
+        }, 50);
     });
 });

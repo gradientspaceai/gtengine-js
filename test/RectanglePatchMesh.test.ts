@@ -6,6 +6,9 @@ import { VertexAttribute } from '../src/VertexAttribute.js';
 import { ParametricSurface } from '../src/ParametricSurface.js';
 import { Vector, dot, length, normalize, sub } from '../src/Vector.js';
 import { cross, unitCross } from '../src/Vector3.js';
+import {
+    check, expectClose, expectVectorClose, fc, finite
+} from './helpers/arbitraries.js';
 
 function V(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -318,5 +321,206 @@ describe('RectanglePatchMesh', () => {
                 [0, 0, 0]]);
         expect(() => new RectanglePatchMesh(storage.description,
             nonRectangular)).toThrow();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// V43 verification: the sampled grid against the surface parametrization, the
+// normals and frame against the surface derivatives, and the update paths.
+// ---------------------------------------------------------------------------
+
+describe('RectanglePatchMesh verification', () => {
+    const gridArb = fc.tuple(fc.integer({ min: 2, max: 6 }),
+        fc.integer({ min: 2, max: 6 }));
+
+    // A paraboloid with a random curvature; its partial derivatives are known
+    // in closed form, so every channel can be checked independently.
+    const scaleArb = finite(-2, 2);
+
+    function analytic(scale: number, u: number, v: number) {
+        const position = V(u, v, scale * (u * u + v * v));
+        const dpdu = V(1, 0, 2 * scale * u);
+        const dpdv = V(0, 1, 2 * scale * v);
+        return { position, dpdu, dpdv };
+    }
+
+    it('samples the domain uniformly and evaluates the surface there', () => {
+        check(fc.tuple(scaleArb, gridArb), ([scale, [nr, nc]]) => {
+            const surface = new Paraboloid(scale);
+            const storage = makeStorage(nr, nc, { tcoords: true });
+            const mesh = new RectanglePatchMesh(storage.description, surface);
+            expect(mesh.getSurface()).toBe(surface);
+            expect(mesh.getDescription().numVertices).toBe(nr * nc);
+
+            const uMin = surface.getUMin();
+            const uDelta = (surface.getUMax() - uMin) / (nc - 1);
+            const vMin = surface.getVMin();
+            const vDelta = (surface.getVMax() - vMin) / (nr - 1);
+            const tcoords = storage.tcoords as Float64Array;
+            for (let r = 0, i = 0; r < nr; ++r) {
+                for (let c = 0; c < nc; ++c, ++i) {
+                    // The columns walk u and the rows walk v.
+                    const u = uMin + uDelta * c;
+                    const v = vMin + vDelta * r;
+                    expectClose(tcoords[2 * i], u, 0, 0);
+                    expectClose(tcoords[2 * i + 1], v, 0, 0);
+                    expectVectorClose(P(storage, i),
+                        analytic(scale, u, v).position, 1e-12, 1e-12);
+                }
+            }
+            // The grid spans the whole parameter rectangle.
+            expectClose(tcoords[0], surface.getUMin(), 0, 0);
+            expectClose(tcoords[1], surface.getVMin(), 0, 0);
+            expectClose(tcoords[2 * (nr * nc - 1)], surface.getUMax(),
+                1e-14, 1e-14);
+            expectClose(tcoords[2 * (nr * nc - 1) + 1], surface.getVMax(),
+                1e-14, 1e-14);
+        }, 100);
+    });
+
+    it('computes normals as the unit cross of the surface derivatives', () => {
+        check(fc.tuple(scaleArb, gridArb), ([scale, [nr, nc]]) => {
+            const surface = new Paraboloid(scale);
+            const storage = makeStorage(nr, nc);
+            const mesh = new RectanglePatchMesh(storage.description, surface);
+            // Without a tangent-space request, InitializeNormals runs.
+            expect(mesh.getDescription().allowUpdateFrame).toBe(false);
+
+            const uMin = surface.getUMin();
+            const uDelta = (surface.getUMax() - uMin) / (nc - 1);
+            const vMin = surface.getVMin();
+            const vDelta = (surface.getVMax() - vMin) / (nr - 1);
+            for (let r = 0, i = 0; r < nr; ++r) {
+                for (let c = 0; c < nc; ++c, ++i) {
+                    const { dpdu, dpdv } = analytic(scale, uMin + uDelta * c,
+                        vMin + vDelta * r);
+                    const expected = unitCross(dpdu, dpdv, true);
+                    const n = get(storage.normals as Float64Array, i);
+                    expectVectorClose(n, expected, 1e-12, 1e-12);
+                    expectClose(length(n), 1, 1e-12, 1e-12);
+                    // The normal is orthogonal to the tangent plane.
+                    expectClose(dot(n, dpdu), 0, 1e-12, 1e-12);
+                    expectClose(dot(n, dpdv), 0, 1e-12, 1e-12);
+                }
+            }
+        }, 100);
+    });
+
+    it('builds an orthonormal frame from the surface derivatives', () => {
+        check(fc.tuple(scaleArb, gridArb), ([scale, [nr, nc]]) => {
+            const surface = new Paraboloid(scale);
+            const storage = makeStorage(nr, nc, { frame: true });
+            const mesh = new RectanglePatchMesh(storage.description, surface);
+            expect(mesh.getDescription().allowUpdateFrame).toBe(true);
+
+            const uMin = surface.getUMin();
+            const uDelta = (surface.getUMax() - uMin) / (nc - 1);
+            const vMin = surface.getVMin();
+            const vDelta = (surface.getVMax() - vMin) / (nr - 1);
+            for (let r = 0, i = 0; r < nr; ++r) {
+                for (let c = 0; c < nc; ++c, ++i) {
+                    const { dpdu, dpdv } = analytic(scale, uMin + uDelta * c,
+                        vMin + vDelta * r);
+                    const unitU = dpdu.clone();
+                    normalize(unitU, true);
+                    const unitV = dpdv.clone();
+                    normalize(unitV, true);
+
+                    // DPDU and DPDV are the normalized partials, written
+                    // before ComputeOrthogonalComplement reorthogonalizes.
+                    expectVectorClose(get(storage.dpdus as Float64Array, i),
+                        unitU, 1e-12, 1e-12);
+                    expectVectorClose(get(storage.dpdvs as Float64Array, i),
+                        unitV, 1e-12, 1e-12);
+
+                    const t = get(storage.tangents as Float64Array, i);
+                    const b = get(storage.bitangents as Float64Array, i);
+                    const n = get(storage.normals as Float64Array, i);
+                    // {tangent, bitangent, normal} is right handed and
+                    // orthonormal.
+                    expectClose(length(t), 1, 1e-12, 1e-12);
+                    expectClose(length(b), 1, 1e-12, 1e-12);
+                    expectClose(length(n), 1, 1e-12, 1e-12);
+                    expectClose(dot(t, b), 0, 1e-12, 1e-12);
+                    expectClose(dot(t, n), 0, 1e-12, 1e-12);
+                    expectClose(dot(b, n), 0, 1e-12, 1e-12);
+                    expectVectorClose(cross(t, b), n, 1e-12, 1e-12);
+                    // The tangent is the normalized u-partial (Gram-Schmidt
+                    // leaves the first vector alone) and the normal spans the
+                    // same line as dpdu x dpdv.
+                    expectVectorClose(t, unitU, 1e-12, 1e-12);
+                    expectVectorClose(n, unitCross(dpdu, dpdv, true),
+                        1e-12, 1e-12);
+                    // The bitangent stays in the tangent plane.
+                    expectClose(dot(b, cross(dpdu, dpdv)), 0, 1e-12, 1e-12);
+                }
+            }
+        }, 60);
+    });
+
+    it('recomputes every channel when the surface changes', () => {
+        check(fc.tuple(scaleArb, scaleArb, gridArb),
+            ([scale0, scale1, [nr, nc]]) => {
+                const surface = new Paraboloid(scale0);
+                const storage = makeStorage(nr, nc, { frame: true });
+                const mesh = new RectanglePatchMesh(storage.description,
+                    surface);
+                surface.scale = scale1;
+                mesh.update();
+
+                const fresh = new Paraboloid(scale1);
+                const freshStorage = makeStorage(nr, nc, { frame: true });
+                const freshMesh = new RectanglePatchMesh(
+                    freshStorage.description, fresh);
+                expect(freshMesh.getDescription().numVertices).toBe(nr * nc);
+                for (let i = 0; i < nr * nc; ++i) {
+                    expectVectorClose(P(storage, i), P(freshStorage, i),
+                        1e-12, 1e-12);
+                    expectVectorClose(get(storage.normals as Float64Array, i),
+                        get(freshStorage.normals as Float64Array, i),
+                        1e-12, 1e-12);
+                    expectVectorClose(get(storage.tangents as Float64Array, i),
+                        get(freshStorage.tangents as Float64Array, i),
+                        1e-12, 1e-12);
+                }
+            }, 40);
+    });
+
+    it('emits a consistently wound manifold grid of triangles', () => {
+        check(fc.tuple(scaleArb, gridArb), ([scale, [nr, nc]]) => {
+            const surface = new Paraboloid(scale);
+            const storage = makeStorage(nr, nc);
+            const mesh = new RectanglePatchMesh(storage.description, surface);
+            const numTriangles = mesh.getDescription().numTriangles;
+            expect(numTriangles).toBe(2 * (nr - 1) * (nc - 1));
+
+            const directed = new Set<string>();
+            for (let t = 0; t < numTriangles; ++t) {
+                const i0 = storage.indices[3 * t];
+                const i1 = storage.indices[3 * t + 1];
+                const i2 = storage.indices[3 * t + 2];
+                expect(i0 !== i1 && i1 !== i2 && i2 !== i0).toBe(true);
+                for (const i of [i0, i1, i2]) {
+                    expect(i).toBeLessThan(nr * nc);
+                }
+                // The triangle is nondegenerate.
+                const n = cross(sub(P(storage, i1), P(storage, i0)),
+                    sub(P(storage, i2), P(storage, i0)));
+                expect(length(n)).toBeGreaterThan(0);
+                for (const [a, b] of [[i0, i1], [i1, i2], [i2, i0]]) {
+                    const key = `${a},${b}`;
+                    expect(directed.has(key)).toBe(false);
+                    directed.add(key);
+                }
+            }
+            let boundary = 0;
+            for (const key of directed) {
+                const [a, b] = key.split(',');
+                if (!directed.has(`${b},${a}`)) {
+                    ++boundary;
+                }
+            }
+            expect(boundary).toBe(2 * (nr - 1) + 2 * (nc - 1));
+        }, 100);
     });
 });

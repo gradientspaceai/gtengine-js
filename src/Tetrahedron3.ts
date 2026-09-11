@@ -236,7 +236,11 @@ export class Tetrahedron3 {
     }
 
     computeCentroid(): Vector {
-        return mul(add(add(this.v[0], this.v[1]), add(this.v[2], this.v[3])),
+        // Upstream is '(v[0] + v[1] + v[2] + v[3]) * 0.25', and C++ evaluates
+        // the additions left to right. Floating-point addition is not
+        // associative, so the grouping is part of the numerical behavior and
+        // is reproduced here.
+        return mul(add(add(add(this.v[0], this.v[1]), this.v[2]), this.v[3]),
             0.25);
     }
 

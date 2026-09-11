@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { OrientedBoxTreeOfPoints } from '../src/OrientedBoxTreeOfPoints.js';
 import { OrientedBoxBV } from '../src/OrientedBoxBV.js';
 import { BVTree, BVTreeNode } from '../src/BVTree.js';
-import { Vector, dot, sub } from '../src/Vector.js';
+import { Vector, add, dot, mul, sub } from '../src/Vector.js';
+import {
+    check, fc, finite, unitVector, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -272,5 +275,128 @@ describe('OrientedBoxTreeOfPoints queries', () => {
         expect(tree.execute(BVTree.RAY_QUERY, P, v3(1, 0, 0)).length).toBe(0);
         expect(tree.execute(BVTree.SEGMENT_QUERY, P, v3(101, 100, 100)).length)
             .toBe(0);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// V43 verification: every node's oriented box contains the points of its
+// range, leaves are the degenerate point boxes, and the traversal matches a
+// recursive reference.
+// ---------------------------------------------------------------------------
+
+function reachableNodes(tree: TestableTree): number[] {
+    const nodes = tree.getNodes();
+    const out: number[] = [];
+    const visit = (nodeIndex: number): void => {
+        out.push(nodeIndex);
+        const node = nodes[nodeIndex];
+        if (node.leftChild !== BVTreeNode.invalid &&
+            node.rightChild !== BVTreeNode.invalid) {
+            visit(node.leftChild);
+            visit(node.rightChild);
+        }
+    };
+    visit(0);
+    return out;
+}
+
+describe('OrientedBoxTreeOfPoints verification', () => {
+    // Moderately scaled points: the Gaussian fit of GetContainer squares its
+    // inputs, so subnormal coordinates would underflow the covariance.
+    const pointsArb = fc.array(wellScaledVector(3, -6, 6),
+        { minLength: 1, maxLength: 20 });
+
+    const queryArb = fc.tuple(fc.integer({ min: 0, max: 2 }),
+        wellScaledVector(3, -12, 12), unitVector(3), finite(1, 25));
+
+    it('bounds every point of a node range with a valid box', () => {
+        check(fc.tuple(pointsArb, fc.option(fc.integer({ min: 0, max: 4 }),
+            { nil: undefined })), ([points, height]) => {
+            const tree = buildTree(points, height);
+            const nodes = tree.getNodes();
+            const partition = tree.getPartition();
+            for (const nodeIndex of reachableNodes(tree)) {
+                const node = nodes[nodeIndex];
+                expectValidBox(node.boundingVolume);
+                for (let i = node.minIndex; i <= node.maxIndex; ++i) {
+                    // The Gaussian fit accumulates a covariance, so the
+                    // containment tolerance scales with the point magnitudes.
+                    expect(boxContains(node.boundingVolume,
+                        points[partition[i]], 1e-9)).toBe(true);
+                }
+            }
+        }, 60);
+    });
+
+    it('makes single-point leaves degenerate boxes at the point', () => {
+        check(pointsArb, points => {
+            const tree = buildTree(points);
+            const nodes = tree.getNodes();
+            const partition = tree.getPartition();
+            for (const nodeIndex of reachableNodes(tree)) {
+                const node = nodes[nodeIndex];
+                if (node.minIndex !== node.maxIndex) {
+                    continue;
+                }
+                const box = node.boundingVolume.box;
+                // ComputeLeafBoundingVolume sets the center to the point, the
+                // axes to the standard basis and every extent to zero.
+                expect([...box.center.values])
+                    .toEqual([...points[partition[node.minIndex]].values]);
+                expect([...box.extent.values]).toEqual([0, 0, 0]);
+                for (let k = 0; k < 3; ++k) {
+                    expect([...box.axis[k].values])
+                        .toEqual([...Vector.unit(3, k).values]);
+                }
+            }
+        }, 100);
+    });
+
+    it('nests the points of the children inside the parent box', () => {
+        check(pointsArb, points => {
+            const tree = buildTree(points);
+            const nodes = tree.getNodes();
+            const partition = tree.getPartition();
+            for (const nodeIndex of reachableNodes(tree)) {
+                const node = nodes[nodeIndex];
+                if (node.leftChild === BVTreeNode.invalid) {
+                    continue;
+                }
+                const left = nodes[node.leftChild];
+                const right = nodes[node.rightChild];
+                expect(left.minIndex).toBe(node.minIndex);
+                expect(right.maxIndex).toBe(node.maxIndex);
+                expect(right.minIndex).toBe(left.maxIndex + 1);
+                // Every point of a child range is inside the parent box (the
+                // oriented boxes are refit per node, so the boxes themselves
+                // need not nest, but the point sets do).
+                for (const child of [left, right]) {
+                    for (let i = child.minIndex; i <= child.maxIndex; ++i) {
+                        expect(boxContains(node.boundingVolume,
+                            points[partition[i]], 1e-9)).toBe(true);
+                    }
+                }
+            }
+            expect([...tree.getPartition()].sort((a, b) => a - b))
+                .toEqual(points.map((_, i) => i));
+        }, 60);
+    });
+
+    it('matches a recursive traversal and reports only leaves', () => {
+        check(fc.tuple(pointsArb, queryArb),
+            ([points, [queryType, P, D, len]]) => {
+                const tree = buildTree(points);
+                const Q = (queryType === BVTree.SEGMENT_QUERY
+                    ? add(P, mul(D, len)) : D);
+                const reported = tree.execute(queryType, P, Q);
+                expect(reported).toEqual(
+                    referenceLeaves(tree, queryType, P, Q));
+                expect(new Set(reported).size).toBe(reported.length);
+                const nodes = tree.getNodes();
+                for (const nodeIndex of reported) {
+                    expect(nodes[nodeIndex].leftChild)
+                        .toBe(BVTreeNode.invalid);
+                }
+            }, 60);
     });
 });

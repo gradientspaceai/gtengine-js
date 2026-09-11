@@ -2,6 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { Hyperplane } from '../src/Hyperplane.js';
 import { Vector, dot, sub, add, mul, normalize, length } from '../src/Vector.js';
 import { cross } from '../src/Vector3.js';
+import {
+    check, compareKeys, expectClose, expectStrictWeakOrder,
+    expectVectorClose, fc, invertibleMatrix, unitVector, wellScaled,
+    wellScaledVector
+} from './helpers/arbitraries.js';
 
 function makeRandom(seed: number): () => number {
     let a = seed >>> 0;
@@ -253,5 +258,167 @@ describe('Hyperplane', () => {
         expect(a.greaterThan(c)).toBe(true);
         expect(a.greaterThanOrEqual(a.clone())).toBe(true);
         expect(b.greaterThanOrEqual(a)).toBe(true);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// V43 verification: property-based checks of the constructors, of the
+// point-set construction in every dimension, and of the signed distance.
+// ---------------------------------------------------------------------------
+
+describe('Hyperplane verification', () => {
+    // N points in general position: p[0] is arbitrary and the N-1 edges are
+    // the leading columns of a well-conditioned invertible matrix, so the
+    // simplex is never degenerate.
+    const pointsArb = (n: number) =>
+        fc.tuple(wellScaledVector(n, -5, 5), invertibleMatrix(n))
+            .map(([p0, M]) => {
+                const p = [p0];
+                for (let i = 1; i < n; ++i) {
+                    p.push(add(p0, M.getCol(i - 1)));
+                }
+                return p;
+            });
+
+    it('fromPoints yields a unit normal containing all the points', () => {
+        // N = 2 uses ComputeOrthogonalComplement, N = 3 uses UnitCross and
+        // N >= 4 uses the SVD, so all three code paths are exercised.
+        for (const n of [2, 3, 4, 5]) {
+            check(pointsArb(n), p => {
+                const plane = Hyperplane.fromPoints(p);
+                expect(plane.dimension).toBe(n);
+                expectClose(length(plane.normal), 1, 1e-12, 1e-12);
+                for (let i = 0; i < n; ++i) {
+                    // Dot(U, p[i]) = c for every input point. The dot product
+                    // has terms of size |p|, so the tolerance scales with it.
+                    const scale = 1 + length(p[i]);
+                    expectClose(dot(plane.normal, p[i]), plane.constant,
+                        1e-11 * scale, 0);
+                }
+                // origin = c * U is the point of the plane closest to 0.
+                expectVectorClose(plane.origin,
+                    mul(plane.normal, plane.constant), 1e-12, 1e-12);
+                expectClose(dot(plane.normal, plane.origin), plane.constant,
+                    1e-12, 1e-12);
+            }, 100);
+        }
+    });
+
+    it('fromPoints normal is orthogonal to every edge', () => {
+        for (const n of [2, 3, 4, 5]) {
+            check(pointsArb(n), p => {
+                const plane = Hyperplane.fromPoints(p);
+                for (let i = 1; i < n; ++i) {
+                    const edge = sub(p[i], p[0]);
+                    expectClose(dot(plane.normal, edge), 0,
+                        1e-11 * (1 + length(edge)), 0);
+                }
+            }, 100);
+        }
+    });
+
+    it('fromPoints uses UnitCross orientation in 3D', () => {
+        check(pointsArb(3), p => {
+            const plane = Hyperplane.fromPoints(p);
+            const expected = cross(sub(p[1], p[0]), sub(p[2], p[0]));
+            normalize(expected);
+            expectVectorClose(plane.normal, expected, 1e-12, 1e-12);
+        }, 100);
+    });
+
+    it('fromPoints uses the left perpendicular orientation in 2D', () => {
+        // Upstream cannot build Hyperplane<2> from points at all (the
+        // SingularValueDecomposition(2, 1, 32) constructor asserts), so the
+        // port picks ComputeOrthogonalComplement's -Perp(edge), which is the
+        // edge rotated by +90 degrees. Pin the convention.
+        check(pointsArb(2), p => {
+            const edge = sub(p[1], p[0]);
+            const expected = Vector.fromArray([-edge.get(1), edge.get(0)]);
+            normalize(expected);
+            const plane = Hyperplane.fromPoints(p);
+            expectVectorClose(plane.normal, expected, 1e-12, 1e-12);
+            // DotPerp(edge, normal) > 0: the normal is to the left of the
+            // directed edge p[0] -> p[1].
+            expect(edge.get(0) * plane.normal.get(1)
+                - edge.get(1) * plane.normal.get(0)).toBeGreaterThan(0);
+        }, 100);
+    });
+
+    it('fromNormalConstant and fromNormalOrigin agree on the plane', () => {
+        for (const n of [2, 3, 4]) {
+            check(fc.tuple(unitVector(n), wellScaled(-5, 5)), ([u, c]) => {
+                const byConstant = Hyperplane.fromNormalConstant(u, c);
+                expectClose(byConstant.constant, c, 0, 0);
+                expectVectorClose(byConstant.origin, mul(u, c), 0, 0);
+                // Rebuilding from (normal, origin) reproduces the constant.
+                const byOrigin = Hyperplane.fromNormalOrigin(u,
+                    byConstant.origin);
+                expectClose(byOrigin.constant, c, 1e-12, 1e-12);
+                expectVectorClose(byOrigin.normal, byConstant.normal, 0, 0);
+            });
+        }
+    });
+
+    it('reports the signed distance and its foot point', () => {
+        for (const n of [2, 3, 4]) {
+            check(fc.tuple(unitVector(n), wellScaled(-5, 5),
+                wellScaledVector(n, -5, 5)), ([u, c, X]) => {
+                const plane = Hyperplane.fromNormalConstant(u, c);
+                const signed = dot(plane.normal, X) - plane.constant;
+                // The foot of the perpendicular is on the plane.
+                const foot = sub(X, mul(plane.normal, signed));
+                expectClose(dot(plane.normal, foot), plane.constant,
+                    1e-11 * (1 + length(X)), 0);
+                // Moving along +normal increases the signed distance by the
+                // step length.
+                const moved = add(X, plane.normal);
+                expectClose(dot(plane.normal, moved) - plane.constant,
+                    signed + 1, 1e-11 * (1 + length(X)), 0);
+            });
+        }
+    });
+
+    it('copies its vector arguments (C++ value semantics)', () => {
+        check(fc.tuple(unitVector(3), wellScaledVector(3, -5, 5)),
+            ([u, P]) => {
+                const plane = Hyperplane.fromNormalOrigin(u, P);
+                const c = plane.constant;
+                u.set(0, u.get(0) + 1);
+                P.set(0, P.get(0) + 1);
+                expect(plane.normal.get(0)).not.toBe(u.get(0));
+                expect(plane.origin.get(0)).not.toBe(P.get(0));
+                expect(plane.constant).toBe(c);
+                const copy = plane.clone();
+                copy.normal.set(1, 17);
+                expect(plane.normal.get(1)).not.toBe(17);
+            });
+    });
+
+    it('has a trichotomous comparison', () => {
+        const planeArb = fc.tuple(unitVector(3), wellScaled(-3, 3))
+            .map(([u, c]) => Hyperplane.fromNormalConstant(u, c));
+        check(fc.tuple(planeArb, planeArb), ([a, b]) => {
+            const lt = a.lessThan(b), gt = a.greaterThan(b), eq = a.equals(b);
+            expect([lt, gt, eq].filter(x => x).length).toBe(1);
+            expect(a.notEquals(b)).toBe(!eq);
+            expect(a.lessThanOrEqual(b)).toBe(!gt);
+            expect(a.greaterThanOrEqual(b)).toBe(!lt);
+        });
+    });
+
+    it('orders by the upstream member sequence, a strict weak ordering', () => {
+        const key = (h: Hyperplane): number[] =>
+            [...h.normal.values, ...h.origin.values, h.constant];
+        const small = fc.tuple(fc.integer({ min: -1, max: 1 }),
+            fc.integer({ min: -1, max: 1 }))
+            .map(([d, c]) => Hyperplane.fromNormalConstant(
+                Vector.fromArray([d, 0, 1 - Math.abs(d)]), c));
+        check(fc.tuple(small, small), ([a, b]) => {
+            expect(a.lessThan(b)).toBe(compareKeys(key(a), key(b)) < 0);
+            expect(a.equals(b)).toBe(compareKeys(key(a), key(b)) === 0);
+        });
+        check(fc.array(small, { minLength: 3, maxLength: 5 }), items => {
+            expectStrictWeakOrder(items, (x, y) => x.lessThan(y));
+        }, 50);
     });
 });
