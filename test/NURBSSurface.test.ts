@@ -4,6 +4,9 @@ import { BSplineSurface } from '../src/BSplineSurface.js';
 import { BasisFunctionInput, UniqueKnot } from '../src/BasisFunction.js';
 import { ParametricSurface } from '../src/ParametricSurface.js';
 import { Vector, length as vectorLength, sub } from '../src/Vector.js';
+import {
+    check, fc, finite, invertibleMatrix, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -494,4 +497,289 @@ describe('NURBSSurface degenerate and boundary behavior', () => {
             }
         }
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V46): property-based checks against NURBSSurface.h.
+// ---------------------------------------------------------------------------
+
+// A control net of well-scaled points and strictly positive weights.
+function netArb(numControls0: number, numControls1: number) {
+    const n = numControls0 * numControls1;
+    return fc.record({
+        controls: fc.array(wellScaledVector(3, -5, 5),
+            { minLength: n, maxLength: n }),
+        weights: fc.array(finite(0.25, 4), { minLength: n, maxLength: n })
+    });
+}
+
+// A jet of the requested order, as an array of SUP_ORDER vectors.
+function jetOf(surface: NURBSSurface, u: number, v: number,
+    order: number): Vector[] {
+    const jet = surface.createJet();
+    surface.evaluate(u, v, order, jet);
+    return jet;
+}
+
+describe('NURBSSurface verification', () => {
+    it('reduces to the B-spline surface when all weights are equal', () => {
+        // The weight cancels from numerator and denominator exactly when it
+        // is constant, so the only difference from BSplineSurface is the
+        // division by a sum of basis values that is 1 up to rounding.
+        check(fc.tuple(fc.integer({ min: 2, max: 5 }),
+            fc.integer({ min: 2, max: 5 }), finite(0, 1), finite(0, 1),
+            finite(0.25, 4)).chain(([n0, n1, u, v, w]) =>
+                netArb(n0, n1).map(net => ({ n0, n1, u, v, w, net }))),
+            ({ n0, n1, u, v, w, net }) => {
+                const d0 = Math.min(2, n0 - 1), d1 = Math.min(2, n1 - 1);
+                const input = [new BasisFunctionInput(n0, d0),
+                    new BasisFunctionInput(n1, d1)];
+                const weights = net.weights.map(() => w);
+                const nurbs = new NURBSSurface(3, input, net.controls, weights);
+                const bspline = new BSplineSurface(3, input, net.controls);
+                const jetN = jetOf(nurbs, u, v, 2);
+                const jetB = bspline.createJet();
+                bspline.evaluate(u, v, 2, jetB);
+                for (let k = 0; k < 6; ++k) {
+                    for (let i = 0; i < 3; ++i) {
+                        const a = jetN[k].values[i], b = jetB[k].values[i];
+                        expect(Math.abs(a - b)).toBeLessThanOrEqual(
+                            1e-11 * (1 + Math.abs(b)));
+                    }
+                }
+            });
+    });
+
+    it('lies in the bounding box of the control net (positive weights)', () => {
+        // With positive weights the surface point is a convex combination of
+        // the control points, so it cannot leave their bounding box.
+        check(fc.tuple(fc.integer({ min: 2, max: 5 }),
+            fc.integer({ min: 2, max: 5 }), finite(0, 1), finite(0, 1))
+            .chain(([n0, n1, u, v]) =>
+                netArb(n0, n1).map(net => ({ n0, n1, u, v, net }))),
+            ({ n0, n1, u, v, net }) => {
+                const input = [new BasisFunctionInput(n0, Math.min(2, n0 - 1)),
+                    new BasisFunctionInput(n1, Math.min(2, n1 - 1))];
+                const surface = new NURBSSurface(3, input, net.controls,
+                    net.weights);
+                const x = jetOf(surface, u, v, 0)[0];
+                for (let i = 0; i < 3; ++i) {
+                    let lo = Number.POSITIVE_INFINITY;
+                    let hi = Number.NEGATIVE_INFINITY;
+                    for (const c of net.controls) {
+                        lo = Math.min(lo, c.values[i]);
+                        hi = Math.max(hi, c.values[i]);
+                    }
+                    // The convex-combination bound holds up to the rounding
+                    // of the rational sum.
+                    const slack = 1e-12 * (1 + hi - lo);
+                    expect(x.values[i]).toBeGreaterThanOrEqual(lo - slack);
+                    expect(x.values[i]).toBeLessThanOrEqual(hi + slack);
+                }
+            });
+    });
+
+    it('is invariant when every weight is scaled by the same factor', () => {
+        check(fc.tuple(fc.integer({ min: 2, max: 5 }),
+            fc.integer({ min: 2, max: 5 }), finite(0, 1), finite(0, 1),
+            finite(0.25, 4)).chain(([n0, n1, u, v, s]) =>
+                netArb(n0, n1).map(net => ({ n0, n1, u, v, s, net }))),
+            ({ n0, n1, u, v, s, net }) => {
+                const input = [new BasisFunctionInput(n0, Math.min(2, n0 - 1)),
+                    new BasisFunctionInput(n1, Math.min(2, n1 - 1))];
+                const a = new NURBSSurface(3, input, net.controls, net.weights);
+                const b = new NURBSSurface(3, input, net.controls,
+                    net.weights.map(w => s * w));
+                const xa = jetOf(a, u, v, 1);
+                const xb = jetOf(b, u, v, 1);
+                for (let k = 0; k < 3; ++k) {
+                    for (let i = 0; i < 3; ++i) {
+                        expect(Math.abs(xa[k].values[i] - xb[k].values[i]))
+                            .toBeLessThanOrEqual(
+                                1e-11 * (1 + Math.abs(xa[k].values[i])));
+                    }
+                }
+            });
+    });
+
+    it('is affinely equivariant in the control points', () => {
+        // A NURBS surface is a weighted average of its control points, so an
+        // affine map of the net maps the surface.
+        check(fc.tuple(fc.integer({ min: 2, max: 4 }),
+            fc.integer({ min: 2, max: 4 }), finite(0, 1), finite(0, 1),
+            invertibleMatrix(3, 1e-2), wellScaledVector(3, -3, 3))
+            .chain(([n0, n1, u, v, M, t]) =>
+                netArb(n0, n1).map(net => ({ n0, n1, u, v, M, t, net }))),
+            ({ n0, n1, u, v, M, t, net }) => {
+                const input = [new BasisFunctionInput(n0, Math.min(2, n0 - 1)),
+                    new BasisFunctionInput(n1, Math.min(2, n1 - 1))];
+                const a = new NURBSSurface(3, input, net.controls, net.weights);
+                const mapped = net.controls.map(c => {
+                    const y = new Vector(3);
+                    for (let r = 0; r < 3; ++r) {
+                        y.values[r] = M.get(r, 0) * c.values[0]
+                            + M.get(r, 1) * c.values[1]
+                            + M.get(r, 2) * c.values[2] + t.values[r];
+                    }
+                    return y;
+                });
+                const b = new NURBSSurface(3, input, mapped, net.weights);
+                const xa = jetOf(a, u, v, 0)[0];
+                const xb = jetOf(b, u, v, 0)[0];
+                for (let r = 0; r < 3; ++r) {
+                    const expected = M.get(r, 0) * xa.values[0]
+                        + M.get(r, 1) * xa.values[1]
+                        + M.get(r, 2) * xa.values[2] + t.values[r];
+                    expect(Math.abs(xb.values[r] - expected))
+                        .toBeLessThanOrEqual(1e-10 * (1 + Math.abs(expected)));
+                }
+            });
+    });
+
+    it('first-order derivatives match central differences', () => {
+        const h = 1e-4;
+        check(fc.tuple(fc.integer({ min: 3, max: 5 }),
+            fc.integer({ min: 3, max: 5 }), finite(0.2, 0.8), finite(0.2, 0.8))
+            .chain(([n0, n1, u, v]) =>
+                netArb(n0, n1).map(net => ({ n0, n1, u, v, net }))),
+            ({ n0, n1, u, v, net }) => {
+                const input = [new BasisFunctionInput(n0, 2),
+                    new BasisFunctionInput(n1, 2)];
+                const surface = new NURBSSurface(3, input, net.controls,
+                    net.weights);
+                const jet = jetOf(surface, u, v, 1);
+                const pu = jetOf(surface, u + h, v, 0)[0];
+                const mu = jetOf(surface, u - h, v, 0)[0];
+                const pv = jetOf(surface, u, v + h, 0)[0];
+                const mv = jetOf(surface, u, v - h, 0)[0];
+                for (let i = 0; i < 3; ++i) {
+                    // The central difference has O(h^2) truncation error and
+                    // O(eps/h) round-off, so ~1e-7 absolute at h = 1e-4.
+                    const du = (pu.values[i] - mu.values[i]) / (2 * h);
+                    const dv = (pv.values[i] - mv.values[i]) / (2 * h);
+                    expect(Math.abs(jet[1].values[i] - du)).toBeLessThan(
+                        1e-5 * (1 + Math.abs(du)));
+                    expect(Math.abs(jet[2].values[i] - dv)).toBeLessThan(
+                        1e-5 * (1 + Math.abs(dv)));
+                }
+            });
+    });
+
+    it('second-order derivatives match central differences of the first', () => {
+        const h = 1e-4;
+        check(fc.tuple(fc.integer({ min: 3, max: 5 }),
+            fc.integer({ min: 3, max: 5 }), finite(0.2, 0.8), finite(0.2, 0.8))
+            .chain(([n0, n1, u, v]) =>
+                netArb(n0, n1).map(net => ({ n0, n1, u, v, net }))),
+            ({ n0, n1, u, v, net }) => {
+                const input = [new BasisFunctionInput(n0, 2),
+                    new BasisFunctionInput(n1, 2)];
+                const surface = new NURBSSurface(3, input, net.controls,
+                    net.weights);
+                const jet = jetOf(surface, u, v, 2);
+                const pu = jetOf(surface, u + h, v, 1);
+                const mu = jetOf(surface, u - h, v, 1);
+                const pv = jetOf(surface, u, v + h, 1);
+                const mv = jetOf(surface, u, v - h, 1);
+                for (let i = 0; i < 3; ++i) {
+                    const duu = (pu[1].values[i] - mu[1].values[i]) / (2 * h);
+                    const duv = (pv[1].values[i] - mv[1].values[i]) / (2 * h);
+                    const dvu = (pu[2].values[i] - mu[2].values[i]) / (2 * h);
+                    const dvv = (pv[2].values[i] - mv[2].values[i]) / (2 * h);
+                    expect(Math.abs(jet[3].values[i] - duu)).toBeLessThan(
+                        1e-4 * (1 + Math.abs(duu)));
+                    expect(Math.abs(jet[5].values[i] - dvv)).toBeLessThan(
+                        1e-4 * (1 + Math.abs(dvv)));
+                    // The mixed partial is symmetric, so both differences
+                    // approximate jet[4].
+                    expect(Math.abs(jet[4].values[i] - duv)).toBeLessThan(
+                        1e-4 * (1 + Math.abs(duv)));
+                    expect(Math.abs(jet[4].values[i] - dvu)).toBeLessThan(
+                        1e-4 * (1 + Math.abs(dvu)));
+                }
+            });
+    });
+
+    it('setControl copies the input and getControl/getWeight use i0 + n0*i1',
+        () => {
+            check(fc.tuple(fc.integer({ min: 2, max: 5 }),
+                fc.integer({ min: 2, max: 5 }), wellScaledVector(3), finite(0.5, 3)),
+                ([n0, n1, p, w]) => {
+                    const input = [new BasisFunctionInput(n0, 1),
+                        new BasisFunctionInput(n1, 1)];
+                    const surface = new NURBSSurface(3, input);
+                    const i0 = n0 - 1, i1 = n1 - 1;
+                    const pCopy = p.clone();
+                    surface.setControl(i0, i1, p);
+                    surface.setWeight(i0, i1, w);
+                    p.set(0, p.get(0) + 100);
+                    expect(surface.getControl(i0, i1).get(0)).toBe(pCopy.get(0));
+                    expect(surface.getWeight(i0, i1)).toBe(w);
+                    expect(surface.getControls()[i0 + n0 * i1].get(1))
+                        .toBe(pCopy.get(1));
+                    expect(surface.getWeights()[i0 + n0 * i1]).toBe(w);
+
+                    // Out-of-range reads return element 0 and out-of-range
+                    // writes are ignored, as upstream.
+                    surface.setControl(-1, 0, Vector.fromArray([9, 9, 9]));
+                    surface.setControl(n0, 0, Vector.fromArray([9, 9, 9]));
+                    surface.setWeight(0, n1, 42);
+                    expect(surface.getControl(-1, 0).get(0))
+                        .toBe(surface.getControls()[0].get(0));
+                    expect(surface.getWeight(n0, 0))
+                        .toBe(surface.getWeights()[0]);
+                    for (const c of surface.getControls()) {
+                        expect(c.get(0)).not.toBe(9);
+                    }
+                });
+        });
+
+    it('zeroes the entire jet for an out-of-range order', () => {
+        check(fc.tuple(fc.integer({ min: 2, max: 4 }),
+            fc.integer({ min: 2, max: 4 }), finite(0, 1), finite(0, 1),
+            fc.integer({ min: ParametricSurface.SUP_ORDER, max: 12 }))
+            .chain(([n0, n1, u, v, order]) =>
+                netArb(n0, n1).map(net => ({ n0, n1, u, v, order, net }))),
+            ({ n0, n1, u, v, order, net }) => {
+                const input = [new BasisFunctionInput(n0, 1),
+                    new BasisFunctionInput(n1, 1)];
+                const surface = new NURBSSurface(3, input, net.controls,
+                    net.weights);
+                const jet = surface.createJet();
+                // Seed the jet with nonzero values so the zeroing is visible.
+                for (const e of jet) {
+                    e.values[0] = 1;
+                    e.values[1] = 2;
+                    e.values[2] = 3;
+                }
+                surface.evaluate(u, v, order, jet);
+                for (const e of jet) {
+                    expect(e.values[0] + 0).toBe(0);
+                    expect(e.values[1] + 0).toBe(0);
+                    expect(e.values[2] + 0).toBe(0);
+                }
+            });
+    });
+
+    it('the domain comes from the basis functions, not the (0,1) defaults',
+        () => {
+            check(fc.tuple(fc.integer({ min: 2, max: 5 }),
+                fc.integer({ min: 2, max: 5 })), ([n0, n1]) => {
+                    const input = [new BasisFunctionInput(n0, Math.min(2, n0 - 1)),
+                        new BasisFunctionInput(n1, Math.min(2, n1 - 1))];
+                    const surface = new NURBSSurface(3, input);
+                    expect(surface.getUMin()).toBe(
+                        surface.getBasisFunction(0).getMinDomain());
+                    expect(surface.getUMax()).toBe(
+                        surface.getBasisFunction(0).getMaxDomain());
+                    expect(surface.getVMin()).toBe(
+                        surface.getBasisFunction(1).getMinDomain());
+                    expect(surface.getVMax()).toBe(
+                        surface.getBasisFunction(1).getMaxDomain());
+                    expect(surface.isRectangular()).toBe(true);
+                    expect(surface.isConstructed()).toBe(true);
+                    expect(surface.getNumControls(0)).toBe(n0);
+                    expect(surface.getNumControls(1)).toBe(n1);
+                });
+        });
 });

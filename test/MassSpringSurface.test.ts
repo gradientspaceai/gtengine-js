@@ -3,6 +3,7 @@ import { MassSpringSurface } from '../src/MassSpringSurface.js';
 import { MassSpringVolume } from '../src/MassSpringVolume.js';
 import { MassSpringCurve } from '../src/MassSpringCurve.js';
 import { Vector, add, dot, length as vectorLength, sub } from '../src/Vector.js';
+import { check, fc, finite, wellScaledVector } from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -510,5 +511,282 @@ describe('MassSpringSurface cross-checks against the curve and volume', () => {
                     volume.getPositionAt(0, r, c)))).toBeLessThan(1e-12);
             }
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V46): property-based checks against MassSpringSurface.h.
+// ---------------------------------------------------------------------------
+
+// A lattice whose masses, positions, spring constants and rest lengths are
+// drawn by fast-check. The arrays are indexed [r][c] in row-major order.
+interface LatticeSpec {
+    numRows: number;
+    numCols: number;
+    masses: number[];
+    positions: Vector[];
+    constantR: number[];
+    lengthR: number[];
+    constantC: number[];
+    lengthC: number[];
+}
+
+function latticeSpec(minRows = 1, maxRows = 4, minCols = 1,
+    maxCols = 4): import('fast-check').Arbitrary<LatticeSpec> {
+    return fc.integer({ min: minRows, max: maxRows }).chain(numRows =>
+        fc.integer({ min: minCols, max: maxCols }).chain(numCols => {
+            const n = numRows * numCols;
+            return fc.record({
+                numRows: fc.constant(numRows),
+                numCols: fc.constant(numCols),
+                // Powers of two keep 1/mass exact, so mass * acceleration
+                // recovers the force without rounding.
+                masses: fc.array(fc.integer({ min: -3, max: 3 }).map(k => 2 ** k),
+                    { minLength: n, maxLength: n }),
+                positions: fc.array(wellScaledVector(3, -6, 6),
+                    { minLength: n, maxLength: n }),
+                constantR: fc.array(finite(0, 5), { minLength: n, maxLength: n }),
+                lengthR: fc.array(finite(0, 5), { minLength: n, maxLength: n }),
+                constantC: fc.array(finite(0, 5), { minLength: n, maxLength: n }),
+                lengthC: fc.array(finite(0, 5), { minLength: n, maxLength: n })
+            });
+        }));
+}
+
+function buildSurface(spec: LatticeSpec): TestMassSpringSurface {
+    const surface = new TestMassSpringSurface(3, spec.numRows, spec.numCols, 0.01);
+    for (let r = 0; r < spec.numRows; ++r) {
+        for (let c = 0; c < spec.numCols; ++c) {
+            const i = c + spec.numCols * r;
+            surface.setMassAt(r, c, spec.masses[i]);
+            surface.setPositionAt(r, c, spec.positions[i]);
+            surface.setVelocityAt(r, c, v3(0, 0, 0));
+            surface.setConstantR(r, c, spec.constantR[i]);
+            surface.setLengthR(r, c, spec.lengthR[i]);
+            surface.setConstantC(r, c, spec.constantC[i]);
+            surface.setLengthC(r, c, spec.lengthC[i]);
+        }
+    }
+    return surface;
+}
+
+// Reject specs whose neighboring masses are too close together, because the
+// spring law divides by the distance without a guard (upstream does too).
+function wellSeparated(spec: LatticeSpec): boolean {
+    for (let r = 0; r < spec.numRows; ++r) {
+        for (let c = 0; c < spec.numCols; ++c) {
+            const i = c + spec.numCols * r;
+            if (r + 1 < spec.numRows) {
+                const j = i + spec.numCols;
+                if (vectorLength(sub(spec.positions[j], spec.positions[i])) < 1e-2) {
+                    return false;
+                }
+            }
+            if (c + 1 < spec.numCols) {
+                const j = i + 1;
+                if (vectorLength(sub(spec.positions[j], spec.positions[i])) < 1e-2) {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+// Exposes the protected acceleration of MassSpringVolume for the cross-check.
+class TestMassSpringVolume extends MassSpringVolume {
+    accelerationAt(i: number, time: number, position: readonly Vector[],
+        velocity: readonly Vector[]): Vector {
+        return this.acceleration(i, time, position, velocity);
+    }
+}
+
+describe('MassSpringSurface verification', () => {
+    it('getIndex and getCoordinates are mutually inverse', () => {
+        check(fc.tuple(fc.integer({ min: 1, max: 7 }),
+            fc.integer({ min: 1, max: 7 })), ([numRows, numCols]) => {
+                const surface = new TestMassSpringSurface(3, numRows, numCols, 0.1);
+                expect(surface.getNumRows()).toBe(numRows);
+                expect(surface.getNumCols()).toBe(numCols);
+                for (let i = 0; i < numRows * numCols; ++i) {
+                    const { r, c } = surface.coordinatesOf(i);
+                    expect(r).toBeGreaterThanOrEqual(0);
+                    expect(r).toBeLessThan(numRows);
+                    expect(c).toBeGreaterThanOrEqual(0);
+                    expect(c).toBeLessThan(numCols);
+                    expect(surface.indexOf(r, c)).toBe(i);
+                }
+            });
+    });
+
+    it('conserves momentum: the internal spring forces sum to zero', () => {
+        // The total internal force sum_i m_i * a_i must vanish (the third
+        // law). Each mass is a power of two, so m_i * (1/m_i) is exactly 1
+        // and m_i * a_i is the net force on particle i to the last bit; only
+        // the summation order differs from the pairwise cancellation, which
+        // is what the tolerance covers.
+        check(latticeSpec().filter(wellSeparated), spec => {
+            const surface = buildSurface(spec);
+            const positions = spec.positions;
+            const velocities = positions.map(() => v3(0, 0, 0));
+            let total = v3(0, 0, 0);
+            let scale = 0;
+            for (let i = 0; i < positions.length; ++i) {
+                const a = surface.accelerationAt(i, 0, positions, velocities);
+                const f = Vector.fromArray(a.values.map(x => spec.masses[i] * x));
+                scale += vectorLength(f);
+                total = add(total, f);
+            }
+            expect(vectorLength(total)).toBeLessThanOrEqual(1e-12 * (1 + scale));
+        });
+    });
+
+    it('a two-particle surface has exactly opposite spring forces', () => {
+        // With unit masses the acceleration is the force, and the particles
+        // share a single spring, so the cancellation is exact: the second
+        // difference vector is the negation of the first and has a
+        // bit-identical length.
+        check(fc.tuple(wellScaledVector(3, -6, 6), wellScaledVector(3, -6, 6),
+            finite(0, 5), finite(0, 5))
+            .filter(t => vectorLength(sub(t[1], t[0])) > 1e-2),
+            ([p0, p1, constant, restLength]) => {
+                const surface = new TestMassSpringSurface(3, 1, 2, 0.01);
+                surface.setMassAt(0, 0, 1);
+                surface.setMassAt(0, 1, 1);
+                surface.setConstantC(0, 0, constant);
+                surface.setLengthC(0, 0, restLength);
+                const positions = [p0, p1];
+                const velocities = [v3(0, 0, 0), v3(0, 0, 0)];
+                const a0 = surface.accelerationAt(0, 0, positions, velocities);
+                const a1 = surface.accelerationAt(1, 0, positions, velocities);
+                for (let k = 0; k < 3; ++k) {
+                    expect(a0.values[k] + 0).toBe(-a1.values[k] + 0);
+                }
+            });
+    });
+
+    it('a lattice at its rest lengths is an exact fixed point', () => {
+        check(fc.tuple(fc.integer({ min: 2, max: 5 }),
+            fc.integer({ min: 2, max: 5 }), fc.integer({ min: 1, max: 8 }),
+            finite(0.1, 5)), ([numRows, numCols, spacing, constant]) => {
+                // Integer spacing along the axes makes each neighbor distance
+                // exactly 'spacing', so ratio is exactly 1 and every spring
+                // force is exactly zero.
+                const surface = makeLattice(numRows, numCols, spacing, spacing,
+                    constant, 1, 0.01);
+                const positions: Vector[] = [];
+                for (let r = 0; r < numRows; ++r) {
+                    for (let c = 0; c < numCols; ++c) {
+                        positions.push(v3(c * spacing, r * spacing, 0));
+                    }
+                }
+                const velocities = positions.map(() => v3(0, 0, 0));
+                for (let i = 0; i < positions.length; ++i) {
+                    const a = surface.accelerationAt(i, 0, positions, velocities);
+                    expect(a.values[0] + 0).toBe(0);
+                    expect(a.values[1] + 0).toBe(0);
+                    expect(a.values[2] + 0).toBe(0);
+                }
+            });
+    });
+
+    it('agrees bit for bit with a single-slice MassSpringVolume', () => {
+        // A volume of one slice has no slice springs, and its acceleration
+        // accumulates the r-terms and then the c-terms in the same order as
+        // the surface, so the two must agree exactly.
+        check(latticeSpec().filter(wellSeparated), spec => {
+            const surface = buildSurface(spec);
+            const volume = new TestMassSpringVolume(3, 1, spec.numRows,
+                spec.numCols, 0.01);
+            for (let r = 0; r < spec.numRows; ++r) {
+                for (let c = 0; c < spec.numCols; ++c) {
+                    const i = c + spec.numCols * r;
+                    volume.setMassAt(0, r, c, spec.masses[i]);
+                    volume.setPositionAt(0, r, c, spec.positions[i]);
+                    volume.setVelocityAt(0, r, c, v3(0, 0, 0));
+                    volume.setConstantR(0, r, c, spec.constantR[i]);
+                    volume.setLengthR(0, r, c, spec.lengthR[i]);
+                    volume.setConstantC(0, r, c, spec.constantC[i]);
+                    volume.setLengthC(0, r, c, spec.lengthC[i]);
+                }
+            }
+
+            const positions = spec.positions;
+            const velocities = positions.map(() => v3(0, 0, 0));
+            for (let i = 0; i < positions.length; ++i) {
+                const aS = surface.accelerationAt(i, 0.5, positions, velocities);
+                const aV = volume.accelerationAt(i, 0.5, positions, velocities);
+                for (let k = 0; k < 3; ++k) {
+                    expect(aS.values[k] + 0).toBe(aV.values[k] + 0);
+                }
+            }
+        });
+    });
+
+    it('adds the external acceleration verbatim', () => {
+        check(fc.tuple(latticeSpec(2, 3, 2, 3).filter(wellSeparated),
+            wellScaledVector(3, -5, 5)), ([spec, g]) => {
+                const plain = buildSurface(spec);
+                const gravity = new GravityMassSpringSurface(3, spec.numRows,
+                    spec.numCols, 0.01, g);
+                for (let r = 0; r < spec.numRows; ++r) {
+                    for (let c = 0; c < spec.numCols; ++c) {
+                        const i = c + spec.numCols * r;
+                        gravity.setMassAt(r, c, spec.masses[i]);
+                        gravity.setPositionAt(r, c, spec.positions[i]);
+                        gravity.setVelocityAt(r, c, v3(0, 0, 0));
+                        gravity.setConstantR(r, c, spec.constantR[i]);
+                        gravity.setLengthR(r, c, spec.lengthR[i]);
+                        gravity.setConstantC(r, c, spec.constantC[i]);
+                        gravity.setLengthC(r, c, spec.lengthC[i]);
+                    }
+                }
+                const positions = spec.positions;
+                const velocities = positions.map(() => v3(0, 0, 0));
+                for (let i = 0; i < positions.length; ++i) {
+                    const a0 = plain.accelerationAt(i, 0, positions, velocities);
+                    const a1 = gravity.accelerationAt(i, 0, positions, velocities);
+                    for (let k = 0; k < 3; ++k) {
+                        expect(a1.values[k] - a0.values[k]).toBeCloseTo(
+                            g.values[k], 10);
+                    }
+                }
+            });
+    });
+
+    it('stores copies of the positions and velocities, indexed by (r,c)', () => {
+        check(fc.tuple(fc.integer({ min: 1, max: 5 }),
+            fc.integer({ min: 1, max: 5 }), wellScaledVector(3),
+            wellScaledVector(3)), ([numRows, numCols, p, v]) => {
+                const surface = new TestMassSpringSurface(3, numRows, numCols, 0.1);
+                const r = numRows - 1, c = numCols - 1;
+                const pCopy = p.clone();
+                surface.setPositionAt(r, c, p);
+                surface.setVelocityAt(r, c, v);
+                surface.setMassAt(r, c, 2);
+                p.set(0, p.get(0) + 100);
+                expect(surface.getPositionAt(r, c).get(0)).toBe(pCopy.get(0));
+                expect(surface.getVelocityAt(r, c).get(1)).toBe(v.get(1));
+                expect(surface.getMassAt(r, c)).toBe(2);
+                // The (r,c) accessors and the linear-index accessors of
+                // ParticleSystem address the same particle.
+                const i = surface.indexOf(r, c);
+                expect(surface.getPosition(i).get(2)).toBe(pCopy.get(2));
+            });
+    });
+
+    it('preserves the unguarded division of the upstream spring law', () => {
+        // Upstream computes ratio = restLength / Length(diff) with no guard,
+        // so coincident masses produce a non-finite acceleration. The port
+        // must not "improve" this.
+        const surface = new TestMassSpringSurface(3, 1, 2, 0.01);
+        surface.setMassAt(0, 0, 1);
+        surface.setMassAt(0, 1, 1);
+        surface.setConstantC(0, 0, 1);
+        surface.setLengthC(0, 0, 1);
+        const positions = [v3(1, 2, 3), v3(1, 2, 3)];
+        const velocities = [v3(0, 0, 0), v3(0, 0, 0)];
+        const a = surface.accelerationAt(0, 0, positions, velocities);
+        expect(Number.isNaN(a.values[0])).toBe(true);
     });
 });

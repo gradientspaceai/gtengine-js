@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { ParametricSurface } from '../src/ParametricSurface.js';
 import { Vector, dot, length, sub, div } from '../src/Vector.js';
+import {
+    check, fc, finite, unitVector, wellScaledVector
+} from './helpers/arbitraries.js';
 
 // ---------------------------------------------------------------------------
 // Concrete subclasses used to exercise the abstract base. The real surface
@@ -339,4 +342,138 @@ describe('ParametricSurface', () => {
             expect(length(normal)).toBeCloseTo(1, 12);
         });
     });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V46): property-based checks of the base-class contract
+// against the upstream ParametricSurface.h. The upstream jet is an array of
+// value objects, so a derived Evaluate that assigns a stored vector into a
+// jet slot hands the base class a copy; in TypeScript the slot aliases the
+// derived object, and the base class must clone before normalizing.
+// ---------------------------------------------------------------------------
+describe('ParametricSurface verification', () => {
+    it('getPosition reproduces the affine patch exactly', () => {
+        check(fc.tuple(wellScaledVector(3), wellScaledVector(3),
+            wellScaledVector(3), finite(-1, 4), finite(0, 5)),
+            ([p, u, v, uu, vv]) => {
+                const patch = new PlanePatch(p, u, v, -1, 4, 0, 5);
+                const x = patch.getPosition(uu, vv);
+                for (let i = 0; i < 3; ++i) {
+                    // The patch computes exactly this expression, and
+                    // getPosition only copies it, so the comparison is exact.
+                    expect(x.get(i)).toBe(p.get(i) + uu * u.get(i) + vv * v.get(i));
+                }
+            });
+    });
+
+    it('getPosition returns a fresh vector on every call', () => {
+        check(fc.tuple(wellScaledVector(3), wellScaledVector(3),
+            wellScaledVector(3)), ([p, u, v]) => {
+                const patch = new PlanePatch(p, u, v, -1, 4, 0, 5);
+                const first = patch.getPosition(1, 2);
+                first.set(0, 12345);
+                const second = patch.getPosition(1, 2);
+                expect(second.get(0)).toBe(p.get(0) + u.get(0) + 2 * v.get(0));
+            });
+    });
+
+    it('getUTangent/getVTangent normalize a copy, leaving the patch intact',
+        () => {
+            check(fc.tuple(wellScaledVector(3), unitVector(3), unitVector(3)),
+                ([p, u, v]) => {
+                    // Scale the directions well away from unit length, so a
+                    // base class that normalized the patch's own vectors
+                    // would visibly change the patch geometry.
+                    const U = Vector.fromArray(u.values.map(x => 7 * x));
+                    const V = Vector.fromArray(v.values.map(x => 5 * x));
+                    const patch = new PlanePatch(p, U, V, -1, 4, 0, 5);
+
+                    const tu = patch.getUTangent(0, 0);
+                    const tv = patch.getVTangent(0, 0);
+                    expect(length(tu)).toBeCloseTo(1, 12);
+                    expect(length(tv)).toBeCloseTo(1, 12);
+
+                    // The patch still spans the unnormalized directions.
+                    const dU = sub(patch.getPosition(1, 0), patch.getPosition(0, 0));
+                    const dV = sub(patch.getPosition(0, 1), patch.getPosition(0, 0));
+                    for (let i = 0; i < 3; ++i) {
+                        expect(dU.get(i)).toBeCloseTo(U.get(i), 12);
+                        expect(dV.get(i)).toBeCloseTo(V.get(i), 12);
+                    }
+
+                    // And the tangents are the unit directions of U and V.
+                    const uHat = div(U, length(U));
+                    const vHat = div(V, length(V));
+                    for (let i = 0; i < 3; ++i) {
+                        expect(tu.get(i)).toBeCloseTo(uHat.get(i), 12);
+                        expect(tv.get(i)).toBeCloseTo(vHat.get(i), 12);
+                    }
+                });
+        });
+
+    it('sphere-patch tangents are unit length and orthogonal', () => {
+        const sphere = new SpherePatch();
+        // Stay away from the poles, where dX/du vanishes.
+        check(fc.tuple(finite(0, 2 * Math.PI), finite(0.1, Math.PI - 0.1)),
+            ([u, v]) => {
+                const tu = sphere.getUTangent(u, v);
+                const tv = sphere.getVTangent(u, v);
+                expect(length(tu)).toBeCloseTo(1, 12);
+                expect(length(tv)).toBeCloseTo(1, 12);
+                expect(dot(tu, tv)).toBeCloseTo(0, 12);
+                // The surface normal is the outward radial direction.
+                const n = cross3(tu, tv);
+                const x = sphere.getPosition(u, v);
+                expect(dot(n, x)).toBeCloseTo(-1, 10);
+            });
+    });
+
+    it('getUTangent is the zero vector where dX/du degenerates', () => {
+        // Normalize() of a zero vector returns 0 and zeroes the vector, so
+        // the pole tangent is (0,0,0) rather than NaN. Only v = 0 gives an
+        // exactly zero dX/du; Math.sin(Math.PI) is 1.2e-16, not zero, so the
+        // other pole yields a (meaningless but finite) unit vector.
+        const sphere = new SpherePatch();
+        const tu = sphere.getUTangent(1.234, 0);
+        expect(tu.get(0) + 0).toBe(0);
+        expect(tu.get(1) + 0).toBe(0);
+        expect(tu.get(2) + 0).toBe(0);
+        expect(length(sphere.getUTangent(1.234, Math.PI))).toBeCloseTo(1, 12);
+    });
+
+    it('createJet allocates SUP_ORDER distinct zero vectors of the surface dimension',
+        () => {
+            check(fc.integer({ min: 1, max: 6 }), n => {
+                const patch = new PlanePatch(new Vector(n), new Vector(n),
+                    new Vector(n), 0, 1, 0, 1);
+                const jet = patch.createJet();
+                expect(jet.length).toBe(ParametricSurface.SUP_ORDER);
+                for (let i = 0; i < jet.length; ++i) {
+                    expect(jet[i].size).toBe(n);
+                    for (let k = 0; k < n; ++k) {
+                        expect(jet[i].get(k)).toBe(0);
+                    }
+                    for (let j = 0; j < i; ++j) {
+                        expect(jet[i]).not.toBe(jet[j]);
+                    }
+                }
+            });
+        });
+
+    it('the domain accessors report exactly what the constructor was given',
+        () => {
+            check(fc.tuple(finite(-20, 20), finite(-20, 20), finite(-20, 20),
+                finite(-20, 20), fc.boolean()),
+                ([umin, umax, vmin, vmax, rectangular]) => {
+                    const patch = new PlanePatch(P, U, V, umin, umax, vmin,
+                        vmax, rectangular);
+                    expect(patch.getUMin()).toBe(umin);
+                    expect(patch.getUMax()).toBe(umax);
+                    expect(patch.getVMin()).toBe(vmin);
+                    expect(patch.getVMax()).toBe(vmax);
+                    expect(patch.isRectangular()).toBe(rectangular);
+                    expect(patch.getDimension()).toBe(3);
+                    expect(patch.isConstructed()).toBe(true);
+                });
+        });
 });
