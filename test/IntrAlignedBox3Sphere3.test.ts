@@ -10,8 +10,8 @@ import {
 } from '../src/IntrAlignedBox3Sphere3.js';
 import { dot } from '../src/Vector.js';
 import {
-    check, expectClose, expectVectorClose, fc, positive, unitVector,
-    wellScaledVector
+    check, expectClose, expectVectorClose, fc, positive, seededRandom,
+    unitVector, wellScaledVector
 } from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
@@ -448,12 +448,11 @@ describe('IntrAlignedBox3Sphere3 verification', () => {
             // The objects are never still apart at the reported time: the
             // query does not invent contacts.
             expect(gap(b, Vector.zero(3), s, sv, t)).toBeLessThanOrEqual(1e-7);
-            // Upstream can report a contact that is slightly LATE, because
-            // DoQueryRayRoundedFace accepts the first rounded-edge probe that
-            // succeeds and never tries the other edge of the face; see the
-            // deterministic test below. The property therefore only requires
-            // the reported time to be a genuine contact and the reported point
-            // to be a real touch point of the two objects at that time.
+            // The reported time is the FIRST contact; that is checked
+            // against the Minkowski-sum oracle in the property below, since
+            // sampling the gap cannot certify a first crossing. Here the
+            // reported point is checked to be a real touch point of the two
+            // objects at the reported time.
             // The contact point is on the box and at distance radius from the
             // sphere center at the contact time.
             const p = res.contactPoint;
@@ -466,14 +465,16 @@ describe('IntrAlignedBox3Sphere3 verification', () => {
         });
     });
 
-    it('can report a late first contact when the ray leaves the probed'
-        + ' rounded edge (upstream limitation, preserved)', () => {
-        // DoQueryRayRoundedFace picks one rounded edge of the candidate face,
-        // and DoQueryRayRoundedEdge falls back to the rounded VERTEX of that
-        // edge when the cylinder hit is outside the finite cylinder. Once
-        // that vertex hit succeeds the face routine stops, so the other
+    it('reports the true first contact when the ray leaves the probed'
+        + ' rounded edge (#458 item 5)', () => {
+        // doQueryRayRoundedFace picks the rounded face the ray enters, and
+        // doQueryRayRoundedEdge falls back to the rounded VERTEX of the edge
+        // it probes when the cylinder hit is outside the finite cylinder.
+        // Upstream stops at that first successful probe, so the other
         // rounded edge of the face - which is where this configuration
-        // actually touches first - is never tried.
+        // actually touches first - was never tried and the contact was
+        // reported at t = 34.36489152404247 (the box corner), 0.11 late,
+        // with the sphere already 0.0139 inside the box.
         const b = box(v3(2.5796760191927124, -0.20000000000000004,
             -0.20000000000000004),
         v3(2.9796760191927127, 0.20000000000000004, 0.20000000000000004));
@@ -483,24 +484,91 @@ describe('IntrAlignedBox3Sphere3 verification', () => {
             0.15681358038777782);
         const res = fi.find(b, Vector.zero(3), s, sv);
         expect(res.intersectionType).toBe(Type.contact);
-        // The reported contact is the box corner and the reported time is
-        // about 0.11 later than the true first contact, at which the sphere
-        // already overlaps the box by about 0.014.
-        expectVectorClose(res.contactPoint, b.min);
-        expect(gap(b, Vector.zero(3), s, sv, res.contactTime))
-            .toBeLessThan(-0.01);
-        // Bisect the true first contact on the sampled gap.
-        let lo = 0, hi = res.contactTime;
-        for (let i = 0; i < 200; ++i) {
-            const m = 0.5 * (lo + hi);
-            if (gap(b, Vector.zero(3), s, sv, m) > 0) {
-                lo = m;
-            }
-            else {
-                hi = m;
-            }
+        expectClose(res.contactTime, 34.252524073964835, 1e-9, 1e-12);
+        expect(res.contactTime).toBeLessThan(34.3);
+        // The contact is on the box edge x = b.min[0], y = b.min[1], not at
+        // the corner, and the sphere only touches the box there.
+        expectVectorClose(res.contactPoint,
+            v3(2.5796760191927124, -0.20000000000000004,
+                0.00037951517835832504), 1e-9, 1e-9);
+        expect(Math.abs(gap(b, Vector.zero(3), s, sv, res.contactTime)))
+            .toBeLessThan(1e-9);
+        // Strictly separated just before the reported time.
+        expect(gap(b, Vector.zero(3), s, sv, res.contactTime - 1e-3))
+            .toBeGreaterThan(0);
+    });
+
+    it('finds the contact through the rounded edge parallel to the entry'
+        + ' face (#465 item 2)', () => {
+        // The ray leaves the entry face on both sides, so the first contact
+        // is on the rounded edge PARALLEL to the face normal at the overhang
+        // corner. That edge bounds neither of the two rounded edges upstream
+        // probes, both of whose rounded-vertex fallbacks miss here, so
+        // upstream reported noContact although the sphere penetrates the box
+        // by 5.7e-3 at the closest approach.
+        const c = v3(0.090417948551476, -0.5309329181909561,
+            0.9111482501029968);
+        const e = v3(0.3892387102358043, 0.3108668552711606,
+            0.5541517764329911);
+        const b = box(sub(c, e), add(c, e));
+        const s = sphere(5.136491211596876, -1.6951057985424995,
+            1.702867484651506, 0.2129704826977104);
+        const sv = v3(-1, 0.16651661535725, -0.005579612776637072);
+        const res = fi.find(b, Vector.zero(3), s, sv);
+        expect(res.intersectionType).toBe(Type.contact);
+        expectClose(res.contactTime, 4.9164603303241305, 1e-9, 1e-12);
+        // The contact point is on the box edge y = b.min[1], z = b.max[2].
+        expectVectorClose(res.contactPoint,
+            v3(0.22003088127274584, -0.8417997734621168, 1.465300026535988),
+            1e-9, 1e-9);
+        expect(Math.abs(gap(b, Vector.zero(3), s, sv, res.contactTime)))
+            .toBeLessThan(1e-9);
+        expect(gap(b, Vector.zero(3), s, sv, res.contactTime - 1e-3))
+            .toBeGreaterThan(0);
+    });
+
+    it('probes the rounded edges that meet the nearest rounded vertex', () => {
+        // The vertexSeparated case of doQuery: the sphere center is in the
+        // corner box [K, K + radius] of the first octant, so the nearest
+        // piece of the rounded box is the rounded vertex. Upstream probes
+        // only that vertex, but the ray can enter through one of the three
+        // rounded edges meeting it, either earlier than the vertex or where
+        // the vertex is missed altogether. Both configurations were found by
+        // the Minkowski-sum oracle below.
+        const missed = {
+            b: box(v3(-2.8967879977188056, -2.8644249146894176,
+                -2.1982821431361246),
+            v3(2.8967879977188056, 2.8644249146894176, 2.1982821431361246)),
+            s: sphere(7.184056052312964, -4.743390293991202,
+                6.546082936666346, 4.44050498629351),
+            sv: v3(-4.776835712724244, 5.672260885355733,
+                -0.1792759264727523),
+            // upstream: noContact
+            t: 0.6191840057453503,
+            p: v3(2.8967879977188056, -1.2312170773639721, 2.1982821431361246)
+        };
+        const late = {
+            b: box(v3(-0.7669004777317825, -13.33655954226376,
+                -5.233129731083094),
+            v3(0.7669004777317825, 13.33655954226376, 5.233129731083094)),
+            s: sphere(-7.660843902444189, -13.890512876707406,
+                -9.942798799926393, 7.294105788085315),
+            sv: v3(3.2224692471639997, 10.097123601932271, 5.802238437727227),
+            // upstream: contact at t = 0.21189258023326504, 0.031 late
+            t: 0.1811483750315202,
+            p: v3(-0.7669004777317825, -12.061435343724966,
+                -5.233129731083094)
+        };
+        for (const c of [missed, late]) {
+            const res = fi.find(c.b, Vector.zero(3), c.s, c.sv);
+            expect(res.intersectionType).toBe(Type.contact);
+            expectClose(res.contactTime, c.t, 1e-9, 1e-12);
+            expectVectorClose(res.contactPoint, c.p, 1e-9, 1e-9);
+            expect(Math.abs(gap(c.b, Vector.zero(3), c.s, c.sv,
+                res.contactTime))).toBeLessThan(1e-9);
+            expect(gap(c.b, Vector.zero(3), c.s, c.sv,
+                res.contactTime * (1 - 1e-4))).toBeGreaterThan(0);
         }
-        expect(res.contactTime - hi).toBeGreaterThan(0.1);
     });
 
     it('a reported no-contact is confirmed by sampling the motion', () => {
@@ -595,6 +663,229 @@ describe('IntrAlignedBox3Sphere3 verification', () => {
             }
         });
     });
+
+    // -----------------------------------------------------------------
+    // The first contact computed independently of the query, as the first
+    // intersection of the ray C + t*V (C the sphere center relative to the
+    // box center, V the relative velocity) with the Minkowski sum of the box
+    // and the ball of radius r. That boundary is made of the six box faces
+    // pushed out by r, the twelve cylinders of radius r around the box edges
+    // and the eight spheres of radius r at the box vertices. Every piece is
+    // a subset of the Minkowski sum, so a ray coming from outside meets each
+    // piece no earlier than it enters the sum, and it enters the sum on one
+    // of them: the smallest nonnegative parameter over all pieces is the
+    // first contact time.
+    // -----------------------------------------------------------------
+    function minkowskiFirstContact(b: AlignedBox, bv: Vector, s: Hypersphere,
+        sv: Vector): { type: Type, t: number, point: Vector } {
+        const center = mul(0.5, add(b.min, b.max));
+        const K = mul(0.5, sub(b.max, b.min)).values;
+        const C = sub(s.center, center).values;
+        const V = sub(sv, bv).values;
+        const r = s.radius;
+
+        // Already overlapping?
+        let sqrLen = 0;
+        for (let i = 0; i < 3; ++i) {
+            const d = Math.max(Math.abs(C[i]) - K[i], 0);
+            sqrLen += d * d;
+        }
+        if (Math.sqrt(sqrLen) <= r) {
+            return {
+                type: Type.initiallyOverlapping, t: 0,
+                point: add(Vector.fromArray(C), center)
+            };
+        }
+
+        let best = Number.POSITIVE_INFINITY;
+        let bestPoint = [0, 0, 0];
+        const at = (t: number): number[] =>
+            [C[0] + t * V[0], C[1] + t * V[1], C[2] + t * V[2]];
+        const consider = (t: number, q: number[]): void => {
+            if (t >= 0 && t < best) { best = t; bestPoint = q; }
+        };
+
+        // The six faces, offset by r along their normals.
+        for (let i = 0; i < 3; ++i) {
+            const i1 = (i + 1) % 3;
+            const i2 = (i + 2) % 3;
+            for (const sgn of [-1, 1]) {
+                if (V[i] === 0) { continue; }
+                const t = (sgn * (K[i] + r) - C[i]) / V[i];
+                if (t < 0) { continue; }
+                const p = at(t);
+                if (Math.abs(p[i1]) <= K[i1] && Math.abs(p[i2]) <= K[i2]) {
+                    const q = p.slice();
+                    q[i] = sgn * K[i];
+                    consider(t, q);
+                }
+            }
+        }
+
+        // The twelve cylinders of radius r around the box edges; the edge
+        // parallel to axis k passes through (si*K[i], sj*K[j]).
+        for (let k = 0; k < 3; ++k) {
+            const i = (k + 1) % 3;
+            const j = (k + 2) % 3;
+            for (const si of [-1, 1]) {
+                for (const sj of [-1, 1]) {
+                    const ei = C[i] - si * K[i];
+                    const ej = C[j] - sj * K[j];
+                    const c2 = V[i] * V[i] + V[j] * V[j];
+                    if (c2 === 0) { continue; }
+                    const c1 = V[i] * ei + V[j] * ej;
+                    const c0 = ei * ei + ej * ej - r * r;
+                    const discr = c1 * c1 - c2 * c0;
+                    if (discr < 0) { continue; }
+                    const sq = Math.sqrt(discr);
+                    for (const t of [(-c1 - sq) / c2, (-c1 + sq) / c2]) {
+                        if (t < 0) { continue; }
+                        const p = at(t);
+                        if (Math.abs(p[k]) <= K[k]) {
+                            const q = [0, 0, 0];
+                            q[i] = si * K[i];
+                            q[j] = sj * K[j];
+                            q[k] = p[k];
+                            consider(t, q);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // The eight spheres of radius r at the box vertices.
+        const a2 = V[0] * V[0] + V[1] * V[1] + V[2] * V[2];
+        if (a2 > 0) {
+            for (const s0 of [-1, 1]) {
+                for (const s1 of [-1, 1]) {
+                    for (const s2 of [-1, 1]) {
+                        const q = [s0 * K[0], s1 * K[1], s2 * K[2]];
+                        const e = [C[0] - q[0], C[1] - q[1], C[2] - q[2]];
+                        const a1 = V[0] * e[0] + V[1] * e[1] + V[2] * e[2];
+                        const a0 = e[0] * e[0] + e[1] * e[1] + e[2] * e[2]
+                            - r * r;
+                        const discr = a1 * a1 - a2 * a0;
+                        if (discr < 0) { continue; }
+                        consider((-a1 - Math.sqrt(discr)) / a2, q);
+                    }
+                }
+            }
+        }
+
+        if (!Number.isFinite(best)) {
+            return { type: Type.noContact, t: 0, point: Vector.zero(3) };
+        }
+        return {
+            type: Type.contact, t: best,
+            point: add(Vector.fromArray(bestPoint), center)
+        };
+    }
+
+    // The signed gap is convex in t (the distance from a point to a convex
+    // set along a line is convex), so a ternary search finds its minimum.
+    // A configuration whose minimum gap is within a small margin of zero is
+    // tangential: the query and the oracle round the discriminants of the
+    // same quadratics differently there and can disagree on whether the
+    // objects touch at all, so such configurations are skipped.
+    function minimumGap(b: AlignedBox, s: Hypersphere, sv: Vector,
+        tHi: number): number {
+        let lo = 0;
+        let hi = tHi;
+        for (let i = 0; i < 100; ++i) {
+            const m0 = lo + (hi - lo) / 3;
+            const m1 = hi - (hi - lo) / 3;
+            if (gap(b, Vector.zero(3), s, sv, m0)
+                <= gap(b, Vector.zero(3), s, sv, m1)) {
+                hi = m1;
+            }
+            else {
+                lo = m0;
+            }
+        }
+        return gap(b, Vector.zero(3), s, sv, 0.5 * (lo + hi));
+    }
+
+    // Compare one configuration against the oracle. Returns false when the
+    // configuration is skipped as tangential.
+    function checkAgainstOracle(b: AlignedBox, s: Hypersphere,
+        sv: Vector): boolean {
+        const speed = Math.sqrt(dot(sv, sv));
+        if (speed === 0) { return false; }
+        const scale = 1 + s.radius + Math.sqrt(dot(b.max, b.max))
+            + Math.sqrt(dot(s.center, s.center));
+        const oracle = minkowskiFirstContact(b, Vector.zero(3), s, sv);
+        const tHi = oracle.type === Type.contact
+            ? 2 * oracle.t + scale / speed
+            : 100 * scale / speed;
+        if (Math.abs(minimumGap(b, s, sv, tHi)) < 1e-7 * scale) {
+            return false;
+        }
+        const res = fi.find(b, Vector.zero(3), s, sv);
+        expect(res.intersectionType).toBe(oracle.type);
+        if (oracle.type === Type.contact) {
+            // The query and the oracle solve the same quadratics, so they
+            // agree to the rounding of their coefficients; a time tolerance
+            // is a length tolerance divided by the speed.
+            expectClose(res.contactTime, oracle.t, 1e-9 * scale / speed,
+                1e-9);
+        }
+        return true;
+    }
+
+    it('agrees with the Minkowski-sum first-contact oracle', () => {
+        let tested = 0;
+        check(arbMoving, ({ b, s, sv }) => {
+            if (gap(b, Vector.zero(3), s, sv, 0) <= 0) {
+                return;
+            }
+            if (checkAgainstOracle(b, s, sv)) { ++tested; }
+        });
+        expect(tested).toBeGreaterThan(50);
+    }, 30000);
+
+    it('agrees with the Minkowski-sum oracle on corner-aimed motions', () => {
+        // The face and vertex case analyses are exercised by motions aimed
+        // at the box corners, where the ray leaves the rounded face it
+        // enters; that is the family both #458 item 5 and #465 item 2 come
+        // from. The generator spans three decades of scale.
+        const rnd = seededRandom(0x5b03e1);
+        let contacts = 0;
+        let tested = 0;
+        for (let iter = 0; iter < 4000; ++iter) {
+            const scale = Math.exp(6 * rnd() - 3);
+            const K = [0, 1, 2].map(() => scale * (0.05 + 2 * rnd()));
+            const radius = scale * (0.02 + 1.5 * rnd());
+            const b = box(v3(-K[0], -K[1], -K[2]), v3(K[0], K[1], K[2]));
+            let u = [2 * rnd() - 1, 2 * rnd() - 1, 2 * rnd() - 1];
+            const un = Math.hypot(u[0], u[1], u[2]);
+            if (un < 1e-3) { continue; }
+            u = u.map(x => x / un);
+            const dist = scale * (2 + 10 * rnd());
+            const c = u.map(x => x * dist);
+            const s = sphere(c[0], c[1], c[2], radius);
+            // Aim at a box corner, with a jitter of the order of the corner
+            // region so that the ray often just clips or just misses it.
+            const target = [0, 1, 2].map(i => K[i] * (rnd() < 0.5 ? -1 : 1));
+            const d = [0, 1, 2].map(i => target[i] - c[i]
+                + (radius + K[i]) * 0.25 * (2 * rnd() - 1));
+            const dn = Math.hypot(d[0], d[1], d[2]);
+            if (dn < 1e-6) { continue; }
+            const speed = scale * (0.1 + 3 * rnd());
+            const sv = v3(d[0] * speed / dn, d[1] * speed / dn,
+                d[2] * speed / dn);
+            if (gap(b, Vector.zero(3), s, sv, 0) <= 0) { continue; }
+            if (checkAgainstOracle(b, s, sv)) {
+                ++tested;
+                if (fi.find(b, Vector.zero(3), s, sv).intersectionType
+                    === Type.contact) {
+                    ++contacts;
+                }
+            }
+        }
+        expect(tested).toBeGreaterThan(3000);
+        expect(contacts).toBeGreaterThan(500);
+    }, 30000);
 
     it('rejects inputs of the wrong dimension', () => {
         const b2 = AlignedBox.fromMinMax(Vector.zero(2), Vector.zero(2));

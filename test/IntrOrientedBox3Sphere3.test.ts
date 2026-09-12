@@ -249,16 +249,18 @@ describe('IntrOrientedBox3Sphere3 verification', () => {
                     === IntrAlignedBox3Sphere3FIResultType.contact) {
                     expect(r.contactTime).toBeGreaterThan(0);
                     expect(t0).not.toBeNull();
-                    // Upstream's DoQueryRayRoundedFace accepts the first
-                    // rounded-edge probe and never tries the other edge, so
-                    // the reported contact can be late (see gtengine-js #458
-                    // item 5); the port preserves that. The reported time is
-                    // therefore >= the true first contact and the sphere is
-                    // in contact or slightly penetrating at it.
+                    // The reported time is the first contact: the sphere
+                    // touches the box at it and was still separated before
+                    // it. The bisection locates the crossing of the same
+                    // convex gap function to a tolerance that is a length
+                    // divided by the speed.
                     expect(gap(box, sphere.center, V, r.contactTime))
                         .toBeLessThanOrEqual(sphere.radius + 1e-6 * scale);
+                    const tol = 1e-6 * scale / Math.sqrt(dot(V, V));
                     expect(r.contactTime)
-                        .toBeGreaterThanOrEqual((t0 as number) - 1e-6 * scale);
+                        .toBeGreaterThanOrEqual((t0 as number) - tol);
+                    expect(r.contactTime)
+                        .toBeLessThanOrEqual((t0 as number) + tol);
                     return;
                 }
 
@@ -318,19 +320,23 @@ describe('IntrOrientedBox3Sphere3 verification', () => {
             expect(rbQuery.test(ray, superBox).intersect).toBe(true);
         }
         expect(numContacts).toBeGreaterThan(50);
-        // The shared DoQuery misses a small number of grazing contacts; see
-        // the pinned case below.
-        expect(numMissed).toBeLessThanOrEqual(2);
+        // The shared doQuery used to miss a small number of grazing contacts
+        // (upstream's incomplete case analysis, gtengine-js #458 item 5 and
+        // #465 item 2); it no longer misses any.
+        expect(numMissed).toBe(0);
     }, 30000);
 
-    it('pins the upstream DoQuery miss inherited from IntrAlignedBox3Sphere3', () => {
-        // Upstream's DoQueryRayRoundedFace accepts the first rounded-edge
-        // probe and never tries the other edge (gtengine-js #458 item 5).
-        // Besides reporting some contacts late, it can miss one entirely: in
-        // the configuration below the sphere penetrates the box by 0.0057 at
-        // the closest approach yet 'noContact' is reported. The super-box
-        // early exit that the port adds ACCEPTS this configuration, so the
-        // miss is upstream's, not the port's. Preserved and pinned.
+    it('reports the contact that the shared doQuery used to miss', () => {
+        // Recorded in gtengine-js #465 item 2: upstream's
+        // DoQueryRayRoundedFace probes only the two rounded edges that bound
+        // the face the ray enters, and stops at the first probe that reports
+        // a contact. Here the ray leaves that face on both sides, both
+        // probes end in a rounded-vertex fallback that misses, and the first
+        // contact - on the rounded edge parallel to the face normal - was
+        // never probed, so noContact was reported although the sphere
+        // penetrates the box by 0.0057 at the closest approach. The
+        // aligned-box query now probes that edge; see the deterministic
+        // cases in test/IntrAlignedBox3Sphere3.test.ts.
         const axis = [Vector.fromArray([1, 0, 0]), Vector.fromArray([0, 1, 0]),
             Vector.fromArray([0, 0, 1])];
         const box = OrientedBox.fromCenterAxisExtent(
@@ -347,23 +353,22 @@ describe('IntrOrientedBox3Sphere3 verification', () => {
 
         const r = fiQ.find(box, Vector.zero(3), sphere, V);
         expect(r.intersectionType)
-            .toBe(IntrAlignedBox3Sphere3FIResultType.noContact);
+            .toBe(IntrAlignedBox3Sphere3FIResultType.contact);
+        expectClose(r.contactTime, 4.9164603303241305, 1e-9, 1e-12);
+        expectVectorClose(r.contactPoint,
+            Vector.fromArray([0.22003088127274584, -0.8417997734621168,
+                1.465300026535988]), 1e-9, 1e-9);
 
-        // The gap really does drop below the radius.
+        // The reported time is the first contact of the gap function, and
+        // the objects are still separated before it.
         const t0 = firstContactTime(box, sphere.center, V, sphere.radius, 1e3);
         expect(t0).not.toBeNull();
+        expectClose(r.contactTime, t0 as number, 1e-6, 1e-6);
+        expect(gap(box, sphere.center, V, r.contactTime * (1 - 1e-4)))
+            .toBeGreaterThan(sphere.radius);
+        // The old behaviour: the sphere was well inside the box later on.
         expect(gap(box, sphere.center, V, 5.4365))
             .toBeLessThan(sphere.radius - 5e-3);
-
-        // The port's added early exit is not the cause.
-        const superMax = Vector.fromArray([
-            box.extent.values[0] + sphere.radius,
-            box.extent.values[1] + sphere.radius,
-            box.extent.values[2] + sphere.radius]);
-        const superBox = AlignedBox.fromMinMax(mul(-1, superMax), superMax);
-        expect(new IntrRay3AlignedBox3TI().test(
-            Ray.fromOriginDirection(sub(sphere.center, box.center), V),
-            superBox).intersect).toBe(true);
     });
 
     it('the contact point is on the sphere and on the box', () => {
