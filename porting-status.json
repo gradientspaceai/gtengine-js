@@ -325,7 +325,8 @@
   "verified": 43
  },
  "ConformalMapGenus0.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 46
  },
  "Constants.h": {
   "status": "ported",
@@ -918,7 +919,8 @@
   "verified": 40
  },
  "GenerateMeshUV.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 46
  },
  "GMatrix.h": {
   "status": "ported",
@@ -1625,7 +1627,8 @@
   "verified": 17
  },
  "MassSpringSurface.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 46
  },
  "MassSpringVolume.h": {
   "status": "ported",
@@ -1648,7 +1651,8 @@
   "verified": 2
  },
  "Mesh.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 46
  },
  "MeshCurvature.h": {
   "status": "ported",
@@ -1745,10 +1749,12 @@
   "verified": 17
  },
  "NURBSSurface.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 46
  },
  "NURBSVolume.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 46
  },
  "OBBTree.h": {
   "status": "ported",
@@ -1820,7 +1826,8 @@
   "verified": 17
  },
  "ParametricSurface.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 46
  },
  "ParticleSystem.h": {
   "status": "ported",
@@ -1899,7 +1906,8 @@
   "verified": 5
  },
  "QuadricSurface.h": {
-  "status": "ported"
+  "status": "ported",
+  "verified": 46
  },
  "QuarticRootsQR.h": {
   "status": "ported",
