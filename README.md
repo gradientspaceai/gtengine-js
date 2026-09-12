@@ -19,11 +19,18 @@ accounted for: 550 are ported to `src/` and 11 are intentionally omitted (C++
 runtime utilities such as thread/mutex wrappers, `std::atomic` helpers and the
 32-bit `UInteger` storage backends, which are superseded by the `bigint`-backed
 `BSNumber`/`BSRational` implementation). Every ported file has a Vitest test
-file; the suite currently runs 550 test files and ~6700 tests.
+file; the suite currently runs 551 test files and ~10600 tests.
+
+**Every ported file has been independently verified.** A second pass, by a
+different agent than the one that ported it, re-read each of the 550 files
+function by function against its upstream header, added fast-check property
+tests, and fixed the translation defects it found (46 groups, one PR each,
+labelled [`verify-batch`](https://github.com/gradientspaceai/gtengine-js/issues?q=label%3Averify-batch));
+`porting-status.json` records `verified` per file.
 
 See [docs/API.md](docs/API.md) for the public API conventions,
 [PORTING.md](PORTING.md) for porting rules, [VERIFYING.md](VERIFYING.md) for the
-verification wave in progress, and
+verification procedure, and
 [porting-status.json](porting-status.json) for a machine-readable per-file
 manifest. The port was done in 135 dependency-ordered batches; the closed
 [`port-batch` issues](https://github.com/gradientspaceai/gtengine-js/issues?q=label%3Aport-batch)
