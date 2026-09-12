@@ -3,6 +3,9 @@ import { NURBSVolume } from '../src/NURBSVolume.js';
 import { BSplineVolume } from '../src/BSplineVolume.js';
 import { BasisFunctionInput, UniqueKnot } from '../src/BasisFunction.js';
 import { Vector, length as vectorLength, sub } from '../src/Vector.js';
+import {
+    check, fc, finite, invertibleMatrix, wellScaledVector
+} from './helpers/arbitraries.js';
 
 function v3(x: number, y: number, z: number): Vector {
     return Vector.fromArray([x, y, z]);
@@ -450,5 +453,321 @@ describe('NURBSVolume degenerate and boundary behavior', () => {
         expect(x.values[1]).toBeCloseTo(0.5, 12);
         expect(x.values[2]).toBeCloseTo(0.75, 12);
         expect(x.values[3]).toBeCloseTo(1.5, 12);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V46): property-based checks against NURBSVolume.h.
+// ---------------------------------------------------------------------------
+
+function volumeNetArb(n0: number, n1: number, n2: number) {
+    const n = n0 * n1 * n2;
+    return fc.record({
+        controls: fc.array(wellScaledVector(3, -5, 5),
+            { minLength: n, maxLength: n }),
+        weights: fc.array(finite(0.25, 4), { minLength: n, maxLength: n })
+    });
+}
+
+function jetOfVolume(volume: NURBSVolume, u: number, v: number, w: number,
+    order: number): Vector[] {
+    const jet = volume.createJet();
+    volume.evaluate(u, v, w, order, jet);
+    return jet;
+}
+
+
+// A B-spline of degree d is only C^(d-1) at an interior knot, so a central
+// difference of a derivative straddling a knot has O(h) error instead of
+// O(h^2) and the comparison below would be meaningless. An open uniform
+// basis with numControls control points of degree 'degree' has its interior
+// knots at j/(numControls - degree); keep the sample away from all of them.
+function awayFromKnots(numControls: number, degree: number, t: number,
+    eps = 0.02): boolean {
+    const numSpans = numControls - degree;
+    for (let j = 1; j < numSpans; ++j) {
+        if (Math.abs(t - j / numSpans) < eps) {
+            return false;
+        }
+    }
+    return true;
+}
+
+describe('NURBSVolume verification', () => {
+    it('reduces to the B-spline volume when all weights are equal', () => {
+        check(fc.tuple(fc.integer({ min: 2, max: 4 }),
+            fc.integer({ min: 2, max: 4 }), fc.integer({ min: 2, max: 4 }),
+            finite(0, 1), finite(0, 1), finite(0, 1), finite(0.25, 4))
+            .chain(([n0, n1, n2, u, v, w, h]) => volumeNetArb(n0, n1, n2)
+                .map(net => ({ n0, n1, n2, u, v, w, h, net }))),
+            ({ n0, n1, n2, u, v, w, h, net }) => {
+                const input = [
+                    new BasisFunctionInput(n0, Math.min(2, n0 - 1)),
+                    new BasisFunctionInput(n1, Math.min(2, n1 - 1)),
+                    new BasisFunctionInput(n2, Math.min(2, n2 - 1))];
+                const weights = net.weights.map(() => h);
+                const nurbs = new NURBSVolume(3, input, net.controls, weights);
+                const bspline = new BSplineVolume(3, input, net.controls);
+                const jetN = jetOfVolume(nurbs, u, v, w, 2);
+                const jetB = bspline.createJet();
+                bspline.evaluate(u, v, w, 2, jetB);
+                for (let k = 0; k < NURBSVolume.SUP_ORDER; ++k) {
+                    for (let i = 0; i < 3; ++i) {
+                        const a = jetN[k].values[i], b = jetB[k].values[i];
+                        expect(Math.abs(a - b)).toBeLessThanOrEqual(
+                            1e-11 * (1 + Math.abs(b)));
+                    }
+                }
+            });
+    });
+
+    it('reproduces an affine map of the parameter cube exactly', () => {
+        // With degree-1 bases and unit weights, the volume is the trilinear
+        // interpolant of its control lattice. When the control points are an
+        // affine image of the lattice coordinates i/(n-1), the interpolant is
+        // that same affine map of (u,v,w).
+        check(fc.tuple(fc.integer({ min: 2, max: 4 }),
+            fc.integer({ min: 2, max: 4 }), fc.integer({ min: 2, max: 4 }),
+            finite(0, 1), finite(0, 1), finite(0, 1),
+            invertibleMatrix(3, 1e-2), wellScaledVector(3, -3, 3)),
+            ([n0, n1, n2, u, v, w, M, t]) => {
+                const input = [new BasisFunctionInput(n0, 1),
+                    new BasisFunctionInput(n1, 1), new BasisFunctionInput(n2, 1)];
+                const apply = (a: number, b: number, c: number): Vector => {
+                    const y = new Vector(3);
+                    for (let r = 0; r < 3; ++r) {
+                        y.values[r] = M.get(r, 0) * a + M.get(r, 1) * b
+                            + M.get(r, 2) * c + t.values[r];
+                    }
+                    return y;
+                };
+                const controls: Vector[] = [];
+                const weights: number[] = [];
+                for (let i2 = 0; i2 < n2; ++i2) {
+                    for (let i1 = 0; i1 < n1; ++i1) {
+                        for (let i0 = 0; i0 < n0; ++i0) {
+                            controls.push(apply(i0 / (n0 - 1), i1 / (n1 - 1),
+                                i2 / (n2 - 1)));
+                            weights.push(1);
+                        }
+                    }
+                }
+                const volume = new NURBSVolume(3, input, controls, weights);
+                const x = jetOfVolume(volume, u, v, w, 0)[0];
+                const expected = apply(u, v, w);
+                for (let r = 0; r < 3; ++r) {
+                    expect(Math.abs(x.values[r] - expected.values[r]))
+                        .toBeLessThanOrEqual(
+                            1e-11 * (1 + Math.abs(expected.values[r])));
+                }
+            });
+    });
+
+    it('lies in the bounding box of the control net (positive weights)', () => {
+        check(fc.tuple(fc.integer({ min: 2, max: 4 }),
+            fc.integer({ min: 2, max: 4 }), fc.integer({ min: 2, max: 4 }),
+            finite(0, 1), finite(0, 1), finite(0, 1))
+            .chain(([n0, n1, n2, u, v, w]) => volumeNetArb(n0, n1, n2)
+                .map(net => ({ n0, n1, n2, u, v, w, net }))),
+            ({ n0, n1, n2, u, v, w, net }) => {
+                const input = [
+                    new BasisFunctionInput(n0, Math.min(2, n0 - 1)),
+                    new BasisFunctionInput(n1, Math.min(2, n1 - 1)),
+                    new BasisFunctionInput(n2, Math.min(2, n2 - 1))];
+                const volume = new NURBSVolume(3, input, net.controls,
+                    net.weights);
+                const x = jetOfVolume(volume, u, v, w, 0)[0];
+                for (let i = 0; i < 3; ++i) {
+                    let lo = Number.POSITIVE_INFINITY;
+                    let hi = Number.NEGATIVE_INFINITY;
+                    for (const c of net.controls) {
+                        lo = Math.min(lo, c.values[i]);
+                        hi = Math.max(hi, c.values[i]);
+                    }
+                    const slack = 1e-12 * (1 + hi - lo);
+                    expect(x.values[i]).toBeGreaterThanOrEqual(lo - slack);
+                    expect(x.values[i]).toBeLessThanOrEqual(hi + slack);
+                }
+            });
+    });
+
+    it('is invariant when every weight is scaled by the same factor', () => {
+        check(fc.tuple(fc.integer({ min: 2, max: 4 }),
+            fc.integer({ min: 2, max: 4 }), fc.integer({ min: 2, max: 4 }),
+            finite(0, 1), finite(0, 1), finite(0, 1), finite(0.25, 4))
+            .chain(([n0, n1, n2, u, v, w, s]) => volumeNetArb(n0, n1, n2)
+                .map(net => ({ n0, n1, n2, u, v, w, s, net }))),
+            ({ n0, n1, n2, u, v, w, s, net }) => {
+                const input = [
+                    new BasisFunctionInput(n0, Math.min(2, n0 - 1)),
+                    new BasisFunctionInput(n1, Math.min(2, n1 - 1)),
+                    new BasisFunctionInput(n2, Math.min(2, n2 - 1))];
+                const a = new NURBSVolume(3, input, net.controls, net.weights);
+                const b = new NURBSVolume(3, input, net.controls,
+                    net.weights.map(h => s * h));
+                const xa = jetOfVolume(a, u, v, w, 1);
+                const xb = jetOfVolume(b, u, v, w, 1);
+                for (let k = 0; k < 4; ++k) {
+                    for (let i = 0; i < 3; ++i) {
+                        expect(Math.abs(xa[k].values[i] - xb[k].values[i]))
+                            .toBeLessThanOrEqual(
+                                1e-11 * (1 + Math.abs(xa[k].values[i])));
+                    }
+                }
+            });
+    });
+
+    it('first-order derivatives match central differences', () => {
+        const h = 1e-4;
+        check(fc.tuple(fc.integer({ min: 3, max: 4 }),
+            fc.integer({ min: 3, max: 4 }), fc.integer({ min: 3, max: 4 }),
+            finite(0.2, 0.8), finite(0.2, 0.8), finite(0.2, 0.8))
+            .filter(([n0, n1, n2, u, v, w]) => awayFromKnots(n0, 2, u)
+                && awayFromKnots(n1, 2, v) && awayFromKnots(n2, 2, w))
+            .chain(([n0, n1, n2, u, v, w]) => volumeNetArb(n0, n1, n2)
+                .map(net => ({ n0, n1, n2, u, v, w, net }))),
+            ({ n0, n1, n2, u, v, w, net }) => {
+                const input = [new BasisFunctionInput(n0, 2),
+                    new BasisFunctionInput(n1, 2), new BasisFunctionInput(n2, 2)];
+                const volume = new NURBSVolume(3, input, net.controls,
+                    net.weights);
+                const jet = jetOfVolume(volume, u, v, w, 1);
+                const args: Array<[number, number, number]> = [
+                    [u + h, v, w], [u - h, v, w],
+                    [u, v + h, w], [u, v - h, w],
+                    [u, v, w + h], [u, v, w - h]];
+                const p = args.map(a => jetOfVolume(volume, a[0], a[1], a[2], 0)[0]);
+                for (let i = 0; i < 3; ++i) {
+                    for (let d = 0; d < 3; ++d) {
+                        const fd = (p[2 * d].values[i] - p[2 * d + 1].values[i])
+                            / (2 * h);
+                        expect(Math.abs(jet[1 + d].values[i] - fd)).toBeLessThan(
+                            1e-5 * (1 + Math.abs(fd)));
+                    }
+                }
+            });
+    });
+
+    it('second-order derivatives match central differences of the first', () => {
+        const h = 1e-4;
+        // jet[4..6] are d2/du2, d2/dv2, d2/dw2 and jet[7..9] are d2/dudv,
+        // d2/dudw, d2/dvdw. Each is the derivative of jet[1+a] in direction b.
+        const pairs: Array<[number, number, number]> = [
+            [4, 0, 0], [5, 1, 1], [6, 2, 2], [7, 0, 1], [8, 0, 2], [9, 1, 2]];
+        check(fc.tuple(fc.integer({ min: 3, max: 4 }),
+            fc.integer({ min: 3, max: 4 }), fc.integer({ min: 3, max: 4 }),
+            finite(0.2, 0.8), finite(0.2, 0.8), finite(0.2, 0.8))
+            .filter(([n0, n1, n2, u, v, w]) => awayFromKnots(n0, 2, u)
+                && awayFromKnots(n1, 2, v) && awayFromKnots(n2, 2, w))
+            .chain(([n0, n1, n2, u, v, w]) => volumeNetArb(n0, n1, n2)
+                .map(net => ({ n0, n1, n2, u, v, w, net }))),
+            ({ n0, n1, n2, u, v, w, net }) => {
+                const input = [new BasisFunctionInput(n0, 2),
+                    new BasisFunctionInput(n1, 2), new BasisFunctionInput(n2, 2)];
+                const volume = new NURBSVolume(3, input, net.controls,
+                    net.weights);
+                const jet = jetOfVolume(volume, u, v, w, 2);
+                const base = [u, v, w];
+                const shifted = (d: number, s: number): Vector[] => {
+                    const a = base.slice();
+                    a[d] += s * h;
+                    return jetOfVolume(volume, a[0], a[1], a[2], 1);
+                };
+                const plus = [shifted(0, 1), shifted(1, 1), shifted(2, 1)];
+                const minus = [shifted(0, -1), shifted(1, -1), shifted(2, -1)];
+                for (const [slot, a, b] of pairs) {
+                    for (let i = 0; i < 3; ++i) {
+                        const fd = (plus[b][1 + a].values[i]
+                            - minus[b][1 + a].values[i]) / (2 * h);
+                        expect(Math.abs(jet[slot].values[i] - fd)).toBeLessThan(
+                            1e-4 * (1 + Math.abs(fd)));
+                    }
+                }
+            });
+    });
+
+    it('the indexed accessors use i0 + n0*(i1 + n1*i2) and copy the input',
+        () => {
+            check(fc.tuple(fc.integer({ min: 2, max: 4 }),
+                fc.integer({ min: 2, max: 4 }), fc.integer({ min: 2, max: 4 }),
+                wellScaledVector(3), finite(0.5, 3)),
+                ([n0, n1, n2, p, h]) => {
+                    const input = [new BasisFunctionInput(n0, 1),
+                        new BasisFunctionInput(n1, 1),
+                        new BasisFunctionInput(n2, 1)];
+                    const volume = new NURBSVolume(3, input);
+                    const i0 = n0 - 1, i1 = n1 - 1, i2 = n2 - 1;
+                    const pCopy = p.clone();
+                    volume.setControl(i0, i1, i2, p);
+                    volume.setWeight(i0, i1, i2, h);
+                    p.set(0, p.get(0) + 100);
+                    const index = i0 + n0 * (i1 + n1 * i2);
+                    expect(volume.getControl(i0, i1, i2).get(0)).toBe(pCopy.get(0));
+                    expect(volume.getControls()[index].get(1)).toBe(pCopy.get(1));
+                    expect(volume.getWeight(i0, i1, i2)).toBe(h);
+                    expect(volume.getWeights()[index]).toBe(h);
+
+                    // Out-of-range writes are ignored and out-of-range reads
+                    // return element 0.
+                    volume.setControl(n0, 0, 0, Vector.fromArray([9, 9, 9]));
+                    volume.setWeight(0, n1, 0, 42);
+                    expect(volume.getControl(0, 0, n2).get(0))
+                        .toBe(volume.getControls()[0].get(0));
+                    expect(volume.getWeight(-1, 0, 0))
+                        .toBe(volume.getWeights()[0]);
+                    for (const c of volume.getControls()) {
+                        expect(c.get(0)).not.toBe(9);
+                    }
+                });
+        });
+
+    it('zeroes the entire jet for an out-of-range order', () => {
+        check(fc.tuple(fc.integer({ min: 2, max: 3 }),
+            fc.integer({ min: 2, max: 3 }), fc.integer({ min: 2, max: 3 }),
+            finite(0, 1), finite(0, 1), finite(0, 1),
+            fc.integer({ min: NURBSVolume.SUP_ORDER, max: 16 }))
+            .chain(([n0, n1, n2, u, v, w, order]) => volumeNetArb(n0, n1, n2)
+                .map(net => ({ n0, n1, n2, u, v, w, order, net }))),
+            ({ n0, n1, n2, u, v, w, order, net }) => {
+                const input = [new BasisFunctionInput(n0, 1),
+                    new BasisFunctionInput(n1, 1), new BasisFunctionInput(n2, 1)];
+                const volume = new NURBSVolume(3, input, net.controls,
+                    net.weights);
+                const jet = volume.createJet();
+                for (const e of jet) {
+                    e.values[0] = 1;
+                    e.values[1] = 2;
+                    e.values[2] = 3;
+                }
+                volume.evaluate(u, v, w, order, jet);
+                for (const e of jet) {
+                    expect(e.values[0] + 0).toBe(0);
+                    expect(e.values[1] + 0).toBe(0);
+                    expect(e.values[2] + 0).toBe(0);
+                }
+            });
+    });
+
+    it('reports the basis-function domains and control counts', () => {
+        check(fc.tuple(fc.integer({ min: 2, max: 5 }),
+            fc.integer({ min: 2, max: 5 }), fc.integer({ min: 2, max: 5 })),
+            ([n0, n1, n2]) => {
+                const input = [new BasisFunctionInput(n0, Math.min(2, n0 - 1)),
+                    new BasisFunctionInput(n1, Math.min(2, n1 - 1)),
+                    new BasisFunctionInput(n2, Math.min(2, n2 - 1))];
+                const volume = new NURBSVolume(3, input);
+                expect(volume.isConstructed()).toBe(true);
+                expect(volume.getDimension()).toBe(3);
+                const counts = [n0, n1, n2];
+                for (let dim = 0; dim < 3; ++dim) {
+                    expect(volume.getNumControls(dim)).toBe(counts[dim]);
+                    expect(volume.getMinDomain(dim)).toBe(
+                        volume.getBasisFunction(dim).getMinDomain());
+                    expect(volume.getMaxDomain(dim)).toBe(
+                        volume.getBasisFunction(dim).getMaxDomain());
+                }
+                expect(volume.getControls().length).toBe(n0 * n1 * n2);
+                expect(volume.getWeights().length).toBe(n0 * n1 * n2);
+            });
     });
 });

@@ -38,7 +38,7 @@ import { LinearSystem } from './LinearSystem.js';
 import type { LinearSystemSparseEntry } from './LinearSystem.js';
 import { logAssert } from './Logger.js';
 import { Polynomial1 } from './Polynomial1.js';
-import { Vector, dot, length, sub } from './Vector.js';
+import { Vector, div, dot, length, sub } from './Vector.js';
 import { cross } from './Vector3.js';
 
 export class ConformalMapGenus0 {
@@ -221,8 +221,11 @@ export class ConformalMapGenus0 {
             originX += this.mPlaneCoordinates[i].values[0];
             originY += this.mPlaneCoordinates[i].values[1];
         }
-        originX /= numPositions;
-        originY /= numPositions;
+        // Upstream is 'origin /= (Real)numPositions' on a Vector2, and the
+        // Vector operator/= multiplies by the reciprocal of the divisor.
+        const invNumPositions = 1 / numPositions;
+        originX *= invNumPositions;
+        originY *= invNumPositions;
         for (let i = 0; i < numPositions; ++i) {
             this.mPlaneCoordinates[i].values[0] -= originX;
             this.mPlaneCoordinates[i].values[1] -= originY;
@@ -270,10 +273,12 @@ export class ConformalMapGenus0 {
             const x = 2 * mult * sqrSphereRadius * p.values[0];
             const y = 2 * mult * sqrSphereRadius * p.values[1];
             const z = mult * this.mSphereRadius * (rSqr - sqrSphereRadius);
-            const s = this.mSphereCoordinates[i].values;
-            s[0] = x / this.mSphereRadius;
-            s[1] = y / this.mSphereRadius;
-            s[2] = z / this.mSphereRadius;
+            // Upstream is 'Vector3<Real>{x,y,z} / mSphereRadius', and the
+            // Vector operator/ multiplies by the reciprocal of the divisor
+            // and yields the zero vector when the divisor is zero; div() is
+            // that operator.
+            const s = div(Vector.fromArray([x, y, z]), this.mSphereRadius);
+            this.mSphereCoordinates[i] = s;
         }
 
         return converged;

@@ -6,6 +6,9 @@ import { IndexAttribute } from '../src/IndexAttribute.js';
 import { VertexAttribute } from '../src/VertexAttribute.js';
 import { Vector, dot, length, sub } from '../src/Vector.js';
 import { cross } from '../src/Vector3.js';
+import {
+    check, fc, wellScaledVector
+} from './helpers/arbitraries.js';
 
 // A minimal concrete Mesh used to drive the protected base-class algorithms.
 // The positions are supplied by a parametric function of the grid indices.
@@ -893,5 +896,392 @@ describe('Mesh.update', () => {
         for (let i = 0; i < 4; ++i) {
             expect(mesh.normalPublic(i).values[2]).toBeCloseTo(1, 12);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Verification wave (V46): property-based checks against Mesh.h.
+//
+// The index buffers of the non-ARBITRARY topologies duplicate the seam
+// column (and, for TORUS, the seam row), so the raw index mesh is always a
+// disk. Identifying the duplicated vertices recovers the intended surface,
+// whose Euler characteristic distinguishes the topologies: 1 for RECTANGLE
+// and DISK (a disk), 0 for CYLINDER (an annulus) and TORUS, 2 for SPHERE.
+// This is the strongest available check on the index generation; upstream's
+// SPHERE south-pole fan (which strides by numCols instead of numCols+1) and
+// its reversed second-fan winding both break it.
+// ---------------------------------------------------------------------------
+
+// Map a vertex index to the representative of its identification class.
+function identifyVertex(d: MeshDescription, v: number): number {
+    const gridCount = (d.rMax + 1) * (d.cMax + 1);
+    if (v >= gridCount) {
+        // A pole (SPHERE) or the disk center: not part of the grid.
+        return v;
+    }
+    let r = Math.floor(v / d.rIncrement);
+    let c = v % d.rIncrement;
+    if (d.topology !== MeshTopology.RECTANGLE && c === d.numCols) {
+        c = 0;
+    }
+    if (d.topology === MeshTopology.TORUS && r === d.numRows) {
+        r = 0;
+    }
+    return r * d.rIncrement + c;
+}
+
+interface QuotientMesh {
+    numVertices: number;
+    numEdges: number;
+    numTriangles: number;
+    // Undirected edge key -> number of incident triangles.
+    edgeUse: Map<string, number>;
+    // Directed edge key -> number of traversals.
+    directedUse: Map<string, number>;
+    hasDegenerateTriangle: boolean;
+}
+
+function quotientOf(storage: Storage): QuotientMesh {
+    const d = storage.description;
+    const vertices = new Set<number>();
+    const edgeUse = new Map<string, number>();
+    const directedUse = new Map<string, number>();
+    let hasDegenerateTriangle = false;
+    let numTriangles = 0;
+    for (const [a, b, c] of getTriangles(storage)) {
+        const t = [identifyVertex(d, a), identifyVertex(d, b),
+            identifyVertex(d, c)];
+        if (t[0] === t[1] || t[1] === t[2] || t[0] === t[2]) {
+            hasDegenerateTriangle = true;
+            continue;
+        }
+        ++numTriangles;
+        for (const v of t) {
+            vertices.add(v);
+        }
+        for (let i = 0; i < 3; ++i) {
+            const p = t[i], q = t[(i + 1) % 3];
+            const undirected = p < q ? `${p},${q}` : `${q},${p}`;
+            edgeUse.set(undirected, (edgeUse.get(undirected) ?? 0) + 1);
+            const directed = `${p}->${q}`;
+            directedUse.set(directed, (directedUse.get(directed) ?? 0) + 1);
+        }
+    }
+    return {
+        numVertices: vertices.size,
+        numEdges: edgeUse.size,
+        numTriangles,
+        edgeUse,
+        directedUse,
+        hasDegenerateTriangle
+    };
+}
+
+// The grid topologies and the Euler characteristic of their quotient.
+const TOPOLOGY_EULER: Array<[MeshTopology, number, boolean]> = [
+    // [topology, Euler characteristic, closed (no boundary edges)]
+    [MeshTopology.RECTANGLE, 1, false],
+    [MeshTopology.CYLINDER, 0, false],
+    [MeshTopology.TORUS, 0, true],
+    [MeshTopology.DISK, 1, false],
+    [MeshTopology.SPHERE, 2, true]
+];
+
+// A sphere position for the SPHERE topology. Row r is a latitude ring and
+// column c a longitude; the longitude runs clockwise so that the upstream
+// counterclockwise winding produces outward normals. The pole adjacent to
+// row 0 is vertex numVertices-2 and the one adjacent to the last row is
+// vertex numVertices-1.
+function spherePosition(d: MeshDescription, i: number): Vector {
+    const gridCount = (d.rMax + 1) * (d.cMax + 1);
+    if (i === d.numVertices - 2) {
+        return Vector.fromArray([0, 0, 1]);
+    }
+    if (i === d.numVertices - 1) {
+        return Vector.fromArray([0, 0, -1]);
+    }
+    if (i >= gridCount) {
+        return Vector.fromArray([0, 0, 0]);
+    }
+    const r = Math.floor(i / d.rIncrement);
+    const c = i % d.rIncrement;
+    const phi = Math.PI * (r + 1) / (d.numRows + 1);
+    const theta = -2 * Math.PI * c / d.numCols;
+    return Vector.fromArray([Math.sin(phi) * Math.cos(theta),
+        Math.sin(phi) * Math.sin(theta), Math.cos(phi)]);
+}
+
+describe('Mesh verification', () => {
+    it('generates a manifold quotient with the Euler characteristic of its topology',
+        () => {
+            // A TORUS of two rows glues each vertical edge to itself, so the
+            // quotient is not a simplicial complex; three rows is the first
+            // honest torus.
+            check(fc.integer({ min: 0, max: TOPOLOGY_EULER.length - 1 })
+                .chain(which => fc.tuple(fc.constant(which),
+                    fc.integer({
+                        min: TOPOLOGY_EULER[which][0] === MeshTopology.TORUS ? 3 : 1,
+                        max: 7
+                    }),
+                    fc.integer({ min: 2, max: 8 }), fc.boolean())),
+                ([which, inRows, inCols, wantCCW]) => {
+                    const [topology, euler, closed] = TOPOLOGY_EULER[which];
+                    const storage = makeStorage(topology, inRows, inCols,
+                        ['position'], wantCCW);
+                    const mesh = new TestMesh(storage.description, [topology]);
+                    mesh.computeIndicesPublic();
+
+                    expectWellFormed(storage);
+                    const q = quotientOf(storage);
+                    expect(q.hasDegenerateTriangle).toBe(false);
+                    expect(q.numTriangles).toBe(storage.description.numTriangles);
+                    expect(q.numVertices - q.numEdges + q.numTriangles)
+                        .toBe(euler);
+
+                    // Manifold: every edge is used by one or two triangles,
+                    // and closed topologies have no boundary edge.
+                    let numBoundary = 0;
+                    for (const count of q.edgeUse.values()) {
+                        expect(count).toBeLessThanOrEqual(2);
+                        if (count === 1) {
+                            ++numBoundary;
+                        }
+                    }
+                    if (closed) {
+                        expect(numBoundary).toBe(0);
+                    } else {
+                        expect(numBoundary).toBeGreaterThan(0);
+                    }
+
+                    // Consistently oriented: an interior edge is traversed
+                    // once in each direction, never twice the same way.
+                    for (const count of q.directedUse.values()) {
+                        expect(count).toBe(1);
+                    }
+                });
+        });
+
+    it('the SPHERE fans attach to the first and last grid rows', () => {
+        // Upstream computes the first vertex of the last row as
+        // (numRows-1)*numCols, but a SPHERE row holds numCols+1 vertices, so
+        // the south-pole fan must start at rMax*rIncrement.
+        check(fc.tuple(fc.integer({ min: 2, max: 7 }),
+            fc.integer({ min: 3, max: 8 })), ([inRows, inCols]) => {
+                const storage = makeStorage(MeshTopology.SPHERE, inRows, inCols,
+                    ['position']);
+                const mesh = new TestMesh(storage.description,
+                    [MeshTopology.SPHERE]);
+                mesh.computeIndicesPublic();
+
+                const d = storage.description;
+                const triangles = getTriangles(storage);
+                const numFan = d.numCols;
+                const north = triangles.slice(triangles.length - 2 * numFan,
+                    triangles.length - numFan);
+                const south = triangles.slice(triangles.length - numFan);
+
+                const northVertices = new Set<number>();
+                for (const t of north) {
+                    for (const v of t) {
+                        northVertices.add(v);
+                    }
+                }
+                const southVertices = new Set<number>();
+                for (const t of south) {
+                    for (const v of t) {
+                        southVertices.add(v);
+                    }
+                }
+
+                const expectedNorth = new Set<number>([d.numVertices - 2]);
+                const expectedSouth = new Set<number>([d.numVertices - 1]);
+                for (let c = 0; c <= d.numCols; ++c) {
+                    expectedNorth.add(c);
+                    expectedSouth.add(d.rMax * d.rIncrement + c);
+                }
+                expect([...northVertices].sort((a, b) => a - b))
+                    .toEqual([...expectedNorth].sort((a, b) => a - b));
+                expect([...southVertices].sort((a, b) => a - b))
+                    .toEqual([...expectedSouth].sort((a, b) => a - b));
+            });
+    });
+
+    it('winds a SPHERE so that every vertex normal points outward', () => {
+        // End-to-end check of the fan winding: with the upstream order the
+        // south-pole fan is wound opposite to the body and the pole normal
+        // points into the sphere.
+        check(fc.tuple(fc.integer({ min: 1, max: 6 }),
+            fc.integer({ min: 3, max: 9 })), ([inRows, inCols]) => {
+                const storage = makeStorage(MeshTopology.SPHERE, inRows, inCols,
+                    ['position', 'normal']);
+                const mesh = new SurfaceMesh(storage.description,
+                    [MeshTopology.SPHERE]);
+                mesh.surface = (i: number) => spherePosition(
+                    storage.description, i);
+                mesh.computeIndicesPublic();
+                mesh.update();
+
+                const d = storage.description;
+                for (let i = 0; i < d.numVertices; ++i) {
+                    const p = mesh.positionPublic(i);
+                    const n = mesh.normalPublic(i);
+                    expect(length(n)).toBeCloseTo(1, 12);
+                    // Every position is a unit vector from the center, so an
+                    // outward normal has a positive radial component. With
+                    // upstream's second fan wound like the first, the south
+                    // pole normal points inward and this fails.
+                    expect(dot(n, p)).toBeGreaterThan(0);
+                }
+            });
+    });
+
+    it('winds a TORUS so that every vertex normal points away from the tube core',
+        () => {
+            check(fc.tuple(fc.integer({ min: 3, max: 6 }),
+                fc.integer({ min: 3, max: 8 })), ([inRows, inCols]) => {
+                    const storage = makeStorage(MeshTopology.TORUS, inRows,
+                        inCols, ['position', 'normal']);
+                    const d = storage.description;
+                    const R = 3, a = 1;
+                    // Row r is the poloidal angle and column c the toroidal
+                    // angle; the toroidal angle runs clockwise so that the
+                    // upstream winding gives outward normals.
+                    const point = (i: number): Vector => {
+                        const r = Math.floor(i / d.rIncrement);
+                        const c = i % d.rIncrement;
+                        const u = 2 * Math.PI * r / d.numRows;
+                        const v = 2 * Math.PI * c / d.numCols;
+                        const rad = R + a * Math.cos(u);
+                        return Vector.fromArray([rad * Math.cos(v),
+                            rad * Math.sin(v), a * Math.sin(u)]);
+                    };
+                    const mesh = new SurfaceMesh(d, [MeshTopology.TORUS]);
+                    mesh.surface = point;
+                    mesh.computeIndicesPublic();
+                    mesh.update();
+
+                    for (let i = 0; i < d.numVertices; ++i) {
+                        const p = mesh.positionPublic(i);
+                        const n = mesh.normalPublic(i);
+                        // The outward direction at p is p minus the nearest
+                        // point of the core circle of radius R.
+                        const rho = Math.hypot(p.values[0], p.values[1]);
+                        const core = Vector.fromArray([R * p.values[0] / rho,
+                            R * p.values[1] / rho, 0]);
+                        const outward = sub(p, core);
+                        expect(dot(n, outward)).toBeGreaterThan(0);
+                    }
+                });
+        });
+
+    it('reverses every triangle when wantCCW is false', () => {
+        check(fc.tuple(fc.integer({ min: 0, max: TOPOLOGY_EULER.length - 1 }),
+            fc.integer({ min: 1, max: 6 }), fc.integer({ min: 2, max: 7 })),
+            ([which, inRows, inCols]) => {
+                const topology = TOPOLOGY_EULER[which][0];
+                const ccw = makeStorage(topology, inRows, inCols, ['position'],
+                    true);
+                const cw = makeStorage(topology, inRows, inCols, ['position'],
+                    false);
+                new TestMesh(ccw.description, [topology]).computeIndicesPublic();
+                new TestMesh(cw.description, [topology]).computeIndicesPublic();
+                const a = getTriangles(ccw);
+                const b = getTriangles(cw);
+                expect(b.length).toBe(a.length);
+                for (let t = 0; t < a.length; ++t) {
+                    expect(b[t]).toEqual([a[t][0], a[t][2], a[t][1]]);
+                }
+            });
+    });
+
+    it('recovers the exact surface derivatives of a planar patch in updateFrame',
+        () => {
+            // On a plane parameterized affinely by its texture coordinates,
+            // the least-squares Jacobian is the exact (dP/du, dP/dv).
+            check(fc.tuple(fc.integer({ min: 2, max: 5 }),
+                fc.integer({ min: 2, max: 5 }), wellScaledVector(3, -4, 4),
+                wellScaledVector(3, -4, 4), wellScaledVector(3, -4, 4))
+                // Scale-free independence: the sine of the angle between
+                // dP/du and dP/dv must be comfortably away from zero, or the
+                // least-squares system and the Gram-Schmidt frame are both
+                // ill-conditioned.
+                .filter(t => length(t[3]) > 0.5 && length(t[4]) > 0.5
+                    && length(cross(t[3], t[4]))
+                        > 0.3 * length(t[3]) * length(t[4])),
+                ([rows, cols, origin, du, dv]) => {
+                    const storage = makeStorage(MeshTopology.RECTANGLE, rows,
+                        cols, ['position', 'normal', 'tcoord', 'dpdu', 'dpdv',
+                            'tangent', 'bitangent'], true, true);
+                    const d = storage.description;
+                    const mesh = new SurfaceMesh(d, [MeshTopology.RECTANGLE]);
+                    const uv = (i: number): [number, number] =>
+                        [(i % cols) / (cols - 1), Math.floor(i / cols) / (rows - 1)];
+                    mesh.surface = (i: number) => {
+                        const [u, v] = uv(i);
+                        return Vector.fromArray([0, 1, 2].map(k =>
+                            origin.values[k] + u * du.values[k] + v * dv.values[k]));
+                    };
+                    mesh.computeIndicesPublic();
+                    for (let i = 0; i < d.numVertices; ++i) {
+                        const [u, v] = uv(i);
+                        mesh.setTCoordPublic(i, Vector.fromArray([u, v]));
+                    }
+                    mesh.update();
+
+                    for (let i = 0; i < d.numVertices; ++i) {
+                        const a = mesh.dpduPublic(i);
+                        const b = mesh.dpdvPublic(i);
+                        for (let k = 0; k < 3; ++k) {
+                            expect(a.values[k]).toBeCloseTo(du.values[k], 8);
+                            expect(b.values[k]).toBeCloseTo(dv.values[k], 8);
+                        }
+                        // The frame is orthonormal and right-handed.
+                        const tangent = mesh.tangentPublic(i);
+                        const bitangent = mesh.bitangentPublic(i);
+                        const normal = mesh.normalPublic(i);
+                        expect(length(tangent)).toBeCloseTo(1, 9);
+                        expect(length(bitangent)).toBeCloseTo(1, 9);
+                        expect(length(normal)).toBeCloseTo(1, 9);
+                        expect(dot(tangent, bitangent)).toBeCloseTo(0, 9);
+                        expect(dot(tangent, normal)).toBeCloseTo(0, 9);
+                        expect(dot(bitangent, normal)).toBeCloseTo(0, 9);
+                        expect(dot(cross(tangent, bitangent), normal))
+                            .toBeCloseTo(1, 8);
+                    }
+                });
+        });
+
+    it('MeshChannel addresses interleaved vertex records by byte stride', () => {
+        check(fc.tuple(fc.integer({ min: 1, max: 12 }),
+            fc.integer({ min: 0, max: 3 }), fc.integer({ min: 2, max: 4 })),
+            ([numVertices, padding, numComponents]) => {
+                // An interleaved buffer with 'padding' extra float64 slots
+                // after each vertex record.
+                const slotsPerVertex = numComponents + padding;
+                const data = new Float64Array(numVertices * slotsPerVertex);
+                data.fill(-1);
+                const channel = new MeshChannel(data, 8 * slotsPerVertex,
+                    numComponents);
+                for (let i = 0; i < numVertices; ++i) {
+                    const value = new Vector(numComponents);
+                    for (let k = 0; k < numComponents; ++k) {
+                        value.values[k] = 100 * i + k;
+                    }
+                    channel.set(i, value);
+                }
+                for (let i = 0; i < numVertices; ++i) {
+                    const value = channel.get(i);
+                    expect(value.size).toBe(numComponents);
+                    for (let k = 0; k < numComponents; ++k) {
+                        expect(value.values[k]).toBe(100 * i + k);
+                        expect(channel.getComponent(i, k)).toBe(100 * i + k);
+                        expect(data[i * slotsPerVertex + k]).toBe(100 * i + k);
+                    }
+                    // The padding slots are untouched.
+                    for (let k = numComponents; k < slotsPerVertex; ++k) {
+                        expect(data[i * slotsPerVertex + k]).toBe(-1);
+                    }
+                }
+            });
     });
 });

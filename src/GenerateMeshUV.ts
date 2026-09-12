@@ -43,7 +43,7 @@
 
 import { GTE_C_TWO_PI } from './Constants.js';
 import { ETManifoldMesh, ETManifoldMeshEdge } from './ETManifoldMesh.js';
-import { Vector, length, sub } from './Vector.js';
+import { Vector, dot, length, normalize, sub } from './Vector.js';
 
 // The vertex graph record required to set up the sparse linear system of
 // equations that determines the texture coordinates. This is the port of the
@@ -78,6 +78,25 @@ function lowerBound(values: readonly number[], value: number): number {
         }
     }
     return lo;
+}
+
+// The port of upstream's 'tcoord /= weightSum' on a Vector2, writing the two
+// components at 'base' and 'base + 1' of 'out'. The Vector operator/= of
+// Vector.h multiplies by the reciprocal of the divisor, and sets the vector
+// to zero when the divisor is zero. The zero case is reachable: a vertex
+// whose incident mean value weights are all zero (every opposite vertex
+// collinear with the edge, so every tangent of a half angle is zero) has
+// weightSum == 0, and a plain division would store NaN.
+function divideTCoord(out: number[], base: number, tcoord0: number,
+    tcoord1: number, weightSum: number): void {
+    if (weightSum !== 0) {
+        const invWeightSum = 1 / weightSum;
+        out[base] = tcoord0 * invWeightSum;
+        out[base + 1] = tcoord1 * invWeightSum;
+    } else {
+        out[base] = 0;
+        out[base + 1] = 0;
+    }
 }
 
 export class GenerateMeshUV {
@@ -448,16 +467,14 @@ export class GenerateMeshUV {
                 // of the edge (X0,X1).
                 const X0 = this.mVertices[v0];
                 const X1 = this.mVertices[v1];
+                // Upstream calls Normalize, which multiplies by the
+                // reciprocal of the length (and zeros the vector when the
+                // length is zero); normalize() is that function, so the
+                // rounding of the unit vectors matches upstream bit for bit.
                 const X1mX0 = sub(X1, X0);
-                const x1mx0Length = length(X1mX0);
+                const x1mx0Length = normalize(X1mX0);
                 let weight: number;
                 if (x1mx0Length > 0) {
-                    const dirX1mX0 = [
-                        X1mX0.values[0] / x1mx0Length,
-                        X1mX0.values[1] / x1mx0Length,
-                        X1mX0.values[2] / x1mx0Length
-                    ];
-
                     // Compute the weight for X0 associated with X1.
                     weight = 0;
                     for (let j = 0; j < 2; ++j) {
@@ -472,13 +489,10 @@ export class GenerateMeshUV {
                             if (v2 !== v0 && v2 !== v1) {
                                 const X2 = this.mVertices[v2];
                                 const X2mX0 = sub(X2, X0);
-                                const x2mx0Length = length(X2mX0);
+                                const x2mx0Length = normalize(X2mX0);
                                 if (x2mx0Length > 0) {
-                                    const dot =
-                                        (X2mX0.values[0] / x2mx0Length) * dirX1mX0[0] +
-                                        (X2mX0.values[1] / x2mx0Length) * dirX1mX0[1] +
-                                        (X2mX0.values[2] / x2mx0Length) * dirX1mX0[2];
-                                    const cs = Math.min(Math.max(dot, -1), 1);
+                                    const d = dot(X2mX0, X1mX0);
+                                    const cs = Math.min(Math.max(d, -1), 1);
                                     const angle = Math.acos(cs);
                                     weight += Math.tan(angle * 0.5);
                                 } else {
@@ -531,8 +545,11 @@ export class GenerateMeshUV {
                     tcoord1 += weight * this.mTCoords[v1].values[1];
                 }
             }
-            this.mTCoords[v0].values[0] = tcoord0 / weightSum;
-            this.mTCoords[v0].values[1] = tcoord1 / weightSum;
+            // Upstream writes 'tcoord /= weightSum' on a Vector2, and the
+            // Vector operator/= multiplies by the reciprocal of the divisor
+            // and sets the vector to zero when the divisor is zero (a plain
+            // division would give NaN here). See divideTCoord.
+            divideTCoord(this.mTCoords[v0].values, 0, tcoord0, tcoord1, weightSum);
         }
 
         this.solveSystemInternal(numIterations);
@@ -572,8 +589,8 @@ export class GenerateMeshUV {
                     tcoord0 += weight * inTCoords[2 * v1];
                     tcoord1 += weight * inTCoords[2 * v1 + 1];
                 }
-                outTCoords[2 * v0] = tcoord0 / weightSum;
-                outTCoords[2 * v0 + 1] = tcoord1 / weightSum;
+                // The port of 'tcoord /= weightSum'; see divideTCoord.
+                divideTCoord(outTCoords, 2 * v0, tcoord0, tcoord1, weightSum);
             }
 
             const swap = inTCoords;
