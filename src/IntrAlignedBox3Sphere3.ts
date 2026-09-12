@@ -213,7 +213,8 @@ function doQuery(K: Vector, inC: Vector, radius: number, inV: Vector,
                                 vertexOverlap(K, radius, delta, result);
                             }
                             else {
-                                vertexSeparated(K, radius, delta, V, result);
+                                vertexSeparated(K, C, radius, delta, V,
+                                    result);
                             }
                         }
                     }
@@ -310,10 +311,23 @@ function faceOverlap(i0: number, i1: number, i2: number, K: Vector, C: Vector,
     result.contactPoint.values[i2] = C.values[i2];
 }
 
-function vertexSeparated(K: Vector, radius: number, delta: Vector, V: Vector,
-    result: IntrAlignedBox3Sphere3FIResult): void {
+function vertexSeparated(K: Vector, C: Vector, radius: number, delta: Vector,
+    V: Vector, result: IntrAlignedBox3Sphere3FIResult): void {
     if (V.values[0] < 0 || V.values[1] < 0 || V.values[2] < 0) {
+        // Upstream probes only the rounded vertex nearest the sphere center.
+        // That vertex is the nearest piece of the rounded box at time zero,
+        // but it need not be the piece the ray enters first: the sphere can
+        // slide along a box edge and touch the rounded edge (the cylinder)
+        // earlier, or miss the vertex altogether and still hit the cylinder
+        // (a third instance of the defect of #458 item 5 / #465 item 2, found
+        // by the Minkowski-sum oracle of the test file). The three rounded
+        // edges that meet the vertex are therefore probed as well and the
+        // earliest contact is kept. The vertex is probed first, so a tie
+        // keeps upstream's contact point.
         doQueryRayRoundedVertex(K, radius, delta, V, result);
+        probeRoundedEdge(0, 1, 2, K, C, radius, V, 1, 1, result);
+        probeRoundedEdge(1, 2, 0, K, C, radius, V, 1, 1, result);
+        probeRoundedEdge(2, 0, 1, K, C, radius, V, 1, 1, result);
     }
 }
 
@@ -447,93 +461,113 @@ function doQueryRayRoundedEdge(i0: number, i1: number, i2: number, K: Vector,
     }
 }
 
+// Keep the earliest of the candidate contacts. Upstream accepts the first
+// rounded-edge probe that reports a contact and never looks at the other
+// candidates of the same face; see the comment in doQueryRayRoundedFace.
+function keepEarliest(result: IntrAlignedBox3Sphere3FIResult,
+    candidate: IntrAlignedBox3Sphere3FIResult): void {
+    if (candidate.intersectionType === IntrAlignedBox3Sphere3FIResultType.noContact) {
+        return;
+    }
+    if (result.intersectionType === IntrAlignedBox3Sphere3FIResultType.noContact
+        || candidate.contactTime < result.contactTime) {
+        result.intersectionType = candidate.intersectionType;
+        result.contactTime = candidate.contactTime;
+        result.contactPoint = candidate.contactPoint;
+    }
+}
+
+// Probe the rounded edge parallel to axis i2 whose cylinder axis passes
+// through (sign0 * K[i0], sign1 * K[i1]) and merge the candidate contact into
+// 'result', keeping the earliest contact found so far. The rounded vertices
+// at the two ends of that edge are probed by doQueryRayRoundedEdge itself.
+function probeRoundedEdge(i0: number, i1: number, i2: number, K: Vector,
+    C: Vector, radius: number, V: Vector, sign0: number, sign1: number,
+    result: IntrAlignedBox3Sphere3FIResult): void {
+    const edgeK = Vector.zero(3);
+    const edgeDelta = Vector.zero(3);
+    edgeK.values[i0] = sign0 * K.values[i0];
+    edgeK.values[i1] = sign1 * K.values[i1];
+    edgeK.values[i2] = K.values[i2];
+    edgeDelta.values[i0] = C.values[i0] - edgeK.values[i0];
+    edgeDelta.values[i1] = C.values[i1] - edgeK.values[i1];
+    edgeDelta.values[i2] = C.values[i2] - edgeK.values[i2];
+    // doQueryRayRoundedEdge requires b0 > 0, that is, the sphere center must
+    // be outside the infinite cylinder of the rounded edge; otherwise the
+    // quadratic has roots of opposite signs and the "first" root is negative.
+    // A center inside that cylinder is beyond one of the cylinder's ends (it
+    // is outside the rounded box), so the rounded vertex there - probed by
+    // the other candidates - is the piece the ray can enter first.
+    const b0 = edgeDelta.values[i0] * edgeDelta.values[i0]
+        + edgeDelta.values[i1] * edgeDelta.values[i1] - radius * radius;
+    if (b0 <= 0) {
+        return;
+    }
+
+    const candidate = defaultIntrAlignedBox3Sphere3FIResult();
+    doQueryRayRoundedEdge(i0, i1, i2, edgeK, C, radius, edgeDelta, V,
+        candidate);
+    keepEarliest(result, candidate);
+}
+
 function doQueryRayRoundedFace(i0: number, i1: number, i2: number, K: Vector,
     C: Vector, radius: number, delta: Vector, V: Vector,
     result: IntrAlignedBox3Sphere3FIResult): void {
-    const otherK = Vector.zero(3);
-    const otherDelta = Vector.zero(3);
-
+    // The ray enters the box expanded by 'radius' (the bounding box of the
+    // rounded box) through the i0-face at time tmax, so the first contact
+    // cannot be earlier than tmax.
     const tmax = (radius - delta.values[i0]) / V.values[i0];
     const p1 = C.values[i1] + tmax * V.values[i1];
     const p2 = C.values[i2] + tmax * V.values[i2];
 
-    if (p1 < -K.values[i1]) {
-        // The ray potentially intersects the rounded (i0,i1)-edge whose
-        // top-most vertex is otherK.
-        otherK.values[i0] = K.values[i0];
-        otherK.values[i1] = -K.values[i1];
-        otherK.values[i2] = K.values[i2];
-        otherDelta.values[i0] = C.values[i0] - otherK.values[i0];
-        otherDelta.values[i1] = C.values[i1] - otherK.values[i1];
-        otherDelta.values[i2] = C.values[i2] - otherK.values[i2];
-        doQueryRayRoundedEdge(i0, i1, i2, otherK, C, radius, otherDelta, V, result);
-        if (result.intersectionType === IntrAlignedBox3Sphere3FIResultType.noContact) {
-            if (p2 < -K.values[i2]) {
-                // The ray potentially intersects the rounded (i2,i0)-edge
-                // whose right-most vertex is otherK.
-                otherK.values[i0] = K.values[i0];
-                otherK.values[i1] = K.values[i1];
-                otherK.values[i2] = -K.values[i2];
-                otherDelta.values[i0] = C.values[i0] - otherK.values[i0];
-                otherDelta.values[i1] = C.values[i1] - otherK.values[i1];
-                otherDelta.values[i2] = C.values[i2] - otherK.values[i2];
-                doQueryRayRoundedEdge(i2, i0, i1, otherK, C, radius, otherDelta, V, result);
-            }
-            else if (p2 > K.values[i2]) {
-                // The ray potentially intersects the rounded (i2,i0)-edge
-                // whose right-most vertex is K.
-                doQueryRayRoundedEdge(i2, i0, i1, K, C, radius, delta, V, result);
-            }
-        }
+    // The side of the i0-face the ray leaves on, 0 when it stays within the
+    // face. Upstream's three-way tests on p1 and p2 are reproduced exactly,
+    // so the thresholds and their inclusive/exclusive ends are unchanged.
+    const s1 = (p1 < -K.values[i1] ? -1 : (p1 > K.values[i1] ? 1 : 0));
+    const s2 = (p2 < -K.values[i2] ? -1 : (p2 > K.values[i2] ? 1 : 0));
+
+    if (s1 === 0 && s2 === 0) {
+        // The ray intersects the i0-face of the rounded box, so the
+        // sphere-box contact point is on the corresponding box face. This is
+        // the first contact, because no contact can precede tmax.
+        result.intersectionType = IntrAlignedBox3Sphere3FIResultType.contact;
+        result.contactTime = tmax;
+        result.contactPoint.values[i0] = K.values[i0];
+        result.contactPoint.values[i1] = p1;
+        result.contactPoint.values[i2] = p2;
+        return;
     }
-    else if (p1 <= K.values[i1]) {
-        if (p2 < -K.values[i2]) {
-            // The ray potentially intersects the rounded (i2,i0)-edge whose
-            // right-most vertex is otherK.
-            otherK.values[i0] = K.values[i0];
-            otherK.values[i1] = K.values[i1];
-            otherK.values[i2] = -K.values[i2];
-            otherDelta.values[i0] = C.values[i0] - otherK.values[i0];
-            otherDelta.values[i1] = C.values[i1] - otherK.values[i1];
-            otherDelta.values[i2] = C.values[i2] - otherK.values[i2];
-            doQueryRayRoundedEdge(i2, i0, i1, otherK, C, radius, otherDelta, V, result);
-        }
-        else if (p2 <= K.values[i2]) {
-            // The ray intersects the i0-face of the rounded box, so the
-            // sphere-box contact point is on the corresponding box face.
-            result.intersectionType = IntrAlignedBox3Sphere3FIResultType.contact;
-            result.contactTime = tmax;
-            result.contactPoint.values[i0] = K.values[i0];
-            result.contactPoint.values[i1] = p1;
-            result.contactPoint.values[i2] = p2;
-        }
-        else {  // p2 > K[i2]
-            // The ray potentially intersects the rounded (i2,i0)-edge whose
-            // right-most vertex is K.
-            doQueryRayRoundedEdge(i2, i0, i1, K, C, radius, delta, V, result);
-        }
+
+    // The ray leaves the i0-face, so the first contact - if any - is on a
+    // rounded edge or rounded vertex of the face's overhang region.
+    //
+    // Upstream probes at most the two rounded edges that bound the i0-face
+    // and stops at the first probe that reports a contact, which is wrong
+    // twice over (see the PR for #458 item 5 and #465 item 2):
+    //   * a probe that ends in its rounded-vertex fallback reports a contact
+    //     with the vertex, which can be LATER than the contact with the other
+    //     rounded edge (the accepted probe is only an upper bound for the
+    //     first contact, since every piece is part of the rounded box);
+    //   * when the ray leaves the face on both sides it can enter through the
+    //     rounded edge PARALLEL to i0 at the overhang corner, which is not
+    //     one of the two edges bounding the i0-face and which upstream never
+    //     probes, so the contact is missed entirely.
+    // All candidate pieces are therefore probed and the earliest contact is
+    // kept. The pieces are subsets of the rounded box, so the earliest of
+    // their contact times is the first time the ray enters the rounded box.
+    if (s1 !== 0) {
+        // The rounded (i0,i1)-edge on the p1 side of the face; its cylinder
+        // is parallel to i2.
+        probeRoundedEdge(i0, i1, i2, K, C, radius, V, 1, s1, result);
     }
-    else {  // p1 > K[i1]
-        // The ray potentially intersects the rounded (i0,i1)-edge whose
-        // top-most vertex is K.
-        doQueryRayRoundedEdge(i0, i1, i2, K, C, radius, delta, V, result);
-        if (result.intersectionType === IntrAlignedBox3Sphere3FIResultType.noContact) {
-            if (p2 < -K.values[i2]) {
-                // The ray potentially intersects the rounded (i2,i0)-edge
-                // whose right-most vertex is otherK.
-                otherK.values[i0] = K.values[i0];
-                otherK.values[i1] = K.values[i1];
-                otherK.values[i2] = -K.values[i2];
-                otherDelta.values[i0] = C.values[i0] - otherK.values[i0];
-                otherDelta.values[i1] = C.values[i1] - otherK.values[i1];
-                otherDelta.values[i2] = C.values[i2] - otherK.values[i2];
-                doQueryRayRoundedEdge(i2, i0, i1, otherK, C, radius, otherDelta, V, result);
-            }
-            else if (p2 > K.values[i2]) {
-                // The ray potentially intersects the rounded (i2,i0)-edge
-                // whose right-most vertex is K.
-                doQueryRayRoundedEdge(i2, i0, i1, K, C, radius, delta, V, result);
-            }
-        }
+    if (s2 !== 0) {
+        // The rounded (i2,i0)-edge on the p2 side of the face; its cylinder
+        // is parallel to i1.
+        probeRoundedEdge(i2, i0, i1, K, C, radius, V, s2, 1, result);
+    }
+    if (s1 !== 0 && s2 !== 0) {
+        // The rounded (i1,i2)-edge at the overhang corner; its cylinder is
+        // parallel to i0 and it is not adjacent to the i0-face.
+        probeRoundedEdge(i1, i2, i0, K, C, radius, V, s1, s2, result);
     }
 }
