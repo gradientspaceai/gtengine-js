@@ -9,8 +9,8 @@
 // Port notes (see IntrIntervals.ts for the Intr* precedent): upstream derives
 // the ray-triangle FIQuery from the line-triangle FIQuery only to reuse the
 // protected DoQuery member, which the port exports as the module function
-// 'intrLine2Triangle2DoQuery'. The ray-specific DoQuery is exported here as
-// 'intrRay2Triangle2DoQuery' for the same reason. The upstream FIQuery Result
+// 'intrLine2Triangle2FIDoQuery'. The ray-specific DoQuery is exported here as
+// 'intrRay2Triangle2FIDoQuery' for the same reason. The upstream FIQuery Result
 // adds no members to the line-triangle result, so the port exports a type
 // alias.
 
@@ -20,7 +20,7 @@ import type { TIQuery } from './TIQuery.js';
 import type { FIQuery } from './FIQuery.js';
 import { Vector, add, mul } from './Vector.js';
 import {
-    intrLine2Triangle2DoQuery,
+    intrLine2Triangle2FIDoQuery,
     defaultIntrLine2Triangle2FIResult
 } from './IntrLine2Triangle2.js';
 import type { IntrLine2Triangle2FIResult } from './IntrLine2Triangle2.js';
@@ -43,9 +43,9 @@ export type IntrRay2Triangle2FIResult = IntrLine2Triangle2FIResult;
 // The port of the protected 'FIQuery::DoQuery'. The caller must ensure that
 // on entry, 'result' is default constructed as if there is no intersection.
 // If an intersection is found, the 'result' values are modified accordingly.
-export function intrRay2Triangle2DoQuery(origin: Vector, direction: Vector,
+export function intrRay2Triangle2FIDoQuery(origin: Vector, direction: Vector,
     triangle: Triangle, result: IntrRay2Triangle2FIResult): void {
-    intrLine2Triangle2DoQuery(origin, direction, triangle, result);
+    intrLine2Triangle2FIDoQuery(origin, direction, triangle, result);
 
     if (result.intersect) {
         // The line containing the ray intersects the triangle; the
@@ -93,7 +93,7 @@ export class IntrRay2Triangle2FI implements
     // when using a 2-point representation P0 + t * (P1 - P0).
     find(ray: Ray, triangle: Triangle): IntrRay2Triangle2FIResult {
         const result = defaultIntrLine2Triangle2FIResult();
-        intrRay2Triangle2DoQuery(ray.origin, ray.direction, triangle,
+        intrRay2Triangle2FIDoQuery(ray.origin, ray.direction, triangle,
             result);
         if (result.intersect) {
             for (let i = 0; i < 2; ++i) {

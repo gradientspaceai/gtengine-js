@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
     IntrLine3Sphere3TI,
     IntrLine3Sphere3FI,
-    intrLine3Sphere3DoQuery,
+    intrLine3Sphere3FIDoQuery,
     defaultIntrLine3Sphere3FIResult
 } from '../src/IntrLine3Sphere3.js';
 import { Hypersphere } from '../src/Hypersphere.js';
@@ -133,11 +133,11 @@ describe('IntrLine3Sphere3FI', () => {
         }
     });
 
-    it('exposes intrLine3Sphere3DoQuery, which does not compute points', () => {
+    it('exposes intrLine3Sphere3FIDoQuery, which does not compute points', () => {
         const line = makeLine(v3(-5, 0, 0), v3(1, 0, 0));
         const sphere = Hypersphere.fromCenterRadius(v3(0, 0, 0), 2);
         const result = defaultIntrLine3Sphere3FIResult();
-        intrLine3Sphere3DoQuery(line.origin, line.direction, sphere, result);
+        intrLine3Sphere3FIDoQuery(line.origin, line.direction, sphere, result);
         expect(result.numIntersections).toBe(2);
         expect(result.parameter[0]).toBeCloseTo(3, 12);
         // DoQuery leaves the points at their default values.
@@ -284,7 +284,7 @@ describe('IntrLine3Sphere3 verification', () => {
     it('the exported DoQuery reproduces the class result', () => {
         check(fc.tuple(lineArb, sphereArb), ([l, s]) => {
             const r = defaultIntrLine3Sphere3FIResult();
-            intrLine3Sphere3DoQuery(l.origin, l.direction, s, r);
+            intrLine3Sphere3FIDoQuery(l.origin, l.direction, s, r);
             const expected = fi.find(l, s);
             expect(r.intersect).toBe(expected.intersect);
             expect(r.numIntersections).toBe(expected.numIntersections);

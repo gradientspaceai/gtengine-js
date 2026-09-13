@@ -77,7 +77,7 @@ class per query and names `operator()` by kind:
   query object's internal state, so a result may be kept across calls.
 - Protected `DoQuery` helpers that upstream shares between line/ray/segment
   queries are exported module functions named `<file>DoQuery`
-  (`intrLine3Sphere3DoQuery`) so the ray and segment queries can reuse them
+  (`intrLine3Sphere3FIDoQuery`) so the ray and segment queries can reuse them
   without inheritance.
 - Query classes are stateless unless upstream has tunable state
   (`setMaxLCPIterations`, `useConjugateGradient`), and may be reused freely.

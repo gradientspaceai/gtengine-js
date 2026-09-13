@@ -10,7 +10,7 @@
 // FIQuery<Segment2,Triangle2> from FIQuery<Line2,Triangle2> only to reuse the
 // protected DoQuery; the derived Result adds no members, so the result type
 // is an alias of the line-triangle result type. The protected line-triangle
-// helper is the exported module function 'intrLine2Triangle2DoQuery'.
+// helper is the exported module function 'intrLine2Triangle2FIDoQuery'.
 
 import type { TIQuery } from './TIQuery.js';
 import type { FIQuery } from './FIQuery.js';
@@ -18,7 +18,7 @@ import type { Segment } from './Segment.js';
 import type { Triangle } from './Triangle.js';
 import { Vector, add, mul, sub } from './Vector.js';
 import {
-    intrLine2Triangle2DoQuery,
+    intrLine2Triangle2FIDoQuery,
     defaultIntrLine2Triangle2FIResult
 } from './IntrLine2Triangle2.js';
 import type { IntrLine2Triangle2FIResult } from './IntrLine2Triangle2.js';
@@ -45,10 +45,10 @@ export function defaultIntrSegment2Triangle2FIResult(): IntrSegment2Triangle2FIR
 // The port of the protected 'FIQuery::DoQuery'. The caller must ensure that
 // on entry, 'result' is default constructed as if there is no intersection.
 // If an intersection is found, the 'result' values are modified accordingly.
-export function intrSegment2Triangle2DoQuery(origin: Vector,
+export function intrSegment2Triangle2FIDoQuery(origin: Vector,
     direction: Vector, triangle: Triangle,
     result: IntrSegment2Triangle2FIResult): void {
-    intrLine2Triangle2DoQuery(origin, direction, triangle, result);
+    intrLine2Triangle2FIDoQuery(origin, direction, triangle, result);
 
     if (result.intersect) {
         // The line containing the segment intersects the triangle; the
@@ -95,7 +95,7 @@ export class IntrSegment2Triangle2FI implements
         const result = defaultIntrSegment2Triangle2FIResult();
         const segOrigin = segment.p[0];
         const segDirection = sub(segment.p[1], segment.p[0]);
-        intrSegment2Triangle2DoQuery(segOrigin, segDirection, triangle, result);
+        intrSegment2Triangle2FIDoQuery(segOrigin, segDirection, triangle, result);
         if (result.intersect) {
             for (let i = 0; i < 2; ++i) {
                 result.point[i] = add(segOrigin,
