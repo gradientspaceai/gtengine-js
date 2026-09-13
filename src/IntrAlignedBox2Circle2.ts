@@ -115,7 +115,7 @@ export class IntrAlignedBox2Circle2FI {
             }
         }
 
-        doQuery(extent, C, circle.radius, V, result);
+        intrAlignedBox2Circle2FIDoQuery(extent, C, circle.radius, V, result);
 
         if (result.intersectionType !== IntrAlignedBox2Circle2FIResultType.noContact) {
             // Translate back to the original coordinate system.
@@ -135,7 +135,7 @@ export class IntrAlignedBox2Circle2FI {
 // with extent K, and that the circle center C is in the first quadrant. The
 // Voronoi region of C relative to the rounded box determines which case
 // handler applies.
-function doQuery(K: Vector, C: Vector, radius: number, V: Vector,
+function intrAlignedBox2Circle2FIDoQuery(K: Vector, C: Vector, radius: number, V: Vector,
     result: IntrAlignedBox2Circle2FIResult): void {
     const delta = sub(C, K);
     if (delta.values[1] <= radius) {

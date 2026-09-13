@@ -19,7 +19,7 @@
 // FIQuery<Segment3,Sphere3> from FIQuery<Line3,Sphere3> only to reuse the
 // protected DoQuery; the derived Result adds no members, so the result type
 // is an alias of the line-sphere result type. The protected DoQuery is
-// exported as the module function 'intrSegment3Sphere3DoQuery'. The reported
+// exported as the module function 'intrSegment3Sphere3FIDoQuery'. The reported
 // parameters are relative to the centered form of the segment, C + t * D with
 // |t| <= e, as upstream reports them.
 
@@ -29,7 +29,7 @@ import type { Hypersphere } from './Hypersphere.js';
 import type { Segment } from './Segment.js';
 import { Vector, add, dot, mul, sub } from './Vector.js';
 import {
-    intrLine3Sphere3DoQuery,
+    intrLine3Sphere3FIDoQuery,
     defaultIntrLine3Sphere3FIResult
 } from './IntrLine3Sphere3.js';
 import type { IntrLine3Sphere3FIResult } from './IntrLine3Sphere3.js';
@@ -56,10 +56,10 @@ export function defaultIntrSegment3Sphere3FIResult(): IntrSegment3Sphere3FIResul
 // The port of the protected 'FIQuery::DoQuery'. The caller must ensure that
 // on entry, 'result' is default constructed as if there is no intersection.
 // If an intersection is found, the 'result' values are modified accordingly.
-export function intrSegment3Sphere3DoQuery(segOrigin: Vector,
+export function intrSegment3Sphere3FIDoQuery(segOrigin: Vector,
     segDirection: Vector, segExtent: number, sphere: Hypersphere,
     result: IntrSegment3Sphere3FIResult): void {
-    intrLine3Sphere3DoQuery(segOrigin, segDirection, sphere, result);
+    intrLine3Sphere3FIDoQuery(segOrigin, segDirection, sphere, result);
 
     if (result.intersect) {
         // The line containing the segment intersects the sphere; the
@@ -150,7 +150,7 @@ export class IntrSegment3Sphere3FI implements
             segment.getCenteredForm();
 
         const result = defaultIntrSegment3Sphere3FIResult();
-        intrSegment3Sphere3DoQuery(segOrigin, segDirection, segExtent, sphere,
+        intrSegment3Sphere3FIDoQuery(segOrigin, segDirection, segExtent, sphere,
             result);
         if (result.intersect) {
             for (let i = 0; i < 2; ++i) {

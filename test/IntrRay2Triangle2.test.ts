@@ -8,7 +8,7 @@ import {
     IntrRay2Triangle2TI,
     IntrRay2Triangle2FI
 } from '../src/IntrRay2Triangle2.js';
-import { intrRay2Triangle2DoQuery } from '../src/IntrRay2Triangle2.js';
+import { intrRay2Triangle2FIDoQuery } from '../src/IntrRay2Triangle2.js';
 import { defaultIntrLine2Triangle2FIResult }
     from '../src/IntrLine2Triangle2.js';
 
@@ -168,13 +168,13 @@ describe('IntrRay2Triangle2', () => {
     });
 });
 
-describe('intrRay2Triangle2DoQuery', () => {
+describe('intrRay2Triangle2FIDoQuery', () => {
     const tri = Triangle.fromVertices(vec([0, 0]), vec([4, 0]), vec([0, 4]));
 
     it('matches the class query but does not compute points', () => {
         const r = ray([-1, 1], [1, 0]);
         const result = defaultIntrLine2Triangle2FIResult();
-        intrRay2Triangle2DoQuery(r.origin, r.direction, tri, result);
+        intrRay2Triangle2FIDoQuery(r.origin, r.direction, tri, result);
         const expected = new IntrRay2Triangle2FI().find(r, tri);
         expect(result.intersect).toBe(expected.intersect);
         expect(result.numIntersections).toBe(expected.numIntersections);
@@ -188,7 +188,7 @@ describe('intrRay2Triangle2DoQuery', () => {
     it('rejects a ray whose supporting line hits behind the origin', () => {
         const r = ray([-1, 1], [-1, 0]);
         const result = defaultIntrLine2Triangle2FIResult();
-        intrRay2Triangle2DoQuery(r.origin, r.direction, tri, result);
+        intrRay2Triangle2FIDoQuery(r.origin, r.direction, tri, result);
         expect(result.intersect).toBe(false);
         expect(result.numIntersections).toBe(0);
     });
@@ -362,7 +362,7 @@ describe('IntrRay2Triangle2 verification', () => {
     it('the exported DoQuery reproduces the class result', () => {
         check(rayTriangle2, ({ ray: r, triangle: t }) => {
             const res = defaultIntrLine2Triangle2FIResult();
-            intrRay2Triangle2DoQuery(r.origin, r.direction, t, res);
+            intrRay2Triangle2FIDoQuery(r.origin, r.direction, t, res);
             const f = fiq.find(r, t);
             expect(res.intersect).toBe(f.intersect);
             expect(res.numIntersections).toBe(f.numIntersections);

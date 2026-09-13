@@ -12,7 +12,7 @@ import {
     IntrRay3Sphere3TI,
     IntrRay3Sphere3FI,
     defaultIntrRay3Sphere3FIResult,
-    intrRay3Sphere3DoQuery
+    intrRay3Sphere3FIDoQuery
 } from '../src/IntrRay3Sphere3.js';
 
 function vec(x: number, y: number, z: number): Vector {
@@ -124,7 +124,7 @@ describe('IntrRay3Sphere3', () => {
     it('the exported DoQuery matches the class query', () => {
         const r = ray([-3, 0.5, 0.25], [1, 0.1, -0.2]);
         const direct = defaultIntrRay3Sphere3FIResult();
-        intrRay3Sphere3DoQuery(r.origin, r.direction, unit, direct);
+        intrRay3Sphere3FIDoQuery(r.origin, r.direction, unit, direct);
         const viaClass = fi.find(r, unit);
         expect(direct.intersect).toBe(viaClass.intersect);
         expect(direct.numIntersections).toBe(viaClass.numIntersections);
@@ -361,7 +361,7 @@ describe('IntrRay3Sphere3 verification', () => {
     it('the DoQuery helper leaves a non-intersecting result fully reset', () => {
         const res = defaultIntrRay3Sphere3FIResult();
         // A line that meets the sphere only for t < 0.
-        intrRay3Sphere3DoQuery(vec(5, 0, 0), vec(1, 0, 0),
+        intrRay3Sphere3FIDoQuery(vec(5, 0, 0), vec(1, 0, 0),
             sphere([0, 0, 0], 1), res);
         expect(res.intersect).toBe(false);
         expect(res.numIntersections).toBe(0);

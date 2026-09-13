@@ -17,7 +17,7 @@
 // IntrLine3Sphere3FI (find), with the result types IntrLine3Sphere3TIResult
 // and IntrLine3Sphere3FIResult. The protected 'DoQuery' member, which
 // upstream derived classes (ray/segment vs sphere) call, is exported as the
-// module function 'intrLine3Sphere3DoQuery'.
+// module function 'intrLine3Sphere3FIDoQuery'.
 
 import type { TIQuery } from './TIQuery.js';
 import type { FIQuery } from './FIQuery.js';
@@ -56,7 +56,7 @@ export function defaultIntrLine3Sphere3FIResult(): IntrLine3Sphere3FIResult {
 // The port of the protected 'FIQuery::DoQuery'. The caller must ensure that
 // on entry, 'result' is default constructed as if there is no intersection.
 // If an intersection is found, the 'result' values are modified accordingly.
-export function intrLine3Sphere3DoQuery(lineOrigin: Vector,
+export function intrLine3Sphere3FIDoQuery(lineOrigin: Vector,
     lineDirection: Vector, sphere: Hypersphere,
     result: IntrLine3Sphere3FIResult): void {
     const diff = sub(lineOrigin, sphere.center);
@@ -105,7 +105,7 @@ export class IntrLine3Sphere3TI implements TIQuery<Line, Hypersphere, IntrLine3S
 export class IntrLine3Sphere3FI implements FIQuery<Line, Hypersphere, IntrLine3Sphere3FIResult> {
     find(line: Line, sphere: Hypersphere): IntrLine3Sphere3FIResult {
         const result = defaultIntrLine3Sphere3FIResult();
-        intrLine3Sphere3DoQuery(line.origin, line.direction, sphere, result);
+        intrLine3Sphere3FIDoQuery(line.origin, line.direction, sphere, result);
         if (result.intersect) {
             for (let i = 0; i < 2; ++i) {
                 result.point[i] = add(line.origin,

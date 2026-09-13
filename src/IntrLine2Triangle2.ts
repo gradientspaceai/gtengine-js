@@ -29,7 +29,7 @@
 // Port notes: see IntrIntervals.ts for the Intr* precedent. The upstream
 // 'protected void DoQuery(...)' helper (used by the Ray2/Segment2 versus
 // Triangle2 queries, which derive from this class) is exported as the module
-// function 'intrLine2Triangle2DoQuery', which mutates the passed-in result as
+// function 'intrLine2Triangle2FIDoQuery', which mutates the passed-in result as
 // upstream does.
 
 import { Line } from './Line.js';
@@ -70,7 +70,7 @@ export function defaultIntrLine2Triangle2FIResult(): IntrLine2Triangle2FIResult 
 // The port of the protected 'FIQuery::DoQuery'. The caller must ensure that
 // on entry, 'result' is default constructed as if there is no intersection.
 // If an intersection is found, the 'result' values are modified accordingly.
-export function intrLine2Triangle2DoQuery(origin: Vector,
+export function intrLine2Triangle2FIDoQuery(origin: Vector,
     direction: Vector, triangle: Triangle,
     result: IntrLine2Triangle2FIResult): void {
     const s: number[] = [0, 0, 0];
@@ -200,7 +200,7 @@ export class IntrLine2Triangle2FI implements
     // when using a 2-point representation P0 + t * (P1 - P0).
     find(line: Line, triangle: Triangle): IntrLine2Triangle2FIResult {
         const result = defaultIntrLine2Triangle2FIResult();
-        intrLine2Triangle2DoQuery(line.origin, line.direction, triangle,
+        intrLine2Triangle2FIDoQuery(line.origin, line.direction, triangle,
             result);
         if (result.intersect) {
             for (let i = 0; i < 2; ++i) {

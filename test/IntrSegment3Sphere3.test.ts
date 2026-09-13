@@ -6,7 +6,7 @@ import {
     IntrSegment3Sphere3TI,
     IntrSegment3Sphere3FI,
     defaultIntrSegment3Sphere3FIResult,
-    intrSegment3Sphere3DoQuery
+    intrSegment3Sphere3FIDoQuery
 } from '../src/IntrSegment3Sphere3.js';
 import { Line } from '../src/Line.js';
 import { IntrLine3Sphere3FI } from '../src/IntrLine3Sphere3.js';
@@ -145,7 +145,7 @@ describe('IntrSegment3Sphere3', () => {
         const s = segment([-2, 0.3, -0.4], [2.5, 0.1, 0.6]);
         const cf = s.getCenteredForm();
         const direct = defaultIntrSegment3Sphere3FIResult();
-        intrSegment3Sphere3DoQuery(cf.center, cf.direction, cf.extent, unit,
+        intrSegment3Sphere3FIDoQuery(cf.center, cf.direction, cf.extent, unit,
             direct);
         const viaClass = fi.find(s, unit);
         expect(direct.intersect).toBe(viaClass.intersect);
@@ -465,7 +465,7 @@ describe('IntrSegment3Sphere3 verification', () => {
         const res = defaultIntrSegment3Sphere3FIResult();
         // Centered segment of extent 1 at x = 5 along +x; the unit sphere at
         // the origin is met by the line for t in [-6,-4].
-        intrSegment3Sphere3DoQuery(vec(5, 0, 0), vec(1, 0, 0), 1,
+        intrSegment3Sphere3FIDoQuery(vec(5, 0, 0), vec(1, 0, 0), 1,
             sphere([0, 0, 0], 1), res);
         expect(res.intersect).toBe(false);
         expect(res.numIntersections).toBe(0);

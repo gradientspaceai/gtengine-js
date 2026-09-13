@@ -114,7 +114,7 @@ export class IntrAlignedBox3Sphere3FI {
         const rbQuery = new IntrRay3AlignedBox3TI();
         const rbResult = rbQuery.test(Ray.fromOriginDirection(C, V), superBox);
         if (rbResult.intersect) {
-            doQuery(extent, C, sphere.radius, V, result);
+            intrAlignedBox3Sphere3FIDoQuery(extent, C, sphere.radius, V, result);
 
             // Translate the contact point back to the coordinate system of
             // the original sphere and box. Upstream performs this translation
@@ -132,7 +132,7 @@ export class IntrAlignedBox3Sphere3FI {
 // The query assumes the box is axis-aligned with center at the origin and
 // with extent K. Callers need to convert the results back to the original
 // coordinate system of the query.
-function doQuery(K: Vector, inC: Vector, radius: number, inV: Vector,
+function intrAlignedBox3Sphere3FIDoQuery(K: Vector, inC: Vector, radius: number, inV: Vector,
     result: IntrAlignedBox3Sphere3FIResult): void {
     // Change signs on components, if necessary, to transform C to the first
     // octant. Adjust the velocity accordingly.

@@ -16,8 +16,8 @@
 // FIQuery<Ray3,Sphere3> from FIQuery<Line3,Sphere3> only to reuse the
 // protected DoQuery; the derived Result adds no members, so the result type
 // is an alias of the line-sphere result type. The line-sphere DoQuery is the
-// exported module function 'intrLine3Sphere3DoQuery', and the ray-sphere one
-// is exported here as 'intrRay3Sphere3DoQuery' for the same reason.
+// exported module function 'intrLine3Sphere3FIDoQuery', and the ray-sphere one
+// is exported here as 'intrRay3Sphere3FIDoQuery' for the same reason.
 
 import type { TIQuery } from './TIQuery.js';
 import type { FIQuery } from './FIQuery.js';
@@ -25,7 +25,7 @@ import type { Hypersphere } from './Hypersphere.js';
 import type { Ray } from './Ray.js';
 import { Vector, add, dot, mul, sub } from './Vector.js';
 import {
-    intrLine3Sphere3DoQuery,
+    intrLine3Sphere3FIDoQuery,
     defaultIntrLine3Sphere3FIResult
 } from './IntrLine3Sphere3.js';
 import type { IntrLine3Sphere3FIResult } from './IntrLine3Sphere3.js';
@@ -52,10 +52,10 @@ export function defaultIntrRay3Sphere3FIResult(): IntrRay3Sphere3FIResult {
 // The port of the protected 'FIQuery::DoQuery'. The caller must ensure that
 // on entry, 'result' is default constructed as if there is no intersection.
 // If an intersection is found, the 'result' values are modified accordingly.
-export function intrRay3Sphere3DoQuery(rayOrigin: Vector,
+export function intrRay3Sphere3FIDoQuery(rayOrigin: Vector,
     rayDirection: Vector, sphere: Hypersphere,
     result: IntrRay3Sphere3FIResult): void {
-    intrLine3Sphere3DoQuery(rayOrigin, rayDirection, sphere, result);
+    intrLine3Sphere3FIDoQuery(rayOrigin, rayDirection, sphere, result);
 
     if (result.intersect) {
         // The line containing the ray intersects the sphere; the t-interval
@@ -113,7 +113,7 @@ export class IntrRay3Sphere3FI implements
 
     find(ray: Ray, sphere: Hypersphere): IntrRay3Sphere3FIResult {
         const result = defaultIntrRay3Sphere3FIResult();
-        intrRay3Sphere3DoQuery(ray.origin, ray.direction, sphere, result);
+        intrRay3Sphere3FIDoQuery(ray.origin, ray.direction, sphere, result);
         if (result.intersect) {
             for (let i = 0; i < 2; ++i) {
                 result.point[i] = add(ray.origin,

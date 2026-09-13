@@ -6,7 +6,7 @@ import {
     IntrSegment2Triangle2TI,
     IntrSegment2Triangle2FI,
     defaultIntrSegment2Triangle2FIResult,
-    intrSegment2Triangle2DoQuery
+    intrSegment2Triangle2FIDoQuery
 } from '../src/IntrSegment2Triangle2.js';
 import { Line } from '../src/Line.js';
 import { IntrLine2Triangle2FI } from '../src/IntrLine2Triangle2.js';
@@ -145,7 +145,7 @@ describe('IntrSegment2Triangle2', () => {
     it('the exported DoQuery matches the class query', () => {
         const s = segment([-1, 0.7], [5, 2.1]);
         const direct = defaultIntrSegment2Triangle2FIResult();
-        intrSegment2Triangle2DoQuery(s.p[0], sub(s.p[1], s.p[0]), tri, direct);
+        intrSegment2Triangle2FIDoQuery(s.p[0], sub(s.p[1], s.p[0]), tri, direct);
         const viaClass = fi.find(s, tri);
         expect(direct.intersect).toBe(viaClass.intersect);
         expect(direct.numIntersections).toBe(viaClass.numIntersections);
@@ -415,7 +415,7 @@ describe('IntrSegment2Triangle2 verification', () => {
         () => {
             const res = defaultIntrSegment2Triangle2FIResult();
             // The line hits the triangle only for t > 1.
-            intrSegment2Triangle2DoQuery(vec(-10, 1), vec(1, 0),
+            intrSegment2Triangle2FIDoQuery(vec(-10, 1), vec(1, 0),
                 triangle([0, 0], [6, 0], [0, 6]), res);
             expect(res.intersect).toBe(false);
             expect(res.numIntersections).toBe(0);

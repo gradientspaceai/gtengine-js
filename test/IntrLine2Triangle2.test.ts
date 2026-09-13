@@ -8,7 +8,7 @@ import {
     IntrLine2Triangle2FI
 } from '../src/IntrLine2Triangle2.js';
 import {
-    intrLine2Triangle2DoQuery,
+    intrLine2Triangle2FIDoQuery,
     defaultIntrLine2Triangle2FIResult
 } from '../src/IntrLine2Triangle2.js';
 import { sub } from '../src/Vector.js';
@@ -175,13 +175,13 @@ describe('IntrLine2Triangle2', () => {
     });
 });
 
-describe('intrLine2Triangle2DoQuery', () => {
+describe('intrLine2Triangle2FIDoQuery', () => {
     const tri = triangle([0, 0], [4, 0], [0, 4]);
 
     it('matches the class query but does not compute points', () => {
         const l = line(-1, 1, 1, 0);
         const result = defaultIntrLine2Triangle2FIResult();
-        intrLine2Triangle2DoQuery(l.origin, l.direction, tri, result);
+        intrLine2Triangle2FIDoQuery(l.origin, l.direction, tri, result);
         const expected = new IntrLine2Triangle2FI().find(l, tri);
         expect(result.intersect).toBe(expected.intersect);
         expect(result.numIntersections).toBe(expected.numIntersections);
@@ -194,7 +194,7 @@ describe('intrLine2Triangle2DoQuery', () => {
 
     it('reports no intersection for a line missing the triangle', () => {
         const result = defaultIntrLine2Triangle2FIResult();
-        intrLine2Triangle2DoQuery(Vector.fromArray([-1, 5]),
+        intrLine2Triangle2FIDoQuery(Vector.fromArray([-1, 5]),
             Vector.fromArray([1, 0]), tri, result);
         expect(result.intersect).toBe(false);
         expect(result.numIntersections).toBe(0);
@@ -335,7 +335,7 @@ describe('IntrLine2Triangle2 verification', () => {
     it('the exported DoQuery reproduces the class result', () => {
         check(fc.tuple(latticeLine, latticeTri), ([l, t]) => {
             const r = defaultIntrLine2Triangle2FIResult();
-            intrLine2Triangle2DoQuery(l.origin, l.direction, t, r);
+            intrLine2Triangle2FIDoQuery(l.origin, l.direction, t, r);
             const expected = fi.find(l, t);
             expect(r.intersect).toBe(expected.intersect);
             expect(r.numIntersections).toBe(expected.numIntersections);
