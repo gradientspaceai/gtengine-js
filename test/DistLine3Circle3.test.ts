@@ -191,15 +191,29 @@ describe('DistLine3Circle3 verification', () => {
 
     // PDFSection422 reparameterizes the line from the point E = s*M + D with
     // s = -Dot(NxM,NxD)/Dot(NxM,NxM). Once the line is nearly parallel to the
-    // normal of the circle, |NxM| is tiny, s and a0 = Dot(M,E)/Dot(M,M) blow
-    // up, and the bisection brackets (whose width is a1/sqrt(a2)) lose every
-    // significant digit. Properties that compare two computations of the same
-    // distance therefore restrict to configurations where the line is not
-    // nearly parallel to the normal; the exactly-parallel cases are covered
-    // separately by the PDFSection411/412 properties below.
-    function wellConditioned(ln: Line, circle: Circle3): boolean {
-        const nxm = cross(circle.normal, ln.direction);
-        return length(nxm) > 1e-3 * length(ln.direction);
+    // normal of the circle, |NxM| is tiny and s and a0 = Dot(M,E)/Dot(M,M)
+    // blow up. These properties used to skip that neighbourhood because
+    // upstream's t = tau + s cancelled away every significant digit of the
+    // critical parameter (issue #421 item 3). The port now recovers t as
+    // G(tau) - Dot(M,D)/Dot(M,M), so no configuration is skipped; the regime
+    // itself is generated and checked in the dedicated block at the end of
+    // this file.
+
+    // Finalize builds the closest circle point by normalizing the in-plane
+    // part of the closest line point P: project = (P-C) - Dot(N,P-C)*N. When
+    // the line runs within a few ulps of the axis of the circle and passes
+    // essentially through the center, that subtraction cancels down to a
+    // relative 1e-10 of P-C, so the *direction* of project loses digits even
+    // though its length and the reported distance do not. Upstream has the
+    // same limit, and the geometry is genuinely ill-determined there (every
+    // circle point is within rounding of equidistant). Only the in-plane
+    // assertion skips it; |X-C| = r, the on-line assertion and every
+    // distance assertion still run.
+    function circlePointWellDetermined(p: Vector, circle: Circle3): boolean {
+        const delta = sub(p, circle.center);
+        const inPlane = sub(delta,
+            mul(dot(circle.normal, delta), circle.normal));
+        return length(inPlane) > 1e-6 * length(delta);
     }
 
     // Distance from a point to the line P + t*D (D is not required to be unit
@@ -251,7 +265,6 @@ describe('DistLine3Circle3 verification', () => {
 
     it('reports consistent distances and on-primitive closest points', () => {
         check(fc.tuple(lineArb, circleArb), ([ln, circle]) => {
-            if (!wellConditioned(ln, circle)) { return; }
             const r = query.compute(ln, circle);
             expect(r.numClosestPairs === 1 || r.numClosestPairs === 2)
                 .toBe(true);
@@ -264,7 +277,9 @@ describe('DistLine3Circle3 verification', () => {
                 // |X-C| = r and lies in the plane of the circle.
                 const delta = sub(r.circularClosest[j], circle.center);
                 expectClose(length(delta), circle.radius, 1e-7, 1e-7);
-                expectClose(dot(circle.normal, delta), 0, 1e-7, 1e-7);
+                if (circlePointWellDetermined(r.linearClosest[j], circle)) {
+                    expectClose(dot(circle.normal, delta), 0, 1e-7, 1e-7);
+                }
                 // The reported distance is the distance of this pair.
                 expectClose(length(sub(r.linearClosest[j],
                     r.circularClosest[j])), r.distance, 1e-7, 1e-7);
@@ -274,7 +289,6 @@ describe('DistLine3Circle3 verification', () => {
 
     it('matches an independent minimization over the circle', () => {
         check(fc.tuple(lineArb, circleArb), ([ln, circle]) => {
-            if (!wellConditioned(ln, circle)) { return; }
             const r = query.compute(ln, circle);
             const best = bruteForceDistance(ln, circle);
             // The scan-plus-refine reference is accurate well below 1e-9; the
@@ -299,7 +313,6 @@ describe('DistLine3Circle3 verification', () => {
                     normalize(u);
                     const origin = add(mul(radius + off, u), mul(along, n));
                     const ln = Line.fromOriginDirection(origin, dir);
-                    if (!wellConditioned(ln, circle)) { return; }
                     const r = query.compute(ln, circle);
                     expectClose(r.distance, bruteForceDistance(ln, circle),
                         1e-6, 1e-6);
@@ -338,7 +351,6 @@ describe('DistLine3Circle3 verification', () => {
             ([circle, along, dir]) => {
                 const origin = add(circle.center, mul(along, circle.normal));
                 const ln = Line.fromOriginDirection(origin, dir);
-                if (!wellConditioned(ln, circle)) { return; }
                 const r = query.compute(ln, circle);
                 expectClose(r.distance, bruteForceDistance(ln, circle),
                     1e-6, 1e-6);
@@ -356,7 +368,6 @@ describe('DistLine3Circle3 verification', () => {
             const movedCircle = Circle3.fromCenterNormalRadius(
                 add(shift, rot(circle.center)), rot(circle.normal),
                 circle.radius);
-            if (!wellConditioned(ln, circle)) { return; }
             const r0 = query.compute(ln, circle);
             const r1 = query.compute(movedLine, movedCircle);
             // The bisection is path dependent, so the tolerance covers drift
@@ -368,7 +379,6 @@ describe('DistLine3Circle3 verification', () => {
     it('is invariant to the length of the line direction', () => {
         check(fc.tuple(lineArb, circleArb, finite(0.1, 10)),
             ([ln, circle, scale]) => {
-                if (!wellConditioned(ln, circle)) { return; }
                 const scaled = Line.fromOriginDirection(ln.origin,
                     mul(scale, ln.direction));
                 const r0 = query.compute(ln, circle);
@@ -379,7 +389,6 @@ describe('DistLine3Circle3 verification', () => {
 
     it('exports the critical points used by ray and segment queries', () => {
         check(fc.tuple(lineArb, circleArb), ([ln, circle]) => {
-            if (!wellConditioned(ln, circle)) { return; }
             const { result, critical } = distLine3Circle3Execute(ln, circle);
             expect(critical.numPoints === 1 || critical.numPoints === 2)
                 .toBe(true);
@@ -664,6 +673,243 @@ describe('DistLine3Circle3 nearly axis-parallel lines', () => {
                 expect(Math.abs(r.distance - Math.abs(0.75 - 0.5)))
                     .toBeLessThan(1e-6);
             }
+        }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Regression for gtengine-js issue #421 item 3: a line *nearly* perpendicular
+// to the plane of the circle. Removing the collapsed-bracket exception (V20)
+// left the returned root without significant digits, because upstream
+// recovers the line parameter as t = tau + s where
+// s = -Dot(NxM,NxD)/|NxM|^2 blows up like 1/|NxM|^2 and every bisection
+// bracket is an interval of width r*|NxM|/Dot(M,M) around -a0 = -(s + b0)
+// with b0 = Dot(M,D)/Dot(M,M). The port forms t = G(tau) - b0 instead, which
+// is the same quantity with the cancellation removed.
+// ---------------------------------------------------------------------------
+
+describe('DistLine3Circle3 near-perpendicular lines (issue #421 item 3)',
+    () => {
+        const query = new DistLine3Circle3();
+
+        // Independent oracle: the line-circle distance is the minimum over
+        // the circle of the point-to-line distance. That objective is smooth
+        // and bounded in the circle angle, so a dense scan plus a
+        // golden-section refinement resolves it to near machine precision
+        // regardless of how ill-conditioned the line parameterization is.
+        function minOverCircle(ln: Line, c: Circle3): number {
+            const n = c.normal;
+            const seed = Math.abs(n.values[0]) < 0.9 ? v(1, 0, 0) : v(0, 1, 0);
+            const u = sub(seed, mul(dot(seed, n), n));
+            normalize(u);
+            const w = cross(n, u);
+            const MdM = dot(ln.direction, ln.direction);
+            const f = (a: number): number => {
+                const q = add(c.center, add(mul(c.radius * Math.cos(a), u),
+                    mul(c.radius * Math.sin(a), w)));
+                const diff = sub(q, ln.origin);
+                const t = dot(diff, ln.direction) / MdM;
+                return length(sub(diff, mul(t, ln.direction)));
+            };
+            const samples = 4096;
+            let best = Number.POSITIVE_INFINITY;
+            let bestI = 0;
+            for (let i = 0; i < samples; ++i) {
+                const y = f((2 * Math.PI * i) / samples);
+                if (y < best) { best = y; bestI = i; }
+            }
+            const h = (2 * Math.PI) / samples;
+            let lo = ((2 * Math.PI * bestI) / samples) - h;
+            let hi = lo + 2 * h;
+            const phi = (Math.sqrt(5) - 1) / 2;
+            for (let i = 0; i < 200; ++i) {
+                const m0 = hi - phi * (hi - lo);
+                const m1 = lo + phi * (hi - lo);
+                if (f(m0) <= f(m1)) { hi = m1; } else { lo = m0; }
+            }
+            return Math.min(best, f(0.5 * (lo + hi)));
+        }
+
+        // The line of a near-perpendicular configuration: the direction is
+        // the circle normal perturbed in-plane by eps and scaled, and the
+        // origin sits at a given height on the axis plus an in-plane offset.
+        function nearPerpendicularLine(c: Circle3, eps: number, ang: number,
+            height: number, offset: number, ang2: number,
+            scale: number): Line {
+            const n = c.normal;
+            const seed = Math.abs(n.values[0]) < 0.9 ? v(1, 0, 0) : v(0, 1, 0);
+            const u = sub(seed, mul(dot(seed, n), n));
+            normalize(u);
+            const w = cross(n, u);
+            const dir = mul(scale, add(n, mul(eps,
+                add(mul(Math.cos(ang), u), mul(Math.sin(ang), w)))));
+            const origin = add(c.center, add(mul(height, n),
+                add(mul(offset * Math.cos(ang2), u),
+                    mul(offset * Math.sin(ang2), w))));
+            return Line.fromOriginDirection(origin, dir);
+        }
+
+        it('resolves the counterexample reported in issue #421', () => {
+            // Circle in the x = 0 plane, radius 0.2. The segment of the issue
+            // runs from (-3.443461197292675, 8-, 0) to (0, 8-, 0), so its
+            // direction is perpendicular to the plane of the circle to within
+            // 3e-14 and it crosses that plane at (0, 8, 0). The closest
+            // circle point is (0, 0.2, 0) and the distance is 7.8. Before the
+            // fix the query returned 7.8000463921561485.
+            const c = Circle3.fromCenterNormalRadius(v(0, 0, 0), v(-1, 0, 0),
+                0.2);
+            const p0 = v(-3.443461197292675, 7.999999999999849, 0);
+            const p1 = v(0, 7.999999999999969, 0);
+            const ln = Line.fromOriginDirection(p0, sub(p1, p0));
+            const r = query.compute(ln, c);
+            expect(Math.abs(r.distance - 7.8)).toBeLessThan(1e-12);
+            expectVectorClose(r.circularClosest[0], v(0, 0.2, 0), 1e-12,
+                1e-12);
+        });
+
+        it('resolves further ulp-neighbours of the reported counterexample',
+            () => {
+                // The same family with the endpoint heights moved by a few
+                // ulps. Every one of these returned a distance between
+                // 7.80018 and 7.98776 before the fix.
+                const c = Circle3.fromCenterNormalRadius(v(0, 0, 0),
+                    v(-1, 0, 0), 0.2);
+                const x0 = -3.443461197292675;
+                const cases: Array<[number, number]> = [
+                    [7.999999999999924, 7.999999999999982],
+                    [7.999999999999917, 7.999999999999976],
+                    [7.999999999999959, 7.999999999999992],
+                    [7.999999999999976, 7.999999999999981],
+                    [7.99999999999998, 7.999999999999984]
+                ];
+                for (const [y0, y1] of cases) {
+                    const ln = Line.fromOriginDirection(v(x0, y0, 0),
+                        sub(v(0, y1, 0), v(x0, y0, 0)));
+                    const r = query.compute(ln, c);
+                    expect(Math.abs(r.distance - 7.8)).toBeLessThan(1e-12);
+                }
+            });
+
+        it('matches the closed form for lines parallel to the circle axis',
+            () => {
+                // A line parallel to N at in-plane distance d from the axis
+                // sweeps the whole axis direction, so its distance to the
+                // circle is exactly |d - r|. Perturbing the direction by eps
+                // in the plane leaves the distance within O(eps) of that
+                // value but drives |NxM| to zero, which is the regime the
+                // issue is about.
+                const n = v(0, 0, 1);
+                const c = Circle3.fromCenterNormalRadius(v(0, 0, 0), n, 0.75);
+                for (const d of [0.05, 0.5, 0.749, 0.751, 1.25, 40]) {
+                    for (const eps of [0, 1e-16, 1e-15, 1e-14, 1e-12, 1e-10,
+                        1e-8, 1e-6, 1e-4]) {
+                        for (const sign of [1, -1]) {
+                            const ln = Line.fromOriginDirection(
+                                v(d, 0, -3.25),
+                                v(sign * eps * 0.6, sign * eps * 0.8, sign));
+                            const r = query.compute(ln, c);
+                            if (eps === 0) {
+                                expectClose(r.distance,
+                                    Math.abs(d - c.radius), 1e-15, 1e-15);
+                            }
+                            expectClose(r.distance, minOverCircle(ln, c),
+                                1e-9, 1e-9);
+                        }
+                    }
+                }
+            }, 30000);
+
+        // Directions within a random factor 10^-16..1 of the circle normal,
+        // with the origin at a random height and in-plane offset. Before the
+        // fix roughly a quarter of these came back with a relative error
+        // above 1e-9, the worst being 1.6 (a distance of 2.36 reported where
+        // the truth was 0.72).
+        const nearPerpendicular = fc.tuple(
+            unitVector(3), finite(0.2, 3), finite(0, 16), finite(0, 6.2831),
+            finite(-4, 4), finite(0.02, 8), finite(0, 6.2831),
+            finite(0.05, 20));
+
+        it('matches an independent minimization over the circle', () => {
+            check(nearPerpendicular,
+                ([n, radius, mag, ang, height, offset, ang2, scale]) => {
+                    const c = Circle3.fromCenterNormalRadius(v(0, 0, 0), n,
+                        radius);
+                    const ln = nearPerpendicularLine(c, Math.pow(10, -mag),
+                        ang, height, offset, ang2, scale);
+                    const r = query.compute(ln, c);
+                    // The oracle resolves the angular minimum to about 1e-15
+                    // relative; the query adds the rounding of the critical
+                    // parameter, which the reformulation keeps at the scale
+                    // of the answer. Measured worst case over 7000
+                    // adversarial draws: 3e-13 relative, attained where the
+                    // line nearly touches the circle and both sides lose
+                    // half the mantissa.
+                    expectClose(r.distance, minOverCircle(ln, c), 1e-9, 1e-9);
+                }, 200);
+        }, 30000);
+
+        it('never reports more than the distance to a sampled line point',
+            () => {
+                check(fc.tuple(nearPerpendicular, finite(-100, 100)),
+                    ([params, t]) => {
+                        const [n, radius, mag, ang, height, offset, ang2,
+                            scale] = params;
+                        const c = Circle3.fromCenterNormalRadius(v(0, 0, 0),
+                            n, radius);
+                        const ln = nearPerpendicularLine(c,
+                            Math.pow(10, -mag), ang, height, offset, ang2,
+                            scale);
+                        const p = add(ln.origin, mul(t, ln.direction));
+                        const delta = sub(p, c.center);
+                        const h = dot(c.normal, delta);
+                        const inPlane = sub(delta, mul(h, c.normal));
+                        const dr = length(inPlane) - c.radius;
+                        const sampled = Math.sqrt(h * h + dr * dr);
+                        expect(query.compute(ln, c).distance)
+                            .toBeLessThanOrEqual(
+                                sampled + 1e-9 * (1 + sampled));
+                    });
+            });
+    });
+
+// ---------------------------------------------------------------------------
+// Regression for the Dot(NxM,NxM) underflow: Execute branches on NxM != 0,
+// but PDFSection421/422 divide by Dot(NxM,NxM), which is exactly zero once
+// |NxM| is below about 1.5e-162. Upstream then reports NaN for everything.
+// ---------------------------------------------------------------------------
+
+describe('DistLine3Circle3 subnormal Cross(N,M)', () => {
+    const query = new DistLine3Circle3();
+
+    it('does not return NaN when Dot(NxM,NxM) underflows', () => {
+        // Cross(N,M) = (0, -5e-324, 0): nonzero, but its squared length is
+        // zero in binary64. The line is the x axis through (0,4,0) to a
+        // relative 1e-322, so its distance to the circle is 4 - 0.2.
+        const c = Circle3.fromCenterNormalRadius(v(0, 0, 0), v(-1, 0, 0), 0.2);
+        const ln = Line.fromOriginDirection(v(0, 4, 0),
+            v(-0.05, 0, -Number.MIN_VALUE));
+        const r = query.compute(ln, c);
+        expect(Number.isFinite(r.distance)).toBe(true);
+        expectClose(r.distance, 3.8, 1e-12, 1e-12);
+        expectVectorClose(r.circularClosest[0], v(0, 0.2, 0), 1e-12, 1e-12);
+        // The perpendicular branch reports the single critical point at the
+        // foot of the normal from the circle center.
+        const { critical } = distLine3Circle3Execute(ln, c);
+        expect(critical.numPoints).toBe(1);
+        expect(Number.isFinite(critical.parameter[0])).toBe(true);
+    });
+
+    it('agrees with the exactly perpendicular line', () => {
+        // Shrinking the in-plane part of the direction to zero must not
+        // change the answer discontinuously.
+        const c = Circle3.fromCenterNormalRadius(v(0, 0, 0), v(-1, 0, 0), 0.2);
+        const exact = query.compute(Line.fromOriginDirection(v(0, 4, 0),
+            v(-0.05, 0, 0)), c);
+        for (const tiny of [Number.MIN_VALUE, 1e-320, 1e-200, 1e-170,
+            1e-162]) {
+            const r = query.compute(Line.fromOriginDirection(v(0, 4, 0),
+                v(-0.05, 0, -tiny)), c);
+            expectClose(r.distance, exact.distance, 1e-12, 1e-12);
         }
     });
 });
