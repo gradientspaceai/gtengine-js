@@ -242,17 +242,34 @@ describe('IntrLine3Capsule3 verification', () => {
 
     it('TI and FI agree away from tangency', () => {
         check(lineCapsule, ({ line: l, capsule: c }) => {
+            // A line parallel to the medial segment goes through
+            // DistLineSegment, whose parallel case is upstream issue #418:
+            // for a collinear line it returns a nonzero distance, so TI
+            // reports a miss where the root-based FI correctly reports a hit.
+            const w = c.segment.getCenteredForm().direction;
+            if (Math.abs(Math.abs(dot(w, l.direction)) - 1) < 1e-9) {
+                return;
+            }
             const f = fiq.find(l, c);
             const t = tiq.test(l, c);
             if (f.intersect && f.parameter[1] - f.parameter[0] < 1e-6) {
                 return;   // grazing; the two formulations may disagree
             }
             if (t.intersect !== f.intersect) {
-                // Only accept a disagreement in the near-tangent band.
-                const mid = f.intersect
-                    ? 0.5 * (f.parameter[0] + f.parameter[1]) : 0;
-                const p = add(l.origin, mul(mid, l.direction));
-                expect(Math.abs(distToSegment(c.segment, p) - c.radius))
+                // Only accept a disagreement in the near-tangent band, that
+                // is, when the minimum distance from the line to the medial
+                // segment is at the radius. That minimum is a convex function
+                // of the line parameter, so a ternary search finds it; the
+                // previous form probed the line origin instead, which says
+                // nothing when the find query reports a miss.
+                let lo = -1e4, hi = 1e4;
+                const dist = (u: number): number => distToSegment(c.segment,
+                    add(l.origin, mul(u, l.direction)));
+                for (let k = 0; k < 300; ++k) {
+                    const a = lo + (hi - lo) / 3, b = hi - (hi - lo) / 3;
+                    if (dist(a) < dist(b)) { hi = b; } else { lo = a; }
+                }
+                expect(Math.abs(dist(0.5 * (lo + hi)) - c.radius))
                     .toBeLessThan(1e-6);
                 return;
             }
@@ -363,16 +380,20 @@ describe('IntrLine3Capsule3 verification', () => {
                 const c = Capsule.fromSegmentRadius(seg, radius);
                 const base = add(seg.p[0], mul(s, sub(seg.p[1], seg.p[0])));
                 const target = add(base, mul(frac * radius, off));
-                // Upstream collapses to a degenerate interval when the line lies
-                // in a cap-junction plane perpendicular to the axis (#461
-                // item 3); that knife edge is pinned deterministically
-                // elsewhere, so skip it here.
-                if ((s < 1e-6 || s > 1 - 1e-6) && Math.abs(dot(d, u)) < 1e-6) {
-                    return true;
-                }
+                // The cap-junction plane (s = 0 or s = 1 with d perpendicular
+                // to the axis) used to be excluded here: upstream collapsed
+                // the interval to a point there (#461 item 3). The port fixes
+                // it, so the case is now covered by this property and pinned
+                // deterministically below.
                 const l = Line.fromOriginDirection(target, d);
                 const f = fiq.find(l, c);
-                expect(tiq.test(l, c).intersect).toBe(true);
+                // A line parallel to the medial segment is excluded from the
+                // TI comparison only: DistLineSegment's parallel case is
+                // upstream issue #418 and reports a nonzero distance for a
+                // collinear line.
+                if (Math.abs(Math.abs(dot(u, d)) - 1) >= 1e-9) {
+                    expect(tiq.test(l, c).intersect).toBe(true);
+                }
                 expect(f.intersect).toBe(true);
                 expect(f.parameter[0]).toBeLessThanOrEqual(1e-9);
                 expect(f.parameter[1]).toBeGreaterThanOrEqual(-1e-9);
@@ -418,4 +439,202 @@ describe('IntrLine3Capsule3 verification', () => {
             expect(res.point[0].values).toEqual([0, 0, 0]);
         });
     });
+});
+
+// ---------------------------------------------------------------------------
+// Regression tests for the two upstream defects fixed in the port
+// (gtengine-js issue #461 items 2 and 3). Every test here fails on the
+// unfixed algorithm.
+// ---------------------------------------------------------------------------
+
+// An oracle that is independent of the query: it works in world coordinates
+// (the query builds its own capsule frame), solves the three boundary
+// quadratics -- the infinite cylinder about the medial line and the two end
+// spheres -- and keeps every root whose point lies in the solid capsule. The
+// solid capsule is the union of the solid finite cylinder and the two solid
+// end balls, so its boundary is contained in those three surfaces; the
+// capsule is convex, so the line meets it in the interval spanned by the
+// accepted roots.
+function oracleCapsuleInterval(c: Capsule, l: Line): [number, number] | null {
+    const C0 = c.segment.p[0];
+    const A = sub(c.segment.p[1], C0);
+    const W = mul(1 / length(A), A);
+    const r = c.radius;
+    const D = l.direction;
+    const Q = sub(l.origin, C0);
+    const perp = (v: Vector): Vector => sub(v, mul(dot(v, W), W));
+    const roots: number[] = [];
+    const addRoots = (a2: number, a1: number, a0: number): void => {
+        if (a2 === 0) {
+            if (a1 !== 0) { roots.push(-0.5 * a0 / a1); }
+            return;
+        }
+        const discr = a1 * a1 - a0 * a2;
+        if (discr < 0) { return; }
+        const root = Math.sqrt(discr);
+        roots.push((-a1 - root) / a2, (-a1 + root) / a2);
+    };
+    // The infinite cylinder about the medial line.
+    const Qp = perp(Q), Dp = perp(D);
+    addRoots(dot(Dp, Dp), dot(Qp, Dp), dot(Qp, Qp) - r * r);
+    // The two end spheres (|D| = 1, so the leading coefficient is 1).
+    for (const C of [C0, c.segment.p[1]]) {
+        const E = sub(l.origin, C);
+        addRoots(1, dot(E, D), dot(E, E) - r * r);
+    }
+    let lo = Number.POSITIVE_INFINITY, hi = Number.NEGATIVE_INFINITY;
+    for (const t of roots) {
+        const p = add(l.origin, mul(t, D));
+        if (distToSegment(c.segment, p) <= r * (1 + 1e-9)) {
+            if (t < lo) { lo = t; }
+            if (t > hi) { hi = t; }
+        }
+    }
+    return lo <= hi ? [lo, hi] : null;
+}
+
+describe('IntrLine3Capsule3 upstream-defect regressions', () => {
+    const tiq = new IntrLine3Capsule3TI();
+    const fiq = new IntrLine3Capsule3FI();
+
+    it('reports a line tangent to a hemispherical cap (#461 item 2)', () => {
+        // The line touches the bottom cap at its pole. Upstream accepts the
+        // single root in the cap branch but never sets 'intersect' there, so
+        // it reported intersect = false with numIntersections = 1 and no
+        // points, and the ray and segment clips (guarded by 'intersect')
+        // dropped the contact entirely.
+        const c = capsule([0, 0, 0], [0, 0, -3], 2);
+        const l = line([0, 0, -5], [1, 0, 0]);
+        expect(tiq.test(l, c).intersect).toBe(true);
+        const f = fiq.find(l, c);
+        expect(f.intersect).toBe(true);
+        expect(f.numIntersections).toBe(1);
+        expect(f.parameter[0] + 0).toBe(0);
+        expect(f.parameter[1] + 0).toBe(0);
+        // Both points are filled and lie on the cap.
+        for (let i = 0; i < 2; ++i) {
+            expectVectorClose(f.point[i], vec([0, 0, -5]), 1e-12, 1e-12);
+            expectClose(distToSegment(c.segment, f.point[i]), c.radius,
+                1e-12, 1e-12);
+        }
+    });
+
+    it('reports the whole chord in a cap-junction plane (#461 item 3)', () => {
+        // The line lies in the plane z = +e that separates the cylinder wall
+        // from the top hemisphere, through the medial endpoint. Upstream
+        // accepted the same junction point twice -- once by the wall test
+        // |z| <= e and once by the cap test z >= e -- and its early return
+        // after two accepted roots discarded the true far endpoint, leaving a
+        // degenerate interval.
+        const s = Segment.fromEndpoints(vec([0, 0, 0]),
+            vec([0, -4.999999999999982, -4.999999999999973]));
+        const c = capsule([0, 2.9999999999999933, -2.9999999999999933],
+            [0, 0, 0], 0.25);
+        const cf = s.getCenteredForm();
+        const l = Line.fromOriginDirection(cf.center, cf.direction);
+        const f = fiq.find(l, c);
+        expect(f.intersect).toBe(true);
+        expect(f.numIntersections).toBe(2);
+        // The chord through the centre of a junction disk has length 2*r.
+        expectClose(f.parameter[1] - f.parameter[0], 2 * c.radius, 1e-12,
+            1e-12);
+        const oracle = oracleCapsuleInterval(c, l);
+        expect(oracle).not.toBeNull();
+        const o = oracle as [number, number];
+        expectClose(f.parameter[0], o[0], 1e-12, 1e-12);
+        expectClose(f.parameter[1], o[1], 1e-12, 1e-12);
+    });
+
+    it('sweeps lines lying exactly in a cap-junction plane', () => {
+        // A capsule of half-length 1 and radius 1/2 in a frame tilted away
+        // from the coordinate axes, so that the z-component of the line
+        // direction in capsule coordinates is a rounding residual rather than
+        // an exact zero: that is what splits the two junction-circle roots
+        // between the wall test and the cap test. The junction disk has
+        // radius 1/2, so a line in its plane at distance 'off' from the axis
+        // cuts a chord of length 2*sqrt(r^2 - off^2).
+        const W = vec([1, 2, 3]);
+        normalize(W);
+        const A = vec([0, -3, 2]);
+        normalize(A);
+        const B = vec([W.values[1] * A.values[2] - W.values[2] * A.values[1],
+            W.values[2] * A.values[0] - W.values[0] * A.values[2],
+            W.values[0] * A.values[1] - W.values[1] * A.values[0]]);
+        normalize(B);
+        const centre = vec([0.25, -0.5, 0.75]);
+        const c = Capsule.fromSegmentRadius(Segment.fromEndpoints(
+            sub(centre, W), add(centre, W)), 0.5);
+        let exercised = 0;
+        for (let k = 0; k < 64; ++k) {
+            const th = (k / 64) * Math.PI;
+            const d = add(mul(Math.cos(th), A), mul(Math.sin(th), B));
+            normalize(d);
+            const perp = add(mul(-Math.sin(th), A), mul(Math.cos(th), B));
+            for (const off of [0, 0.1, 0.25, 0.4, 0.49]) {
+                for (const end of [add(centre, W), sub(centre, W)]) {
+                    const o = add(end, mul(off, perp));
+                    const f = fiq.find(Line.fromOriginDirection(o, d), c);
+                    expect(f.intersect).toBe(true);
+                    expect(f.numIntersections).toBe(2);
+                    expectClose(f.parameter[1] - f.parameter[0],
+                        2 * Math.sqrt(0.25 - off * off), 1e-9, 1e-9);
+                    ++exercised;
+                }
+            }
+        }
+        expect(exercised).toBe(640);
+    });
+
+    it('matches the independent world-frame oracle', () => {
+        const rnd = seededRandom(0x51c0de3);
+        let hits = 0;
+        for (let trial = 0; trial < 4000; ++trial) {
+            const p0 = Vector.fromArray([rnd() * 4 - 2, rnd() * 4 - 2,
+                rnd() * 4 - 2]);
+            const u = Vector.fromArray([rnd() * 2 - 1, rnd() * 2 - 1,
+                rnd() * 2 - 1]);
+            if (length(u) < 0.3) { continue; }
+            normalize(u);
+            const seg = Segment.fromEndpoints(p0,
+                add(p0, mul(0.5 + rnd() * 3, u)));
+            const c = Capsule.fromSegmentRadius(seg, 0.3 + rnd() * 1.5);
+            const d = Vector.fromArray([rnd() * 2 - 1, rnd() * 2 - 1,
+                rnd() * 2 - 1]);
+            if (length(d) < 0.3) { continue; }
+            normalize(d);
+            // Aim a third of the lines at the cap-junction circles, where the
+            // upstream double count lived: origin on a junction plane and
+            // direction perpendicular to the axis.
+            let l: Line;
+            if (trial % 3 === 0) {
+                const axis = sub(seg.p[1], seg.p[0]);
+                const w = mul(1 / length(axis), axis);
+                const dd = sub(d, mul(dot(d, w), w));
+                if (length(dd) < 0.3) { continue; }
+                normalize(dd);
+                const end = trial % 6 === 0 ? seg.p[0] : seg.p[1];
+                l = Line.fromOriginDirection(
+                    add(end, mul((rnd() - 0.5) * c.radius, dd)), dd);
+            }
+            else {
+                l = Line.fromOriginDirection(
+                    Vector.fromArray([rnd() * 8 - 4, rnd() * 8 - 4,
+                        rnd() * 8 - 4]), d);
+            }
+            const oracle = oracleCapsuleInterval(c, l);
+            const f = fiq.find(l, c);
+            if (oracle === null) {
+                expect(f.intersect).toBe(false);
+                continue;
+            }
+            if (oracle[1] - oracle[0] < 1e-6) {
+                continue;   // grazing: entry and exit round together
+            }
+            ++hits;
+            expect(f.intersect).toBe(true);
+            expectClose(f.parameter[0], oracle[0], 1e-9, 1e-9);
+            expectClose(f.parameter[1], oracle[1], 1e-9, 1e-9);
+        }
+        expect(hits).toBeGreaterThan(500);
+    }, 30000);
 });

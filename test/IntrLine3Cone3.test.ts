@@ -396,23 +396,43 @@ describe('IntrLine3Cone3 verification', () => {
     }
 
     // The distance from the cone vertex to the line, relative to the size of
-    // the configuration. A line through (or numerically through) the vertex
-    // makes the discriminant of the quadratic exactly zero in exact
-    // arithmetic, and rounding then routes the query into the discr > 0 or
-    // discr < 0 branches, whose analysis assumes a nondegenerate
-    // configuration. Those cases are excluded from the properties below and
-    // pinned separately.
+    // the configuration. A line that passes very close to, but not exactly
+    // through, the vertex remains a knife edge after the port's fix: the
+    // discriminant c1^2 - c0*c2 is then the difference of two nearly equal
+    // quantities of size |P-V|^4, so it carries no significant digits and the
+    // query can report a rounding-sized segment straddling the vertex. A line
+    // that contains the vertex exactly is answered from the sign of c2 alone
+    // and is covered by the regressions below, so it is deliberately not
+    // excluded here.
     function relVertexDistance(cone: Cone, L: Line): number {
         const PmV = sub(L.origin, cone.ray.origin);
         const perp = sub(PmV, mul(dot(PmV, L.direction), L.direction));
         return length(perp) / (1 + length(PmV));
     }
 
+    // True when the cone vertex lies exactly on the line, the test the port
+    // uses to answer the degenerate configuration.
+    function containsVertex(cone: Cone, L: Line): boolean {
+        const PmV = sub(L.origin, cone.ray.origin);
+        const tv = -dot(L.direction, PmV) / dot(L.direction, L.direction);
+        for (let i = 0; i < 3; ++i) {
+            if (PmV.values[i] + tv * L.direction.values[i] !== 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    function nearVertexKnifeEdge(cone: Cone, L: Line): boolean {
+        return relVertexDistance(cone, L) < 1e-6 && !containsVertex(cone, L);
+    }
+
+
     it('the reported set is contained in the solid cone', () => {
         check(fc.tuple(arbWellLine,
             fc.oneof(arbInfiniteCone, arbFiniteCone, arbFrustum)),
             ([L, cone]) => {
-                if (relVertexDistance(cone, L) < 1e-6) { return; }
+                if (nearVertexKnifeEdge(cone, L)) { return; }
                 const r = fiQ.find(L, cone);
                 expect(r.intersect).toBe(
                     r.type !== IntrLine3Cone3FIResultType.isEmpty);
@@ -454,7 +474,7 @@ describe('IntrLine3Cone3 verification', () => {
         check(fc.tuple(arbWellLine,
             fc.oneof(arbFiniteCone, arbFrustum)),
             ([L, cone]) => {
-                if (relVertexDistance(cone, L) < 1e-6) { return; }
+                if (nearVertexKnifeEdge(cone, L)) { return; }
                 // The finite cone is bounded, so a sampling of the line over
                 // a window that contains it is conclusive.
                 const V = cone.ray.origin;
@@ -466,7 +486,12 @@ describe('IntrLine3Cone3 verification', () => {
                 let count = 0;
                 for (let i = 0; i <= N; ++i) {
                     const t = -reach + (2 * reach * i) / N;
-                    if (inCone(cone, L, t, 0)) {
+                    // A negative tolerance means "inside by a margin". A
+                    // sample exactly on the cone surface or on a height cap
+                    // proves nothing: the query decides it from the roots of
+                    // the quadratic, which round the other way about half the
+                    // time.
+                    if (inCone(cone, L, t, -1e-12)) {
                         lo = Math.min(lo, t);
                         hi = Math.max(hi, t);
                         ++count;
@@ -626,21 +651,23 @@ describe('IntrLine3Cone3 verification', () => {
     });
 
 
-    it('pins the through-the-vertex discriminant fragility (upstream)', () => {
-        // When the line passes through the cone vertex the quadratic
-        // Q(t) = c2*t^2 + 2*c1*t + c0 has a double root, so discr = 0 in
-        // exact arithmetic. discr = c1*c1 - c0*c2 is computed as the
-        // difference of two nearly equal products, so rounding routes the
-        // query into the discr > 0 or discr < 0 branches instead, whose case
-        // analysis assumes a nondegenerate configuration:
+    it('answers a line through the cone vertex (#465 item 1)', () => {
+        // Regression for the upstream defect fixed in the port. When the line
+        // contains the cone vertex the quadratic Q(t) = c2*t^2 + 2*c1*t + c0
+        // has a double root, so discr = c1*c1 - c0*c2 is zero in exact
+        // arithmetic. It is computed as the difference of two nearly equal
+        // products, so rounding routed the query into the discr > 0 or
+        // discr < 0 branches, whose case analysis assumes a nondegenerate
+        // configuration.
         //
         // (a) c2 < 0 (the line direction is OUTSIDE the cone angle). The set
         //     Q >= 0 is the segment between the roots, which degenerates to
         //     the vertex. With discr rounded above zero the heights of the
-        //     two roots straddle zero, so upstream takes Block 3 and calls
-        //     SetRayClamp, whose analysis is valid only for c2 > 0. It
-        //     reports a whole segment up to the cone's maximum height where
-        //     the true intersection is the single vertex point.
+        //     two roots straddle zero, so upstream took Block 3 and called
+        //     SetRayClamp, whose analysis is valid only for c2 > 0: it
+        //     reported a segment reaching the cone's maximum height, whose
+        //     far endpoint is 3.19 away from the vertex and well outside the
+        //     cone (G = -2.94). The true intersection is the vertex alone.
         const coneA = Cone.fromRayAngleMinMaxHeight(Ray.fromOriginDirection(
             Vector.zero(3),
             Vector.fromArray([-0.9980401154430762, 0.06257737583480703, 0])),
@@ -653,21 +680,24 @@ describe('IntrLine3Cone3 verification', () => {
             mul(-lineA.origin.values[1], lineA.direction)), Vector.zero(3),
             0, 0);
         const rA = fiQ.find(lineA, coneA);
-        expect(rA.type).toBe(IntrLine3Cone3FIResultType.isSegment);
-        // The far endpoint is 3.19 away from the vertex and well outside the
-        // cone (G = -2.94); the correct answer is the vertex point alone.
-        const far = pointOnLine(lineA, tOf(rA.t[1]));
-        expect(length(sub(far, coneA.ray.origin))).toBeGreaterThan(3);
-        expect(coneG(coneA, far)).toBeLessThan(-2);
-        // Forcing the exactly-degenerate branch (discr == 0) gives the right
-        // answer: the line meets the double cone only at the vertex, which is
-        // in the height range [0, 0.2].
-        expect(inCone(coneA, lineA, -3.7938468539782884, 1e-12)).toBe(true);
+        expect(rA.type).toBe(IntrLine3Cone3FIResultType.isPoint);
+        expect(tOf(rA.t[0])).toBe(-3.7938468539782884);
+        expect(tOf(rA.t[1])).toBe(-3.7938468539782884);
+        expectVectorClose(intrLine3Cone3ConvertPoint(rA.P[0]),
+            coneA.ray.origin, 1e-15, 1e-15);
+        expect(inCone(coneA, lineA, tOf(rA.t[0]), 1e-12)).toBe(true);
+
+        // The same line against a frustum whose height range excludes the
+        // vertex misses altogether.
+        const frustumA = Cone.fromRayAngleMinMaxHeight(
+            coneA.ray, 0.19085073139022773, 0.1, 0.2);
+        expect(fiQ.find(lineA, frustumA).type)
+            .toBe(IntrLine3Cone3FIResultType.isEmpty);
 
         // (b) c2 > 0 (the line is the cone axis, direction inside the cone).
-        //     Rounding the same difference below zero takes the
-        //     no-real-roots branch and reports no intersection at all, while
-        //     the line covers the whole cone.
+        //     Rounding the same difference below zero took the no-real-roots
+        //     branch and reported no intersection at all, while the line
+        //     covers the whole cone.
         const coneB = Cone.fromRayAngleMinMaxHeight(Ray.fromOriginDirection(
             Vector.fromArray([0.21849652746281664, 0, 0]),
             Vector.fromArray([1, 0, 0])), 0.878707887102512, 0,
@@ -675,9 +705,108 @@ describe('IntrLine3Cone3 verification', () => {
         const lineB = Line.fromOriginDirection(Vector.zero(3),
             Vector.fromArray([1, 0, 0]));
         const rB = fiQ.find(lineB, coneB);
-        expect(rB.type).toBe(IntrLine3Cone3FIResultType.isEmpty);
-        // The line really does run along the cone axis through the solid.
+        expect(rB.type).toBe(IntrLine3Cone3FIResultType.isSegment);
+        // The cone axis from the vertex to the cap at height 0.2.
+        expectClose(tOf(rB.t[0]), 0.21849652746281664, 1e-15, 1e-15);
+        expectClose(tOf(rB.t[1]), 0.21849652746281664 + 0.20000000000000004,
+            1e-15, 1e-15);
         expect(inCone(coneB, lineB, 0.3, 0)).toBe(true);
+
+        // The same axis against the infinite cone is the whole ray from the
+        // vertex.
+        const infiniteB = Cone.fromRayAngle(coneB.ray, 0.878707887102512);
+        const rBi = fiQ.find(lineB, infiniteB);
+        expect(rBi.type).toBe(IntrLine3Cone3FIResultType.isRayPositive);
+        expectClose(tOf(rBi.t[0]), 0.21849652746281664, 1e-15, 1e-15);
+    });
+
+    it('answers a line along the axis through the vertex (V35 case)', () => {
+        // The reproduction recorded for verification group V35: a line that
+        // lies exactly on the cone axis and contains the vertex. Upstream
+        // fell through its exact vertex test -- it compares
+        // t * UdU + UdPmV with zero, where t = -c1/c2 is itself rounded --
+        // into the tangency branch and reported a point or the empty set
+        // where the answer is the ray from the vertex.
+        const C = Cone.fromRayAngle(Ray.fromOriginDirection(
+            Vector.fromArray([-2.966273275177028, 0, 0]),
+            Vector.fromArray([1, 0, 0])), 0.15);
+        const L = Line.fromOriginDirection(
+            Vector.fromArray([-0.34311680219801245, 0, 0]),
+            Vector.fromArray([-1, 0, 0]));
+        const r = fiQ.find(L, C);
+        // The line direction opposes the cone axis, so the intersection is
+        // the ray that ends at the vertex.
+        expect(r.type).toBe(IntrLine3Cone3FIResultType.isRayNegative);
+        expectVectorClose(intrLine3Cone3ConvertPoint(r.P[0]), C.ray.origin,
+            1e-15, 1e-15);
+        // Points beyond the vertex parameter are inside the cone.
+        expect(inCone(C, L, tOf(r.t[1]) - 1, 1e-12)).toBe(true);
+        expect(inCone(C, L, tOf(r.t[1]) + 1, 1e-12)).toBe(false);
+    });
+
+    it('answers every line through the vertex by the sign of c2', () => {
+        // For a line through the vertex V the answer follows from c2 alone:
+        // the line is inside the double-sided cone when its direction is
+        // interior to the cone's angular region (c2 > 0), in which case the
+        // positive cone contributes the ray of nonnegative heights from V,
+        // and it meets the double-sided cone only at V otherwise (c2 < 0).
+        // The line origin is offset from V along the direction so that the
+        // quadratic's coefficients are rounded rather than exactly zero,
+        // which is what used to route the query into the wrong branch.
+        check(fc.tuple(wellScaledVector(3), unitVector(3), arbAngle,
+            unitVector(3), fc.double({ min: 0.25, max: 4, noNaN: true }),
+            fc.double({ min: -3, max: 3, noNaN: true }), fc.boolean(),
+            fc.boolean()),
+            ([V, axis, angle, u, hmax, s, finite, flip]) => {
+                const C = finite
+                    ? Cone.fromRayAngleMinMaxHeight(
+                        Ray.fromOriginDirection(V, axis), angle, 0, hmax)
+                    : Cone.fromRayAngle(Ray.fromOriginDirection(V, axis),
+                        angle);
+                const dir = flip ? negate(u) : u;
+                const L = Line.fromOriginDirection(add(V, mul(s, dir)), dir);
+                const cu = Math.abs(dot(axis, u));
+                const c2 = cu * cu - C.cosAngleSqr;
+                if (Math.abs(c2) < 1e-9) {
+                    return;   // the direction is on the cone boundary
+                }
+                const scale = 1 + length(V) + Math.abs(s);
+                const r = fiQ.find(L, C);
+                // The parameter of the vertex on the line.
+                const tv = -s;
+                if (c2 < 0) {
+                    // The true set is the single point V. Rounding of an
+                    // exactly degenerate configuration may drop a
+                    // measure-zero answer, so the empty result is accepted,
+                    // but a reported set must be at the vertex.
+                    if (r.type === IntrLine3Cone3FIResultType.isEmpty) {
+                        return;
+                    }
+                    expectClose(tOf(r.t[0]), tv, 1e-7 * scale, 1e-9);
+                    expectClose(tOf(r.t[1]), tv, 1e-7 * scale, 1e-9);
+                    return;
+                }
+                // c2 > 0: the ray of nonnegative heights from V, with
+                // parameters tv + h/(D.U) and D.U = +-cu.
+                const sign = dot(axis, dir) >= 0 ? 1 : -1;
+                if (!finite) {
+                    expect(r.type).toBe(sign > 0
+                        ? IntrLine3Cone3FIResultType.isRayPositive
+                        : IntrLine3Cone3FIResultType.isRayNegative);
+                    const t = sign > 0 ? tOf(r.t[0]) : tOf(r.t[1]);
+                    expectClose(t, tv, 1e-7 * scale, 1e-9);
+                    return;
+                }
+                expect(r.type).toBe(IntrLine3Cone3FIResultType.isSegment);
+                const far = tv + sign * hmax / cu;
+                expectClose(tOf(r.t[0]), Math.min(tv, far), 1e-7 * scale,
+                    1e-9);
+                expectClose(tOf(r.t[1]), Math.max(tv, far), 1e-7 * scale,
+                    1e-9);
+                // The midpoint of the reported segment is inside the cone.
+                expect(inCone(C, L, 0.5 * (tv + far), 1e-7 * scale))
+                    .toBe(true);
+            });
     });
 
     it('reports the empty result with zeroed members', () => {
@@ -709,7 +838,7 @@ describe('IntrLine3Cone3 verification', () => {
                     Ray.fromOriginDirection(map(cone.ray.origin),
                         rot(cone.ray.direction)), cone.angle,
                     cone.getMinHeight(), cone.getMaxHeight());
-                if (relVertexDistance(cone, L) < 1e-6) { return; }
+                if (nearVertexKnifeEdge(cone, L)) { return; }
                 const r0 = fiQ.find(L, cone);
                 const r1 = fiQ.find(L2, cone2);
                 if (r0.type === IntrLine3Cone3FIResultType.isPoint

@@ -199,19 +199,15 @@ function minRayCapsuleDepth(c: Capsule, r: Ray, tMax = 40): number {
         add(r.origin, mul(0.5 * (lo + hi), r.direction)));
 }
 
-// True when the line containing the ray lies in the capsule's cap-junction
-// plane z = +-e while being perpendicular to the capsule axis.
-// IntrLine3Capsule3 partitions the surface into the wall (|z| <= e) and the
-// two hemispheres (z >= e, z <= -e); a line lying exactly in a junction plane
-// can have one root accepted by the wall test and the other rejected by both,
-// so the query returns a degenerate interval instead of the true chord. See
-// the regression test in test/IntrSegment3Capsule3.test.ts.
-function inJunctionPlane(c: Capsule, r: Ray): boolean {
-    const cf = c.segment.getCenteredForm();
-    const w = cf.direction;
-    const dz = Math.abs(dot(w, r.direction));
-    const zc = dot(w, sub(r.origin, cf.center));
-    return dz < 1e-6 && Math.abs(Math.abs(zc) - cf.extent) < 1e-6;
+// True when the ray is (numerically) parallel to the capsule's medial
+// segment. The distance-based TI query goes through DistRaySegment, whose
+// parallel case is the subject of upstream issue #418: for a ray collinear
+// with the segment it returns a nonzero distance, so TI reports a miss where
+// the root-based FI query correctly reports a hit. Properties that compare
+// the two must exclude this family.
+function parallelToAxis(c: Capsule, r: Ray): boolean {
+    const w = c.segment.getCenteredForm().direction;
+    return Math.abs(Math.abs(dot(w, r.direction)) - 1) < 1e-9;
 }
 
 describe('IntrRay3Capsule3 verification', () => {
@@ -222,7 +218,7 @@ describe('IntrRay3Capsule3 verification', () => {
     it('TI and FI agree away from grazing configurations', () => {
         check(rayCapsule, ({ ray: r, capsule: c }) => {
             if (Math.abs(minRayCapsuleDepth(c, r)) < 1e-6
-                || inJunctionPlane(c, r)) {
+                || parallelToAxis(c, r)) {
                 return;
             }
             expect(tiq.test(r, c).intersect).toBe(fiq.find(r, c).intersect);
@@ -255,13 +251,9 @@ describe('IntrRay3Capsule3 verification', () => {
         check(rayCapsule, ({ ray: r, capsule: c }) => {
             const f = fiq.find(r, c);
             if (!f.intersect) {
-                // Upstream quirk (preserved): a line tangent to a capsule
-                // hemisphere leaves numIntersections = 1 with intersect
-                // false, because only the wall-tangent branch of
-                // IntrLine3Capsule3 sets intersect for a single root. See the
-                // regression test below.
-                expect(f.numIntersections === 0 || f.numIntersections === 1)
-                    .toBe(true);
+                // The port sets 'intersect' whenever a root is accepted
+                // (#461 item 2), so a miss reports no intersections at all.
+                expect(f.numIntersections).toBe(0);
                 expect(f.point[0].values).toEqual([0, 0, 0]);
                 expect(f.point[1].values).toEqual([0, 0, 0]);
                 return;
@@ -329,13 +321,6 @@ describe('IntrRay3Capsule3 verification', () => {
                 // A point on the medial segment is strictly inside.
                 const o = add(p0, mul(u, sub(p1, p0)));
                 const ray0 = Ray.fromOriginDirection(o, unitDir(th, ph));
-                if (inJunctionPlane(c, ray0)) {
-                    // u = 0 or u = 1 puts the origin at a medial endpoint,
-                    // which is exactly on a cap-junction plane; a direction
-                    // perpendicular to the axis then hits the degenerate
-                    // interval described in the note above.
-                    return;
-                }
                 const f = fiq.find(ray0, c);
                 expect(f.intersect).toBe(true);
                 expect(f.parameter[0]).toBe(0);
@@ -362,9 +347,8 @@ describe('IntrRay3Capsule3 verification', () => {
         check(fc.tuple(rayCapsule, angle3(), angle3(), angle3(),
             wellScaled(-2, 2), wellScaled(-2, 2), wellScaled(-2, 2)),
         ([{ ray: r, capsule: c }, a1, a2, a3, tx, ty, tz]) => {
-            if (Math.abs(minRayCapsuleDepth(c, r)) < 1e-6
-                || inJunctionPlane(c, r)) {
-                return;   // grazing (tangent) ray, or the junction plane
+            if (Math.abs(minRayCapsuleDepth(c, r)) < 1e-6) {
+                return;   // grazing (tangent) ray
             }
             const ca = Math.cos(a1), sa = Math.sin(a1);
             const cb = Math.cos(a2), sb = Math.sin(a2);
@@ -392,33 +376,34 @@ describe('IntrRay3Capsule3 verification', () => {
         });
     });
 
-    it('pins the hemisphere-tangency quirk of IntrLine3Capsule3', () => {
-        // Upstream defect (preserved): IntrLine3Capsule3 sets intersect =
-        // true for a single root only in the wall-tangent branch. When the
-        // line is tangent to one of the hemispherical caps, the cap branch
-        // records the root and the trailing block duplicates it, but
-        // 'intersect' is never set. The ray and segment queries then skip
-        // their interval clip entirely (it is guarded by 'intersect') and
-        // report intersect = false with numIntersections = 1.
+    it('reports a ray tangent to a hemispherical cap (#461 item 2)', () => {
+        // Regression for the upstream defect fixed in IntrLine3Capsule3:
+        // upstream set intersect = true for a single root only in the
+        // wall-tangent branch. When the line is tangent to one of the
+        // hemispherical caps, the cap branch recorded the root and the
+        // trailing block duplicated it, but 'intersect' was never set, so
+        // the ray and segment queries skipped their interval clip (it is
+        // guarded by 'intersect') and reported intersect = false with
+        // numIntersections = 1 and no points.
         const c = capsule([0, 0, 0], [0, 0, -3], 2);
         const r = ray([0, 0, -5], [1, 0, 0]);
         // The ray origin is exactly on the cap surface.
         expect(capsuleSignedDepth(c, r.origin)).toBe(0);
-        // The distance-based TI reports the contact.
+        // The distance-based TI reports the contact, and now so does FI.
         expect(tiq.test(r, c).intersect).toBe(true);
         const f = fiq.find(r, c);
-        expect(f.intersect).toBe(false);
+        expect(f.intersect).toBe(true);
         expect(f.numIntersections).toBe(1);
         // (+0 normalizes the -0/+0 tie that toEqual would reject.)
         expect(f.parameter.map(t => t + 0)).toEqual([0, 0]);
-        // No point is filled, because operator() guards on 'intersect'.
-        expect(f.point[0].values).toEqual([0, 0, 0]);
-        expect(f.point[1].values).toEqual([0, 0, 0]);
+        // Both points are filled with the contact point.
+        expect(f.point[0].values).toEqual([0, 0, -5]);
+        expect(f.point[1].values).toEqual([0, 0, -5]);
 
-        // The line query is where the flag is dropped.
+        // The line query is where the flag used to be dropped.
         const lc = lcq.find(
             Line.fromOriginDirection(r.origin, r.direction), c);
-        expect(lc.intersect).toBe(false);
+        expect(lc.intersect).toBe(true);
         expect(lc.numIntersections).toBe(1);
     });
 

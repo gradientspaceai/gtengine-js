@@ -23,6 +23,20 @@
 // quadratic-field components is the tuple type IntrLine3Cone3QFPoint rather
 // than a Vector (the port's Vector stores numbers).
 //
+// The port fixes upstream's handling of the degenerate configuration where
+// the line contains the cone vertex, which is result corrupting (gtengine-js
+// issue #465 item 1 and its V35 addition). The quadratic then has a double
+// root, so the discriminant is zero in exact arithmetic but a cancelling
+// difference in floating point, and upstream's case analysis for the rounded
+// branches assumes a nondegenerate configuration: it reports a point, the
+// empty set, or a segment reaching the cone's maximum height where the answer
+// is a ray or the vertex alone. The fix is in four places, each explained at
+// its site: the vertex test hoisted to the top of doQuerySpecial, and the
+// c2 > 0 cases of caseC2NotZeroDiscrNeg, caseC2NotZeroDiscrPos and
+// caseC2NotZeroDiscrZero. A line that passes very close to, but not exactly
+// through, the vertex remains ill conditioned: the discriminant has no
+// significant digits there, and the port keeps upstream's answer.
+//
 // Upstream uses FIIntervalInterval<QFN1>, that is, the interval-interval
 // find-intersection query instantiated for quadratic-field numbers. The port
 // of IntrIntervals.ts is specialized to 'number', so the two interval
@@ -208,12 +222,53 @@ function doQuerySpecial(lineOrigin: Vector, lineDirection: Vector,
     const c1 = DdU * DdPmV - cone.cosAngleSqr * UdPmV;
     const c0 = DdPmV * DdPmV - cone.cosAngleSqr * PmVdPmV;
 
+    // Port fix for an upstream defect (gtengine-js issue #465 item 1 and its
+    // V35 addition), result corrupting and therefore fixed rather than
+    // preserved. When the line contains the cone vertex V, the quadratic
+    // Q(t) = c2*t^2 + 2*c1*t + c0 is c2*(t-tv)^2, where tv is the parameter
+    // of V: it has a double root, so discr = c1*c1 - c0*c2 is zero. Upstream
+    // reaches the two blocks that handle this only when discr evaluates to
+    // exactly zero, but discr is a difference of two nearly equal products,
+    // so rounding routes the query into the discr > 0 or discr < 0 branches
+    // instead and it reports a point, the empty set, or a segment reaching
+    // the cone's maximum height in place of the correct set. The test below
+    // is on the input itself: tv is the parameter of the point of the line
+    // closest to V (no cancellation), and V is on the line exactly when
+    // (P - V) + tv * U is the zero vector. The answer then follows from the
+    // sign of c2 alone, with no discriminant: c2 > 0 means U is interior to
+    // the cone's angular region, so Q >= 0 (the double-sided cone) holds for
+    // every t and the positive cone is the ray of nonnegative heights from V;
+    // c2 < 0 means U is exterior, so Q >= 0 holds only at V; c2 == 0 means
+    // the line is a cone ruling through V, again a ray.
+    const tv = -UdPmV / UdU;
+    let onVertex = true;
+    for (let i = 0; i < 3; ++i) {
+        if (PmV.values[i] + tv * lineDirection.values[i] !== 0) {
+            onVertex = false;
+            break;
+        }
+    }
+
+    if (onVertex) {
+        if (c2 < 0) {
+            // Block 4. The line is outside the double-sided cone and
+            // intersects it only at V.
+            setPointClamp(new QFNumber(tv, 0, 0), new QFNumber(0, 0, 0), cone,
+                result);
+        }
+        else {
+            // Block 5. The line is inside the double-sided cone (or on its
+            // boundary when c2 == 0), so the intersection is a ray with
+            // origin V.
+            setRayClamp(new QFNumber(0, 0, 0), DdU, DdPmV, cone, result);
+        }
+        return;
+    }
+
     if (c2 !== 0) {
         const discr = c1 * c1 - c0 * c2;
         if (discr < 0) {
-            // Block 0. The quadratic has no real-valued roots. The line does
-            // not intersect the double-sided cone.
-            setEmpty(result);
+            caseC2NotZeroDiscrNeg(c1, c2, DdU, DdPmV, cone, result);
         }
         else if (discr > 0) {
             caseC2NotZeroDiscrPos(c1, c2, discr, DdU, DdPmV, cone, result);
@@ -228,6 +283,37 @@ function doQuerySpecial(lineOrigin: Vector, lineDirection: Vector,
     }
     else {
         caseC2ZeroC1Zero(c0, UdU, UdPmV, DdU, DdPmV, cone, result);
+    }
+}
+
+// The intersection of the line with the positive cone when the quadratic has
+// a double root at 't' -- or when its discriminant is the rounding of a
+// double root -- and c2 > 0. The whole line is then inside the double-sided
+// cone, so the positive cone contributes the ray of heights at or above the
+// height of the double root. That height is zero (the vertex) in exact
+// arithmetic; 'h' is its rounded value, clamped to be nonnegative.
+function setRayClampAtDoubleRoot(t: number, DdU: number, DdPmV: number,
+    cone: Cone3, result: IntrLine3Cone3FIResult): void {
+    const h = t * DdU + DdPmV;
+    setRayClamp(new QFNumber(h > 0 ? h : 0, 0, 0), DdU, DdPmV, cone, result);
+}
+
+function caseC2NotZeroDiscrNeg(c1: number, c2: number, DdU: number,
+    DdPmV: number, cone: Cone3, result: IntrLine3Cone3FIResult): void {
+    if (c2 < 0) {
+        // Block 0. The quadratic has no real-valued roots. The line does not
+        // intersect the double-sided cone.
+        setEmpty(result);
+    }
+    else {
+        // Port fix (see doQuerySpecial). With c2 > 0 the line direction is
+        // interior to the cone's angular region, so the line runs into both
+        // nappes and the quadratic has real roots: discr >= 0 in exact
+        // arithmetic, with equality exactly when the line contains the
+        // vertex. A negative discr is therefore the rounding of a double
+        // root, and upstream's empty result discards a whole ray -- the cone
+        // axis itself is reported as missing the cone.
+        setRayClampAtDoubleRoot(-c1 / c2, DdU, DdPmV, cone, result);
     }
 }
 
@@ -260,10 +346,31 @@ function caseC2NotZeroDiscrPos(c1: number, c2: number, discr: number,
         // Block 2. The line intersects the negative cone in two points.
         setEmpty(result);
     }
-    else {  // h[0] < 0 < h[1]
-        // Block 3. The line intersects the positive cone in a single point
-        // and the negative cone in a single point.
+    else if (c2 > 0) {
+        // Block 3. The line direction is interior to the cone's angular
+        // region, so Q >= 0 (the double-sided cone) holds on the two rays
+        // t <= t[0] and t >= t[1]; the line intersects the positive cone in
+        // the ray of heights at or above h[1] and the negative cone in the
+        // ray of heights at or below h[0].
         setRayClamp(h[1], DdU, DdPmV, cone, result);
+    }
+    else {
+        // Port fix for an upstream defect (gtengine-js issue #465 item 1),
+        // result corrupting and therefore fixed rather than preserved.
+        // Upstream reaches SetRayClamp here for either sign of c2, but that
+        // analysis holds only for c2 > 0. With c2 < 0 the set Q >= 0 is the
+        // segment [t[0],t[1]], not a pair of rays, and the positive cone
+        // takes the part of it with nonnegative height: the heights run from
+        // zero up to h[1], not from h[1] to the cone's maximum height.
+        //
+        // Reaching this block needs the height to vanish strictly inside the
+        // segment, where Q > 0; but where the height is zero Q is
+        // -cosAngleSqr*|P-V|^2 <= 0, so it happens only for a line that
+        // passes through (numerically, near) the cone vertex, whose double
+        // root has been split by rounding of the discriminant. Upstream then
+        // reported a segment reaching the cone's maximum height where the
+        // true intersection is the vertex alone.
+        setSegmentClamp(t, [zero, h[1]], DdU, DdPmV, cone, result);
     }
 }
 
@@ -311,6 +418,16 @@ function caseC2NotZeroDiscrZero(c1: number, c2: number, PmV: Vector,
             // intersection is a ray with origin V.
             setRayClamp(new QFNumber(0, 0, 0), DdU, DdPmV, cone, result);
         }
+    }
+    else if (c2 > 0) {
+        // Port fix (see doQuerySpecial). A line with c2 > 0 that meets the
+        // double-sided cone at a single point meets it at the vertex: the
+        // whole line satisfies Q >= 0, and a tangency at a point X != V would
+        // put the line in the tangent plane at X, hence along a ruling, which
+        // gives c2 == 0. So this is the vertex configuration with the double
+        // root rounded away from the vertex, and the intersection is a ray,
+        // not the tangency point of Block 6.
+        setRayClampAtDoubleRoot(t, DdU, DdPmV, cone, result);
     }
     else {
         // The line is tangent to the cone at a point different from the
