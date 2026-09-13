@@ -15,7 +15,8 @@ import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
 import { DistPointOrientedBox } from '../src/DistPointOrientedBox.js';
 import {
     alignedBox, check, expectClose, expectVectorClose, fc,
-    orientedBox as arbOrientedBox, positive, rotationFrame, wellScaledVector
+    orientedBox as arbOrientedBox, positive, rotationFrame, seededRandom,
+    unitVector, wellScaledVector
 } from './helpers/arbitraries.js';
 
 function vec(x: number, y: number): Vector {
@@ -352,4 +353,244 @@ describe('IntrOrientedBox2Circle2 verification', () => {
         expect(r.contactPoint.values[0]).toBeCloseTo(Math.SQRT2 / 2, 9);
         expect(r.contactPoint.values[1]).toBeCloseTo(0, 9);
     });
+});
+
+// ---------------------------------------------------------------------------
+// Minkowski-sum first-contact oracle in world coordinates (sibling check of
+// the IntrAlignedBox3Sphere3 dynamic-query fix, #490). The moving circle
+// touches the oriented box exactly when the ray center + t*(circleVelocity -
+// boxVelocity) meets the Minkowski sum of the box with the disk of radius r:
+// the four box edges pushed out by r along the box axes, and the four circles
+// of radius r at the box vertices. Each piece is a subset of the sum, so the
+// smallest nonnegative parameter over the pieces is the first contact time.
+// The oracle shares no code with the query, so it also pins this file's
+// world-frame bookkeeping (the axis projections in and the rotation out).
+// ---------------------------------------------------------------------------
+
+describe('IntrOrientedBox2Circle2 Minkowski-sum oracle', () => {
+    const fi = new IntrOrientedBox2Circle2FI();
+    const Type = IntrAlignedBox2Circle2FIResultType;
+
+    type OracleResult = { type: number, t: number, point: number[] };
+
+    function minkowskiFirstContact(b: OrientedBox, bv: Vector,
+        c: Hypersphere, cv: Vector): OracleResult {
+        const P = [b.center.get(0), b.center.get(1)];
+        const A = [[b.axis[0].get(0), b.axis[0].get(1)],
+            [b.axis[1].get(0), b.axis[1].get(1)]];
+        const E = [b.extent.get(0), b.extent.get(1)];
+        const r = c.radius;
+        const d = [c.center.get(0) - P[0], c.center.get(1) - P[1]];
+        const v = [cv.get(0) - bv.get(0), cv.get(1) - bv.get(1)];
+        // Coordinates of the center and the velocity in the box frame; the
+        // world point of a box-frame coordinate pair is 'world' below.
+        const u = [d[0] * A[0][0] + d[1] * A[0][1],
+            d[0] * A[1][0] + d[1] * A[1][1]];
+        const w = [v[0] * A[0][0] + v[1] * A[0][1],
+            v[0] * A[1][0] + v[1] * A[1][1]];
+        const world = (x: number, y: number): number[] =>
+            [P[0] + x * A[0][0] + y * A[1][0],
+                P[1] + x * A[0][1] + y * A[1][1]];
+
+        let sqrLen = 0;
+        for (let k = 0; k < 2; ++k) {
+            const g = Math.max(Math.abs(u[k]) - E[k], 0);
+            sqrLen += g * g;
+        }
+        if (Math.sqrt(sqrLen) <= r) {
+            return {
+                type: Type.initiallyOverlapping, t: 0,
+                point: [c.center.get(0), c.center.get(1)]
+            };
+        }
+
+        let best = Number.POSITIVE_INFINITY;
+        let bestPoint = [0, 0];
+        const consider = (t: number, q: number[]): void => {
+            if (t >= 0 && t < best) {
+                best = t;
+                bestPoint = q;
+            }
+        };
+
+        for (let k = 0; k < 2; ++k) {
+            const j = 1 - k;
+            for (const sgn of [-1, 1]) {
+                if (w[k] === 0) {
+                    continue;
+                }
+                const t = (sgn * (E[k] + r) - u[k]) / w[k];
+                if (t < 0) {
+                    continue;
+                }
+                const pj = u[j] + t * w[j];
+                if (Math.abs(pj) <= E[j]) {
+                    consider(t, k === 0 ? world(sgn * E[0], pj)
+                        : world(pj, sgn * E[1]));
+                }
+            }
+        }
+
+        const a2 = w[0] * w[0] + w[1] * w[1];
+        if (a2 > 0) {
+            for (const s0 of [-1, 1]) {
+                for (const s1 of [-1, 1]) {
+                    const e0 = u[0] - s0 * E[0];
+                    const e1 = u[1] - s1 * E[1];
+                    const a1 = w[0] * e0 + w[1] * e1;
+                    const a0 = e0 * e0 + e1 * e1 - r * r;
+                    const discr = a1 * a1 - a2 * a0;
+                    if (discr < 0) {
+                        continue;
+                    }
+                    consider((-a1 - Math.sqrt(discr)) / a2,
+                        world(s0 * E[0], s1 * E[1]));
+                }
+            }
+        }
+
+        if (!Number.isFinite(best)) {
+            return { type: Type.noContact, t: 0, point: [0, 0] };
+        }
+        return { type: Type.contact, t: best, point: bestPoint };
+    }
+
+    // The signed gap between the moving circle and the moving box.
+    function gapAt(b: OrientedBox, bv: Vector, c: Hypersphere, cv: Vector,
+        t: number): number {
+        const d = [c.center.get(0) + t * cv.get(0) - b.center.get(0)
+            - t * bv.get(0),
+        c.center.get(1) + t * cv.get(1) - b.center.get(1) - t * bv.get(1)];
+        let sqrLen = 0;
+        for (let k = 0; k < 2; ++k) {
+            const p = d[0] * b.axis[k].get(0) + d[1] * b.axis[k].get(1);
+            const g = Math.max(Math.abs(p) - b.extent.get(k), 0);
+            sqrLen += g * g;
+        }
+        return Math.sqrt(sqrLen) - c.radius;
+    }
+
+    // The gap is convex in t, so a ternary search finds its minimum.
+    function minimumGap(b: OrientedBox, bv: Vector, c: Hypersphere,
+        cv: Vector, tHi: number): number {
+        let lo = 0;
+        let hi = tHi;
+        for (let i = 0; i < 100; ++i) {
+            const m0 = lo + (hi - lo) / 3;
+            const m1 = hi - (hi - lo) / 3;
+            if (gapAt(b, bv, c, cv, m0) <= gapAt(b, bv, c, cv, m1)) {
+                hi = m1;
+            }
+            else {
+                lo = m0;
+            }
+        }
+        return gapAt(b, bv, c, cv, 0.5 * (lo + hi));
+    }
+
+    // Returns false when the configuration is skipped as initially
+    // overlapping, at rest, or tangential (see the aligned-box file for why
+    // tangential configurations cannot be compared).
+    function checkAgainstOracle(b: OrientedBox, bv: Vector, c: Hypersphere,
+        cv: Vector): boolean {
+        const v = sub(cv, bv);
+        const speed = length(v);
+        if (speed === 0 || gapAt(b, bv, c, cv, 0) <= 0) {
+            return false;
+        }
+        const size = length(b.extent) + c.radius
+            + length(sub(c.center, b.center));
+        const oracle = minkowskiFirstContact(b, bv, c, cv);
+        const tHi = oracle.type === Type.contact
+            ? 2 * oracle.t + size / speed
+            : 100 * size / speed;
+        if (Math.abs(minimumGap(b, bv, c, cv, tHi)) < 1e-9 * size) {
+            return false;
+        }
+
+        const res = fi.find(b, bv, c, cv);
+        expect(res.intersectionType).toBe(oracle.type);
+        if (oracle.type === Type.contact) {
+            expectClose(res.contactTime, oracle.t, 1e-9 * size / speed, 1e-9);
+            // The contact point is on the box and at distance radius from the
+            // circle center at the contact time, both measured in the frame
+            // where the box is at rest.
+            const p = add(c.center, mul(res.contactTime, v));
+            expectClose(length(sub(res.contactPoint, p)), c.radius,
+                1e-7 * size, 1e-7);
+            const q = sub(res.contactPoint, b.center);
+            for (let k = 0; k < 2; ++k) {
+                expect(Math.abs(dot(q, b.axis[k])))
+                    .toBeLessThanOrEqual(b.extent.get(k) + 1e-7 * size);
+            }
+        }
+        return true;
+    }
+
+    it('agrees with the oracle on rotated corner-aimed motions', () => {
+        const rnd = seededRandom(0x4d2c19f);
+        let tested = 0;
+        let contacts = 0;
+        for (let iter = 0; iter < 6000; ++iter) {
+            const scale = Math.exp(6 * rnd() - 3);
+            const angle = 2 * Math.PI * rnd();
+            const extent = [scale * (0.05 + 2 * rnd()),
+                scale * (0.05 + 2 * rnd())];
+            const center = [scale * 4 * (rnd() - 0.5),
+                scale * 4 * (rnd() - 0.5)];
+            const b = obox(center, angle, extent);
+            const radius = scale * (0.02 + 1.5 * rnd());
+            const theta = 2 * Math.PI * rnd();
+            const dist = scale * (2 + 10 * rnd());
+            const c = circle([center[0] + dist * Math.cos(theta),
+                center[1] + dist * Math.sin(theta)], radius);
+            // Aim at a box corner with a jitter of the order of the rounded
+            // corner, so the ray often just clips or just misses it.
+            const corner = add(b.center,
+                add(mul((rnd() < 0.5 ? -1 : 1) * extent[0], b.axis[0]),
+                    mul((rnd() < 0.5 ? -1 : 1) * extent[1], b.axis[1])));
+            const aim = add(sub(corner, c.center),
+                vec((radius + extent[0]) * 0.25 * (2 * rnd() - 1),
+                    (radius + extent[1]) * 0.25 * (2 * rnd() - 1)));
+            const len = length(aim);
+            if (len < 1e-12) {
+                continue;
+            }
+            const speed = scale * (0.1 + 3 * rnd());
+            const bv = vec(scale * (rnd() - 0.5), scale * (rnd() - 0.5));
+            const cv = add(bv, mul(speed / len, aim));
+            if (!checkAgainstOracle(b, bv, c, cv)) {
+                continue;
+            }
+            ++tested;
+            if (fi.find(b, bv, c, cv).intersectionType === Type.contact) {
+                ++contacts;
+            }
+        }
+        expect(tested).toBeGreaterThan(3000);
+        expect(contacts).toBeGreaterThan(500);
+    }, 30000);
+
+    it('agrees with the oracle on fast-check configurations', () => {
+        const arbConfig = fc.tuple(arbOrientedBox(2), positive(3, 0.05),
+            fc.double({ min: 0, max: 2 * Math.PI, noNaN: true }),
+            positive(6, 1.05), unitVector(2), positive(3, 0.1),
+            wellScaledVector(2, -2, 2));
+        let tested = 0;
+        check(arbConfig, ([b, radius, theta, far, jitter, speed, bv]) => {
+            const out = (length(b.extent) + radius) * far;
+            const c = circle([b.center.get(0) + out * Math.cos(theta),
+                b.center.get(1) + out * Math.sin(theta)], radius);
+            const aim = add(sub(b.center, c.center), mul(out / far, jitter));
+            const len = length(aim);
+            if (len < 1e-9) {
+                return;
+            }
+            const cv = add(bv, mul(speed / len, aim));
+            if (checkAgainstOracle(b, bv, c, cv)) {
+                ++tested;
+            }
+        }, 400);
+        expect(tested).toBeGreaterThan(250);
+    }, 30000);
 });

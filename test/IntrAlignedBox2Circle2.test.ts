@@ -10,8 +10,8 @@ import {
 } from '../src/IntrAlignedBox2Circle2.js';
 import { dot, sub } from '../src/Vector.js';
 import {
-    check, expectClose, expectVectorClose, fc, positive, unitVector,
-    wellScaledVector
+    check, expectClose, expectVectorClose, fc, positive, seededRandom,
+    unitVector, wellScaledVector
 } from './helpers/arbitraries.js';
 
 function v2(x: number, y: number): Vector {
@@ -466,4 +466,529 @@ describe('IntrAlignedBox2Circle2 verification', () => {
         expect(() => fi.find(b3, Vector.zero(3), c2, Vector.zero(2)))
             .toThrow('mismatched sizes');
     });
+});
+
+// ---------------------------------------------------------------------------
+// Minkowski-sum first-contact oracle (sibling check of the
+// IntrAlignedBox3Sphere3 dynamic-query fix, #490).
+//
+// The moving circle touches the box exactly when the ray C + t*V -- C the
+// circle center relative to the box center, V the relative velocity -- meets
+// the Minkowski sum of the box with the disk of radius r. In 2D that sum is
+// bounded by the four box edges pushed out by r and the four circles of
+// radius r at the box vertices. Each of those eight pieces is a subset of the
+// sum, so a ray starting outside meets each piece no earlier than it enters
+// the sum, and it enters the sum on one of them: the smallest nonnegative
+// parameter over all pieces is the first contact time. The oracle uses none
+// of the query's Voronoi-region case analysis.
+//
+// The 3D sibling accepted the first rounded-edge probe that reported a hit,
+// which is only an upper bound for the entry time; the 2D case analysis
+// instead *selects* one piece, because from a point outside a convex planar
+// region the boundary pieces are met in a single angular order. Each of
+// upstream's tests is the sign of Cross(V, P - C) for P one of the junctions
+// where an arc meets a flat edge (P = K +/- radius * e_i), so the decision
+// tree is a search on that order and lands on the piece the ray actually
+// enters. These properties pin that selection against the oracle.
+// ---------------------------------------------------------------------------
+
+describe('IntrAlignedBox2Circle2 Minkowski-sum oracle', () => {
+    const fi = new IntrAlignedBox2Circle2FI();
+
+    type OracleResult = { type: Type, t: number, point: number[] };
+
+    // First contact of the ray C + t*V with the Minkowski sum of the box
+    // [-K,K] and the disk of radius 'radius'.
+    function minkowskiFirstContact(K: readonly number[],
+        C: readonly number[], radius: number,
+        V: readonly number[]): OracleResult {
+        let sqrLen = 0;
+        for (let i = 0; i < 2; ++i) {
+            const d = Math.max(Math.abs(C[i]) - K[i], 0);
+            sqrLen += d * d;
+        }
+        if (Math.sqrt(sqrLen) <= radius) {
+            return {
+                type: Type.initiallyOverlapping, t: 0, point: [C[0], C[1]]
+            };
+        }
+
+        let best = Number.POSITIVE_INFINITY;
+        let bestPoint = [0, 0];
+        const consider = (t: number, q: number[]): void => {
+            if (t >= 0 && t < best) {
+                best = t;
+                bestPoint = q;
+            }
+        };
+
+        // The four edges, offset by 'radius' along their outward normals.
+        for (let i = 0; i < 2; ++i) {
+            const j = 1 - i;
+            for (const sgn of [-1, 1]) {
+                if (V[i] === 0) {
+                    continue;
+                }
+                const t = (sgn * (K[i] + radius) - C[i]) / V[i];
+                if (t < 0) {
+                    continue;
+                }
+                const pj = C[j] + t * V[j];
+                if (Math.abs(pj) <= K[j]) {
+                    const q = [0, 0];
+                    q[i] = sgn * K[i];
+                    q[j] = pj;
+                    consider(t, q);
+                }
+            }
+        }
+
+        // The four circles of radius 'radius' at the box vertices.
+        const a2 = V[0] * V[0] + V[1] * V[1];
+        if (a2 > 0) {
+            for (const s0 of [-1, 1]) {
+                for (const s1 of [-1, 1]) {
+                    const q = [s0 * K[0], s1 * K[1]];
+                    const e0 = C[0] - q[0];
+                    const e1 = C[1] - q[1];
+                    const a1 = V[0] * e0 + V[1] * e1;
+                    const a0 = e0 * e0 + e1 * e1 - radius * radius;
+                    const discr = a1 * a1 - a2 * a0;
+                    if (discr < 0) {
+                        continue;
+                    }
+                    consider((-a1 - Math.sqrt(discr)) / a2, q);
+                }
+            }
+        }
+
+        if (!Number.isFinite(best)) {
+            return { type: Type.noContact, t: 0, point: [0, 0] };
+        }
+        return { type: Type.contact, t: best, point: bestPoint };
+    }
+
+    // The signed gap between the moving circle and the box [-K,K].
+    function gapOf(K: readonly number[], C: readonly number[], radius: number,
+        V: readonly number[], t: number): number {
+        let sqrLen = 0;
+        for (let i = 0; i < 2; ++i) {
+            const d = Math.max(Math.abs(C[i] + t * V[i]) - K[i], 0);
+            sqrLen += d * d;
+        }
+        return Math.sqrt(sqrLen) - radius;
+    }
+
+    // The gap is convex in t (the distance from a point to a convex set along
+    // a line is convex), so a ternary search finds its minimum.
+    function minimumGap(K: readonly number[], C: readonly number[],
+        radius: number, V: readonly number[], tHi: number): number {
+        let lo = 0;
+        let hi = tHi;
+        for (let i = 0; i < 100; ++i) {
+            const m0 = lo + (hi - lo) / 3;
+            const m1 = hi - (hi - lo) / 3;
+            if (gapOf(K, C, radius, V, m0) <= gapOf(K, C, radius, V, m1)) {
+                hi = m1;
+            }
+            else {
+                lo = m0;
+            }
+        }
+        return gapOf(K, C, radius, V, 0.5 * (lo + hi));
+    }
+
+    // Compare one configuration -- box [-K,K] translated to 'origin', circle
+    // center origin+C, relative velocity V -- against the oracle. Returns
+    // false when the configuration is skipped: initially overlapping, at
+    // rest, or tangential. A tangential configuration is one whose minimum
+    // gap is within rounding of zero; the query and the oracle round the
+    // discriminants of the same quadratics differently there and can disagree
+    // on whether the objects touch at all.
+    function checkAgainstOracle(K: number[], C: number[], radius: number,
+        V: number[], origin: number[] = [0, 0]): boolean {
+        const speed = Math.hypot(V[0], V[1]);
+        if (speed === 0 || gapOf(K, C, radius, V, 0) <= 0) {
+            return false;
+        }
+        const size = Math.hypot(K[0], K[1]) + radius + Math.hypot(C[0], C[1]);
+        const oracle = minkowskiFirstContact(K, C, radius, V);
+        const tHi = oracle.type === Type.contact
+            ? 2 * oracle.t + size / speed
+            : 100 * size / speed;
+        if (Math.abs(minimumGap(K, C, radius, V, tHi)) < 1e-9 * size) {
+            return false;
+        }
+
+        const b = box(origin[0] - K[0], origin[1] - K[1],
+            origin[0] + K[0], origin[1] + K[1]);
+        const c = circle(origin[0] + C[0], origin[1] + C[1], radius);
+        const res = fi.find(b, v2(0, 0), c, v2(V[0], V[1]));
+        expect(res.intersectionType).toBe(oracle.type);
+        if (oracle.type === Type.contact) {
+            // The query and the oracle solve the same quadratics, so they
+            // agree to the rounding of their coefficients; a time tolerance
+            // is a length tolerance divided by the speed.
+            expectClose(res.contactTime, oracle.t, 1e-9 * size / speed, 1e-9);
+            // The contact point is on the box and at distance 'radius' from
+            // the circle center at the contact time. (It is not compared with
+            // the oracle's point directly: when the ray enters within a
+            // whisker of an arc/edge junction, two pieces give contact times
+            // that differ only to second order while their points differ to
+            // first order, so such a comparison would be flaky where the
+            // times are not.)
+            const px = origin[0] + C[0] + res.contactTime * V[0];
+            const py = origin[1] + C[1] + res.contactTime * V[1];
+            expectClose(Math.hypot(res.contactPoint.get(0) - px,
+                res.contactPoint.get(1) - py), radius, 1e-7 * size, 1e-7);
+            for (let i = 0; i < 2; ++i) {
+                expect(res.contactPoint.get(i))
+                    .toBeGreaterThanOrEqual(b.min.get(i) - 1e-9 * size);
+                expect(res.contactPoint.get(i))
+                    .toBeLessThanOrEqual(b.max.get(i) + 1e-9 * size);
+            }
+        }
+        return true;
+    }
+
+    // x advanced by 'ulps' representable doubles away from zero.
+    function nudge(x: number, ulps: number): number {
+        if (ulps === 0 || x === 0 || !Number.isFinite(x)) {
+            return x;
+        }
+        const view = new DataView(new ArrayBuffer(8));
+        view.setFloat64(0, x);
+        const bits = view.getBigUint64(0);
+        view.setBigUint64(0, x > 0 ? bits + BigInt(ulps) : bits - BigInt(ulps));
+        return view.getFloat64(0);
+    }
+
+    it('agrees with the oracle on fast-check configurations', () => {
+        const arbConfig = fc.tuple(
+            fc.array(positive(3, 0.05), { minLength: 2, maxLength: 2 }),
+            positive(3, 0.05), unitVector(2), positive(6, 1.05),
+            unitVector(2), positive(3, 0.1), wellScaledVector(2, -5, 5));
+        let tested = 0;
+        check(arbConfig,
+            ([K, radius, dir, far, jitter, speed, origin]) => {
+                // Start outside the rounded box and aim the motion back at
+                // it, with a jitter that makes the corner and the face cases
+                // both common.
+                const out = (Math.hypot(K[0], K[1]) + radius) * far;
+                const C = [dir.get(0) * out, dir.get(1) * out];
+                const aim = [-C[0] + 2 * jitter.get(0) * out / far,
+                    -C[1] + 2 * jitter.get(1) * out / far];
+                const len = Math.hypot(aim[0], aim[1]);
+                if (len < 1e-6) {
+                    return;
+                }
+                const V = [aim[0] * speed / len, aim[1] * speed / len];
+                if (checkAgainstOracle(K, C, radius, V,
+                    [origin.get(0), origin.get(1)])) {
+                    ++tested;
+                }
+            }, 400);
+        expect(tested).toBeGreaterThan(250);
+    }, 30000);
+
+    it('agrees with the oracle on corner-aimed motions across scales', () => {
+        // Motions aimed at a box corner, with a jitter of the order of the
+        // corner region, so the ray often just clips or just misses the
+        // rounded corner. That is the family the 3D defects came from. The
+        // generator spans three decades of scale.
+        const rnd = seededRandom(0x2f6e2b1);
+        let tested = 0;
+        let atVertex = 0;
+        let onEdge = 0;
+        for (let iter = 0; iter < 6000; ++iter) {
+            const scale = Math.exp(6 * rnd() - 3);
+            const K = [scale * (0.05 + 2 * rnd()), scale * (0.05 + 2 * rnd())];
+            const radius = scale * (0.02 + 1.5 * rnd());
+            const angle = 2 * Math.PI * rnd();
+            const dist = scale * (2 + 10 * rnd());
+            const C = [dist * Math.cos(angle), dist * Math.sin(angle)];
+            const target = [K[0] * (rnd() < 0.5 ? -1 : 1),
+                K[1] * (rnd() < 0.5 ? -1 : 1)];
+            const aim = [
+                target[0] - C[0] + (radius + K[0]) * 0.25 * (2 * rnd() - 1),
+                target[1] - C[1] + (radius + K[1]) * 0.25 * (2 * rnd() - 1)];
+            const len = Math.hypot(aim[0], aim[1]);
+            if (len < 1e-12) {
+                continue;
+            }
+            const speed = scale * (0.1 + 3 * rnd());
+            const V = [aim[0] * speed / len, aim[1] * speed / len];
+            if (!checkAgainstOracle(K, C, radius, V)) {
+                continue;
+            }
+            ++tested;
+            const res = fi.find(box(-K[0], -K[1], K[0], K[1]), v2(0, 0),
+                circle(C[0], C[1], radius), v2(V[0], V[1]));
+            if (res.intersectionType === Type.contact) {
+                const corner = Math.abs(Math.abs(res.contactPoint.get(0))
+                    - K[0]) < 1e-12 * scale
+                    && Math.abs(Math.abs(res.contactPoint.get(1)) - K[1])
+                    < 1e-12 * scale;
+                if (corner) {
+                    ++atVertex;
+                }
+                else {
+                    ++onEdge;
+                }
+            }
+        }
+        expect(tested).toBeGreaterThan(3000);
+        // Both the rounded-vertex and the flat-edge branches are reached.
+        expect(atVertex).toBeGreaterThan(200);
+        expect(onEdge).toBeGreaterThan(200);
+    }, 30000);
+
+    it('agrees with the oracle when aimed at an arc/edge junction', () => {
+        // The ray is aimed exactly at one of the eight junction points where
+        // a rounded corner meets a flat edge, then its direction is perturbed
+        // by a few ulps. Those points are where upstream's sign tests change
+        // branch, so this is where a case analysis that selects the wrong
+        // piece -- or has no case for a piece -- shows up.
+        const rnd = seededRandom(0x13579bd);
+        let tested = 0;
+        for (let iter = 0; iter < 6000; ++iter) {
+            const scale = Math.exp(6 * rnd() - 3);
+            const K = [scale * (0.05 + 2 * rnd()), scale * (0.05 + 2 * rnd())];
+            const radius = scale * (0.02 + 1.5 * rnd());
+            const sx = rnd() < 0.5 ? -1 : 1;
+            const sy = rnd() < 0.5 ? -1 : 1;
+            const junction = rnd() < 0.5
+                ? [sx * (K[0] + radius), sy * K[1]]
+                : [sx * K[0], sy * (K[1] + radius)];
+            const angle = 2 * Math.PI * rnd();
+            const dist = scale * (2 + 10 * rnd());
+            const C = [dist * Math.cos(angle), dist * Math.sin(angle)];
+            const aim = [junction[0] - C[0], junction[1] - C[1]];
+            const len = Math.hypot(aim[0], aim[1]);
+            if (len < 1e-12) {
+                continue;
+            }
+            const speed = scale * (0.1 + 3 * rnd());
+            const ulps = Math.floor(rnd() * 9) - 4;
+            const V = [nudge(aim[0] * speed / len, ulps),
+                nudge(aim[1] * speed / len, -ulps)];
+            if (checkAgainstOracle(K, C, radius, V)) {
+                ++tested;
+            }
+        }
+        expect(tested).toBeGreaterThan(3000);
+    }, 30000);
+
+    it('agrees with the oracle from inside the corner square', () => {
+        // The circle center lies in [K, K + radius]^2 but outside the quarter
+        // disk: upstream's VertexSeparated, which probes the rounded vertex
+        // only. (The 3D sibling had to probe the three rounded edges meeting
+        // the vertex as well; in 2D a ray from the corner square can reach a
+        // flat edge only through the arc, because the segment to any point of
+        // the edge crosses the axis through the vertex strictly inside the
+        // vertex circle.)
+        const rnd = seededRandom(0x7fedcba);
+        let tested = 0;
+        let contacts = 0;
+        for (let iter = 0; iter < 6000; ++iter) {
+            const scale = Math.exp(6 * rnd() - 3);
+            const K = [scale * (0.05 + 2 * rnd()), scale * (0.05 + 2 * rnd())];
+            const radius = scale * (0.02 + 1.5 * rnd());
+            let dx = 0;
+            let dy = 0;
+            for (let k = 0; k < 64; ++k) {
+                dx = radius * rnd();
+                dy = radius * rnd();
+                if (dx * dx + dy * dy > radius * radius) {
+                    break;
+                }
+            }
+            if (dx * dx + dy * dy <= radius * radius) {
+                continue;
+            }
+            const C = [(rnd() < 0.5 ? -1 : 1) * (K[0] + dx),
+                (rnd() < 0.5 ? -1 : 1) * (K[1] + dy)];
+            const speed = scale * (0.1 + 3 * rnd());
+            const angle = 2 * Math.PI * rnd();
+            const V = [speed * Math.cos(angle), speed * Math.sin(angle)];
+            if (!checkAgainstOracle(K, C, radius, V)) {
+                continue;
+            }
+            ++tested;
+            if (fi.find(box(-K[0], -K[1], K[0], K[1]), v2(0, 0),
+                circle(C[0], C[1], radius), v2(V[0], V[1])).intersectionType
+                === Type.contact) {
+                ++contacts;
+            }
+        }
+        expect(tested).toBeGreaterThan(3000);
+        expect(contacts).toBeGreaterThan(300);
+    }, 30000);
+
+    it('agrees with the oracle for extreme extent and radius ratios', () => {
+        // Boxes whose extents differ by up to four decades, and radii from
+        // far below to far above the extents: a thin box is where a rounded
+        // corner can span a whole side of the sum.
+        const rnd = seededRandom(0x0abcdef);
+        let tested = 0;
+        for (let iter = 0; iter < 6000; ++iter) {
+            const scale = Math.exp(6 * rnd() - 3);
+            const K = [scale * Math.exp(8 * rnd() - 4) * 0.1,
+                scale * Math.exp(8 * rnd() - 4) * 0.1];
+            const radius = scale * Math.exp(8 * rnd() - 4) * 0.1;
+            const angle = 2 * Math.PI * rnd();
+            const dist = (Math.hypot(K[0], K[1]) + radius) * (1.05 + 8 * rnd());
+            const C = [dist * Math.cos(angle), dist * Math.sin(angle)];
+            const target = [K[0] * (rnd() < 0.5 ? -1 : 1),
+                K[1] * (rnd() < 0.5 ? -1 : 1)];
+            const aim = [
+                target[0] - C[0] + (radius + K[0]) * 0.5 * (2 * rnd() - 1),
+                target[1] - C[1] + (radius + K[1]) * 0.5 * (2 * rnd() - 1)];
+            const len = Math.hypot(aim[0], aim[1]);
+            if (len < 1e-12) {
+                continue;
+            }
+            const speed = scale * (0.1 + 3 * rnd());
+            const V = [aim[0] * speed / len, aim[1] * speed / len];
+            if (checkAgainstOracle(K, C, radius, V)) {
+                ++tested;
+            }
+        }
+        expect(tested).toBeGreaterThan(3000);
+    }, 30000);
+
+    it('agrees with the oracle on integer configurations', () => {
+        // Small integers are exact in binary64, so upstream's sign tests hit
+        // their >= 0 and <= 0 boundaries exactly rather than by a rounding
+        // accident; this pins the tie-breaking of the case analysis.
+        const rnd = seededRandom(0x2468ace);
+        let tested = 0;
+        for (let iter = 0; iter < 6000; ++iter) {
+            const m = 6;
+            const K = [1 + Math.floor(rnd() * m), 1 + Math.floor(rnd() * m)];
+            const radius = 1 + Math.floor(rnd() * m);
+            const C = [
+                (rnd() < 0.5 ? -1 : 1)
+                * (Math.floor(rnd() * 2 * m) - m + K[0] + radius),
+                (rnd() < 0.5 ? -1 : 1)
+                * (Math.floor(rnd() * 2 * m) - m + K[1] + radius)];
+            const V = [Math.floor(rnd() * 9) - 4, Math.floor(rnd() * 9) - 4];
+            if (checkAgainstOracle(K, C, radius, V)) {
+                ++tested;
+            }
+        }
+        expect(tested).toBeGreaterThan(1000);
+    }, 30000);
+
+    it('agrees with the oracle on degenerate boxes, radii and velocities',
+        () => {
+            // Zero radius (a moving point), zero extents (a segment or a
+            // point box), axis-aligned velocities, and circle centers placed
+            // exactly on the Voronoi-region boundaries of the case analysis.
+            const rnd = seededRandom(0x555aaa1);
+            let tested = 0;
+            for (let iter = 0; iter < 6000; ++iter) {
+                const scale = Math.exp(6 * rnd() - 3);
+                let K = [scale * (0.05 + 2 * rnd()),
+                    scale * (0.05 + 2 * rnd())];
+                let radius = scale * (0.02 + 1.5 * rnd());
+                const pick = Math.floor(rnd() * 4);
+                if (pick === 0) {
+                    radius = 0;
+                }
+                if (pick === 1) {
+                    K = [0, 0];
+                }
+                if (pick === 2) {
+                    K = [K[0], 0];
+                }
+                const angle = 2 * Math.PI * rnd();
+                const dist = scale * (2 + 10 * rnd());
+                let C = [dist * Math.cos(angle), dist * Math.sin(angle)];
+                const snap = Math.floor(rnd() * 4);
+                if (snap === 0) {
+                    C = [C[0], K[1] + radius];
+                }
+                if (snap === 1) {
+                    C = [K[0] + radius, C[1]];
+                }
+                if (snap === 2) {
+                    C = [C[0], K[1]];
+                }
+                const target = [K[0] * (rnd() < 0.5 ? -1 : 1),
+                    K[1] * (rnd() < 0.5 ? -1 : 1)];
+                let aim = [
+                    target[0] - C[0] + (radius + K[0]) * 0.5 * (2 * rnd() - 1),
+                    target[1] - C[1] + (radius + K[1]) * 0.5 * (2 * rnd() - 1)];
+                const axis = Math.floor(rnd() * 4);
+                if (axis === 0) {
+                    aim = [aim[0], 0];
+                }
+                if (axis === 1) {
+                    aim = [0, aim[1]];
+                }
+                const len = Math.hypot(aim[0], aim[1]);
+                if (len < 1e-12) {
+                    continue;
+                }
+                const speed = scale * (0.1 + 3 * rnd());
+                const V = [aim[0] * speed / len, aim[1] * speed / len];
+                if (checkAgainstOracle(K, C, radius, V)) {
+                    ++tested;
+                }
+            }
+            expect(tested).toBeGreaterThan(2000);
+        }, 30000);
+
+    // --- worked configurations at the junctions ---------------------------
+    // Box [-1,1]^2 with radius 1. The rounded box has junctions at (2,1) and
+    // (1,2) in the first quadrant, and all of the following rays move along
+    // (-1,-1) directions, so the arithmetic is exact in binary64.
+
+    it('takes the rounded vertex when aimed exactly at a junction', () => {
+        // Aimed exactly at the junction (1,2) of the top edge and the corner
+        // arc: the sign test r*V[0] - Dot(V,Perp(delta)) is exactly zero.
+        const a = fi.find(unitBox, v2(0, 0), circle(3, 4, 1), v2(-1, -1));
+        expect(a.intersectionType).toBe(Type.contact);
+        expect(a.contactTime).toBe(2);
+        expect(a.contactPoint.values).toEqual([1, 1]);
+        expect(checkAgainstOracle([1, 1], [3, 4], 1, [-1, -1])).toBe(true);
+
+        // Aimed exactly at the junction (2,1) of the right edge and the same
+        // arc: -r*V[1] - Dot(V,Perp(delta)) is exactly zero.
+        const b = fi.find(unitBox, v2(0, 0), circle(4, 3, 1), v2(-1, -1));
+        expect(b.intersectionType).toBe(Type.contact);
+        expect(b.contactTime).toBe(2);
+        expect(b.contactPoint.values).toEqual([1, 1]);
+        expect(checkAgainstOracle([1, 1], [4, 3], 1, [-1, -1])).toBe(true);
+    });
+
+    it('takes the flat edge past the junction and the far arc past its end',
+        () => {
+            // Passes inside the junction (1,2) and lands on the top edge at
+            // (0,2), so the contact point is (0,1) on the box.
+            const a = fi.find(unitBox, v2(0, 0), circle(3, 4, 1),
+                v2(-1.5, -1));
+            expect(a.intersectionType).toBe(Type.contact);
+            expect(a.contactTime).toBe(2);
+            expect(a.contactPoint.values).toEqual([0, 1]);
+            expect(checkAgainstOracle([1, 1], [3, 4], 1, [-1.5, -1]))
+                .toBe(true);
+
+            // Passes beyond the far end (-1,2) of the top edge, so the first
+            // contact is on the arc at the vertex (-1,1).
+            const b = fi.find(unitBox, v2(0, 0), circle(3, 4, 1),
+                v2(-2.05, -1));
+            expect(b.intersectionType).toBe(Type.contact);
+            expect(b.contactPoint.values).toEqual([-1, 1]);
+            expect(checkAgainstOracle([1, 1], [3, 4], 1, [-2.05, -1]))
+                .toBe(true);
+
+            // A little further and the ray misses the rounded box entirely.
+            const c = fi.find(unitBox, v2(0, 0), circle(3, 4, 1),
+                v2(-2.2, -1));
+            expect(c.intersectionType).toBe(Type.noContact);
+            expect(checkAgainstOracle([1, 1], [3, 4], 1, [-2.2, -1]))
+                .toBe(true);
+        });
 });
