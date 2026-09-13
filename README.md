@@ -49,6 +49,10 @@ intentional or the fix is a design change, the port preserves upstream
 semantics and the issue notes the caveat. These issues have not yet been
 reported to the upstream project.
 
+A consolidated, upstream-facing write-up of every finding, with severities,
+reproductions and the recurring defect patterns, is in
+[docs/UPSTREAM-FINDINGS.md](docs/UPSTREAM-FINDINGS.md).
+
 The API is not yet stable: names, parameter conventions and module layout may
 still change before a 1.0 release.
 
