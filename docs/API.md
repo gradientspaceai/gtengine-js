@@ -116,10 +116,9 @@ class per query and names `operator()` by kind:
   some fill only `i < numIntersections`, others fill both slots whenever
   `intersect` is true (faithful to upstream). Read only
   `point[0..numIntersections-1]`.
-  Conversely a few results can carry `numIntersections > 0` with
-  `intersect = false` (upstream `IntrLine3Capsule3` never sets the flag for
-  a single hemisphere root, and the ray/segment capsule queries inherit it):
-  branch on `intersect`, not on the count.
+  `intersect` and `numIntersections > 0` agree for every query (upstream
+  `IntrLine3Capsule3` left `intersect` unset for a single hemisphere root;
+  the port sets it). Branch on `intersect` regardless.
 - Segment queries report parameters in the convention of their upstream
   header: most `DistSegment*` use `P0 + t*(P1 - P0)` with `t` in `[0,1]`,
   while `IntrSegment3Triangle3FI` (and `BVTreeOfTriangles`) report the
