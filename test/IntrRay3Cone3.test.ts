@@ -351,14 +351,16 @@ describe('IntrRay3Cone3 verification', () => {
         }));
 
     // The line-cone query solves c2*t^2 + 2*c1*t + c0 = 0 and branches on the
-    // sign of the discriminant c1^2 - c0*c2 and on an exact test for the line
-    // passing through the cone vertex. Both are formed by subtracting nearly
-    // equal quantities, so when the discriminant is at the noise level (a line
-    // tangent to the cone, or a line through the vertex such as one along the
-    // cone axis) the branch taken is decided by rounding and the reported set
-    // can be a point, or empty, where the true answer is a ray. Those
-    // configurations are excluded from the properties below; see the PR notes
-    // for the defect in the shared line-cone query.
+    // signs of c2 and of the discriminant c1^2 - c0*c2, both of which are
+    // formed by subtracting nearly equal quantities. The line through the
+    // vertex is no longer among the excluded cases: the port answers it from
+    // the sign of c2 alone (see IntrLine3Cone3.ts and the regression below).
+    // What remains genuinely a knife edge is a discriminant at the noise
+    // level for a line that is merely tangent to the cone (the true answer
+    // jumps between empty, a point and a segment), a c2 at the noise level
+    // (the line direction lies on the cone boundary, where the solution set
+    // changes shape), and a root landing on a height cap. Those are excluded
+    // from the properties below.
     function wellConditioned(origin: Vector, dir: Vector, C: Cone): boolean {
         const PmV = sub(origin, C.ray.origin);
         const UdU = dot(dir, dir);
@@ -528,6 +530,37 @@ describe('IntrRay3Cone3 verification', () => {
                 expectVectorClose(D, R.direction, 1e-12, 1e-12);
             }
         });
+    });
+
+    it('finds a ray on the cone axis through the vertex (#465)', () => {
+        // Regression for the upstream defect fixed in IntrLine3Cone3: the ray
+        // runs along the cone axis and the line containing it passes through
+        // the vertex, so the discriminant of the line-cone quadratic is an
+        // exact zero that rounding destroys. Upstream reported isEmpty (the
+        // discriminant rounded below zero) for a ray that runs up the middle
+        // of the cone.
+        const C = new Cone(3);
+        C.ray = Ray.fromOriginDirection(
+            Vector.fromArray([-2.966273275177028, 0, 0]),
+            Vector.fromArray([1, 0, 0]));
+        C.setAngle(0.15);
+        C.makeInfiniteCone();
+        // A ray that starts inside and walks away from the vertex: the whole
+        // ray is in the cone.
+        const up = fiv.find(Ray.fromOriginDirection(Vector.zero(3),
+            Vector.fromArray([1, 0, 0])), C);
+        expect(up.type).toBe(T.isRayPositive);
+        expectClose(intrLine3Cone3Convert(up.t[0]), 0, 1e-12, 1e-12);
+        // A ray that starts inside and walks towards the vertex: the segment
+        // from the origin to the vertex.
+        const down = fiv.find(Ray.fromOriginDirection(Vector.zero(3),
+            Vector.fromArray([-1, 0, 0])), C);
+        expect(down.type).toBe(T.isSegment);
+        expectClose(intrLine3Cone3Convert(down.t[0]), 0, 1e-12, 1e-12);
+        expectClose(intrLine3Cone3Convert(down.t[1]), 2.966273275177028,
+            1e-12, 1e-12);
+        expect(inSolidCone(C, intrLine3Cone3ConvertPoint(down.P[1]), 1e-12))
+            .toBe(true);
     });
 
     it('is equivariant under rigid motions', () => {

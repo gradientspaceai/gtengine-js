@@ -19,6 +19,35 @@
 // specializations become IntrLine3Capsule3TI and IntrLine3Capsule3FI. The
 // protected DoQuery member is exported as the module function
 // 'intrLine3Capsule3FIDoQuery'.
+//
+// Port fixes for two upstream defects in FIQuery::DoQuery (gtengine-js issue
+// #461 items 2 and 3), both result corrupting, so both are fixed here rather
+// than preserved:
+//
+//  * Upstream sets 'intersect' only in the cylinder-wall branches. When the
+//    single accepted root comes from a hemisphere -- a line tangent to a cap
+//    -- the trailing 'numIntersections == 1' block copies the parameter but
+//    leaves 'intersect' false, so operator() fills no points and the derived
+//    ray and segment queries (whose interval clip is guarded by 'intersect')
+//    drop the contact. The port sets 'intersect' whenever a root is accepted.
+//
+//  * Upstream accumulates roots one at a time and returns as soon as two have
+//    been accepted. The acceptance tests partition the surface into the wall
+//    (|z| <= e), the bottom hemisphere (z <= -e) and the top hemisphere
+//    (z >= e), but those closed regions overlap on the cap-junction circles
+//    z = +-e. A root on a junction circle is therefore accepted twice -- once
+//    by the wall test and once by a cap test -- and the early return then
+//    discards the remaining candidate, collapsing the interval to a point.
+//    The port instead takes the union of the candidates, which is what the
+//    algorithm intends: the solid capsule is the union of the solid finite
+//    cylinder and the two solid end balls, a line meets each in an interval,
+//    and since the capsule is convex the union of those intervals is the
+//    interval [min, max] over all candidate roots. Every candidate is a point
+//    of the capsule (a cap-sphere point is within the radius of the medial
+//    segment endpoint, hence of the segment), so the extremes are the true
+//    endpoints. The arithmetic that produces each candidate is unchanged, so
+//    every configuration upstream classifies correctly keeps bit-identical
+//    parameters.
 
 import type { Capsule } from './Capsule.js';
 import type { Line } from './Line.js';
@@ -136,6 +165,34 @@ export function intrLine3Capsule3FIDoQuery(lineOrigin: Vector, lineDirection: Ve
         return;
     }
 
+    // The union of the candidate roots (see the port-fix note at the top of
+    // the file). 'count' is the number of candidates accepted so far, and
+    // [tMin,tMax] is their range.
+    let count = 0;
+    let tMin = 0;
+    let tMax = 0;
+    const accept = (t: number): void => {
+        if (count === 0) {
+            tMin = t;
+            tMax = t;
+        }
+        else {
+            if (t < tMin) { tMin = t; }
+            if (t > tMax) { tMax = t; }
+        }
+        ++count;
+    };
+    const setResult = (): void => {
+        if (count > 0) {
+            // Port fix: upstream leaves 'intersect' false when the only
+            // accepted root comes from a hemisphere.
+            result.intersect = true;
+            result.numIntersections = (tMin === tMax ? 1 : 2);
+            result.parameter[0] = tMin;
+            result.parameter[1] = tMax;
+        }
+    };
+
     let root: number, tValue: number, zValue: number;
     if (discr > 0) {
         // The line intersects the infinite cylinder in two places.
@@ -143,19 +200,20 @@ export function intrLine3Capsule3FIDoQuery(lineOrigin: Vector, lineDirection: Ve
         tValue = (-a1 - root) / a2;
         zValue = P[2] + tValue * D[2];
         if (Math.abs(zValue) <= segExtent) {
-            result.intersect = true;
-            result.parameter[result.numIntersections++] = tValue;
+            accept(tValue);
         }
 
         tValue = (-a1 + root) / a2;
         zValue = P[2] + tValue * D[2];
         if (Math.abs(zValue) <= segExtent) {
-            result.intersect = true;
-            result.parameter[result.numIntersections++] = tValue;
+            accept(tValue);
         }
 
-        if (result.numIntersections === 2) {
-            // The line intersects the capsule wall in two places.
+        if (count === 2) {
+            // The line intersects the capsule wall in two places. Both end
+            // balls are contained in the solid infinite cylinder, so the
+            // capsule points of the line are exactly [tMin,tMax].
+            setResult();
             return;
         }
     }
@@ -165,63 +223,38 @@ export function intrLine3Capsule3FIDoQuery(lineOrigin: Vector, lineDirection: Ve
         tValue = -a1 / a2;
         zValue = P[2] + tValue * D[2];
         if (Math.abs(zValue) <= segExtent) {
-            result.intersect = true;
-            result.numIntersections = 1;
-            result.parameter[0] = tValue;
-            result.parameter[1] = result.parameter[0];
+            // The line touches the solid infinite cylinder, hence the
+            // capsule, only at this point.
+            accept(tValue);
+            setResult();
             return;
         }
     }
 
-    // Test intersection with the bottom hemisphere. The quadratic
-    // equation is
+    // Test intersection with the bottom end ball. The quadratic equation is
     //   t^2 + 2*(px*dx+py*dy+(pz+e)*dz)*t + (px^2+py^2+(pz+e)^2-r^2) = 0
     // Use the fact that currently a1 = px*dx+py*dy and
     // a0 = px^2+py^2-r^2. The leading coefficient is a2 = 1, so there is
     // no need to include it in the construction.
+    //
+    // Port fix: upstream keeps only the roots with z <= -e, which is the
+    // bottom hemisphere. The whole ball is part of the capsule, so both roots
+    // are candidates; dropping the z test is what removes the double count on
+    // the junction circle z = -e.
     const PZpE = P[2] + segExtent;
     a1 += PZpE * D[2];
     a0 += PZpE * PZpE;
     discr = a1 * a1 - a0;
     if (discr > 0) {
         root = Math.sqrt(discr);
-        tValue = -a1 - root;
-        zValue = P[2] + tValue * D[2];
-        if (zValue <= -segExtent) {
-            result.parameter[result.numIntersections++] = tValue;
-            if (result.numIntersections === 2) {
-                result.intersect = true;
-                sortParameters(result);
-                return;
-            }
-        }
-
-        tValue = -a1 + root;
-        zValue = P[2] + tValue * D[2];
-        if (zValue <= -segExtent) {
-            result.parameter[result.numIntersections++] = tValue;
-            if (result.numIntersections === 2) {
-                result.intersect = true;
-                sortParameters(result);
-                return;
-            }
-        }
+        accept(-a1 - root);
+        accept(-a1 + root);
     }
     else if (discr === 0) {
-        tValue = -a1;
-        zValue = P[2] + tValue * D[2];
-        if (zValue <= -segExtent) {
-            result.parameter[result.numIntersections++] = tValue;
-            if (result.numIntersections === 2) {
-                result.intersect = true;
-                sortParameters(result);
-                return;
-            }
-        }
+        accept(-a1);
     }
 
-    // Test intersection with the top hemisphere. The quadratic equation
-    // is
+    // Test intersection with the top end ball. The quadratic equation is
     //   t^2 + 2*(px*dx+py*dy+(pz-e)*dz)*t + (px^2+py^2+(pz-e)^2-r^2) = 0
     // Use the fact that currently a1 = px*dx+py*dy+(pz+e)*dz and
     // a0 = px^2+py^2+(pz+e)^2-r^2. The leading coefficient is a2 = 1, so
@@ -231,44 +264,14 @@ export function intrLine3Capsule3FIDoQuery(lineOrigin: Vector, lineDirection: Ve
     discr = a1 * a1 - a0;
     if (discr > 0) {
         root = Math.sqrt(discr);
-        tValue = -a1 - root;
-        zValue = P[2] + tValue * D[2];
-        if (zValue >= segExtent) {
-            result.parameter[result.numIntersections++] = tValue;
-            if (result.numIntersections === 2) {
-                result.intersect = true;
-                sortParameters(result);
-                return;
-            }
-        }
-
-        tValue = -a1 + root;
-        zValue = P[2] + tValue * D[2];
-        if (zValue >= segExtent) {
-            result.parameter[result.numIntersections++] = tValue;
-            if (result.numIntersections === 2) {
-                result.intersect = true;
-                sortParameters(result);
-                return;
-            }
-        }
+        accept(-a1 - root);
+        accept(-a1 + root);
     }
     else if (discr === 0) {
-        tValue = -a1;
-        zValue = P[2] + tValue * D[2];
-        if (zValue >= segExtent) {
-            result.parameter[result.numIntersections++] = tValue;
-            if (result.numIntersections === 2) {
-                result.intersect = true;
-                sortParameters(result);
-                return;
-            }
-        }
+        accept(-a1);
     }
 
-    if (result.numIntersections === 1) {
-        result.parameter[1] = result.parameter[0];
-    }
+    setResult();
 }
 
 // Test-intersection query for a line and a solid capsule in 3D.
@@ -302,11 +305,3 @@ export class IntrLine3Capsule3FI implements
     }
 }
 
-// The port of the repeated upstream 'if (parameter[0] > parameter[1]) swap'.
-function sortParameters(result: IntrLine3Capsule3FIResult): void {
-    if (result.parameter[0] > result.parameter[1]) {
-        const save = result.parameter[0];
-        result.parameter[0] = result.parameter[1];
-        result.parameter[1] = save;
-    }
-}

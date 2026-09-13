@@ -190,20 +190,16 @@ function minSegCapsuleDepth(c: Capsule, s: Segment): number {
     return capsuleSignedDepth(c, add(s.p[0], mul(0.5 * (lo + hi), e)));
 }
 
-// True when the line containing the segment lies in the capsule's
-// cap-junction plane z = +-e while being perpendicular to the capsule axis.
-// IntrLine3Capsule3 partitions the surface into the wall (|z| <= e) and the
-// two hemispheres (z >= e, z <= -e); a line lying exactly in a junction plane
-// can have one root accepted by the wall test and the other rejected by both,
-// so the query returns a degenerate interval instead of the true chord. See
-// the regression test below.
-function inJunctionPlane(c: Capsule, s: Segment): boolean {
-    const cf = c.segment.getCenteredForm();
-    const w = cf.direction;
+// True when the segment is (numerically) parallel to the capsule's medial
+// segment. The distance-based TI query goes through DistSegmentSegment, whose
+// parallel case is the subject of upstream issue #418: for two collinear
+// overlapping segments it returns a nonzero distance, so TI reports a miss
+// where the root-based FI query correctly reports a hit. Properties that
+// compare the two must exclude this family.
+function parallelToAxis(c: Capsule, s: Segment): boolean {
+    const w = c.segment.getCenteredForm().direction;
     const d = s.getCenteredForm().direction;
-    const dz = Math.abs(dot(w, d));
-    const zc = dot(w, sub(s.getCenteredForm().center, cf.center));
-    return dz < 1e-6 && Math.abs(Math.abs(zc) - cf.extent) < 1e-6;
+    return Math.abs(Math.abs(dot(w, d)) - 1) < 1e-9;
 }
 
 describe('IntrSegment3Capsule3 verification', () => {
@@ -214,23 +210,24 @@ describe('IntrSegment3Capsule3 verification', () => {
     it('TI and FI agree away from grazing configurations', () => {
         check(segCapsule, ({ segment: s, capsule: c }) => {
             if (Math.abs(minSegCapsuleDepth(c, s)) < 1e-6
-                || inJunctionPlane(c, s)) {
+                || parallelToAxis(c, s)) {
                 return;
             }
             expect(tiq.test(s, c).intersect).toBe(fiq.find(s, c).intersect);
         });
     });
 
-    it('pins the cap-junction-plane divergence of IntrLine3Capsule3', () => {
-        // Upstream robustness defect (preserved): the segment starts exactly
-        // at the capsule's medial endpoint and runs perpendicular to the
-        // capsule axis, so the line containing it lies in the plane z = +e
-        // that separates the cylinder wall from the top hemisphere. The true
-        // intersection is a chord of length 2*radius, but IntrLine3Capsule3
-        // accepts only one root (the wall test takes |z| <= e, the cap test
-        // takes z >= e, and round-off in z puts the exit root on neither
-        // side), so the line interval collapses to a point that the segment
-        // clip then discards. TI, which is distance based, gets it right.
+    it('finds the hit of a segment in a cap-junction plane (#461 item 3)',
+        () => {
+        // Regression for the upstream defect fixed in IntrLine3Capsule3: the
+        // segment starts exactly at the capsule's medial endpoint and runs
+        // perpendicular to the capsule axis, so the line containing it lies
+        // in the plane z = +e that separates the cylinder wall from the top
+        // hemisphere. Upstream accepted the junction root twice -- once by
+        // the wall test |z| <= e and once by the cap test z >= e -- and
+        // returned a degenerate interval that this segment clip then
+        // discarded, reporting a miss for a segment starting 0.25 deep
+        // inside the solid.
         const s = segment([0, 0, 0],
             [0, -4.999999999999982, -4.999999999999973]);
         const c = capsule([0, 2.9999999999999933, -2.9999999999999933],
@@ -239,14 +236,22 @@ describe('IntrSegment3Capsule3 verification', () => {
         expectClose(capsuleSignedDepth(c, s.p[0]), -0.25, 1e-12, 1e-12);
         expect(tiq.test(s, c).intersect).toBe(true);
         const f = fiq.find(s, c);
-        expect(f.intersect).toBe(false);
-
-        // The line query is where the collapse happens.
+        expect(f.intersect).toBe(true);
+        expect(f.numIntersections).toBe(2);
+        // The hit starts at the segment origin (inside the capsule) and ends
+        // on the capsule surface.
         const cf = s.getCenteredForm();
+        expectClose(f.parameter[0], -cf.extent, 1e-12, 1e-12);
+        expectVectorClose(f.point[0], s.p[0], 1e-12, 1e-12);
+        expectClose(capsuleSignedDepth(c, f.point[1]), 0, 1e-12, 1e-12);
+
+        // The line query is where the collapse used to happen: the chord of
+        // the junction disk through its centre has length 2*radius.
         const lc = lcq.find(Line.fromOriginDirection(cf.center, cf.direction),
             c);
         expect(lc.intersect).toBe(true);
-        expect(lc.parameter[1] - lc.parameter[0]).toBeLessThan(1e-12);
+        expectClose(lc.parameter[1] - lc.parameter[0], 2 * c.radius, 1e-12,
+            1e-12);
     });
 
     it('the segment hit is the line hit clipped to |t| <= extent', () => {
@@ -277,12 +282,9 @@ describe('IntrSegment3Capsule3 verification', () => {
             const cf = s.getCenteredForm();
             const f = fiq.find(s, c);
             if (!f.intersect) {
-                // Upstream quirk (preserved): a line tangent to a capsule
-                // hemisphere leaves numIntersections = 1 with intersect
-                // false. See test/IntrRay3Capsule3.test.ts for the pinned
-                // reproduction.
-                expect(f.numIntersections === 0 || f.numIntersections === 1)
-                    .toBe(true);
+                // The port sets 'intersect' whenever a root is accepted
+                // (#461 item 2), so a miss reports no intersections at all.
+                expect(f.numIntersections).toBe(0);
                 expect(f.point[0].values).toEqual([0, 0, 0]);
                 expect(f.point[1].values).toEqual([0, 0, 0]);
                 return;
@@ -389,9 +391,8 @@ describe('IntrSegment3Capsule3 verification', () => {
         check(fc.tuple(segCapsule, angle3(), angle3(), angle3(),
             wellScaled(-2, 2), wellScaled(-2, 2), wellScaled(-2, 2)),
         ([{ segment: s, capsule: c }, a1, a2, a3, tx, ty, tz]) => {
-            if (Math.abs(minSegCapsuleDepth(c, s)) < 1e-6
-                || inJunctionPlane(c, s)) {
-                return;   // grazing (tangent) segment, or the junction plane
+            if (Math.abs(minSegCapsuleDepth(c, s)) < 1e-6) {
+                return;   // grazing (tangent) segment
             }
             const ca = Math.cos(a1), sa = Math.sin(a1);
             const cb = Math.cos(a2), sb = Math.sin(a2);

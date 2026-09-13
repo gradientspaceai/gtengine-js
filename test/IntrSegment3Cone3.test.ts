@@ -316,14 +316,16 @@ describe('IntrSegment3Cone3 verification', () => {
         }));
 
     // The line-cone query solves c2*t^2 + 2*c1*t + c0 = 0 and branches on the
-    // sign of the discriminant c1^2 - c0*c2 and on an exact test for the line
-    // passing through the cone vertex. Both are formed by subtracting nearly
-    // equal quantities, so when the discriminant is at the noise level (a line
-    // tangent to the cone, or a line through the vertex such as one along the
-    // cone axis) the branch taken is decided by rounding and the reported set
-    // can be a point, or empty, where the true answer is a ray. Those
-    // configurations are excluded from the properties below; see the PR notes
-    // for the defect in the shared line-cone query.
+    // signs of c2 and of the discriminant c1^2 - c0*c2, both of which are
+    // formed by subtracting nearly equal quantities. The line through the
+    // vertex is no longer among the excluded cases: the port answers it from
+    // the sign of c2 alone (see IntrLine3Cone3.ts and the regression below).
+    // What remains genuinely a knife edge is a discriminant at the noise
+    // level for a line that is merely tangent to the cone (the true answer
+    // jumps between empty, a point and a segment), a c2 at the noise level
+    // (the line direction lies on the cone boundary, where the solution set
+    // changes shape), and a root landing on a height cap. Those are excluded
+    // from the properties below.
     function wellConditioned(origin: Vector, dir: Vector, C: Cone): boolean {
         const PmV = sub(origin, C.ray.origin);
         const UdU = dot(dir, dir);
@@ -478,6 +480,28 @@ describe('IntrSegment3Cone3 verification', () => {
             expect(intrLine3Cone3Convert(sr.t[1]))
                 .toBeGreaterThan(intrLine3Cone3Convert(sr.t[0]) - 1e-12);
         });
+    });
+
+    it('finds a segment on the cone axis through the vertex (#465)', () => {
+        // Regression for the upstream defect fixed in IntrLine3Cone3
+        // (recorded for verification group V35): the segment lies exactly on
+        // the cone axis and the line containing it passes through the vertex,
+        // so the discriminant of the line-cone quadratic is an exact zero
+        // that rounding destroys. Upstream reported isEmpty for a segment
+        // that is entirely inside the cone.
+        const C = cone([-2.966273275177028, 0, 0], [1, 0, 0], 0.15, 0, -1);
+        const S = segment([0, 0, 0], [-0.6862336043960249, 0, 0]);
+        // Both endpoints are on the axis at positive height, hence inside.
+        expect(inSolidCone(C, S.p[0], 0)).toBe(true);
+        expect(inSolidCone(C, S.p[1], 0)).toBe(true);
+        const r = fiv.find(S, C);
+        expect(r.type).toBe(T.isSegment);
+        expectClose(intrLine3Cone3Convert(r.t[0]), 0, 1e-12, 1e-12);
+        expectClose(intrLine3Cone3Convert(r.t[1]), 1, 1e-12, 1e-12);
+        expectVectorClose(intrLine3Cone3ConvertPoint(r.P[0]), S.p[0],
+            1e-12, 1e-12);
+        expectVectorClose(intrLine3Cone3ConvertPoint(r.P[1]), S.p[1],
+            1e-12, 1e-12);
     });
 
     it('is unchanged when the segment endpoints are swapped', () => {
