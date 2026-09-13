@@ -283,6 +283,34 @@ function pdfSection422(line: Line3, circle: Circle3, D: Vector, NxM: Vector,
     const a3 = dot(NxE, NxE);       // a3 >= 0
     let tau: number;
 
+    // Map a root tau of Phi to the line parameter t of the critical point.
+    //
+    // Upstream writes t = tau + s. That is correct in exact arithmetic but
+    // catastrophic in floating point once the line is nearly perpendicular to
+    // the plane of the circle: s = -Dot(NxM,NxD)/|NxM|^2 grows like
+    // 1/|NxM|^2, a0 = Dot(M,E)/Dot(M,M) grows with it (a0 = s + Dot(M,D)/MdM
+    // exactly), and every bisection bracket is an interval of width
+    // a1/sqrt(a2) = r*|NxM|/Dot(M,M) around -a0. So tau ~ -s to within a
+    // width that is many orders of magnitude below ulp(s), and tau + s is the
+    // difference of two nearly equal huge numbers: the sum keeps no
+    // significant digits of the critical parameter. That is the upstream
+    // defect tracked as gtengine-js issue #421 item 3.
+    //
+    // Substituting the root condition Phi(tau) = tau + a0 - G(tau) = 0 and
+    // a0 - s = Dot(M,D)/Dot(M,M) removes the cancellation entirely:
+    //   t = tau + s = (G(tau) - a0) + s = G(tau) - Dot(M,D)/Dot(M,M).
+    // Both terms are now formed at the scale of the answer. G is bounded by
+    // a1/sqrt(a2) and, in the ill-conditioned regime where |tau| is huge, G
+    // has saturated at +/- a1/sqrt(a2) and its derivative
+    // G'(tau) = a1*a3/(a2*tau^2 + a3)^{3/2} is negligible, so the error of
+    // tau does not propagate. Where G' is not negligible the bisection
+    // brackets a root on a piece where Phi is increasing, so G' < 1 there
+    // (G'(+/-tauHat) = 1 at the two tangency parameters) and the error of tau
+    // is not amplified either.
+    const b0 = dot(M, D) / MdM;
+    const parameterFromTau = (t: number): number =>
+        a1 * t / Math.sqrt(a2 * t * t + a3) - b0;
+
     // Upstream bug (fixed here): when a3 = |NxE|^2 is exactly zero, the new
     // line origin E lies on the normal line through the circle center, that
     // is, the line meets that normal line. Upstream then computes
@@ -331,46 +359,46 @@ function pdfSection422(line: Line3, circle: Circle3, D: Vector, NxM: Vector,
             tau = bisect(a0, a1, a2, a3, -a0, -a0 + a1 / Math.sqrt(a2));
             if (a0 < -intercept) {
                 critical.numPoints = 1;
-                critical.parameter[0] = tau + s;
+                critical.parameter[0] = parameterFromTau(tau);
             }
             else {
                 critical.numPoints = 2;
-                critical.parameter[0] = tau + s;
-                critical.parameter[1] = -tauHat + s;
+                critical.parameter[0] = parameterFromTau(tau);
+                critical.parameter[1] = parameterFromTau(-tauHat);
             }
         }
         else if (a0 >= intercept) {
             tau = bisect(a0, a1, a2, a3, -a0 - a1 / Math.sqrt(a2), -a0);
             if (a0 > intercept) {
                 critical.numPoints = 1;
-                critical.parameter[0] = tau + s;
+                critical.parameter[0] = parameterFromTau(tau);
             }
             else {
                 critical.numPoints = 2;
-                critical.parameter[0] = tauHat + s;
-                critical.parameter[1] = tau + s;
+                critical.parameter[0] = parameterFromTau(tauHat);
+                critical.parameter[1] = parameterFromTau(tau);
             }
         }
         else {
             critical.numPoints = 2;
             if (a0 > 0) {
                 tau = bisect(a0, a1, a2, a3, -a0 - a1 / Math.sqrt(a2), -a0);
-                critical.parameter[0] = tau + s;
+                critical.parameter[0] = parameterFromTau(tau);
                 tau = bisect(a0, a1, a2, a3, tauHat, -a0 + a1 / Math.sqrt(a2));
-                critical.parameter[1] = tau + s;
+                critical.parameter[1] = parameterFromTau(tau);
             }
             else if (a0 < 0) {
                 tau = bisect(a0, a1, a2, a3, -a0 - a1 / Math.sqrt(a2),
                     -tauHat);
-                critical.parameter[0] = tau + s;
+                critical.parameter[0] = parameterFromTau(tau);
                 tau = bisect(a0, a1, a2, a3, -a0, -a0 + a1 / Math.sqrt(a2));
-                critical.parameter[1] = tau + s;
+                critical.parameter[1] = parameterFromTau(tau);
             }
             else {
                 // a0 is 0.
                 tau = Math.sqrt((a1 * a1 - a3) / a2);
-                critical.parameter[0] = s - tau;
-                critical.parameter[1] = s + tau;
+                critical.parameter[0] = parameterFromTau(-tau);
+                critical.parameter[1] = parameterFromTau(tau);
             }
         }
     }
@@ -386,7 +414,7 @@ function pdfSection422(line: Line3, circle: Circle3, D: Vector, NxM: Vector,
             tau = 0;
         }
         critical.numPoints = 1;
-        critical.parameter[0] = tau + s;
+        critical.parameter[0] = parameterFromTau(tau);
     }
 
     finalize(line, circle, D, result, critical);
@@ -408,7 +436,19 @@ export function distLine3Circle3Execute(line: Line3, circle: Circle3):
     const NxM = cross(N, M);
     const NxD = cross(N, D);
 
-    if (!isZero3(NxM)) {
+    // Upstream bug (fixed here): the branch below tests NxM against the zero
+    // vector, but PDFSection421 and PDFSection422 divide by Dot(NxM,NxM),
+    // which underflows to exactly zero once |NxM| drops below about 1.5e-162
+    // even though NxM itself is nonzero. Upstream then forms
+    // s = -Dot(NxM,NxD)/0 and every reported value is NaN. Such a line is
+    // parallel to the normal of the circle to a relative 1e-162, so the port
+    // sends it to the perpendicular branch, whose closed form is the limit of
+    // the other two. Example: the circle of radius 0.2 in the x = 0 plane
+    // centered at the origin with the line (0,4,0) + t*(-0.05, 0, -5e-324),
+    // for which Cross(N,M) = (0, -5e-324, 0).
+    const NxMdNxM = dot(NxM, NxM);
+
+    if (!isZero3(NxM) && NxMdNxM > 0) {
         // The line is not perpendicular to the plane of the circle.
         if (!isZero3(NxD)) {
             // The line origin is not on the normal line through the circle

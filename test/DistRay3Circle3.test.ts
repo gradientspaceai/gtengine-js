@@ -9,7 +9,7 @@ import { distLine3Circle3Execute } from '../src/DistLine3Circle3.js';
 import { getOrthogonal } from '../src/Vector.js';
 import { cross } from '../src/Vector3.js';
 import {
-    check, expectClose, expectVectorClose, fc, positive,
+    check, expectClose, expectVectorClose, fc, finite, positive,
     rotationFrame, unitVector, wellScaled, wellScaledVector
 } from './helpers/arbitraries.js';
 
@@ -205,40 +205,24 @@ const v21Circle = fc.tuple(wellScaledVector(3, -5, 5), unitVector(3),
     positive(4, 0.2))
     .map(([c, n, r]) => Circle3.fromCenterNormalRadius(c, n, r));
 
-// The shared line-circle solver (DistLine3Circle3) is reliable only when the
-// line is not nearly perpendicular to the plane of the circle and does not
-// nearly meet the axis of the circle. Upstream threw
-// "Invalid ordering of t-interval endpoints." in both regimes (PDFSection422
-// builds an inverted or collapsed bisection bracket); the port fixed the
-// exception in V20 by routing exact a3 == 0 to PDFSection421 and by returning
-// the bracket midpoint when the bracket collapses, and the regression tests
-// at the end of this block cover the configurations that used to throw. What
-// the fix cannot recover is accuracy in the *neighbourhood* of those regimes:
-// once |N x M| is within a few ulps of zero, a0 = Dot(M,E)/Dot(M,M) is around
-// 1e6 while the bracket width r*|N x M|/|M|^2 is around 1e-13, so the root
-// carries no significant digits. For example the circle C = (0,0,0),
-// N = (-1,0,0), r = 0.2 with the segment
-// (-3.443461197292675, 7.999999999999849, 0) -> (0, 7.999999999999964, 0),
-// whose direction is perpendicular to the plane of the circle to within
-// 3e-14, is reported at distance 7.800046 where the true distance is 7.8.
-// The properties below skip that neighbourhood.
-function v21LineSolverApplies(origin: Vector, direction: Vector,
-    c: Circle3): boolean {
-    const D = sub(origin, c.center);
-    const NxM = cross(c.normal, direction);
-    const NxD = cross(c.normal, D);
-    const isZero = (x: Vector): boolean =>
-        x.values[0] === 0 && x.values[1] === 0 && x.values[2] === 0;
-    if (isZero(NxM) || isZero(NxD)) {
-        return true;   // the closed-form PDFSection411/412/421 branches
-    }
-    if (length(NxM) <= 1e-5 * length(direction)) {
-        return false;  // nearly perpendicular to the plane of the circle
-    }
-    const s = -dot(NxM, NxD) / dot(NxM, NxM);
-    const E = add(mul(s, direction), D);
-    return length(cross(c.normal, E)) > 1e-6 * length(E);   // nearly on axis
-}
+// The shared line-circle solver (DistLine3Circle3) used to be unusable in two
+// regimes: a line nearly perpendicular to the plane of the circle and a line
+// nearly meeting the axis of the circle. Upstream threw
+// "Invalid ordering of t-interval endpoints." in both (PDFSection422 builds an
+// inverted or collapsed bisection bracket); the port fixed the exception in
+// V20 by routing exact a3 == 0 to PDFSection421 and by returning the bracket
+// midpoint when the bracket collapses. The near-perpendicular regime then
+// still had no accuracy, because upstream recovers the line parameter as
+// t = tau + s with s = -Dot(NxM,NxD)/|NxM|^2 blowing up like 1/|NxM|^2 while
+// the bisection bracket around -a0 = -(s + Dot(M,D)/Dot(M,M)) has width
+// r*|NxM|/Dot(M,M); the sum cancelled every significant digit. The reported
+// example was the circle C = (0,0,0), N = (-1,0,0), r = 0.2 with a segment
+// from (-3.443461197292675, 7.999999999999849, 0) to
+// (0, 7.999999999999969, 0), at distance 7.800046 where the truth is 7.8.
+// The port now forms t = G(tau) - Dot(M,D)/Dot(M,M), which has no
+// cancellation, so the properties below no longer skip any configuration; the
+// regime is exercised directly by the regression block at the end of the
+// file.
 
 const v21Ray = fc.tuple(wellScaledVector(3, -8, 8), unitVector(3))
     .map(([o, d]) => Ray.fromOriginDirection(o, d));
@@ -253,9 +237,6 @@ describe('DistRay3Circle3 verification', () => {
 
     it('every reported pair is on the ray and on the circle', () => {
         check(fc.tuple(v21Ray, v21Circle), ([r, c]) => {
-            if (!v21LineSolverApplies(r.origin, r.direction, c)) {
-                return;
-            }
             const res = query.compute(r, c);
             expect(res.numClosestPairs === 1 || res.numClosestPairs === 2)
                 .toBe(true);
@@ -282,9 +263,6 @@ describe('DistRay3Circle3 verification', () => {
         // returns the line result when t0 >= 0 and the ray origin when
         // t1 <= 0). Verify that assumption on the shared solver.
         check(fc.tuple(v21Ray, v21Circle), ([r, c]) => {
-            if (!v21LineSolverApplies(r.origin, r.direction, c)) {
-                return;
-            }
             const line = Line.fromOriginDirection(r.origin, r.direction);
             const { critical } = distLine3Circle3Execute(line, c);
             if (critical.numPoints === 2) {
@@ -296,9 +274,6 @@ describe('DistRay3Circle3 verification', () => {
 
     it('keeps the line result when every critical point is on the ray', () => {
         check(fc.tuple(v21Ray, v21Circle), ([r, c]) => {
-            if (!v21LineSolverApplies(r.origin, r.direction, c)) {
-                return;
-            }
             const line = Line.fromOriginDirection(r.origin, r.direction);
             const { result: lr, critical } = distLine3Circle3Execute(line, c);
             const rr = query.compute(r, c);
@@ -320,9 +295,6 @@ describe('DistRay3Circle3 verification', () => {
 
     it('matches a brute-force minimization along the ray', () => {
         check(fc.tuple(v21Ray, v21Circle), ([r, c]) => {
-            if (!v21LineSolverApplies(r.origin, r.direction, c)) {
-                return;
-            }
             const line = Line.fromOriginDirection(r.origin, r.direction);
             // The line solver is the ingredient the ray query trusts; if the
             // shared solver has already missed the line minimum there is
@@ -338,9 +310,6 @@ describe('DistRay3Circle3 verification', () => {
 
     it('is not larger than the distance to any sampled ray point', () => {
         check(fc.tuple(v21Ray, v21Circle, positive(60, 0)), ([r, c, t]) => {
-            if (!v21LineSolverApplies(r.origin, r.direction, c)) {
-                return;
-            }
             expect(query.compute(r, c).distance).toBeLessThanOrEqual(
                 pointCircleDistance(add(r.origin, mul(t, r.direction)), c)
                 + 1e-8);
@@ -359,9 +328,6 @@ describe('DistRay3Circle3 verification', () => {
                 mul(Math.sin(angle), w));
             const origin = add(c.center, mul(c.radius + extra, radial));
             const r = Ray.fromOriginDirection(origin, radial);
-            if (!v21LineSolverApplies(r.origin, r.direction, c)) {
-                return;
-            }
             const res = query.compute(r, c);
             expect(res.numClosestPairs).toBe(1);
             expectClose(res.distance, extra, 1e-8, 1e-8);
@@ -383,11 +349,6 @@ describe('DistRay3Circle3 verification', () => {
                 add(rot(c.center), tr), rot(c.normal), c.radius);
             const movedRay = Ray.fromOriginDirection(add(rot(r.origin), tr),
                 rot(r.direction));
-            if (!v21LineSolverApplies(r.origin, r.direction, c)
-                || !v21LineSolverApplies(movedRay.origin, movedRay.direction,
-                    moved)) {
-                return;
-            }
             // The bisection in the shared line solver is path dependent, so
             // the distance drifts by more than machine precision under a
             // change of frame.
@@ -398,9 +359,6 @@ describe('DistRay3Circle3 verification', () => {
 
     it('does not mutate its inputs', () => {
         check(fc.tuple(v21Ray, v21Circle), ([r, c]) => {
-            if (!v21LineSolverApplies(r.origin, r.direction, c)) {
-                return;
-            }
             const o = r.origin.clone();
             const d = r.direction.clone();
             const snapshot = [...c.center.values, ...c.normal.values,
@@ -447,4 +405,72 @@ describe('DistRay3Circle3 verification', () => {
         verifyPair(c, res.linearClosest[0], res.circularClosest[0],
             res.distance);
     });
+});
+
+// ---------------------------------------------------------------------------
+// Regression for gtengine-js issue #421 item 3: the shared line solver lost
+// every significant digit of the critical parameter once the direction was
+// nearly perpendicular to the plane of the circle. The ray query clamps that
+// parameter to t >= 0, so a misplaced critical point both moves the reported
+// distance and can flip the clamping decision.
+// ---------------------------------------------------------------------------
+
+describe('DistRay3Circle3 near-perpendicular rays (issue #421)', () => {
+    const query = new DistRay3Circle3();
+
+    it('resolves the counterexample reported in issue #421', () => {
+        // The ray of the issue's segment: the closest ray point is the plane
+        // crossing (0, 8, 0) at t = 1 and the closest circle point is
+        // (0, 0.2, 0), so the distance is 7.8. Before the fix the shared
+        // solver put the critical point at t = 1.0078 and the query returned
+        // 7.8000463921561485.
+        const c = circle([0, 0, 0], [-1, 0, 0], 0.2);
+        const origin = v(-3.443461197292675, 7.999999999999849, 0);
+        const direction = sub(v(0, 7.999999999999969, 0), origin);
+        const res = query.compute(Ray.fromOriginDirection(origin, direction),
+            c);
+        expect(Math.abs(res.distance - 7.8)).toBeLessThan(1e-12);
+        expect(res.numClosestPairs).toBe(1);
+        verifyPair(c, res.linearClosest[0], res.circularClosest[0],
+            res.distance);
+    });
+
+    // A ray whose direction is the circle normal perturbed in-plane by eps,
+    // with the origin at a random height on the axis plus an in-plane offset.
+    const nearPerpendicular = fc.tuple(unitVector(3), positive(4, 0.2),
+        finite(0, 16), finite(0, 6.2831), finite(-4, 4), finite(0.02, 8),
+        finite(0, 6.2831), finite(0.05, 20));
+
+    it('matches a brute-force minimization over the ray', () => {
+        check(nearPerpendicular,
+            ([n, radius, mag, ang, height, offset, ang2, scale]) => {
+                const c = Circle3.fromCenterNormalRadius(v(0, 0, 0), n,
+                    radius);
+                const seed = Math.abs(n.values[0]) < 0.9
+                    ? v(1, 0, 0) : v(0, 1, 0);
+                const u = sub(seed, mul(dot(seed, n), n));
+                normalize(u);
+                const w = cross(n, u);
+                const eps = Math.pow(10, -mag);
+                const dir = mul(scale, add(n, mul(eps,
+                    add(mul(Math.cos(ang), u), mul(Math.sin(ang), w)))));
+                const origin = add(mul(height, n),
+                    add(mul(offset * Math.cos(ang2), u),
+                        mul(offset * Math.sin(ang2), w)));
+                const r = Ray.fromOriginDirection(origin, dir);
+                const res = query.compute(r, c);
+                // bruteForce samples t in [0, tmax] densely and refines;
+                // tmax covers the plane crossing for any of these rays. The
+                // tolerance covers the rounding of the critical parameter,
+                // which the reformulated t = G(tau) - Dot(M,D)/Dot(M,M) keeps
+                // at the scale of the answer.
+                const tmax = 4 * (Math.abs(height) + offset + radius + 1)
+                    / scale;
+                expectClose(res.distance, bruteForce(r, c, tmax), 1e-7, 1e-7);
+                for (let j = 0; j < res.numClosestPairs; ++j) {
+                    verifyPair(c, res.linearClosest[j],
+                        res.circularClosest[j], res.distance);
+                }
+            }, 40);
+    }, 30000);
 });
