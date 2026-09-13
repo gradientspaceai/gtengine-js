@@ -66,26 +66,24 @@ Port status is one of:
   source.
 - **n/a**: the code path is not ported (for example the `GTE_USE_VEC_MAT`
   branches, or arbitrary-precision instantiations that were not needed).
-- **see issue**: the port status is not settled; the issue says what is known.
 
 Nothing here has been reported upstream before; this document is the report.
 
 ## Counts
 
-- **490 distinct findings** across **154** tracked issues (one issue
+- **491 distinct findings** across **155** tracked issues (one issue
   frequently holds several findings in related files).
-- By severity: **239 result-corrupting**, **14 wrong but
+- By severity: **240 result-corrupting**, **14 wrong but
   recoverable**, **164 minor**, **73 documentation**.
-- By port status: **252 fixed or corrected in the port** (of which 150 are code
+- By port status: **253 fixed or corrected in the port** (of which 152 are code
   fixes with regression tests, 22 are added guards or asserts where upstream has
   undefined behaviour, 64 are comment corrections, 11 are dead-code removals and
-  5 are documented deliberate deviations), **228 preserved deliberately**,
+  4 are documented deliberate deviations), **229 preserved deliberately**, and
   **9 not ported** (the `GTE_USE_VEC_MAT` branches, dead code that cannot
-  compile, and two arbitrary-precision paths), and 1 whose port status is
-  unresolved.
+  compile, and two arbitrary-precision paths).
 - **288 distinct upstream headers** are implicated.
 
-Ten claims made during the porting pass were later corrected, sharpened or
+Nine claims made during the porting pass were later corrected, sharpened or
 withdrawn by the verification pass; they are listed in
 [Claims withdrawn or corrected](#claims-withdrawn-or-corrected) and the
 corrected form is what appears above.
@@ -247,7 +245,8 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `DistLine3Circle3.h` | header comment | `G'(t)` numerator given as `a1*a2`; it is `a1*a3` | doc | corrected | [#247](https://github.com/gradientspaceai/gtengine-js/issues/247) |
 | `DistLine3Circle3.h` | `a3 == 0` path | NaN intercept and an inverted bisection bracket; throws "Invalid ordering of t-interval endpoints" | WR | fixed | [#421](https://github.com/gradientspaceai/gtengine-js/issues/421) |
 | `DistLine3Circle3.h` | `Finalize` | normalises a possibly-zero projection and reports the circle centre at distance 0 | RC | fixed | [#421](https://github.com/gradientspaceai/gtengine-js/issues/421) |
-| `DistLine3Circle3.h` | `Bisect` | the bracket collapses for near-axis-parallel lines and `LogAssert(tMin < tMax)` throws | RC | partly fixed | [#421](https://github.com/gradientspaceai/gtengine-js/issues/421) |
+| `DistLine3Circle3.h` | `Bisect`, `PDFSection422` back-substitution | for near-perpendicular lines the bracket collapses and `t = tau + s` then cancels every significant digit | RC | fixed | [#421](https://github.com/gradientspaceai/gtengine-js/issues/421), [#495](https://github.com/gradientspaceai/gtengine-js/issues/495) |
+| `DistLine3Circle3.h` | `Execute`, `PDFSection421`, `PDFSection422` | `Dot(NxM, NxM)` underflows to exactly 0 while `NxM != 0`, so every output is NaN | RC | fixed | [#495](https://github.com/gradientspaceai/gtengine-js/issues/495) |
 | `DistLine3OrientedBox3.h` | `operator()` | `closest[0]` is written in world space and then transformed again as if it were box-frame | RC | port already correct | [#421](https://github.com/gradientspaceai/gtengine-js/issues/421) |
 | `DistLine3OrientedBox3.h` | `operator()` | dead assignment to `result.closest[0]` | minor | preserved | [#187](https://github.com/gradientspaceai/gtengine-js/issues/187) |
 | `DistLine3Rectangle3.h`, `DistLine3Triangle3.h` | `sqrDistance == invalid` | a squared distance can never equal the `-1` sentinel, so the test is dead | minor | preserved | [#187](https://github.com/gradientspaceai/gtengine-js/issues/187) |
@@ -468,7 +467,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `NaturalSplineCurve.h` | `CreateClosed` | the wrap-around row uses three plain assignments; for a 3-point closed spline the third overwrites the first | RC | fixed | [#295](https://github.com/gradientspaceai/gtengine-js/issues/295) |
 | `NaturalSplineCurve.h` | constructors | `LogAssert` runs after the base constructor has already resized on a negative count and dereferenced `times` | RC | fixed | [#295](https://github.com/gradientspaceai/gtengine-js/issues/295) |
 | `NaturalSplineCurve.h` | `CreateFree` | `storageSize` over-allocates by `N-1` reals | minor | preserved | [#295](https://github.com/gradientspaceai/gtengine-js/issues/295) |
-| `NearestNeighborQuery.h` | traversal stack | `maxLevel == 32` is allowed but the stack has 32 entries, permitting depth 33 | RC | see issue | [#48](https://github.com/gradientspaceai/gtengine-js/issues/48) |
+| `NearestNeighborQuery.h` | traversal stack | `maxLevel == 32` is allowed but the stack has 32 entries, permitting depth 33 | RC | preserved (harmless in the port: JS arrays grow) | [#48](https://github.com/gradientspaceai/gtengine-js/issues/48) |
 | `NearestNeighborQuery.h` | accessors | do not reject negative indices | RC | fixed | [#48](https://github.com/gradientspaceai/gtengine-js/issues/48) |
 | `NURBSCircle.h` | `NURBSHalfCircleDegree3` comment | says `x >= 0`; the control points trace `y >= 0` | doc | corrected | [#415](https://github.com/gradientspaceai/gtengine-js/issues/415) |
 | `OBBTree.h` | height clamp | `height > 31` is clamped to 31 and then preallocates `2^32 - 1` nodes | RC | preserved | [#274](https://github.com/gradientspaceai/gtengine-js/issues/274) |
@@ -1640,14 +1639,39 @@ circle in `z = 0` with the line `(1,0,6) + t*(1,0,1)`. The port delegates to
 centre as the closest circle point with distance 0. Reachable by round-off for a
 line along the circle axis.
 
-**4. `Bisect`'s bracket collapses for near-axis-parallel lines.** The endpoints
-round together and `LogAssert(tMin < tMax)` throws. The port removes the
-exception but the root still carries no significant digits in that regime:
-circle `C = (0,0,0)`, `N = (-1,0,0)`, `r = 0.2`, segment
+**4. Near-perpendicular lines lose every significant digit, and `Bisect`'s bracket collapses.**
+The first symptom is that `Bisect`'s bracket endpoints round together and
+`LogAssert(tMin < tMax)` throws. Removing that assertion is not enough: the
+returned root still carries no significant digits in the same regime. Worked
+example: circle `C = (0,0,0)`, `N = (-1,0,0)`, `r = 0.2`, segment
 `(-3.443461197292675, 7.999999999999849, 0) -> (0, 7.999999999999964, 0)`
-reports 7.800046 where the truth is 7.8. Status: see issue.
+reports 7.800046 where the truth is 7.8.
 
-Issues [#247](https://github.com/gradientspaceai/gtengine-js/issues/247), [#421](https://github.com/gradientspaceai/gtengine-js/issues/421).
+**Cause.** The loss is not in the bisection but in `PDFSection422`'s
+back-substitution `t = tau + s`. Here `s` grows like `1/|NxM|^2`, and every
+bracket is an interval of width `r*|NxM|/Dot(M,M)` with an endpoint at `-a0`, so
+`tau` approaches `-s` to far below `ulp(s)` and the sum cancels every digit. On
+the worked example `s = -66719994479561.64`, the bracket width is 2e-15 and
+`ulp(a0) = 0.0148`, so `tau + s` evaluates to `0.9921875` where the true value is
+1.
+
+**Suggested fix.** Use the algebraically identical
+`t = G(tau) - Dot(M,D)/Dot(M,M)`, which never forms the cancelling sum. Applied
+in the port: 987 of 4000 near-perpendicular draws were wrong by more than 1e-9
+relative (worst 1.64) before, 0 of 4000 after (worst 1e-15), and
+well-conditioned inputs change only at rounding level, at most 1.8e-15 absolute.
+This supersedes the earlier reading of the defect as a bisection-bracket
+problem, and the earlier "only half fixed" status.
+
+**5. `Dot(NxM, NxM)` underflows to exactly 0 while `NxM != 0`, so every output is NaN.**
+`Execute` branches on `NxM != 0`, but `PDFSection421` and `PDFSection422` then
+divide by `Dot(NxM, NxM)`, which underflows to exactly 0 for
+`|NxM| < ~1.5e-162`. Reproduction: circle of radius 0.2 in the plane `x = 0`
+versus the line `(0, 4, 0) + t*(-0.05, 0, -5e-324)`. Port: fixed, by routing
+such directions to the perpendicular branch, which is the exact limit of the
+other two.
+
+Issues [#247](https://github.com/gradientspaceai/gtengine-js/issues/247), [#421](https://github.com/gradientspaceai/gtengine-js/issues/421), [#495](https://github.com/gradientspaceai/gtengine-js/issues/495).
 
 ### `DistLine2Triangle2.h`
 
@@ -3514,8 +3538,13 @@ Issues [#113](https://github.com/gradientspaceai/gtengine-js/issues/113), [#182]
 traversal stack, permitting depth 33; the suppressed MSVC C28020 warning in the
 header points at exactly this. `GetRectangle`-style accessors also do not reject
 negative indices (an out-of-bounds read in C++; the port returns null). The
-header's own TODO acknowledges that the query is approximate. Port status for the
-stack bound: see issue.
+header's own TODO acknowledges that the query is approximate.
+
+Port status for the stack bound: preserved. The port keeps upstream's structure
+(a 32-entry array allocated at construction, with `maxLevel <= 32` asserted), but
+a JavaScript array grows on write, so an overflow cannot corrupt memory. The
+condition was judged unreachable in practice in any case: it needs on the order
+of 2^32 sites.
 
 Issue [#48](https://github.com/gradientspaceai/gtengine-js/issues/48).
 
@@ -4450,13 +4479,6 @@ the corrected form is what appears above.
    measurement and 70 of 396 in an independent re-implementation
    ([#348](https://github.com/gradientspaceai/gtengine-js/issues/348)); both
    measure the same upstream algorithm on different random samples.
-
-10. **`DistLine3Circle3::Bisect` is only half fixed in the port.**
-    Issue [#421](https://github.com/gradientspaceai/gtengine-js/issues/421)
-    item 3 was first recorded as fixed. Corrected: the exception is gone, but for
-    near-perpendicular lines the returned root still carries no significant
-    digits (7.800046 where the truth is 7.8). The upstream defect stands;
-    status: see issue.
 
 Two items were investigated and found **not** to be defects, and are recorded
 here so they are not re-reported: `ApprEllipseByArcs::UpdateMatrix` uses `a[i]`
