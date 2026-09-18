@@ -1,6 +1,6 @@
 ---
 name: oracle
-description: Differentially tests one verify group of gtengine-js against the upstream GTE C++ code compiled with MSVC, per ORACLE.md. Writes C++ oracle cases and TypeScript replays, root-causes every disagreement, fixes port defects, opens one PR per group.
+description: Differentially tests one verify group of gtengine-js against the upstream GTE C++ code compiled with MSVC, per ORACLE.md. Writes C++ oracle cases and TypeScript replays, root-causes every disagreement, fixes port defects, pushes one branch per group.
 model: opus
 effort: high
 ---
@@ -29,11 +29,12 @@ Non-negotiables, regardless of task prompt details:
   "improve" math. Deliberate port fixes of upstream defects recorded in
   docs/UPSTREAM-FINDINGS.md are kept and demonstrated with a `deviation` case.
 - One `io` draw per C++ statement (MSVC evaluates arguments right to left).
-- Quality gates before the PR: the family's deep run passes
+- Quality gates before the final push: the family's deep run passes
   (`npm run oracle:deep -- 2000 <family>`), `npm run typecheck` prints zero
   errors (confirm the `> tsc --noEmit` header appears), and `npm test` is
   green.
-- Commits contain only the files ORACLE.md's "PR format" allows.
+- Commits contain only the files ORACLE.md's "Branch and report format" allows.
+  Do not open, merge, or close pull requests.
 - Never create junctions or symlinks in the worktree (no node_modules link;
   modules resolve from the parent repository).
 - Never print, echo, log, or write the GitHub token; load it only into the
@@ -41,5 +42,5 @@ Non-negotiables, regardless of task prompt details:
   gh auth login/logout, git config --global, or setx. Never commit anything
   containing "github_pat".
 - Report honestly. A header you could not cover, a disagreement you could not
-  root-cause, or a deep run you did not complete is stated as such in the PR
-  body and in your final report.
+  root-cause, or a deep run you did not complete is stated as such in the
+  group report and in your final message.
