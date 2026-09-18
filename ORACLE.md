@@ -147,7 +147,13 @@ Every disagreement gets a root cause. In order of likelihood:
    below `+0` and propagate NaN, where upstream's `(a < b ? b : a)` returns
    its first argument on ties and unordered compares. Where the result can
    reach an output, port the comparison form (first instance: v31,
-   `IntrIntervals`). A wrong
+   `IntrIntervals`). The most productive class so far is the change of
+   basis: `C + c0*a0 + c1*a1 + c2*a2` accumulates left to right,
+   `((C + c0*a0) + c1*a1) + c2*a2`, and a port that adds the basis terms
+   first differs in the last bits on nearly every record (three of the 19
+   headers of v20). Its regression test runs the port beside both groupings,
+   requires bit-identity with upstream's order and requires the groupings to
+   differ somewhere. A wrong
    *result* (not just rounding) also gets a regression test in
    `test/<Name>.test.ts`.
 3. **Deliberate port fix** of an upstream defect (search
@@ -163,7 +169,18 @@ Every disagreement gets a root cause. In order of likelihood:
    everywhere else) instead of declaring the whole case a deviation. A
    `deviation` case only shows that some inputs deviate, never that the rest
    agree, so the main case stays broad. (First instance: v19,
-   `DistLine2Triangle2`.)
+   `DistLine2Triangle2`.) A *conditioning* fix (loss of significance that
+   degrades continuously, v20 `DistLine3Circle3`) has no exact defective
+   condition to guard on. Then restrict the main generator to inputs where
+   upstream's own answer agrees with an independent reference computed on
+   the C++ side, compare the residual with a measured and reported
+   tolerance, give the ill-conditioned regime a `deviation` case, and prove
+   the root cause by temporarily substituting upstream's expression into the
+   port and confirming bit-identity. Select `deviation` records by the
+   observable symptom rather than a replica of the branch analysis, and
+   check the magnitude of the deviation, not only that one exists: a
+   necessary condition for a defect is not a sufficient one. A rejection
+   loop keeps the last non-throwing candidate as its fallback.
 4. **Math library rounding**: compare with tolerance as above.
 5. **Upstream undefined or unspecified behaviour** (uninitialised reads,
    evaluation-order dependence, signed overflow): restrict the generator,

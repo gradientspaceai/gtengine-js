@@ -118,10 +118,14 @@ export class DistPoint3Cylinder3
 
         // Convert the closest point from the cylinder coordinate system to
         // the original coordinate system.
-        const closest1 = add(cylinder.axis.origin,
-            add(mul(query.closest.values[0], basis[1]),
-                add(mul(query.closest.values[1], basis[2]),
-                    mul(query.closest.values[2], basis[0]))));
+        // The sum is accumulated left to right, as upstream's
+        // 'axis.origin + c[0] * basis[1] + c[1] * basis[2] + c[2] * basis[0]'.
+        const closest1 = add(
+            add(
+                add(cylinder.axis.origin,
+                    mul(query.closest.values[0], basis[1])),
+                mul(query.closest.values[1], basis[2])),
+            mul(query.closest.values[2], basis[0]));
 
         return {
             distance: query.distance,

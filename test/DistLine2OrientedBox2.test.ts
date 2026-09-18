@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AlignedBox } from '../src/AlignedBox.js';
-import { DistLine2AlignedBox2 } from '../src/DistLine2AlignedBox2.js';
+import { DistLine2AlignedBox2, distLine2AlignedBox2DoQuery,
+    type DistLine2AlignedBox2Result } from '../src/DistLine2AlignedBox2.js';
 import { DistLine2OrientedBox2 } from '../src/DistLine2OrientedBox2.js';
 import { Line } from '../src/Line.js';
 import { OrientedBox } from '../src/OrientedBox.js';
@@ -271,5 +272,63 @@ describe('DistLine2OrientedBox2 verification', () => {
                     length(sub(diff, mul(t, ln.direction))), 1e-9, 1e-9);
                 expectVectorClose(r.closest[1], c, 1e-9, 1e-9);
             });
+    });
+});
+
+// Regression for the C++ oracle of verify group 20. Upstream maps the
+// box-frame closest points back with
+//   result.closest[i] = box.center + temp[i][0] * box.axis[0]
+//                                  + temp[i][1] * box.axis[1];
+// which C++ evaluates as ((center + t0*a0) + t1*a1). The port had grouped the
+// two axis terms first, which changes the last bits; the oracle found the
+// port disagreeing with the MSVC build on 11 of 20 records.
+describe('DistLine2OrientedBox2 accumulation order', () => {
+    const query = new DistLine2OrientedBox2();
+
+    it('maps the closest points back left to right', () => {
+        const rng = makeRandom(20202);
+        let distinguishing = 0;
+        for (let i = 0; i < 500; ++i) {
+            const angle = 2 * Math.PI * rng();
+            const axis = [v(Math.cos(angle), Math.sin(angle)),
+                v(-Math.sin(angle), Math.cos(angle))];
+            const center = v(10 * rng() - 5, 10 * rng() - 5);
+            const extent = v(0.25 + 3 * rng(), 0.25 + 3 * rng());
+            const box = OrientedBox.fromCenterAxisExtent(center, axis, extent);
+            const theta = 2 * Math.PI * rng();
+            const ln = line([10 * rng() - 5, 10 * rng() - 5],
+                [Math.cos(theta), Math.sin(theta)]);
+            const r = query.compute(ln, box);
+
+            // The box-frame query, run exactly as the port runs it.
+            const delta = sub(ln.origin, box.center);
+            const origin = v(dot(box.axis[0], delta), dot(box.axis[1], delta));
+            const direction = v(dot(box.axis[0], ln.direction),
+                dot(box.axis[1], ln.direction));
+            const inner: DistLine2AlignedBox2Result = {
+                distance: 0, sqrDistance: 0, parameter: 0,
+                closest: [new Vector(2), new Vector(2)]
+            };
+            distLine2AlignedBox2DoQuery(origin, direction, box.extent, inner);
+
+            for (let k = 0; k < 2; ++k) {
+                const t0 = inner.closest[k].values[0];
+                const t1 = inner.closest[k].values[1];
+                const left = add(add(box.center, mul(t0, box.axis[0])),
+                    mul(t1, box.axis[1]));
+                const right = add(box.center,
+                    add(mul(t0, box.axis[0]), mul(t1, box.axis[1])));
+                for (let c = 0; c < 2; ++c) {
+                    expect(Object.is(r.closest[k].values[c],
+                        left.values[c])).toBe(true);
+                    if (!Object.is(left.values[c], right.values[c])) {
+                        ++distinguishing;
+                    }
+                }
+            }
+        }
+        // The two groupings really do differ on this sample, so the
+        // assertions above are not vacuous.
+        expect(distinguishing).toBeGreaterThan(0);
     });
 });

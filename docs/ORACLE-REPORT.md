@@ -9,7 +9,7 @@ upstream GTE code compiled with MSVC; the port replays the same inputs. See
 - compiler MSVC 194435215 x64 /O2 /fp:precise
 - records-per-case 20
 
-**172 cases, 3220 records, 12528 floating-point outputs compared; 99.83% bit-identical to the C++ build. 159 cases are bit-identical on every output. 11 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
+**200 cases, 3660 records, 16113 floating-point outputs compared; 99.59% bit-identical to the C++ build. 180 cases are bit-identical on every output. 17 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
 
 Discrete outputs (booleans, counts, indices) always compare exactly and are not counted
 in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |port|, |C++|)`.
@@ -18,6 +18,7 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | smoke | 7 | 140 | 1224 | 99.67% | 6 | 1.11e-16 | `Rotation.axisAngleToMatrixAndQuaternion` |
 | v19-distance | 43 | 780 | 6976 | 100.00% | 39 | 0 |  |
+| v20-distance | 28 | 440 | 3585 | 98.74% | 21 | 1.33e-15 | `DistLine3Circle3.compute` |
 | v30-intersection | 61 | 1200 | 1684 | 100.00% | 60 | 0 |  |
 | v31-intersection | 61 | 1100 | 2644 | 99.36% | 54 | 3.70e-14 | `IntrLine3Torus3.find` |
 
@@ -33,6 +34,12 @@ every record.
 | v19-distance | `DistSegmentSegment.computeRobust.3d.deviation` | 9 of 20 | UPSTREAM-FINDINGS DistSegmentSegment.h, issue #418 |
 | v19-distance | `DistLine2Triangle2.compute.deviation` | 20 of 20 | UPSTREAM-FINDINGS DistLine2Triangle2.h, issue #441 |
 | v19-distance | `DistLine3CanonicalBox3.compute.deviation` | 20 of 20 | UPSTREAM-FINDINGS DistLine3CanonicalBox3.h, issue #421 |
+| v20-distance | `DistLine3OrientedBox3.compute.deviation` | 20 of 20 | UPSTREAM-FINDINGS DistLine3OrientedBox3.h: closest[0] is written in world space and then transformed again as if it were in the box frame |
+| v20-distance | `DistPoint3Cylinder3.compute.deviation` | 20 of 20 | UPSTREAM-FINDINGS DistPoint3Cylinder3.h: the infinite-cylinder test is height == DBL_MAX, but the Cylinder3 sentinel is height = -1, so upstream throws on it |
+| v20-distance | `DistPoint3Frustum3.compute.deviation` | 20 of 20 | UPSTREAM-FINDINGS DistPoint3Frustum3.h: two of the ten far-edge assignments do not clamp the free coordinate, so the closest point lies outside the frustum |
+| v20-distance | `DistLine3Circle3.compute.axis.deviation` | 20 of 20 | UPSTREAM-FINDINGS DistLine3Circle3.h: Finalize normalizes a possibly-zero projection and then reports the circle center as the closest circle point (issue #421) |
+| v20-distance | `DistLine3Circle3.compute.tauHat` | 20 of 20 | UPSTREAM-FINDINGS DistLine3Circle3.h: tauHat is missing the division by a2 (issue #247) |
+| v20-distance | `DistLine3Circle3.compute.nearPerpendicular` | 20 of 20 | UPSTREAM-FINDINGS DistLine3Circle3.h: t = tau + s cancels away the significant digits of the critical parameter for a near-perpendicular line (issue #421 item 3) |
 | v30-intersection | `IntrIntervals.findDynamic.leftApproachDeviation` | 20 of 20 | UPSTREAM-FINDINGS IntrIntervals.h dynamic FIQuery (#62) |
 | v31-intersection | `IntrOrientedBox2Sector2.test.clipDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrOrientedBox2Sector2.h boundary clipping; issue #200 |
 | v31-intersection | `IntrHalfspace3Cylinder3.test.rootDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrHalfspace3Cylinder3.h root computation; issue #197 |

@@ -9,7 +9,7 @@ import {
     check, expectClose, expectVectorClose, fc, finite, rotationFrame,
     unitVector, wellScaledVector
 } from './helpers/arbitraries.js';
-import { cross } from '../src/Vector3.js';
+import { computeOrthogonalComplement3, cross } from '../src/Vector3.js';
 
 function v(...values: number[]): Vector {
     return Vector.fromArray(values);
@@ -291,5 +291,74 @@ describe('DistPoint3Cylinder3 verification', () => {
         expect(() => query.compute(v(1, 0, 0),
             Cylinder3.fromAxisRadiusHeight(axis, 1, 0)))
             .toThrow('The cylinder must have a positive height.');
+    });
+});
+
+// Regression for the C++ oracle of verify group 20. Upstream maps the closest
+// cylinder point back with
+//   result.closest[1] = cylinder.axis.origin + c[0] * basis[1]
+//                     + c[1] * basis[2] + c[2] * basis[0];
+// which C++ evaluates as (((origin + c0*b1) + c1*b2) + c2*b0). The port had
+// grouped the three basis terms first, which changes the last bits.
+describe('DistPoint3Cylinder3 accumulation order', () => {
+    const query = new DistPoint3Cylinder3();
+
+    // The local coordinates of the closest point, as the port computes them.
+    function localClosest(P: Vector, radius: number, height: number): Vector {
+        const sqrRadius = radius * radius;
+        const sqrDistance = P.values[0] * P.values[0]
+            + P.values[1] * P.values[1];
+        let closest: Vector;
+        if (sqrDistance >= sqrRadius) {
+            const dist = Math.sqrt(sqrDistance);
+            const temp = radius / dist;
+            closest = v(P.values[0] * temp, P.values[1] * temp, P.values[2]);
+        } else {
+            closest = P.clone();
+        }
+        const halfHeight = 0.5 * height;
+        if (closest.values[2] > halfHeight) {
+            closest.values[2] = halfHeight;
+        } else if (closest.values[2] < -halfHeight) {
+            closest.values[2] = -halfHeight;
+        }
+        return closest;
+    }
+
+    it('maps the closest point back left to right', () => {
+        const rng = makeRandom(20241);
+        let distinguishing = 0;
+        for (let i = 0; i < 500; ++i) {
+            const dir = v(2 * rng() - 1, 2 * rng() - 1, 2 * rng() - 1);
+            if (length(dir) < 0.1) { continue; }
+            normalize(dir);
+            const origin = v(10 * rng() - 5, 10 * rng() - 5, 10 * rng() - 5);
+            const radius = 0.25 + 3 * rng();
+            const height = 0.5 + 5 * rng();
+            const cyl = Cylinder3.fromAxisRadiusHeight(
+                Line.fromOriginDirection(origin, dir), radius, height);
+            const p = v(10 * rng() - 5, 10 * rng() - 5, 10 * rng() - 5);
+            const r = query.compute(p, cyl);
+
+            const basis = [dir.clone(), new Vector(3), new Vector(3)];
+            computeOrthogonalComplement3(1, basis);
+            const delta = sub(p, origin);
+            const P = v(dot(basis[1], delta), dot(basis[2], delta),
+                dot(basis[0], delta));
+            const c = localClosest(P, radius, height);
+            const left = add(add(add(origin, mul(c.values[0], basis[1])),
+                mul(c.values[1], basis[2])), mul(c.values[2], basis[0]));
+            const right = add(origin, add(mul(c.values[0], basis[1]),
+                add(mul(c.values[1], basis[2]), mul(c.values[2], basis[0]))));
+            for (let k = 0; k < 3; ++k) {
+                expect(Object.is(r.closest[1].values[k],
+                    left.values[k])).toBe(true);
+                if (!Object.is(left.values[k], right.values[k])) {
+                    ++distinguishing;
+                }
+            }
+        }
+        // The two groupings really do differ on this sample.
+        expect(distinguishing).toBeGreaterThan(0);
     });
 });
