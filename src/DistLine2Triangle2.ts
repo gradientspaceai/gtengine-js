@@ -72,14 +72,20 @@ function lineContainsVertex(P: Vector, D: Vector, V: readonly Vector[],
 function lineIntersectsTwoEdges(P: Vector, D: Vector, V: readonly Vector[],
     ncomp: readonly number[], i0: number, i1: number, i2: number,
     result: DistLine2Triangle2Result): void {
-    // Upstream computes s = DotPerp(D, P - V[i0]) / DotPerp(D, V[i1] - V[i0]).
+    // Upstream computes s = DotPerp(D, P - V[i0]) / DotPerp(D, V[i1] - V[i0]),
+    // which the port reproduces exactly whenever the denominator is nonzero.
     // Algebraically the numerator is ncomp[i0] and the denominator is
     // ncomp[i0] - ncomp[i1], but rounding the two expressions separately can
     // make the denominator exactly 0 when the edge is numerically parallel to
     // the line while the vertex signs still differ, giving s = +-Infinity and
-    // a NaN result (port fix; upstream returns NaN). The sign condition
-    // guarantees ncomp[i0] - ncomp[i1] != 0, so use the normal components.
-    const s = ncomp[i0] / (ncomp[i0] - ncomp[i1]);
+    // a NaN result (port fix; upstream returns NaN). Only on that path does
+    // the port substitute the normal components, whose difference the sign
+    // condition guarantees to be nonzero.
+    const numerator = dotPerp(D, sub(P, V[i0]));
+    const denominator = dotPerp(D, sub(V[i1], V[i0]));
+    const s = denominator !== 0
+        ? numerator / denominator
+        : ncomp[i0] / (ncomp[i0] - ncomp[i1]);
     const oms = 1 - s;
     const Q = add(mul(oms, V[i0]), mul(s, V[i1]));
     result.distance = 0;
