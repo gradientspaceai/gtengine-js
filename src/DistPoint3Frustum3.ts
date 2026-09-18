@@ -382,10 +382,14 @@ export class DistPoint3Frustum3
         }
 
         // Convert back to the original coordinates.
-        const closest1 = add(frustum.origin,
-            add(mul(closest[0], frustum.rVector),
-                add(mul(closest[1], frustum.uVector),
-                    mul(closest[2], frustum.dVector))));
+        // The sum is accumulated left to right, as upstream's
+        // 'origin + closest[0] * rVector + closest[1] * uVector
+        //  + closest[2] * dVector'.
+        const closest1 = add(
+            add(
+                add(frustum.origin, mul(closest[0], frustum.rVector)),
+                mul(closest[1], frustum.uVector)),
+            mul(closest[2], frustum.dVector));
 
         const sqrDistance = diff[0] * diff[0] + diff[1] * diff[1]
             + diff[2] * diff[2];

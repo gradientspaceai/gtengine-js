@@ -66,11 +66,13 @@ export class DistLine2OrientedBox2
 
         // Rotate and translate the closest points to the original
         // coordinates.
+        // The sum is accumulated left to right, as upstream's
+        // 'box.center + temp[i][0] * box.axis[0] + temp[i][1] * box.axis[1]'.
         const temp = [result.closest[0], result.closest[1]];
         for (let i = 0; i < 2; ++i) {
-            result.closest[i] = add(box.center,
-                add(mul(temp[i].values[0], box.axis[0]),
-                    mul(temp[i].values[1], box.axis[1])));
+            result.closest[i] = add(
+                add(box.center, mul(temp[i].values[0], box.axis[0])),
+                mul(temp[i].values[1], box.axis[1]));
         }
 
         // Compute the distance and squared distance.

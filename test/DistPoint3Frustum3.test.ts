@@ -427,3 +427,65 @@ describe('DistPoint3Frustum3 far-edge clamping', () => {
         }
     });
 });
+
+// Regression for the C++ oracle of verify group 20. Upstream maps the closest
+// frustum point back with
+//   result.closest[1] = frustum.origin + closest[0] * frustum.rVector
+//                     + closest[1] * frustum.uVector
+//                     + closest[2] * frustum.dVector;
+// which C++ evaluates as (((origin + c0*r) + c1*u) + c2*d). The port had
+// grouped the three axis terms first, which changes the last bits.
+describe('DistPoint3Frustum3 accumulation order', () => {
+    const query = new DistPoint3Frustum3();
+
+    it('maps the closest point back left to right', () => {
+        const rng = makeRandom(20203);
+        let distinguishing = 0;
+        for (let i = 0; i < 500; ++i) {
+            const rVector = v(2 * rng() - 1, 2 * rng() - 1, 2 * rng() - 1);
+            if (length(rVector) < 0.1) { continue; }
+            normalize(rVector);
+            let uVector = v(2 * rng() - 1, 2 * rng() - 1, 2 * rng() - 1);
+            uVector = sub(uVector, mul(dot(uVector, rVector), rVector));
+            if (length(uVector) < 0.25) { continue; }
+            normalize(uVector);
+            const dVector = cross(rVector, uVector);
+            const origin = v(8 * rng() - 4, 8 * rng() - 4, 8 * rng() - 4);
+            const dMin = 0.5 + 1.5 * rng();
+            const dMax = dMin + 0.5 + 4 * rng();
+            const uBound = 0.25 + 1.75 * rng();
+            const rBound = 0.25 + 1.75 * rng();
+            const frustum = Frustum3.fromParameters(origin, dVector, uVector,
+                rVector, dMin, dMax, uBound, rBound);
+
+            // A point strictly inside the frustum, where the closest point is
+            // the point itself in frustum coordinates, so the mapping back is
+            // the only step that can differ.
+            const d = dMin + (dMax - dMin) * (0.05 + 0.9 * rng());
+            const a = rBound * (d / dMin) * (1.8 * rng() - 0.9);
+            const b = uBound * (d / dMin) * (1.8 * rng() - 0.9);
+            const p = add(add(add(origin, mul(a, rVector)),
+                mul(b, uVector)), mul(d, dVector));
+            const r = query.compute(p, frustum);
+            if (r.distance !== 0) { continue; }
+
+            // The frustum coordinates, as the port computes them.
+            const diff = sub(p, origin);
+            const test = [dot(diff, rVector), dot(diff, uVector),
+                dot(diff, dVector)];
+            const left = add(add(add(origin, mul(test[0], rVector)),
+                mul(test[1], uVector)), mul(test[2], dVector));
+            const right = add(origin, add(mul(test[0], rVector),
+                add(mul(test[1], uVector), mul(test[2], dVector))));
+            for (let k = 0; k < 3; ++k) {
+                expect(Object.is(r.closest[1].values[k],
+                    left.values[k])).toBe(true);
+                if (!Object.is(left.values[k], right.values[k])) {
+                    ++distinguishing;
+                }
+            }
+        }
+        // The two groupings really do differ on this sample.
+        expect(distinguishing).toBeGreaterThan(0);
+    });
+});
