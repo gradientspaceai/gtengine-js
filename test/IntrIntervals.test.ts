@@ -887,4 +887,25 @@ describe('IntrIntervals verification', () => {
         expect(m.firstTime).toBeCloseTo(2, 12);
         expect(m.overlap[0]).toBeCloseTo(1, 12);
     });
+
+    // Regression, found by the C++ oracle (group 31, IntrRay2Triangle2): the
+    // clipped endpoints must keep the sign of zero that upstream's std::max
+    // and std::min produce. Math.max(-0, +0) is +0 and Math.min(+0, -0) is -0,
+    // both of which are the opposite of the C++ result, and the value reaches
+    // the caller as a ray/segment parameter.
+    it('semiinfinite clip keeps the C++ sign of a zero endpoint', () => {
+        const positive = fi.findFiniteSemiInfinite([-0, 3], 0, true);
+        expect(positive.numIntersections).toBe(2);
+        expect(Object.is(positive.overlap[0], -0)).toBe(true);
+
+        const negative = fi.findFiniteSemiInfinite([-3, 0], -0, false);
+        expect(negative.numIntersections).toBe(2);
+        expect(Object.is(negative.overlap[1], 0)).toBe(true);
+
+        const bothPositive = fi.findSemiInfiniteSemiInfinite(-0, true, 0, true);
+        expect(Object.is(bothPositive.overlap[0], -0)).toBe(true);
+
+        const bothNegative = fi.findSemiInfiniteSemiInfinite(0, false, -0, false);
+        expect(Object.is(bothNegative.overlap[1], 0)).toBe(true);
+    });
 });

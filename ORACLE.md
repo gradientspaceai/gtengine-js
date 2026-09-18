@@ -75,11 +75,20 @@ Rules:
 1. **One `io` draw per statement in C++.** Argument evaluation order is
    unspecified and MSVC goes right to left, so `Line3(io.vec<3>(..),
    io.unit<3>())` records the direction before the origin. Draw into named
-   locals, then construct.
+   locals, then construct. This includes `io.given*` calls used as
+   constructor arguments: `Segment3 s(io.givenVec(p0), io.givenVec(p1))`
+   records `p1` first.
 2. Everything the computation depends on must come from an `io` input call,
    because only recorded inputs reach the port. Build derived inputs
    (an orthonormal frame, a point known to lie on a plane) from `io.raw*`
    draws and record the final values with `io.given` / `io.givenVec`.
+   Record each value exactly once (`io.latticeVec` followed by `io.givenVec`
+   of the same vector writes it twice), and remember that
+   `double x = y + io.real(..)` records the increment, not `x`: the replay
+   recomputes `x = y + io.real()`. When "inputs where upstream is sound"
+   has no closed form, use rejection sampling: draw with `io.raw*`, loop on a
+   probe built from upstream's own control flow or an independent reference,
+   record only the accepted draw, and keep the probe next to the case.
 3. Case names are `<Header>.<method>[.<variant>]`, unique within the family.
 4. **Generators must reach the branches.** Pure uniform inputs only visit the
    generic branch. Use `io.index()` to mix modes: uniform, small-lattice
@@ -94,7 +103,10 @@ Rules:
    an integer direction and place the origin at `target - t * direction`.
    Every `>= 0`, `<= 1`, `== 0` in the query is then evaluated at exact
    equality, which is where a reassociated formula shows. The same
-   construction gives an exactly zero discriminant (tangency).
+   construction gives an exactly zero discriminant (tangency). A case whose
+   only output is a boolean needs the histogram most: a generator that always
+   places the box inside the frustum returns `true` 2000 times and tests
+   none of the rejections.
 5. Emit every field of the result that upstream defines on that path. For
    variable-length results emit the count first, then the elements. Do not
    emit fields upstream leaves unset or unspecified on that path.
@@ -130,7 +142,12 @@ Every disagreement gets a root cause. In order of likelihood:
    or template argument, a missing `given`. Fix the case.
 2. **Port deviation** from upstream evaluation order, association
    (`a + b + c` is `(a + b) + c`), a reordered formula, a different constant,
-   a missed branch. Fix `src/` to match upstream, per PORTING.md. A wrong
+   a missed branch. Fix `src/` to match upstream, per PORTING.md.
+   `Math.max` / `Math.min` are NOT `std::max` / `std::min`: they order `-0`
+   below `+0` and propagate NaN, where upstream's `(a < b ? b : a)` returns
+   its first argument on ties and unordered compares. Where the result can
+   reach an output, port the comparison form (first instance: v31,
+   `IntrIntervals`). A wrong
    *result* (not just rounding) also gets a regression test in
    `test/<Name>.test.ts`.
 3. **Deliberate port fix** of an upstream defect (search

@@ -44,6 +44,23 @@
 import type { TIQuery } from './TIQuery.js';
 import type { FIQuery } from './FIQuery.js';
 
+// The ports of 'std::max' and 'std::min', which are specified as
+// '(a < b ? b : a)' and '(b < a ? b : a)'. Math.max and Math.min are not
+// substitutes: they order -0 below +0, so Math.max(-0, +0) is +0 where
+// std::max(-0, +0) is -0 (and Math.min(+0, -0) is -0 where std::min(+0, -0)
+// is +0). The difference is observable here because the overlap values are
+// returned to the caller: the C++ oracle caught it through
+// IntrRay2Triangle2, whose clip against [0,+infinity) returns
+// std::max(parameter[0], 0) = -0 for a ray whose first contact parameter is
+// a negative zero.
+function stdMax(a: number, b: number): number {
+    return a < b ? b : a;
+}
+
+function stdMin(a: number, b: number): number {
+    return b < a ? b : a;
+}
+
 // The kind of intersection set reported by IntrIntervalsFI. Upstream stores
 // these as 'static int32_t const' members of FIQuery::Result.
 export enum IntrIntervalsFIResultType {
@@ -298,7 +315,7 @@ export class IntrIntervalsFI implements FIQuery<readonly number[], readonly numb
 
         if (isPositiveInfinite) {
             if (finite[1] > a) {
-                result.overlap[0] = Math.max(finite[0], a);
+                result.overlap[0] = stdMax(finite[0], a);
                 result.overlap[1] = finite[1];
                 if (result.overlap[0] < result.overlap[1]) {
                     result.numIntersections = 2;
@@ -325,7 +342,7 @@ export class IntrIntervalsFI implements FIQuery<readonly number[], readonly numb
         else {  // is negative-infinite
             if (finite[0] < a) {
                 result.overlap[0] = finite[0];
-                result.overlap[1] = Math.min(finite[1], a);
+                result.overlap[1] = stdMin(finite[1], a);
                 if (result.overlap[0] < result.overlap[1]) {
                     result.numIntersections = 2;
                     result.type = IntrIntervalsFIResultType.isFinite;
@@ -366,7 +383,7 @@ export class IntrIntervalsFI implements FIQuery<readonly number[], readonly numb
                 // positive-infinite, so the +1 is a reminder that overlap[1]
                 // is +infinity.
                 result.numIntersections = 1;
-                result.overlap[0] = Math.max(a0, a1);
+                result.overlap[0] = stdMax(a0, a1);
                 result.overlap[1] = +1;
                 result.type = IntrIntervalsFIResultType.isPositiveInfinite;
             }
@@ -424,7 +441,7 @@ export class IntrIntervalsFI implements FIQuery<readonly number[], readonly numb
                 // is -infinity.
                 result.numIntersections = 1;
                 result.overlap[0] = -1;
-                result.overlap[1] = Math.min(a0, a1);
+                result.overlap[1] = stdMin(a0, a1);
                 result.type = IntrIntervalsFIResultType.isNegativeInfinite;
             }
         }
