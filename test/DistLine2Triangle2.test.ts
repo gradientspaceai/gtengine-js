@@ -3,7 +3,7 @@ import { DistLine2Triangle2 } from '../src/DistLine2Triangle2.js';
 import { Line } from '../src/Line.js';
 import { Triangle } from '../src/Triangle.js';
 import { Vector, add, dot, length, mul, sub } from '../src/Vector.js';
-import { perp } from '../src/Vector2.js';
+import { dotPerp, perp } from '../src/Vector2.js';
 import { DistPointTriangle } from '../src/DistPointTriangle.js';
 import { check, expectClose, expectVectorClose, fc, rotationFrame, seededRandom, wellScaledVector } from './helpers/arbitraries.js';
 
@@ -266,6 +266,43 @@ describe('DistLine2Triangle2 verification', () => {
             expect(b).toBeGreaterThanOrEqual(-1e-12);
             expect(b).toBeLessThanOrEqual(1 + 1e-12);
         }
+    });
+
+    it('reproduces the upstream edge parameter bit for bit when the '
+        + 'denominator is nonzero', () => {
+        // The NaN fix above must not change the generic path: whenever
+        // DotPerp(D, V[i1] - V[i0]) is nonzero, the port must evaluate
+        // upstream's s = DotPerp(D, P - V[i0]) / DotPerp(D, V[i1] - V[i0])
+        // rather than the algebraically equal normal-component quotient, which
+        // rounds differently (the C++ oracle saw a few-ulp difference on 12.6%
+        // of the records of DistLine2Triangle2.compute).
+        const rng = seededRandom(20260918);
+        const uniform = (): number => -5 + 10 * rng();
+        let tested = 0;
+        for (let trial = 0; trial < 2000 && tested < 200; ++trial) {
+            const P = v(uniform(), uniform());
+            const D = v(uniform(), uniform());
+            const V = [v(uniform(), uniform()), v(uniform(), uniform()),
+                v(uniform(), uniform())];
+            const N = perp(D);
+            const ncomp = V.map((x) => dot(N, sub(x, P)));
+            // Pick the ++- row of the sign table, for which upstream calls
+            // LineIntersectsTwoEdges(P, D, V, 2, 0, 1): barycentric[2] is
+            // 1 - s, barycentric[0] is s.
+            if (!(ncomp[0] > 0 && ncomp[1] > 0 && ncomp[2] < 0)) {
+                continue;
+            }
+            const denominator = dotPerp(D, sub(V[0], V[2]));
+            if (denominator === 0) { continue; }
+            const s = dotPerp(D, sub(P, V[2])) / denominator;
+            const r = new DistLine2Triangle2().compute(
+                Line.fromOriginDirection(P, D),
+                Triangle.fromVertexArray([V[0], V[1], V[2]]));
+            expect(r.barycentric[0]).toBe(s);
+            expect(r.barycentric[2]).toBe(1 - s);
+            ++tested;
+        }
+        expect(tested).toBeGreaterThan(50);
     });
 
     const query = new DistLine2Triangle2();

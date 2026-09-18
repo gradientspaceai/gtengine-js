@@ -255,7 +255,13 @@ describe('DistSegment3AlignedBox3 verification', () => {
             const dir = sub(seg.p[1], seg.p[0]);
             const f = (t: number): number =>
                 v21PointDistance(add(seg.p[0], mul(t, dir)), s);
-            expectClose(res.distance, v21MinOnInterval(f, 0, 1), 1e-7, 1e-7);
+            // Compare squared distances: the query accumulates sqrDistance
+            // from coordinates of size ~8, so its absolute error is ~1e-14
+            // and a true distance of 2e-7 (sqrDistance 4e-14) legitimately
+            // comes back as 0. An absolute bound on the distance itself is
+            // sqrt-conditioned there and cannot be tighter than ~1e-6.
+            const ref = v21MinOnInterval(f, 0, 1);
+            expectClose(res.sqrDistance, ref * ref, 1e-11, 1e-6);
         }, 60);
     }, 30000);
 

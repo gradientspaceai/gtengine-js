@@ -99,7 +99,9 @@ function getMinInterior(p0: Param, h0: number, p1: Param,
 function makeResult(point: Vector, triangle: Triangle, edge0: Vector,
     edge1: Vector, s: number, t: number): DistPointTriangleResult {
     const closest0 = point.clone();
-    const closest1 = add(triangle.v[0], add(mul(s, edge0), mul(t, edge1)));
+    // Upstream evaluates v[0] + s * edge0 + t * edge1 left to right; keep
+    // that association so the rounding matches the C++ build bit for bit.
+    const closest1 = add(add(triangle.v[0], mul(s, edge0)), mul(t, edge1));
     const diff = sub(closest0, closest1);
     const sqrDistance = dot(diff, diff);
     return {

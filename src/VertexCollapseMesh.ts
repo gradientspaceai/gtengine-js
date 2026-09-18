@@ -428,6 +428,22 @@ export class VertexCollapseMesh {
         // mesh already contains the (diagonal) edge, which will lead to a
         // nonmanifold connection, which we cannot allow. The following code
         // traps this condition before any triangle is removed.
+
+        // KNOWN UPSTREAM DEFECT (fixed here): upstream triangulates the link
+        // with TriangulateEC<Real, Real>. When the projected link has
+        // collinear vertices, floating-point ear clipping can return an
+        // invalid triangulation (observed: the same triangle twice and a link
+        // edge uncovered). Upstream then removes the old neighborhood, fails
+        // to insert the duplicate, and returns VCM_UNEXPECTED_ERROR with the
+        // mesh already modified and the link left open. A valid triangulation
+        // of the link has n-2 triangles, covers every link edge once and
+        // every other edge (a diagonal) twice; anything else defers the
+        // vertex before the mesh is touched. Valid triangulations take
+        // exactly the upstream path below.
+        if (!isLinkTriangulation(inserted, linkVertices)) {
+            return CollapseStatus.DEFERRED;
+        }
+
         const edges = new Set<string>();
         for (const tri of inserted) {
             for (let k0 = 2, k1 = 0; k1 < 3; k0 = k1++) {
@@ -487,4 +503,42 @@ export class VertexCollapseMesh {
 
         return CollapseStatus.ALLOWED;
     }
+}
+
+// True when 'inserted' is topologically a triangulation of the polygon
+// 'linkVertices': n-2 triangles, each polygon edge used once and every other
+// edge used twice.
+function isLinkTriangulation(inserted: readonly TriangleKey[],
+    linkVertices: readonly number[]): boolean {
+    const numVertices = linkVertices.length;
+    if (inserted.length !== numVertices - 2) {
+        return false;
+    }
+
+    const count = new Map<string, number>();
+    for (const tri of inserted) {
+        for (let k0 = 2, k1 = 0; k1 < 3; k0 = k1++) {
+            const v0 = Math.min(tri.V[k0], tri.V[k1]);
+            const v1 = Math.max(tri.V[k0], tri.V[k1]);
+            const key = `${v0},${v1}`;
+            count.set(key, (count.get(key) ?? 0) + 1);
+        }
+    }
+
+    for (let i0 = numVertices - 1, i1 = 0; i1 < numVertices; i0 = i1++) {
+        const v0 = Math.min(linkVertices[i0], linkVertices[i1]);
+        const v1 = Math.max(linkVertices[i0], linkVertices[i1]);
+        const key = `${v0},${v1}`;
+        if (count.get(key) !== 1) {
+            return false;
+        }
+        count.delete(key);
+    }
+
+    for (const uses of count.values()) {
+        if (uses !== 2) {
+            return false;
+        }
+    }
+    return true;
 }
