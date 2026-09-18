@@ -135,14 +135,14 @@ Every disagreement gets a root cause. In order of likelihood:
 4. **Math library rounding**: compare with tolerance as above.
 5. **Upstream undefined or unspecified behaviour** (uninitialised reads,
    evaluation-order dependence, signed overflow): restrict the generator,
-   describe it under "Upstream bug suspects" in the PR.
+   describe it under "Upstream bug suspects" in the group report.
 
 Never loosen a tolerance or narrow a generator to make a disagreement
 disappear without knowing which of these it is.
 
 ## Deep runs
 
-The committed goldens hold 20 records per case. Before a PR, run
+The committed goldens hold 20 records per case. Before the final push, run
 `npm run oracle:deep -- 2000 <family>` (2000 records per case, not committed).
 A disagreement that only a deep run reaches gets its own targeted case whose
 generator concentrates on that configuration, so the committed goldens cover it.
