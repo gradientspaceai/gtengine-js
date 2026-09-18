@@ -80,6 +80,14 @@ function checkVerticesOnLevelSet(voxels: number[], size: number, level: number,
         const step = k === 0 ? 1 : (k === 1 ? size : size * size);
         const f0 = voxels[base];
         const f1 = voxels[base + step];
+        if ((f0 - level) * (f1 - level) > 0) {
+            // The level does not cross this grid edge, so the vertex is a
+            // branch point or centroid that symmetry placed on a grid line
+            // (32 of the 34992 two-sphere inputs do this, for example
+            // (3 + 1/12, 3, 3) between the samples 3 and 1).
+            ++numComposite;
+            continue;
+        }
         if (Math.abs(f0 + t * (f1 - f0) - level) > 1.0e-9) {
             ++numBad;
         }

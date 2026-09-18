@@ -71,11 +71,11 @@ Nothing here has been reported upstream before; this document is the report.
 
 ## Counts
 
-- **491 distinct findings** across **155** tracked issues (one issue
+- **492 distinct findings** across **156** tracked issues (one issue
   frequently holds several findings in related files).
-- By severity: **240 result-corrupting**, **14 wrong but
+- By severity: **241 result-corrupting**, **14 wrong but
   recoverable**, **164 minor**, **73 documentation**.
-- By port status: **253 fixed or corrected in the port** (of which 152 are code
+- By port status: **254 fixed or corrected in the port** (of which 153 are code
   fixes with regression tests, 22 are added guards or asserts where upstream has
   undefined behaviour, 64 are comment corrections, 11 are dead-code removals and
   4 are documented deliberate deviations), **229 preserved deliberately**, and
@@ -582,6 +582,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `Vector4.h` | `ComputeOrthogonalComplement` | the `maxIndex == 3` branch yields the zero vector whenever components 1 and 2 vanish | WR | preserved | [#87](https://github.com/gradientspaceai/gtengine-js/issues/87) |
 | `VEManifoldMesh.h` | `Insert` | writes the new edge into `mEMap` before the nonmanifold check, leaving a phantom edge on failure | RC | preserved | [#73](https://github.com/gradientspaceai/gtengine-js/issues/73) |
 | `VertexCollapseMesh.h` | `Collapsed` comment, `VCM_NO_MORE_ALLOWED` | the comment describes a restore that never happens; the code never returns that status | doc | corrected | [#295](https://github.com/gradientspaceai/gtengine-js/issues/295), [#412](https://github.com/gradientspaceai/gtengine-js/issues/412) |
+| `VertexCollapseMesh.h` | `TriangulateLink`, `Collapsed` | floating-point ear clipping of a link with collinear vertices returns a duplicate triangle; the old fan is removed before the failure is noticed, so `DoCollapse` returns false with a corrupted mesh | RC | fixed | [#498](https://github.com/gradientspaceai/gtengine-js/issues/498) |
 | `VertexCollapseMesh.h` | `DoCollapse` | `record.vertex = 0x80000000` relies on implementation-defined conversion pre-C++20 | minor | preserved | [#295](https://github.com/gradientspaceai/gtengine-js/issues/295) |
 | `VETNonmanifoldMesh.h` | `Remove` | the assertion is inverted and fires for every well-formed mesh | RC | fixed | [#240](https://github.com/gradientspaceai/gtengine-js/issues/240) |
 | `VTSManifoldMesh.h` | `Remove` | over-erases `VAdjacent`, dropping adjacencies still contributed by surviving faces | RC | fixed | [#256](https://github.com/gradientspaceai/gtengine-js/issues/256) |
@@ -4090,7 +4091,19 @@ omits the nonmanifold-diagonal case. `DoCollapse`'s
 `record.vertex = 0x80000000` relies on implementation-defined unsigned-to-int32
 conversion pre-C++20.
 
-Issues [#295](https://github.com/gradientspaceai/gtengine-js/issues/295), [#412](https://github.com/gradientspaceai/gtengine-js/issues/412).
+**Invalid link triangulation corrupts the mesh (fixed in the port).**
+`TriangulateLink` uses `TriangulateEC<Real, Real>`. For a projected link with
+collinear vertices the floating-point ear clipping can return an invalid
+triangulation: on a 6x6 grid that is flat except `z[1] = 0.5999999330626311`,
+`z[4] = -0.10950932320884953`, the 16th collapse has the link
+`0 1 2 3 4 11 17 23 29` and receives `<11,17,29>` twice with the edges `17-23`,
+`23-29` uncovered. `Collapsed` removes the 9 old triangles, inserts 6, finds a
+missing link edge and returns `VCM_UNEXPECTED_ERROR` with the mesh already
+modified. The port checks, before removing anything, that the inserted triangles
+are topologically a triangulation of the link (`n-2` triangles, link edges used
+once, all other edges twice) and defers the vertex otherwise.
+
+Issues [#295](https://github.com/gradientspaceai/gtengine-js/issues/295), [#412](https://github.com/gradientspaceai/gtengine-js/issues/412), [#498](https://github.com/gradientspaceai/gtengine-js/issues/498).
 ### Remaining single-item findings
 
 - `AlignedBoxBV.h`: `GetSplittingAxis` has a dead store `maxExtent = extents[2]`.

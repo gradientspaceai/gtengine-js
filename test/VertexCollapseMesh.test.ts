@@ -485,6 +485,26 @@ describe('VertexCollapseMesh verification', () => {
         });
     });
 
+    it('defers a vertex whose link triangulation is invalid instead of'
+        + ' corrupting the mesh', () => {
+        // Found by CI: on this nearly flat 6x6 grid the 16th collapse reaches
+        // a 9-vertex link with four collinear vertices, for which the
+        // floating-point ear clipping returns the triangle <11,17,29> twice.
+        // Upstream removes the old fan, fails on the duplicate insert and
+        // reports an unexpected error with the mesh already modified. The
+        // port defers the vertex before touching the mesh.
+        const g = grid(6);
+        g.positions[1].values[2] = 0.5999999330626311;
+        g.positions[4].values[2] = -0.10950932320884953;
+        const vcm = new VertexCollapseMesh(g.positions, g.indices);
+        const mesh = vcm.getMesh();
+        const results = collapseAll(vcm, g.positions.length + 5);
+        expect(results.length).toBe(15);
+        expect(mesh.getNumTriangles()).toBe(20);
+        expect(mesh.getNumVertices()).toBe(21);
+        expectManifold(mesh);
+    });
+
     it('stops without changing the mesh once no collapse is allowed', () => {
         check(heightGrid, ({ positions, indices }) => {
             const vcm = new VertexCollapseMesh(positions, indices);
