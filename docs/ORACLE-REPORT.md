@@ -9,7 +9,7 @@ upstream GTE code compiled with MSVC; the port replays the same inputs. See
 - compiler MSVC 194435215 x64 /O2 /fp:precise
 - records-per-case 20
 
-**111 cases, 2120 records, 9884 floating-point outputs compared; 99.96% bit-identical to the C++ build. 105 cases are bit-identical on every output. 5 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
+**172 cases, 3220 records, 12528 floating-point outputs compared; 99.83% bit-identical to the C++ build. 159 cases are bit-identical on every output. 11 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
 
 Discrete outputs (booleans, counts, indices) always compare exactly and are not counted
 in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |port|, |C++|)`.
@@ -19,6 +19,7 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | smoke | 7 | 140 | 1224 | 99.67% | 6 | 1.11e-16 | `Rotation.axisAngleToMatrixAndQuaternion` |
 | v19-distance | 43 | 780 | 6976 | 100.00% | 39 | 0 |  |
 | v30-intersection | 61 | 1200 | 1684 | 100.00% | 60 | 0 |  |
+| v31-intersection | 61 | 1100 | 2644 | 99.36% | 54 | 3.70e-14 | `IntrLine3Torus3.find` |
 
 ## Deliberate deviations from the C++ build
 
@@ -33,3 +34,9 @@ every record.
 | v19-distance | `DistLine2Triangle2.compute.deviation` | 20 of 20 | UPSTREAM-FINDINGS DistLine2Triangle2.h, issue #441 |
 | v19-distance | `DistLine3CanonicalBox3.compute.deviation` | 20 of 20 | UPSTREAM-FINDINGS DistLine3CanonicalBox3.h, issue #421 |
 | v30-intersection | `IntrIntervals.findDynamic.leftApproachDeviation` | 20 of 20 | UPSTREAM-FINDINGS IntrIntervals.h dynamic FIQuery (#62) |
+| v31-intersection | `IntrOrientedBox2Sector2.test.clipDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrOrientedBox2Sector2.h boundary clipping; issue #200 |
+| v31-intersection | `IntrHalfspace3Cylinder3.test.rootDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrHalfspace3Cylinder3.h root computation; issue #197 |
+| v31-intersection | `IntrLine3Capsule3.doQuery.capTangentDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrLine3Capsule3.h hemisphere roots; issue #461 item 2 |
+| v31-intersection | `IntrLine3Capsule3.doQuery.junctionDeviation` | 17 of 20 | docs/UPSTREAM-FINDINGS.md IntrLine3Capsule3.h cap-junction plane; issue #461 item 3 |
+| v31-intersection | `IntrCylinder3Cylinder3.test.infiniteDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrCylinder3Cylinder3.h missing IsFinite guard; issue #197 |
+| v31-intersection | `IntrCanonicalBox3Cylinder3.test.edgeTypoDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrCanonicalBox3Cylinder3.h DoQueryNoZeros (U1,-D) sign typo; issue #197 |
