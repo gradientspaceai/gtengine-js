@@ -1694,7 +1694,11 @@ direction `(-2.5613545596609416e-14, 2.9921808228827933)`; triangle
 rounds to 0.
 
 **Suggested fix (applied in the port).** `s = ncomp[i0] / (ncomp[i0] - ncomp[i1])`,
-which the sign condition guarantees is finite and in `[0,1]`.
+which the sign condition guarantees is finite and in `[0,1]`. The port uses it
+only when upstream's denominator `DotPerp(D, V[i1] - V[i0])` is exactly 0 and
+evaluates upstream's quotient otherwise: the two are algebraically equal but
+round differently, and the C++ oracle (family `v19-distance`) showed that the
+unconditional replacement moved 12.6% of ordinary results by a few ulps.
 
 Minor in the same file: `NoCommonPoints` sets
 `result.distance = min |Dot(Perp(D), V[i] - P)|`, which is scaled by `|D|` and so

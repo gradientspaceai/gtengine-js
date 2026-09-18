@@ -86,7 +86,15 @@ Rules:
    (`latticeVec`, exact arithmetic and plenty of parallel/touching/coincident
    configurations), and constructions aimed at specific branches (parallel
    lines, tangent spheres, points on faces). Respect documented preconditions
-   (unit-length directions, positive extents).
+   (unit-length directions, positive extents). Check the deep run's branch
+   histogram: uniform lines, rays and segments hit a triangle, rectangle or
+   sphere in 5-15% of records and never on a boundary. The general recipe for
+   a boundary is exact construction: draw the primitive on an integer lattice,
+   compute a target point on it with dyadic coefficients (`k/4`, `a/2`), draw
+   an integer direction and place the origin at `target - t * direction`.
+   Every `>= 0`, `<= 1`, `== 0` in the query is then evaluated at exact
+   equality, which is where a reassociated formula shows. The same
+   construction gives an exactly zero discriminant (tangency).
 5. Emit every field of the result that upstream defines on that path. For
    variable-length results emit the count first, then the elements. Do not
    emit fields upstream leaves unset or unspecified on that path.
@@ -131,7 +139,14 @@ Every disagreement gets a root cause. In order of likelihood:
    is sound, and add a second case aimed at the defect, declared
    `{ deviation: '<issue or finding reference>' }`: that test passes only
    while the port disagrees with C++ on at least one record, so the fix is
-   demonstrated against the real build.
+   demonstrated against the real build. A deliberate fix must be confined to
+   the inputs on which upstream is actually defective: if the main case
+   disagrees on ordinary inputs, the fix is too broad. Narrow it in `src/`
+   (guard on the exact defective condition and evaluate upstream's expression
+   everywhere else) instead of declaring the whole case a deviation. A
+   `deviation` case only shows that some inputs deviate, never that the rest
+   agree, so the main case stays broad. (First instance: v19,
+   `DistLine2Triangle2`.)
 4. **Math library rounding**: compare with tolerance as above.
 5. **Upstream undefined or unspecified behaviour** (uninitialised reads,
    evaluation-order dependence, signed overflow): restrict the generator,
