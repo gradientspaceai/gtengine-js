@@ -177,16 +177,38 @@ describe('DistPoint2Parallelogram2 verification', () => {
             });
         });
 
-    it('matches a brute-force minimization over the parallelogram', () => {
+    // An independent exact reference: zero for a point whose (s0,s1)
+    // coordinates are inside [-1,1]^2, otherwise the smallest distance to the
+    // four boundary segments. (The sampled bruteForce() above stalls on skewed
+    // axes and needed a 1e-3 bound that CI still crossed by one ulp.)
+    const exactDistance = (p: Vector, g: Parallelogram2): number => {
+        const [s0, s1] = coordinates(g, p);
+        if (Math.abs(s0) <= 1 && Math.abs(s1) <= 1) {
+            return 0;
+        }
+        const corner = (a: number, b: number): Vector => add(g.center,
+            add(mul(a, g.axis[0]), mul(b, g.axis[1])));
+        const c = [corner(-1, -1), corner(1, -1), corner(1, 1),
+            corner(-1, 1)];
+        let best = Number.MAX_VALUE;
+        for (let i = 0; i < 4; ++i) {
+            const e = sub(c[(i + 1) % 4], c[i]);
+            const t = Math.max(0, Math.min(1,
+                dot(sub(p, c[i]), e) / dot(e, e)));
+            best = Math.min(best, length(sub(p, add(c[i], mul(t, e)))));
+        }
+        return best;
+    };
+
+    it('matches the exact point-to-boundary reference', () => {
         check(fc.tuple(pointArb, pgmArb), ([p, g]) => {
             const d = query.compute(p, g).distance;
-            const b = bruteForce(p, g);
-            // The query is the exact minimum, so it can never exceed the
-            // sampled value (sharp direction). The grid + axis-aligned
-            // refinement stalls on skewed axes (observed 6e-6 short of an
-            // interior zero, later 1.4e-4), so the other direction is loose.
-            expect(d).toBeLessThanOrEqual(b + 1e-9);
-            expect(b - d).toBeLessThanOrEqual(1e-3);
+            // A point within round-off of the boundary can be classified
+            // differently by the two methods, which costs at most the
+            // round-off of the (s0,s1) solve scaled by the axis lengths.
+            expectClose(d, exactDistance(p, g), 1e-9, 1e-9);
+            // The sampled minimum can never beat the true minimum.
+            expect(d).toBeLessThanOrEqual(bruteForce(p, g) + 1e-9);
         }, 60);
     }, 30000);
 
