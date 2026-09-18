@@ -1,0 +1,2 @@
+# Golden oracle data is compared byte for byte; never convert line endings.
+oracle/golden/*.txt -text

@@ -6,3 +6,5 @@ coverage/
 *token*.txt
 .DS_Store
 .claude/worktrees/
+oracle/build/
+oracle/out/

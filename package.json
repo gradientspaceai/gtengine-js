@@ -25,7 +25,11 @@
     "prepack": "npm run build",
     "test:fast": "vitest run --reporter=dot",
     "update:verification": "node scripts/update-verification.mjs",
-    "gen:verify-groups": "node scripts/gen-verify-groups.mjs"
+    "gen:verify-groups": "node scripts/gen-verify-groups.mjs",
+    "oracle:build": "node scripts/oracle.mjs build",
+    "oracle:gen": "node scripts/oracle.mjs gen",
+    "oracle:deep": "node scripts/oracle.mjs deep",
+    "oracle:report": "node scripts/oracle.mjs report"
   },
   "keywords": [
     "geometry",
@@ -42,6 +46,7 @@
     "url": "https://github.com/gradientspaceai/gtengine-js.git"
   },
   "devDependencies": {
+    "@types/node": "^22.20.3",
     "fast-check": "^4.9.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"

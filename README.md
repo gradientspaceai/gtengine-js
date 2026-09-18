@@ -28,6 +28,14 @@ tests, and fixed the translation defects it found (46 groups, one PR each,
 labelled [`verify-batch`](https://github.com/gradientspaceai/gtengine-js/issues?q=label%3Averify-batch));
 `porting-status.json` records `verified` per file.
 
+**Differential testing against the compiled C++ is in progress.** The two
+passes above compared source text and tested invariants; neither ran the
+upstream code. A C++ harness built with MSVC against the upstream headers now
+generates inputs and records upstream's outputs bit for bit, and the port
+replays them ([ORACLE.md](ORACLE.md)). Coverage and agreement so far are in
+[docs/ORACLE-REPORT.md](docs/ORACLE-REPORT.md); files not yet listed there have
+not been compared with a real C++ build.
+
 See [docs/API.md](docs/API.md) for the public API conventions,
 [PORTING.md](PORTING.md) for porting rules, [VERIFYING.md](VERIFYING.md) for the
 verification procedure, and
