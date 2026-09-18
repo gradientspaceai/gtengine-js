@@ -164,11 +164,11 @@ generator concentrates on that configuration, so the committed goldens cover it.
 
 ## Branch and report format
 
-The wave is integrated on the branch `oracle/infrastructure` (PR #497), which
-is the single review gate into `main`. Each group works on a branch
-`oracle/vNN` created from `origin/oracle/infrastructure` and pushes it; the
-orchestrator merges group branches into the integration branch. Agents do not
-open or merge pull requests.
+Each group works on a branch `oracle/vNN` created from `origin/main` and
+pushes it. The orchestrator opens one pull request per group against `main`,
+regenerates `docs/ORACLE-REPORT.md` on it, and merges it once CI is green.
+Agents do not open or merge pull requests. (The infrastructure and the first
+two groups, v19 and v30, landed together as PR #497.)
 
 A group branch contains only `oracle/cpp/cases/<family>.cpp`,
 `test/oracle/<family>.oracle.test.ts`, `oracle/golden/<family>.txt`,
