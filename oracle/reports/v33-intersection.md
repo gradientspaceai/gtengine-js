@@ -1,13 +1,13 @@
 # Group 33 (`v33-intersection`) — C++ oracle report
 
-67 cases, 20 records each in `oracle/golden/v33-intersection.txt` (1340 records).
-59 of the cases are ordinary comparisons, 8 are deliberate `deviation` cases and
+68 cases, 20 records each in `oracle/golden/v33-intersection.txt` (1360 records).
+59 of the cases are ordinary comparisons, 9 are deliberate `deviation` cases and
 two of the ordinary cases (`IntrEllipsoid3Ellipsoid3.test.bracketAssert`,
 `IntrOrientedBox3Cylinder3.test.infinite`) record a C++ assertion failure that
 the port must reproduce. The 59 ordinary cases carry 3703 floating-point outputs
 in the goldens, **all 3703 bit-identical** to the MSVC build of upstream GTE.
 
-Deep run `npm run oracle:deep -- 2000 v33`: 67 cases, 134000 records, 4000
+Deep run `npm run oracle:deep -- 2000 v33`: 68 cases, 136000 records, 4000
 recorded C++ exceptions (the two throw-parity cases), 360527 floating-point
 outputs compared over the 59 ordinary cases, **100.000 % bit-identical**
 (worst scaled error 0), and every deviation case deviating. All discrete
@@ -31,7 +31,7 @@ the aligned-box module functions, which groups 31 and 32 cover directly.
 
 | header | cases | comparison | deep run |
 | --- | --- | --- | --- |
-| `IntrEllipsoid3Ellipsoid3.h` | `test`, `test.concentric`, `test.equalEigenvalues`, `test.bracketAssert` | exact (discrete outputs; libm inside) | pass |
+| `IntrEllipsoid3Ellipsoid3.h` | `test`, `test.concentric`, `test.equalEigenvalues`, `test.equalEigenvaluesDeviation`, `test.bracketAssert` | exact (discrete outputs; libm inside) (+1 deviation) | pass |
 | `IntrHalfspace3Ellipsoid3.h` | `test`, `test.tangent` | exact | pass |
 | `IntrLine2Arc2.h` | `test`, `find`, `find.throughLatticePoint` | exact | pass |
 | `IntrLine2SegmentMesh2.h` | `find`, `find.collinear` | exact | pass |
@@ -158,15 +158,75 @@ distributions below are from the 2000-record deep run.
 
 ## Port defects fixed
 
-None. Every disagreement found in this group was a deliberate, documented port
-fix of an upstream defect (eight of them, listed below). No case required a
-change to `src/`, and no case needed a tolerance: all 360527 floating-point
+None in the port's own transcription: every value disagreement found by the
+oracle was a deliberate, documented port fix of an upstream defect (nine of
+them, listed below), and no case needed a tolerance — all 360527 floating-point
 outputs of the 59 ordinary cases are bit-identical over the deep run.
+
+One *new upstream defect* was found while building the
+`test.equalEigenvalues` case and is now fixed in `src/`, per PORTING.md's rule
+that result-corrupting upstream defects are corrected rather than preserved.
+
+### `IntrEllipsoid3Ellipsoid3`: the `d0 > d1 = d2` fold (result-corrupting)
+
+The valid-pair analysis folds the coefficients of
+`f(s) = sum_i d_i*c_i/(d_i*s - 1)^2 - 1` that share an eigenvalue, because two
+equal `d` values give the single term `d*(c_i + c_j)/(d*s - 1)^2`. The branches
+for `d0 = d1 > d2` and `d0 = d1 = d2` do that correctly. The branch for
+`d0 > d1 = d2` writes
+
+```cpp
+if (param[0].second > (T)0) { valid.push_back(param[0]); }
+param[1].second += param[0].second;    // upstream; should be param[2].second
+if (param[1].second > (T)0) { valid.push_back(param[1]); }
+```
+
+which folds in the `c` of the *distinct* eigenvalue `d0` — counting it twice,
+since `param[0]` is also pushed — and never uses `param[2].second`. `f(s)` is
+then built with the wrong coefficients, `GetRoots` returns the wrong roots, the
+minimum and maximum squared distances are wrong and the classification is
+wrong.
+
+**Reproduction (dyadic, human-checkable).** Ellipsoid0 is the unit ball at the
+origin; ellipsoid1 is axis-aligned, centred at `(1/2, 1/4, 0)`, with extents
+`(1/4, 1, 1)`. Both frames are the identity and every extent is a power of two,
+so `M2 = diag(16, 1, 1)` is exact and its two trailing eigenvalues are exactly
+equal: the `d0 > d1 = d2` branch is taken, and the centre offset has a
+component along the distinct axis (`1/2`) and one in the repeated eigenplane
+(`1/4`), which is what makes the two folds differ.
+
+- upstream (and the port before the fix): `ELLIPSOID0_CONTAINS_ELLIPSOID1`
+- correct: `ELLIPSOIDS_INTERSECTING`
+
+`(1/2, 5/4, 0)` is exactly on ellipsoid1 (`((1/2-1/2)/(1/4))^2 +
+((5/4-1/4)/1)^2 = 1`) and its distance from the origin is `sqrt(29)/4 =
+1.3462...`, so ellipsoid1 is plainly not contained in the unit ball.
+
+**How the correct answer was computed.** Independently of the query: sample
+ellipsoid1's surface densely (400 x 800 points) and evaluate ellipsoid0's
+quadratic form `sum_i (Dot(X - C0, U0_i)/e0_i)^2 - 1` at each sample. All
+values negative means ellipsoid0 contains ellipsoid1; all positive means
+separated, or ellipsoid1 contains ellipsoid0 when `C0` is inside ellipsoid1;
+mixed signs means intersecting. Over a grid of 1620 configurations that reach
+this branch (ellipsoid0 a ball of radius 1 or 2, ellipsoid1 with extents
+`(bd, br, br)` drawn from powers of two with `bd < br`, centre offset
+`(dx, dy, 0)` over nine dyadic values each), **upstream's expression disagrees
+with the sampled classification on 83 and the corrected expression on none**,
+counting only configurations whose sampled extremes are at least `1e-2` away
+from zero.
+
+**Fix.** `src/IntrEllipsoid3Ellipsoid3.ts` now writes
+`param[1][1] += param[2][1];`, with a `KNOWN UPSTREAM DEFECT (fixed here)` note
+in the file header. `test/IntrEllipsoid3Ellipsoid3.test.ts` gained two
+regression tests — the pinned dyadic reproduction above, and the 1620-point
+grid compared against the surface sampling — both of which fail on upstream's
+expression and pass on the corrected one.
 
 ## Deliberate deviations demonstrated
 
 | case | records disagreeing (golden / deep) | record of the decision |
 | --- | --- | --- |
+| `IntrEllipsoid3Ellipsoid3.test.equalEigenvaluesDeviation` | 20/20, 2000/2000 | the `d0 > d1 = d2` fold above; `src/IntrEllipsoid3Ellipsoid3.ts` header note |
 | `IntrSegment2OrientedBox2.find.frameDeviation` | 20/20, 2000/2000 | `docs/UPSTREAM-FINDINGS.md` `IntrSegment2OrientedBox2.h` FIQuery; issue [#255](https://github.com/gradientspaceai/gtengine-js/issues/255) |
 | `IntrOrientedBox3Cylinder3.test.edgeTypoDeviation` | 20/20, 2000/2000 | `docs/UPSTREAM-FINDINGS.md` `IntrCanonicalBox3Cylinder3.h` `DoQueryNoZeros` `(U1,-D)` sign typo; issue [#197](https://github.com/gradientspaceai/gtengine-js/issues/197) |
 | `IntrRay3Cylinder3.find.infiniteDeviation` | 20/20, 2000/2000 | `docs/UPSTREAM-FINDINGS.md` cylinder headers, missing `IsFinite` guard; issues [#197](https://github.com/gradientspaceai/gtengine-js/issues/197), [#206](https://github.com/gradientspaceai/gtengine-js/issues/206), [#255](https://github.com/gradientspaceai/gtengine-js/issues/255) |
@@ -181,6 +241,22 @@ and the corresponding main case is generated by rejection sampling against an
 explicit predicate (or, where the predicate is a closed form, by construction)
 rather than by narrowing the input ranges:
 
+- **`IntrEllipsoid3Ellipsoid3`.** The probe replicates upstream's own control
+  flow down to the valid-pair analysis — `K2`, `M2`, the eigensolver, the
+  `std::greater` sort — and reports whether the record reaches the
+  `d0 > d1 = d2` branch with `param[0].second != param[2].second`. That is an
+  *exact* characterisation: both expressions start from the same
+  `param[1].second`, so the two sums agree bit for bit exactly when the added
+  values do. `test` and `test.equalEigenvalues` reject it (and still reach all
+  four classifications, and all three equal-eigenvalue sub-branches). The
+  deviation case additionally keeps only the records on which upstream's
+  classification disagrees with the dense surface sampling by a margin of at
+  least `1e-2`, so every one of its records is a genuine misclassification
+  rather than a different intermediate: on the 2000 deep-run records upstream
+  reports `ELLIPSOID0_CONTAINS_ELLIPSOID1` 1260 times, `ELLIPSOIDS_SEPARATED`
+  637 times and `ELLIPSOIDS_INTERSECTING` 103 times, where the port (and the
+  sampling) report `ELLIPSOIDS_INTERSECTING` 1897 times and
+  `ELLIPSOID1_CONTAINS_ELLIPSOID0` 103 times.
 - **`IntrSegment2OrientedBox2`.** The FI query builds
   `result.point[i] = box.center + (segOrigin + parameter[i] * segDirection)`,
   adding a box-frame vector to the world-space box centre; the port evaluates
@@ -263,7 +339,8 @@ the real endpoint is stored as `point` (#461),
 reports 1 (#255), `IntrSegment3Cylinder3`'s missing zero-length-segment guard
 (#197, the `find.degenerateSegment` case), `IntrEllipsoid3Ellipsoid3`'s dead
 `Matrix3x3 D0` (#255) and its reachable `GetRoots` bracketing asserts (#255,
-#461, the `test.bracketAssert` throw-parity case), and `Arc2::Contains`'s
+#461, the `test.bracketAssert` throw-parity case; its `d0 > d1 = d2` fold is
+fixed, not preserved — see above), and `Arc2::Contains`'s
 negative-epsilon comment (#155, not on the one-argument path these queries use).
 
 ## Not covered
@@ -299,19 +376,10 @@ None new for this group's headers. Two observations worth recording:
   consistent with the already-recorded quirk that a contained point segment
   reports `numIntersections = 2` (#255), and it is a documentation trap rather
   than a wrong answer.
-- `IntrEllipsoid3Ellipsoid3`'s `d0 > d1 = d2` branch of the valid-pair analysis
-  writes `param[1].second += param[0].second`, folding the `c` belonging to the
-  *distinct* eigenvalue `d0` into the repeated one, and never uses
-  `param[2].second`. The sibling branches fold the terms that share an
-  eigenvalue (`d0 = d1 > d2` adds `param[1]` into `param[0]`, `d0 = d1 = d2`
-  adds both). The repeated-eigenvalue reduction of
-  `f(s) = sum d_i c_i/(d_i s - 1)^2` requires adding the `c` of the *equal*
-  `d`, i.e. `param[1].second += param[2].second`, so this looks like an
-  index typo: `f(s)` is then built with the wrong coefficients and the
-  classification can be wrong whenever two eigenvalues coincide and `K` has a
-  component along the distinct axis. The port preserves the expression exactly
-  (`src/IntrEllipsoid3Ellipsoid3.ts`), and the oracle confirms bit-for-bit
-  agreement on the 2000 records of `test.equalEigenvalues`, which is built to
-  reach that branch. This is a new upstream finding for
-  `docs/UPSTREAM-FINDINGS.md`; it is *not* the already-recorded `GetRoots`
-  bracketing problem.
+
+The `IntrEllipsoid3Ellipsoid3` `d0 > d1 = d2` fold, found by this group, is
+result-corrupting and is therefore *fixed* in the port rather than listed as a
+suspect; see "Port defects fixed" above for the reproduction, the independent
+reference and the regression tests. It needs a new
+`docs/UPSTREAM-FINDINGS.md` entry (RC, fixed); it is *not* the already-recorded
+`GetRoots` bracketing problem.

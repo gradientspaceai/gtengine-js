@@ -40,6 +40,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <functional>
+#include <limits>
+#include <utility>
 #include <vector>
 
 using namespace gte;
@@ -1267,6 +1270,117 @@ namespace
         return ellipsoid;
     }
 
+    // Upstream's own control flow down to the valid-pair analysis, used only
+    // by the generators. It returns true when the record reaches the
+    // 'd0 > d1 = d2' branch with two different folded coefficients, which is
+    // exactly the set on which upstream's
+    //   param[1].second += param[0].second;
+    // and the port's corrected
+    //   param[1][1] += param[2][1];
+    // build different 'valid' lists. Everywhere else the two are bit-identical
+    // (they start from the same param[1].second, so the sums agree exactly iff
+    // the added values do).
+    bool Ellipsoid3Ellipsoid3FoldDiffers(EllipsoidData const& a,
+        EllipsoidData const& b)
+    {
+        Ellipsoid3<double> e0 = MakeEllipsoid(a);
+        Ellipsoid3<double> e1 = MakeEllipsoid(b);
+        double const zero = 0.0, one = 1.0;
+        Matrix3x3<double> R0{}, R1{};
+        R0.SetCol(0, e0.axis[0]);
+        R0.SetCol(1, e0.axis[1]);
+        R0.SetCol(2, e0.axis[2]);
+        R1.SetCol(0, e1.axis[0]);
+        R1.SetCol(1, e1.axis[1]);
+        R1.SetCol(2, e1.axis[2]);
+        Matrix3x3<double> D1{
+            one / (e1.extent[0] * e1.extent[0]), zero, zero,
+            zero, one / (e1.extent[1] * e1.extent[1]), zero,
+            zero, zero, one / (e1.extent[2] * e1.extent[2]) };
+        Matrix3x3<double> D0NegHalf{
+            e0.extent[0], zero, zero,
+            zero, e0.extent[1], zero,
+            zero, zero, e0.extent[2] };
+        Matrix3x3<double> D0Half{
+            one / e0.extent[0], zero, zero,
+            zero, one / e0.extent[1], zero,
+            zero, zero, one / e0.extent[2] };
+        Vector3<double> K2 = D0Half * ((e1.center - e0.center) * R0);
+        Matrix3x3<double> R1TR0D0NegHalf = MultiplyATB(R1, R0 * D0NegHalf);
+        Matrix3x3<double> M2 = MultiplyATB(R1TR0D0NegHalf, D1) * R1TR0D0NegHalf;
+        SymmetricEigensolver3x3<double> es;
+        std::array<double, 3> D{};
+        std::array<std::array<double, 3>, 3> evec{};
+        es(M2(0, 0), M2(0, 1), M2(0, 2), M2(1, 1), M2(1, 2), M2(2, 2),
+            false, +1, D, evec);
+        Matrix3x3<double> R{};
+        R.SetCol(0, evec[0]);
+        R.SetCol(1, evec[1]);
+        R.SetCol(2, evec[2]);
+        Vector3<double> K = K2 * R;
+        if (K == Vector3<double>::Zero())
+        {
+            return false;
+        }
+        std::vector<std::pair<double, double>> param(3);
+        param[0] = std::make_pair(D[0], K[0] * K[0]);
+        param[1] = std::make_pair(D[1], K[1] * K[1]);
+        param[2] = std::make_pair(D[2], K[2] * K[2]);
+        std::sort(param.begin(), param.end(),
+            std::greater<std::pair<double, double>>());
+        if (!(param[0].first > param[1].first)) { return false; }
+        if (param[1].first > param[2].first) { return false; }
+        return param[0].second != param[2].second;
+    }
+
+    // An independent classification: dense sampling of ellipsoid1's surface
+    // evaluated in ellipsoid0's quadratic form. 'margin' is how far the
+    // extremes are from zero, so the generator can skip configurations the
+    // sampling cannot call reliably. The values match the upstream enum
+    // (0 separated, 1 intersecting, 2 ellipsoid0 contains ellipsoid1,
+    // 3 ellipsoid1 contains ellipsoid0).
+    double EllipsoidQuadratic(Ellipsoid3<double> const& e,
+        Vector3<double> const& X)
+    {
+        Vector3<double> diff = X - e.center;
+        double sum = 0.0;
+        for (int i = 0; i < 3; ++i)
+        {
+            double t = Dot(diff, e.axis[i]) / e.extent[i];
+            sum += t * t;
+        }
+        return sum - 1.0;
+    }
+
+    int SampledClassification(Ellipsoid3<double> const& e0,
+        Ellipsoid3<double> const& e1, double& margin)
+    {
+        double const pi = 3.141592653589793;
+        double lo = std::numeric_limits<double>::max();
+        double hi = -std::numeric_limits<double>::max();
+        int const numTheta = 60, numPhi = 120;
+        for (int i = 0; i <= numTheta; ++i)
+        {
+            double theta = pi * i / numTheta;
+            double st = std::sin(theta), ct = std::cos(theta);
+            for (int j = 0; j < numPhi; ++j)
+            {
+                double phi = 2.0 * pi * j / numPhi;
+                Vector3<double> X = e1.center
+                    + (e1.extent[0] * st * std::cos(phi)) * e1.axis[0]
+                    + (e1.extent[1] * st * std::sin(phi)) * e1.axis[1]
+                    + (e1.extent[2] * ct) * e1.axis[2];
+                double q = EllipsoidQuadratic(e0, X);
+                if (q < lo) { lo = q; }
+                if (q > hi) { hi = q; }
+            }
+        }
+        margin = std::min(std::fabs(lo), std::fabs(hi));
+        if (hi < 0.0) { return 2; }
+        if (lo > 0.0) { return (EllipsoidQuadratic(e1, e0.center) < 0.0 ? 3 : 0); }
+        return 1;
+    }
+
     // True when upstream classifies the pair without throwing.
     bool Ellipsoid3Ellipsoid3Succeeds(EllipsoidData const& a,
         EllipsoidData const& b)
@@ -1285,7 +1399,9 @@ namespace
 }
 
 // The generator rejects the configurations on which upstream's bracketing
-// asserts fire; the throw-parity case below covers one of those.
+// asserts fire (the throw-parity case below covers one of those) and the
+// configurations on which upstream's 'd0 > d1 = d2' fold differs from the
+// port's corrected one (the deviation case below covers those).
 ORACLE_CASE("IntrEllipsoid3Ellipsoid3.test")
 {
     int mode = io.index() % 2;
@@ -1314,7 +1430,11 @@ ORACLE_CASE("IntrEllipsoid3Ellipsoid3.test")
             b.extent[i] = (mode == 0 ? std::ldexp(1.0, io.rawInteger(-1, 1))
                 : io.raw(0.5, 2.5));
         }
-        if (Ellipsoid3Ellipsoid3Succeeds(a, b)) { break; }
+        if (Ellipsoid3Ellipsoid3Succeeds(a, b)
+            && !Ellipsoid3Ellipsoid3FoldDiffers(a, b))
+        {
+            break;
+        }
     }
     EmitEllipsoid(io, a);
     EmitEllipsoid(io, b);
@@ -1355,7 +1475,9 @@ ORACLE_CASE("IntrEllipsoid3Ellipsoid3.test.concentric")
 // Repeated extents then make two (or three) of the d-values exactly equal,
 // which is what reaches the 'd0 > d1 = d2', 'd0 = d1 > d2' and 'd0 = d1 = d2'
 // branches of the valid-pair analysis and with them the one- and two-argument
-// GetRoots overloads.
+// GetRoots overloads. The generator rejects the records whose 'd0 > d1 = d2'
+// fold differs from the port's corrected one; the deviation case below covers
+// those.
 ORACLE_CASE("IntrEllipsoid3Ellipsoid3.test.equalEigenvalues")
 {
     EllipsoidData a{}, b{};
@@ -1380,7 +1502,69 @@ ORACLE_CASE("IntrEllipsoid3Ellipsoid3.test.equalEigenvalues")
         b.extent[0] = s0;
         b.extent[1] = (io.rawInteger(0, 1) == 0 ? s0 : s1);
         b.extent[2] = (io.rawInteger(0, 1) == 0 ? s0 : s1);
-        if (Ellipsoid3Ellipsoid3Succeeds(a, b)) { break; }
+        if (Ellipsoid3Ellipsoid3Succeeds(a, b)
+            && !Ellipsoid3Ellipsoid3FoldDiffers(a, b))
+        {
+            break;
+        }
+    }
+    EmitEllipsoid(io, a);
+    EmitEllipsoid(io, b);
+    TIQuery<double, Ellipsoid3<double>, Ellipsoid3<double>> query;
+    auto r = query(MakeEllipsoid(a), MakeEllipsoid(b));
+    io.outBool(r.intersect);
+    io.outInt(static_cast<int32_t>(r.classification));
+}
+
+// Deliberate deviation: the 'd0 > d1 = d2' branch of the valid-pair analysis
+// folds the coefficient of the *distinct* eigenvalue into the repeated one
+// (param[1].second += param[0].second, counting c0 twice and dropping c2)
+// where the sibling branches fold the coefficients that share an eigenvalue.
+// f(s) is then built with the wrong coefficients, its roots are wrong, and the
+// classification is wrong. Ellipsoid0 is a ball and ellipsoid1 has two equal
+// extents, so M2 is exactly diagonal with its two trailing eigenvalues exactly
+// equal; the centre offset has a component along the distinct axis and one in
+// the repeated eigenplane, which is what makes the two folds differ. The
+// generator keeps only the records on which upstream's classification also
+// disagrees with an independent dense sampling of ellipsoid1's surface, so
+// every record is a genuine misclassification, not merely a different
+// intermediate.
+ORACLE_CASE("IntrEllipsoid3Ellipsoid3.test.equalEigenvaluesDeviation")
+{
+    static double const pow2[5] = { 0.25, 0.5, 1.0, 2.0, 4.0 };
+    static double const offsets[9] =
+        { 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0 };
+    EllipsoidData a{}, b{};
+    for (int attempt = 0; attempt < 20000; ++attempt)
+    {
+        for (int i = 0; i < 3; ++i)
+        {
+            a.center[i] = static_cast<double>(io.rawInteger(-2, 2));
+            a.axis[i].MakeZero();
+            a.axis[i][i] = 1.0;
+            b.axis[i].MakeZero();
+            b.axis[i][i] = 1.0;
+        }
+        double ra = pow2[io.rawInteger(1, 3)];
+        a.extent = Vector3<double>{ ra, ra, ra };
+        // The distinct eigenvalue is the largest when the distinct extent is
+        // the smallest, which is the ordering the defective branch needs.
+        int di = io.rawInteger(0, 3);
+        int ri = io.rawInteger(di + 1, 4);
+        double bd = pow2[di], br = pow2[ri];
+        b.extent = Vector3<double>{ bd, br, br };
+        double dx = offsets[io.rawInteger(0, 8)];
+        double dy = offsets[io.rawInteger(0, 8)];
+        b.center = a.center + Vector3<double>{ dx, dy, 0.0 };
+        if (!Ellipsoid3Ellipsoid3FoldDiffers(a, b)) { continue; }
+        if (!Ellipsoid3Ellipsoid3Succeeds(a, b)) { continue; }
+        Ellipsoid3<double> e0 = MakeEllipsoid(a);
+        Ellipsoid3<double> e1 = MakeEllipsoid(b);
+        TIQuery<double, Ellipsoid3<double>, Ellipsoid3<double>> probeQuery;
+        int upstream = static_cast<int>(probeQuery(e0, e1).classification);
+        double margin = 0.0;
+        int sampled = SampledClassification(e0, e1, margin);
+        if (margin > 1e-2 && upstream != sampled) { break; }
     }
     EmitEllipsoid(io, a);
     EmitEllipsoid(io, b);

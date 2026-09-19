@@ -601,6 +601,14 @@ describe('oracle: v33-intersection', () => {
     family.case('IntrEllipsoid3Ellipsoid3.test.equalEigenvalues',
         ellipsoidPairTest, { exact: true });
 
+    family.case('IntrEllipsoid3Ellipsoid3.test.equalEigenvaluesDeviation',
+        ellipsoidPairTest, {
+        exact: true,
+        deviation: 'src/IntrEllipsoid3Ellipsoid3.ts KNOWN UPSTREAM DEFECT: the '
+            + "'d0 > d1 = d2' branch folds the coefficient of the distinct "
+            + 'eigenvalue instead of the one that shares it'
+    });
+
     // Both sides throw "Unexpected condition." on this pinned configuration.
     family.case('IntrEllipsoid3Ellipsoid3.test.bracketAssert',
         ellipsoidPairTest, { exact: true });
