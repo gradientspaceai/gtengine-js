@@ -39,7 +39,9 @@ npm run oracle:report                   replay committed goldens, write docs/ORA
 npx vitest run test/oracle/v19-distance.oracle.test.ts
 ```
 
-A single-family build takes seconds. Goldens are deterministic: the generator
+A single-family build takes seconds. Kill a leftover `oracle.exe` before
+rebuilding: a running process holds the binary, `LNK1104` leaves the old one in
+place, and the generator that runs is not the one just compiled. Goldens are deterministic: the generator
 is seeded from the family and case name, so regenerating without changing a
 case produces identical bytes, and adding a case never perturbs another.
 
@@ -162,6 +164,18 @@ Rules:
   explaining the conditioning.
 - Iterative algorithms whose iteration count can change with a 1 ulp libm
   difference: emit what is stable, compare the rest with a justified tolerance.
+- MSVC's `sin`/`cos` and V8's differ by one ulp on a couple of percent of
+  their arguments, `sin(pi/4)` among them. When a query's *control flow*
+  compares two libm-derived quantities (a minimizer, a bracket test), no
+  tolerance helps: the search lands on a different local minimum. Arrange the
+  case so that bit does not decide it. A `Control` / tuning overload is a
+  legitimate lever (and has to be covered anyway): `maxBisections = 1`, an
+  `epsilon` wider than the bracket, or sample angles on which both libraries
+  agree reduce the iteration to a fixed, libm-stable sample set (v22
+  `DistOrientedBox3Cone3`).
+- A generator's acceptance threshold and the case tolerance are chosen
+  together and both stated: accepting "upstream is sound to 1e-9" and
+  comparing at 1e-12 fails on exactly the band left open.
 
 ## Triage of a disagreement
 
@@ -208,8 +222,13 @@ Every disagreement gets a root cause. In order of likelihood:
    port and confirming bit-identity. Select `deviation` records by the
    observable symptom rather than a replica of the branch analysis, and
    check the magnitude of the deviation, not only that one exists: a
-   necessary condition for a defect is not a sufficient one. A rejection
-   loop keeps the last non-throwing candidate as its fallback. A fix can
+   necessary condition for a defect is not a sufficient one; select on the
+   observable the defect actually corrupts (upstream's distance can be right
+   while its closest points are wrong). A rejection loop caps its attempts
+   and falls back to the best non-throwing candidate seen (least defective
+   for a sound case, most defective for a `deviation` case): an uncapped
+   loop around an expensive query turned a 14 s generation into a deep run
+   of hours. A fix can
    also be a re-derivation (v33 `IntrSegment2OrientedBox2`: two expressions
    equal in exact arithmetic but not in floating point on essentially every
    input). Then split by output field: the main case compares every field
