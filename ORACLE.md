@@ -89,6 +89,12 @@ Rules:
    has no closed form, use rejection sampling: draw with `io.raw*`, loop on a
    probe built from upstream's own control flow or an independent reference,
    record only the accepted draw, and keep the probe next to the case.
+   The probe may be an exact superset of the defective set (a closed-form
+   necessary condition) when replicating the corrected query would be
+   disproportionate: a too-strict predicate narrows the generator but
+   cannot hide a disagreement. A helper either records or draws raw, never
+   both, and every generator mode, including the aimed constructions,
+   records the same number of doubles.
 3. Case names are `<Header>.<method>[.<variant>]`, unique within the family.
 4. **Generators must reach the branches.** Pure uniform inputs only visit the
    generic branch. Use `io.index()` to mix modes: uniform, small-lattice
@@ -118,7 +124,23 @@ Rules:
 8. Keep records small (tens of doubles, not thousands): goldens are committed.
    Bulk algorithms (hulls, triangulations, fits) use small inputs.
 9. C++ exceptions (`LogError`, `LogAssert`) are recorded; the port must throw
-   on the same record.
+   on the same record. After `gen`, check the "threw" count per case before
+   writing the replay: a constructor precondition (`Parallelogram2` asserts a
+   right-handed axis pair) can turn a whole generator into throw records.
+   Fix the generator and give the assert its own throw-parity case. When
+   probing upstream outside the harness, catch `std::exception`: an uncaught
+   `LogAssert` is exit code `0xC0000409`, not a message.
+10. A thin wrapper inherits its delegate's deviations
+   (`IntrAlignedBox3Cylinder3` around `IntrCanonicalBox3Cylinder3`, the ray
+   and segment variants of a line query). Search `docs/UPSTREAM-FINDINGS.md`
+   for the delegate too and reuse that group's probe and deviation cases.
+11. A discrete output cannot be rescued by a tolerance. If a rare output
+   shape (a count that depends on an exact tie) is only reachable through a
+   deliberately reassociated computation, cover it another way or drop the
+   case with a written reason. A `deviation` case may have agreeing records;
+   explain the residue instead of tightening the construction. Some defective
+   branches (`divisor == 0` at a quartic root) cannot be sampled and must be
+   constructed algebraically from the port's own expression chain.
 
 ## Comparison policy
 
@@ -201,7 +223,8 @@ generator concentrates on that configuration, so the committed goldens cover it.
 Each group works on a branch `oracle/vNN` created from `origin/main` and
 pushes it. The orchestrator opens one pull request per group against `main`,
 regenerates `docs/ORACLE-REPORT.md` on it, and merges it once CI is green.
-Agents do not open or merge pull requests. (The infrastructure and the first
+Agents do not open or merge pull requests; they re-check `origin/main`
+before the final push and rebase if a sibling group has landed. (The infrastructure and the first
 two groups, v19 and v30, landed together as PR #497.)
 
 A group branch contains only `oracle/cpp/cases/<family>.cpp`,

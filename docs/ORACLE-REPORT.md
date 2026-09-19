@@ -9,7 +9,7 @@ upstream GTE code compiled with MSVC; the port replays the same inputs. See
 - compiler MSVC 194435215 x64 /O2 /fp:precise
 - records-per-case 20
 
-**200 cases, 3660 records, 16113 floating-point outputs compared; 99.59% bit-identical to the C++ build. 180 cases are bit-identical on every output. 17 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
+**302 cases, 5440 records, 25091 floating-point outputs compared; 99.55% bit-identical to the C++ build. 265 cases are bit-identical on every output. 30 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
 
 Discrete outputs (booleans, counts, indices) always compare exactly and are not counted
 in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |port|, |C++|)`.
@@ -19,8 +19,10 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | smoke | 7 | 140 | 1224 | 99.67% | 6 | 1.11e-16 | `Rotation.axisAngleToMatrixAndQuaternion` |
 | v19-distance | 43 | 780 | 6976 | 100.00% | 39 | 0 |  |
 | v20-distance | 28 | 440 | 3585 | 98.74% | 21 | 1.33e-15 | `DistLine3Circle3.compute` |
+| v21-distance | 38 | 680 | 5295 | 99.45% | 32 | 8.36e-16 | `DistRay3Circle3.compute` |
 | v30-intersection | 61 | 1200 | 1684 | 100.00% | 60 | 0 |  |
 | v31-intersection | 61 | 1100 | 2644 | 99.36% | 54 | 3.70e-14 | `IntrLine3Torus3.find` |
+| v32-intersection | 64 | 1100 | 3683 | 99.54% | 53 | 9.06e-14 | `IntrEllipse2Ellipse2.find` |
 
 ## Deliberate deviations from the C++ build
 
@@ -40,6 +42,10 @@ every record.
 | v20-distance | `DistLine3Circle3.compute.axis.deviation` | 20 of 20 | UPSTREAM-FINDINGS DistLine3Circle3.h: Finalize normalizes a possibly-zero projection and then reports the circle center as the closest circle point (issue #421) |
 | v20-distance | `DistLine3Circle3.compute.tauHat` | 20 of 20 | UPSTREAM-FINDINGS DistLine3Circle3.h: tauHat is missing the division by a2 (issue #247) |
 | v20-distance | `DistLine3Circle3.compute.nearPerpendicular` | 20 of 20 | UPSTREAM-FINDINGS DistLine3Circle3.h: t = tau + s cancels away the significant digits of the critical parameter for a near-perpendicular line (issue #421 item 3) |
+| v21-distance | `DistRay3OrientedBox3.compute.deviation` | 20 of 20 | UPSTREAM-FINDINGS DistLine3OrientedBox3.h, issue #421: the world-space line point is written into closest[0] before the loop that maps the box-frame closest points back to the world, so upstream transforms it a second time. |
+| v21-distance | `DistSegment3OrientedBox3.compute.deviation` | 20 of 20 | UPSTREAM-FINDINGS DistLine3OrientedBox3.h, issue #421: the world-space line point is written into closest[0] before the loop that maps the box-frame closest points back to the world, so upstream transforms it a second time. |
+| v21-distance | `DistRay3Circle3.compute.axis.deviation` | 20 of 20 | UPSTREAM-FINDINGS DistLine3Circle3.h, issue #421: Finalize normalizes the in-plane component of a critical line point without checking that it is nonzero, so upstream reports the circle center as a closest circle point and the distance to the center instead of to the circle. |
+| v21-distance | `DistSegment3Circle3.compute.axis.deviation` | 20 of 20 | UPSTREAM-FINDINGS DistLine3Circle3.h, issue #421: Finalize normalizes the in-plane component of a critical line point without checking that it is nonzero, so upstream reports the circle center as a closest circle point and the distance to the center instead of to the circle. |
 | v30-intersection | `IntrIntervals.findDynamic.leftApproachDeviation` | 20 of 20 | UPSTREAM-FINDINGS IntrIntervals.h dynamic FIQuery (#62) |
 | v31-intersection | `IntrOrientedBox2Sector2.test.clipDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrOrientedBox2Sector2.h boundary clipping; issue #200 |
 | v31-intersection | `IntrHalfspace3Cylinder3.test.rootDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrHalfspace3Cylinder3.h root computation; issue #197 |
@@ -47,3 +53,12 @@ every record.
 | v31-intersection | `IntrLine3Capsule3.doQuery.junctionDeviation` | 17 of 20 | docs/UPSTREAM-FINDINGS.md IntrLine3Capsule3.h cap-junction plane; issue #461 item 3 |
 | v31-intersection | `IntrCylinder3Cylinder3.test.infiniteDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrCylinder3Cylinder3.h missing IsFinite guard; issue #197 |
 | v31-intersection | `IntrCanonicalBox3Cylinder3.test.edgeTypoDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrCanonicalBox3Cylinder3.h DoQueryNoZeros (U1,-D) sign typo; issue #197 |
+| v32-intersection | `IntrSegment3Sphere3.test.containedDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrSegment3Sphere3.h TIQuery (a segment strictly inside the sphere reports no intersection); issue #203 |
+| v32-intersection | `IntrSphere3Sphere3.find.internalTangentDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrSphere3Sphere3.h FIQuery type-4 branch (the internal-tangency contact point is the antipode); issue #203 |
+| v32-intersection | `IntrSegment2Segment2.find.antiparallelDeviation` | 19 of 20 | docs/UPSTREAM-FINDINGS.md IntrSegment2Segment2.h FIQuery (segment1Parameter = overlap - t has the wrong sign for antiparallel collinear segments); issue #458 |
+| v32-intersection | `IntrAlignedBox3Cylinder3.test.edgeTypoDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrCanonicalBox3Cylinder3.h DoQueryNoZeros (U1,-D) sign typo; issue #197 |
+| v32-intersection | `IntrAlignedBox3Sphere3.find.probeDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrAlignedBox3Sphere3.h DoQueryRayRoundedFace / DoQuery (first-wins probe selection over the pieces of the Minkowski sum); issues #458 and #465 |
+| v32-intersection | `IntrTriangle3Cylinder3.test.degeneratePolygonDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrTriangle3Cylinder3.h DiskOverlapsPolygon (a degenerate projected polygon is reported as containing the origin); issues #206 and #458 |
+| v32-intersection | `IntrTriangle3Cylinder3.test.infiniteDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md cylinder headers, missing IsFinite guard; issues #197, #206 and #255 |
+| v32-intersection | `IntrEllipse2Ellipse2.test.poleDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrEllipse2Ellipse2.h TIQuery (the c_i = 0 terms of f(s) are dropped, losing the two pole critical points); issue #458 |
+| v32-intersection | `IntrEllipse2Ellipse2.find.divisorDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrEllipse2Ellipse2.h CaseE4NotZero (divisor == 0 writes both symmetric points to the same slot); issue #250 |
