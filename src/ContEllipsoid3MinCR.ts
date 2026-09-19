@@ -81,6 +81,7 @@ import { logAssert } from './Logger.js';
 import { type Matrix3x3 } from './Matrix3x3.js';
 import { mulMatrix } from './Matrix.js';
 import { Vector, compMul, sub } from './Vector.js';
+import { stdMax } from './Functions.js';
 
 // Compute the diagonal matrix D = diag(D[0],D[1],D[2]) of the minimum-volume
 // ellipsoid with the specified center and orientation that contains the input
@@ -141,7 +142,7 @@ function findEdgeMax(A: readonly Vector[], plane0: number, plane1: number,
     if (q2 !== 0) {
         const invQ2 = 1 / q2;
         let discr = q1 * q1 - 4 * q0 * q2;
-        discr = Math.sqrt(Math.max(discr, 0));
+        discr = Math.sqrt(stdMax(discr, 0));
         tFinal = -0.5 * (q1 + discr) * invQ2;
         if (q1 + 2 * q2 * tFinal > 0) {
             tFinal = 0.5 * (-q1 + discr) * invQ2;

@@ -47,6 +47,7 @@ import { AxisAngle } from './AxisAngle.js';
 import { EulerAngles } from './EulerAngles.js';
 import { Rotation } from './Rotation.js';
 import { Vector, add, mul, hlift, hproject } from './Vector.js';
+import { stdMax } from './Functions.js';
 
 function vector4(x0: number, x1: number, x2: number, x3: number): Vector {
     return Vector.fromArray([x0, x1, x2, x3]);
@@ -357,7 +358,7 @@ export class Transform {
                 + Math.abs(m.get(2, 2));
         }
 
-        return Math.max(Math.max(sum0, sum1), sum2);
+        return stdMax(stdMax(sum0, sum1), sum2);
     }
 
     // Get the homogeneous matrix (composite of all channels).

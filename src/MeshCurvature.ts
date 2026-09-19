@@ -17,6 +17,7 @@ import { Matrix, mulMatrix, multiplyAB } from './Matrix.js';
 import { inverse3x3 } from './Matrix3x3.js';
 import { Vector, add, dot, mul, normalize, sub } from './Vector.js';
 import { cross, computeOrthogonalComplement3 } from './Vector3.js';
+import { stdMax } from './Functions.js';
 
 export class MeshCurvature {
     private mNormals: Vector[] = [];
@@ -203,7 +204,7 @@ export class MeshCurvature {
             const trace = S.get(0, 0) + S.get(1, 1);
             const det = S.get(0, 0) * S.get(1, 1) - S.get(0, 1) * S.get(1, 0);
             const discr = trace * trace - 4.0 * det;
-            const rootDiscr = Math.sqrt(Math.max(discr, 0));
+            const rootDiscr = Math.sqrt(stdMax(discr, 0));
             this.mMinCurvatures[i] = 0.5 * (trace - rootDiscr);
             this.mMaxCurvatures[i] = 0.5 * (trace + rootDiscr);
 

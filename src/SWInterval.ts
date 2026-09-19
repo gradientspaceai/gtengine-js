@@ -53,6 +53,7 @@
 // construction of an interval [e0, e1] with e0 > e1.
 
 import { logAssert } from './Logger.js';
+import { stdMax, stdMin } from './Functions.js';
 
 // Scratch views for converting between floating-point values and their bit
 // patterns.
@@ -208,7 +209,7 @@ export class SWInterval {
         const u1mv0 = nextDown(u1 * v0);
         const u0mv0 = nextUp(u0 * v0);
         const u1mv1 = nextUp(u1 * v1);
-        return new SWInterval(Math.min(u0mv1, u1mv0), Math.max(u0mv0, u1mv1));
+        return new SWInterval(stdMin(u0mv1, u1mv0), stdMax(u0mv0, u1mv1));
     }
 
     static div(u: number, v: number): SWInterval;

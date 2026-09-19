@@ -44,6 +44,7 @@
 import { GTE_C_TWO_PI } from './Constants.js';
 import { ETManifoldMesh, ETManifoldMeshEdge } from './ETManifoldMesh.js';
 import { Vector, dot, length, normalize, sub } from './Vector.js';
+import { stdMax, stdMin } from './Functions.js';
 
 // The vertex graph record required to set up the sparse linear system of
 // equations that determines the texture coordinates. This is the port of the
@@ -492,7 +493,7 @@ export class GenerateMeshUV {
                                 const x2mx0Length = normalize(X2mX0);
                                 if (x2mx0Length > 0) {
                                     const d = dot(X2mX0, X1mX0);
-                                    const cs = Math.min(Math.max(d, -1), 1);
+                                    const cs = stdMin(stdMax(d, -1), 1);
                                     const angle = Math.acos(cs);
                                     weight += Math.tan(angle * 0.5);
                                 } else {

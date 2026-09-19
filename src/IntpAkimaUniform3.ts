@@ -46,6 +46,7 @@
 
 import { Array3 } from './Array3.js';
 import { logAssert } from './Logger.js';
+import { stdMax, stdMin } from './Functions.js';
 
 // Flat indices into a 2x2x2 corner block; BIJK is upstream's B[i][j][k].
 const B000 = 0;
@@ -364,9 +365,9 @@ export class IntpAkimaUniform3 {
             z = a5;
         }
 
-        x = Math.min(Math.max(x, this.mXMin), this.mXMax);
-        y = Math.min(Math.max(y, this.mYMin), this.mYMax);
-        z = Math.min(Math.max(z, this.mZMin), this.mZMax);
+        x = stdMin(stdMax(x, this.mXMin), this.mXMax);
+        y = stdMin(stdMax(y, this.mYMin), this.mYMax);
+        z = stdMin(stdMax(z, this.mZMin), this.mZMax);
         const xl = this.xLookup(x);
         const yl = this.yLookup(y);
         const zl = this.zLookup(z);

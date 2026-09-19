@@ -48,6 +48,7 @@
 import type { TIQuery } from './TIQuery.js';
 import type { OrientedBox } from './OrientedBox.js';
 import { dot, sub } from './Vector.js';
+import { stdMax } from './Functions.js';
 
 // The result of IntrOrientedBox3OrientedBox3TI queries.
 export interface IntrOrientedBox3OrientedBox3TIResult {
@@ -78,7 +79,7 @@ export class IntrOrientedBox3OrientedBox3TI implements TIQuery<OrientedBox, Orie
         const A1 = box1.axis;
         const E1 = box1.extent.values;
 
-        epsilon = Math.max(epsilon, 0);
+        epsilon = stdMax(epsilon, 0);
         const cutoff = 1 - epsilon;
         let existsParallelPair = false;
 

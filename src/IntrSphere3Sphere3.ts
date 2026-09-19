@@ -15,6 +15,7 @@ import type { TIQuery } from './TIQuery.js';
 import type { FIQuery } from './FIQuery.js';
 import type { Hypersphere } from './Hypersphere.js';
 import { Circle3 } from './Circle3.js';
+import { stdMax } from './Functions.js';
 import { Vector, add, dot, mul, normalize, sub } from './Vector.js';
 
 // The type of intersection reported by IntrSphere3Sphere3FI. Upstream stores
@@ -169,7 +170,7 @@ export class IntrSphere3Sphere3FI implements
         // Compute the center and radius of the circle of intersection.
         result.circle.center = add(sphere0.center, mul(t, C1mC0));
         result.circle.radius =
-            Math.sqrt(Math.max(r0 * r0 - t * t * sqrLen, 0));
+            Math.sqrt(stdMax(r0 * r0 - t * t * sqrLen, 0));
 
         // Compute the normal for the plane of the circle.
         normalize(C1mC0);

@@ -34,6 +34,7 @@
 import { Integration } from './Integration.js';
 import { RootsBisection } from './RootsBisection.js';
 import { Vector, length as vectorLength, normalize } from './Vector.js';
+import { stdMax, stdMin } from './Functions.js';
 
 // The port of std::lower_bound on the strictly increasing time array: the
 // index of the first entry >= value, or times.length when there is none.
@@ -214,8 +215,8 @@ export abstract class ParametricCurve {
             }
         }
 
-        t0 = Math.max(t0, this.getTMin());
-        t1 = Math.min(t1, this.getTMax());
+        t0 = stdMax(t0, this.getTMin());
+        t1 = stdMin(t1, this.getTMax());
         const index0 = lowerBound(this.mTime, t0);
         const index1 = lowerBound(this.mTime, t1);
 

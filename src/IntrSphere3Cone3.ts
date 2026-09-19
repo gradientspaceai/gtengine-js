@@ -21,6 +21,7 @@ import type { TIQuery } from './TIQuery.js';
 import type { FIQuery } from './FIQuery.js';
 import { Vector, add, dot, length, mul, sub } from './Vector.js';
 import { cross } from './Vector3.js';
+import { stdMax } from './Functions.js';
 
 // The result of IntrSphere3Cone3TI.test.
 export interface IntrSphere3Cone3TIResult {
@@ -292,14 +293,14 @@ export class IntrSphere3Cone3FI implements
         // Note that if the right-hand side is nonpositive, then the
         // inequality is true (the sphere contains V). This is already ruled
         // out in the first block of code in this function.
-        const uLen = Math.sqrt(Math.max(lenSqr - dotSqr, 0));
+        const uLen = Math.sqrt(stdMax(lenSqr - dotSqr, 0));
         const test = cone.cosAngle * dotAD + cone.sinAngle * uLen;
         const discr = test * test - lenSqr + rSqr;
 
         if (discr >= 0 && test >= 0) {
             // Compute the point of intersection closest to the cone vertex.
             result.intersect = true;
-            const t = test - Math.sqrt(Math.max(discr, 0));
+            const t = test - Math.sqrt(stdMax(discr, 0));
             const B = sub(diff, mul(dotAD, cone.ray.direction));
             const tmp = cone.sinAngle / uLen;
             const dir = add(mul(cone.cosAngle, cone.ray.direction), mul(tmp, B));

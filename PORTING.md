@@ -135,6 +135,15 @@ Upstream baseline: `davideberly/GeometricTools` commit
   alias — clone explicitly where upstream copies).
 - Deterministic iteration: where upstream relies on `std::map`/`std::set`
   ordering, replicate with explicit sorting.
+- `std::max` / `std::min` on floating-point values become `stdMax` / `stdMin`
+  from `Functions.ts` with upstream's argument order, never `Math.max` /
+  `Math.min`: the C++ functions return their first argument on a tie
+  (`std::max(-0.0, +0.0)` is `-0.0`) and their second when the first compare
+  involves a NaN, and the C++ oracle (ORACLE.md) requires bit-identical
+  results. `Math.max` / `Math.min` stay for integers (indices, counts, sizes)
+  and for port-only code.
+- Sums keep upstream's left-to-right association: `C + c0*a0 + c1*a1` is
+  `add(add(C, mul(c0, a0)), mul(c1, a1))`, not `add(C, add(...))`.
 
 ## Omissions
 

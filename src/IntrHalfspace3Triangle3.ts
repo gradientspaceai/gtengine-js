@@ -14,6 +14,7 @@ import { Triangle } from './Triangle.js';
 import { Vector, add, sub, mul, dot } from './Vector.js';
 import type { TIQuery } from './TIQuery.js';
 import type { FIQuery } from './FIQuery.js';
+import { stdMax } from './Functions.js';
 
 // The result of IntrHalfspace3Triangle3TI.test.
 export interface IntrHalfspace3Triangle3TIResult {
@@ -60,7 +61,7 @@ export class IntrHalfspace3Triangle3TI implements
 
         // The triangle and halfspace intersect when the projection interval
         // maximum is nonnegative.
-        result.intersect = (Math.max(Math.max(s[0], s[1]), s[2]) >= 0);
+        result.intersect = (stdMax(stdMax(s[0], s[1]), s[2]) >= 0);
         return result;
     }
 }

@@ -20,6 +20,7 @@
 // rasterize() again with a larger region uses the previously clipped boxes.
 
 import { logError } from './Logger.js';
+import { stdMax, stdMin } from './Functions.js';
 
 export class TetrahedraRasterizer {
     // Constructor arguments.
@@ -143,8 +144,8 @@ export class TetrahedraRasterizer {
             const tetraMax = this.mTetraMax[t];
             this.mValid[t] = true;
             for (let i = 0; i < 3; ++i) {
-                tetraMin[i] = Math.max(tetraMin[i], regionMin[i]);
-                tetraMax[i] = Math.min(tetraMax[i], regionMax[i]);
+                tetraMin[i] = stdMax(tetraMin[i], regionMin[i]);
+                tetraMax[i] = stdMin(tetraMax[i], regionMax[i]);
                 if (tetraMin[i] > tetraMax[i]) {
                     this.mValid[t] = false;
                 }

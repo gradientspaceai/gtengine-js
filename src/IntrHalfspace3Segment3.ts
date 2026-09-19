@@ -14,6 +14,7 @@ import { Segment } from './Segment.js';
 import { Vector, add, sub, mul, dot } from './Vector.js';
 import type { TIQuery } from './TIQuery.js';
 import type { FIQuery } from './FIQuery.js';
+import { stdMax } from './Functions.js';
 
 // The result of IntrHalfspace3Segment3TI.test.
 export interface IntrHalfspace3Segment3TIResult {
@@ -59,7 +60,7 @@ export class IntrHalfspace3Segment3TI implements
 
         // The segment and halfspace intersect when the projection interval
         // maximum is nonnegative.
-        result.intersect = (Math.max(s[0], s[1]) >= 0);
+        result.intersect = (stdMax(s[0], s[1]) >= 0);
         return result;
     }
 }

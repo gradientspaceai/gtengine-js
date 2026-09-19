@@ -144,6 +144,28 @@ describe('mergeContainersAlignedBox', () => {
         expect(left.equals(right)).toBe(true);
     });
 
+    it('keeps the sign of a zero endpoint as std::min/std::max do', () => {
+        // Upstream merges with std::min/std::max, which return their first
+        // argument when the comparison is false. So the sign of a zero
+        // endpoint is the sign of box0's endpoint, not always +0 (max) and
+        // -0 (min) as Math.max/Math.min would give.
+        const merge0 = mergeContainersAlignedBox(
+            box([+0, -0], [-0, +0]), box([-0, +0], [+0, -0]));
+        expect(Object.is(merge0.min.values[0], +0)).toBe(true);
+        expect(Object.is(merge0.min.values[1], -0)).toBe(true);
+        expect(Object.is(merge0.max.values[0], -0)).toBe(true);
+        expect(Object.is(merge0.max.values[1], +0)).toBe(true);
+
+        // Swapping the arguments swaps the signs, which is the observable
+        // asymmetry of std::min/std::max on ties.
+        const merge1 = mergeContainersAlignedBox(
+            box([-0, +0], [+0, -0]), box([+0, -0], [-0, +0]));
+        expect(Object.is(merge1.min.values[0], -0)).toBe(true);
+        expect(Object.is(merge1.min.values[1], +0)).toBe(true);
+        expect(Object.is(merge1.max.values[0], +0)).toBe(true);
+        expect(Object.is(merge1.max.values[1], -0)).toBe(true);
+    });
+
     it('contains all vertices of both input boxes', () => {
         const b0 = box([-1, -2, -3], [1, 0, 4]);
         const b1 = box([0, 5, -7], [2, 6, -1]);

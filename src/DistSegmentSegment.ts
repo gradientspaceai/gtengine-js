@@ -47,6 +47,7 @@
 import type { DCPQuery } from './DCPQuery.js';
 import type { Segment } from './Segment.js';
 import { Vector, add, dot, mul, sub } from './Vector.js';
+import { stdMax, stdMin } from './Functions.js';
 
 export interface DistSegmentSegmentResult {
     distance: number;
@@ -217,7 +218,7 @@ function computeMinimumParameters(edge: readonly number[],
     }
 
     // h0 < 0 and h1 > 0
-    const z = Math.min(Math.max(h0 / (h0 - h1), 0), 1);
+    const z = stdMin(stdMax(h0 / (h0 - h1), 0), 1);
     const omz = 1 - z;
     return [
         omz * end[0][0] + z * end[1][0],

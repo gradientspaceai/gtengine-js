@@ -23,6 +23,7 @@ import { mulMatrix } from './Matrix.js';
 import type { Plane3 } from './Hyperplane.js';
 import { Vector, dot } from './Vector.js';
 import type { TIQuery } from './TIQuery.js';
+import { stdMax } from './Functions.js';
 
 // The result of IntrPlane3Ellipsoid3TI.test.
 export interface IntrPlane3Ellipsoid3TIResult {
@@ -46,7 +47,7 @@ export class IntrPlane3Ellipsoid3TI implements
         const MInverse = ellipsoid.getMInverse();
         const discr = dot(plane.normal,
             mulMatrix(MInverse, plane.normal) as Vector);
-        const root = Math.sqrt(Math.max(discr, 0));
+        const root = Math.sqrt(stdMax(discr, 0));
         const vpQuery = new DistPointHyperplane();
         const distance = vpQuery.compute(ellipsoid.center, plane).distance;
         result.intersect = (distance <= root);

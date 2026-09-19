@@ -29,6 +29,7 @@ import { Arc2 } from './Arc2.js';
 import { GTE_C_TWO_PI } from './Constants.js';
 import { Vector, add, div, dot, mul, normalize, sub } from './Vector.js';
 import { dotPerp, perp } from './Vector2.js';
+import { stdMax, stdMin } from './Functions.js';
 
 export class SampleCircularArc {
     compute(arc: Arc2): Vector[] {
@@ -42,7 +43,7 @@ export class SampleCircularArc {
         // a zero-radius arc into NaN instead of upstream's empty sample set.
         const P0 = div(sub(arc.end[0], arc.center), arc.radius);
         const P2 = div(sub(arc.end[1], arc.center), arc.radius);
-        const d = Math.max(-1, Math.min(dot(P0, P2), 1));
+        const d = stdMax(-1, stdMin(dot(P0, P2), 1));
         const angle = Math.acos(d);
 
         // Decompose the arc into subarcs, each with subtended angle in

@@ -64,6 +64,7 @@ import {
     Vector, add, div, dot, getOrthogonal, length, mul, negate, normalize, sub
 } from './Vector.js';
 import { cross, unitCross } from './Vector3.js';
+import { stdMax } from './Functions.js';
 
 export interface DistCircle3Circle3Result {
     distance: number;
@@ -365,7 +366,7 @@ function doQueryParallelPlanes(circle0: Circle3, circle1: Circle3, D: Vector,
             // s = (1 + (r0^2 - r1^2)/d^2)/2 and h = sqrt(r0^2 - s^2 * d^2).
             const r0sqr = r0 * r0, r1sqr = r1 * r1, dsqr = d * d;
             const s = (1 + (r0sqr - r1sqr) / dsqr) / 2;
-            const arg = Math.max(r0sqr - dsqr * s * s, 0);
+            const arg = stdMax(r0sqr - dsqr * s * s, 0);
             const h = Math.sqrt(arg);
             const midpoint = add(circle0.center, mul(s, compProj));
             const hNxU = mul(h, cross(circle0.normal, U));

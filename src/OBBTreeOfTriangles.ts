@@ -62,6 +62,7 @@ import { Segment } from './Segment.js';
 import { Triangle } from './Triangle.js';
 import { Vector, add, div, dot, length, normalize, sub } from './Vector.js';
 import { cross, unitCross } from './Vector3.js';
+import { stdMax } from './Functions.js';
 
 // The port of the upstream function-pointer type BoxQuery.
 type BoxQuery = (P: Vector, Q: Vector, box: OrientedBox) => boolean;
@@ -294,8 +295,8 @@ export class OBBTreeOfTriangles extends OBBTree {
         const ay0 = Math.abs(dot(box.axis[1], V0mC));
         const ay1 = Math.abs(dot(box.axis[1], V1mC));
         const ay2 = Math.abs(dot(box.axis[1], V2mC));
-        box.extent.values[0] = Math.max(ax0, Math.max(ax1, ax2));
-        box.extent.values[1] = Math.max(ay0, Math.max(ay1, ay2));
+        box.extent.values[0] = stdMax(ax0, stdMax(ax1, ax2));
+        box.extent.values[1] = stdMax(ay0, stdMax(ay1, ay2));
         box.extent.values[2] = 0;
     }
 

@@ -34,6 +34,7 @@ import { logAssert, logError } from './Logger.js';
 import { Vector, dot } from './Vector.js';
 import { computeOrthogonalComplement3 } from './Vector3.js';
 import type { TIQuery } from './TIQuery.js';
+import { stdMax, stdMin } from './Functions.js';
 
 // The result of IntrCanonicalBox3Cylinder3TI.test.
 export interface IntrCanonicalBox3Cylinder3TIResult {
@@ -142,8 +143,8 @@ function doQueryOneZero(i: readonly number[], C: readonly number[],
     if (absC2 <= e2) {
         const negEmCDivD = [-e0pc0 / d0, -e1pc1 / d1];
         const posEmCDivD = [e0mc0 / d0, e1mc1 / d1];
-        const lower = Math.max(Math.max(negEmCDivD[0], negEmCDivD[1]), -hDiv2);
-        const upper = Math.min(Math.min(posEmCDivD[0], posEmCDivD[1]), hDiv2);
+        const lower = stdMax(stdMax(negEmCDivD[0], negEmCDivD[1]), -hDiv2);
+        const upper = stdMin(stdMin(posEmCDivD[0], posEmCDivD[1]), hDiv2);
         if (lower <= upper) {
             return true;
         }
@@ -211,12 +212,12 @@ function doQueryNoZeros(C: readonly number[], D: readonly number[], r: number,
         (E[2] - C[2]) / D[2]
     ];
 
-    const max01 = Math.max(negEmCDivD[0], negEmCDivD[1]);
-    const max23 = Math.max(negEmCDivD[2], -hDiv2);
-    let lower = Math.max(max01, max23);
-    const min01 = Math.min(posEmCDivD[0], posEmCDivD[1]);
-    const min23 = Math.min(posEmCDivD[2], hDiv2);
-    let upper = Math.min(min01, min23);
+    const max01 = stdMax(negEmCDivD[0], negEmCDivD[1]);
+    const max23 = stdMax(negEmCDivD[2], -hDiv2);
+    let lower = stdMax(max01, max23);
+    const min01 = stdMin(posEmCDivD[0], posEmCDivD[1]);
+    const min23 = stdMin(posEmCDivD[2], hDiv2);
+    let upper = stdMin(min01, min23);
     if (lower <= upper) {
         return true;
     }

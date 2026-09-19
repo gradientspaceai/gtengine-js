@@ -56,6 +56,7 @@
 // mapped as described at their declarations below.
 
 import { logAssert } from './Logger.js';
+import { stdMax, stdMin } from './Functions.js';
 
 // Upstream returns the location and value of the minimum through the output
 // reference parameters tMin and fMin; per PORTING.md these become the named
@@ -95,8 +96,8 @@ export class Minimize1 {
         this.mMaxBisections = maxBisections;
         this.mTMin = 0;
         this.mFMin = 0;
-        this.mEpsilon = Math.max(epsilon, 0);
-        this.mTolerance = Math.max(tolerance, 0);
+        this.mEpsilon = stdMax(epsilon, 0);
+        this.mTolerance = stdMax(tolerance, 0);
 
         logAssert(
             this.mMaxSubdivisions > 0 && this.mMaxBisections > 0,
@@ -108,11 +109,11 @@ export class Minimize1 {
 
     // Member access.
     setEpsilon(epsilon: number): void {
-        this.mEpsilon = Math.max(epsilon, 0);
+        this.mEpsilon = stdMax(epsilon, 0);
     }
 
     setTolerance(tolerance: number): void {
-        this.mTolerance = Math.max(tolerance, 0);
+        this.mTolerance = stdMax(tolerance, 0);
     }
 
     getEpsilon(): number {
@@ -246,7 +247,7 @@ export class Minimize1 {
             // Compute tv and clamp to [t0,t1] to offset floating-point
             // rounding errors.
             let tv = tm + half * (dt1m * tmp1 - dt0m * tmp0) / denom;
-            tv = Math.max(t0, Math.min(tv, t1));
+            tv = stdMax(t0, stdMin(tv, t1));
             const fv = this.mFunction(tv);
             if (fv < this.mFMin) {
                 this.mTMin = tv;

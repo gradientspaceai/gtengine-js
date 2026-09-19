@@ -37,6 +37,7 @@ import { CholeskyDecomposition } from './CholeskyDecomposition.js';
 import { logAssert } from './Logger.js';
 import { Matrix, multiplyATB, mulMatrix } from './Matrix.js';
 import { Vector, add, dot, length, negate } from './Vector.js';
+import { stdMax } from './Functions.js';
 
 // F: given p (numPDimensions), fill f (numFDimensions) with F(p).
 export type LevenbergMarquardtFFunction = (p: Vector, f: Vector) => void;
@@ -160,8 +161,8 @@ export class LevenbergMarquardtMinimizer {
         }
 
         // As a simple precaution, ensure the tolerances are nonnegative.
-        updateLengthTolerance = Math.max(updateLengthTolerance, 0);
-        errorDifferenceTolerance = Math.max(errorDifferenceTolerance, 0);
+        updateLengthTolerance = stdMax(updateLengthTolerance, 0);
+        errorDifferenceTolerance = stdMax(errorDifferenceTolerance, 0);
 
         // Compute the initial error.
         this.mFFunction(p0, this.mF);

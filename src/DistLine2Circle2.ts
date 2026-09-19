@@ -32,6 +32,7 @@ import type { Circle2 } from './Hypersphere.js';
 import type { Line2 } from './Line.js';
 import { Vector, add, dot, mul, normalize, sub } from './Vector.js';
 import { dotPerp } from './Vector2.js';
+import { stdMax } from './Functions.js';
 
 export interface DistLine2Circle2Result {
     distance: number;
@@ -106,7 +107,7 @@ function doQuery(delta: Vector, direction: Vector, radius: number,
         const a0 = dot(delta, delta) - radius * radius;
         const a1 = dotDirDel;
         const a2 = dotDirDir;
-        const discr = Math.max(a1 * a1 - a0 * a2, 0);
+        const discr = stdMax(a1 * a1 - a0 * a2, 0);
         const sqrtDiscr = Math.sqrt(discr);
 
         // Evaluate the line parameters but do so to avoid subtractive

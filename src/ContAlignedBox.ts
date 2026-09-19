@@ -20,6 +20,7 @@
 import { AlignedBox } from './AlignedBox.js';
 import { logAssert } from './Logger.js';
 import { Vector, computeExtremes } from './Vector.js';
+import { stdMax, stdMin } from './Functions.js';
 
 // Compute the minimum size aligned bounding box of the points. The extreme
 // values are the minima and maxima of the point coordinates. Upstream
@@ -55,8 +56,8 @@ export function mergeContainersAlignedBox(box0: AlignedBox, box1: AlignedBox): A
 
     const merge = new AlignedBox(box0.dimension);
     for (let i = 0; i < box0.dimension; ++i) {
-        merge.min.values[i] = Math.min(box0.min.values[i], box1.min.values[i]);
-        merge.max.values[i] = Math.max(box0.max.values[i], box1.max.values[i]);
+        merge.min.values[i] = stdMin(box0.min.values[i], box1.min.values[i]);
+        merge.max.values[i] = stdMax(box0.max.values[i], box1.max.values[i]);
     }
     return merge;
 }
