@@ -401,8 +401,18 @@ describe('DarbouxFrame verification', () => {
             const moved = new Moved(base, angle, shift);
             const a = new DarbouxFrame3(base).getPrincipalInformation(u, v);
             const b = new DarbouxFrame3(moved).getPrincipalInformation(u, v);
-            expectClose(b.curvature0, a.curvature0, 1e-8, 1e-8);
-            expectClose(b.curvature1, a.curvature1, 1e-8, 1e-8);
+            // The principal curvatures are the roots of a quadratic. Near an
+            // umbilic point (fc's boundary-biased doubles make c0 == c2,
+            // c1 == 0 likely) they are a nearly double root, so round-off of
+            // size eps moves each one by sqrt(eps) ~ 1e-8 while their sum and
+            // product stay accurate. Compare the symmetric functions tightly
+            // and the individual roots at the sqrt-conditioned level.
+            expectClose(b.curvature0 + b.curvature1,
+                a.curvature0 + a.curvature1, 1e-9, 1e-9);
+            expectClose(b.curvature0 * b.curvature1,
+                a.curvature0 * a.curvature1, 1e-9, 1e-9);
+            expectClose(b.curvature0, a.curvature0, 1e-6, 1e-6);
+            expectClose(b.curvature1, a.curvature1, 1e-6, 1e-6);
         });
     });
 });
