@@ -9,7 +9,7 @@ upstream GTE code compiled with MSVC; the port replays the same inputs. See
 - compiler MSVC 194435215 x64 /O2 /fp:precise
 - records-per-case 20
 
-**302 cases, 5440 records, 25091 floating-point outputs compared; 99.55% bit-identical to the C++ build. 265 cases are bit-identical on every output. 30 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
+**370 cases, 6620 records, 28794 floating-point outputs compared; 99.61% bit-identical to the C++ build. 324 cases are bit-identical on every output. 39 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
 
 Discrete outputs (booleans, counts, indices) always compare exactly and are not counted
 in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |port|, |C++|)`.
@@ -23,6 +23,7 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | v30-intersection | 61 | 1200 | 1684 | 100.00% | 60 | 0 |  |
 | v31-intersection | 61 | 1100 | 2644 | 99.36% | 54 | 3.70e-14 | `IntrLine3Torus3.find` |
 | v32-intersection | 64 | 1100 | 3683 | 99.54% | 53 | 9.06e-14 | `IntrEllipse2Ellipse2.find` |
+| v33-intersection | 68 | 1180 | 3703 | 100.00% | 59 | 0 |  |
 
 ## Deliberate deviations from the C++ build
 
@@ -62,3 +63,12 @@ every record.
 | v32-intersection | `IntrTriangle3Cylinder3.test.infiniteDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md cylinder headers, missing IsFinite guard; issues #197, #206 and #255 |
 | v32-intersection | `IntrEllipse2Ellipse2.test.poleDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrEllipse2Ellipse2.h TIQuery (the c_i = 0 terms of f(s) are dropped, losing the two pole critical points); issue #458 |
 | v32-intersection | `IntrEllipse2Ellipse2.find.divisorDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrEllipse2Ellipse2.h CaseE4NotZero (divisor == 0 writes both symmetric points to the same slot); issue #250 |
+| v33-intersection | `IntrSegment2OrientedBox2.find.frameDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrSegment2OrientedBox2.h FIQuery (box-frame vector added to the world-space box centre); issue #255 |
+| v33-intersection | `IntrEllipsoid3Ellipsoid3.test.equalEigenvaluesDeviation` | 20 of 20 | src/IntrEllipsoid3Ellipsoid3.ts KNOWN UPSTREAM DEFECT: the 'd0 > d1 = d2' branch folds the coefficient of the distinct eigenvalue instead of the one that shares it |
+| v33-intersection | `IntrOrientedBox3Cylinder3.test.edgeTypoDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrCanonicalBox3Cylinder3.h DoQueryNoZeros (U1,-D) sign typo, inherited by the wrapper; issue #197 |
+| v33-intersection | `IntrRay3Cylinder3.find.infiniteDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md cylinder headers, missing IsFinite guard (the port asserts); issues #197, #206, #255 |
+| v33-intersection | `IntrSegment3Cylinder3.find.infiniteDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md cylinder headers, missing IsFinite guard (the port asserts); issues #197, #206, #255 |
+| v33-intersection | `IntrRay3Capsule3.test.clampDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md DistRaySegment.h, the missing s0 >= 0 clamp in the parallel branch and regions 1 and 5; issue #126 |
+| v33-intersection | `IntrRay3Capsule3.doQuery.capTangentDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrLine3Capsule3.h, "intersect" is never set when only one hemisphere root is accepted; issue #461 |
+| v33-intersection | `IntrSegment3Capsule3.doQuery.junctionDeviation` | 15 of 20 | docs/UPSTREAM-FINDINGS.md IntrLine3Capsule3.h, a cap-junction root accepted twice collapses the interval; issue #461 |
+| v33-intersection | `IntrSphere3Frustum3.test.clampDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md DistPoint3Frustum3.h, the two unclamped far-edge assignments; issue #421 |
