@@ -364,7 +364,7 @@ describe('VertexCollapseMesh verification', () => {
             for (const v of boundary) {
                 expect(mesh.getVertex(v)).not.toBeNull();
             }
-        });
+        }, 40);
     }, 30000);
 
     it('decimates a closed mesh down to the fewest triangles', () => {
@@ -401,7 +401,7 @@ describe('VertexCollapseMesh verification', () => {
             for (const tri of mesh.getTriangles()) {
                 for (const v of tri.V) { expect(gone.has(v)).toBe(false); }
             }
-        });
+        }, 40);
     }, 30000);
 
     it('leaves the caller position array untouched', () => {
@@ -412,7 +412,7 @@ describe('VertexCollapseMesh verification', () => {
             for (let i = 0; i < positions.length; ++i) {
                 expect(positions[i].values).toEqual(before[i]);
             }
-        });
+        }, 40);
     }, 30000);
 
     it('computes the weight and normal exactly as the upstream formula does', () => {
@@ -517,6 +517,6 @@ describe('VertexCollapseMesh verification', () => {
                 expect(mesh.getTriangleKeys().map(k => k.V.join(',')))
                     .toEqual(keys);
             }
-        });
+        }, 40);
     }, 30000);
 });
