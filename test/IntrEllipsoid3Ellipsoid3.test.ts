@@ -366,6 +366,86 @@ describe('IntrEllipsoid3Ellipsoid3 verification', () => {
         }
     }
 
+    // KNOWN UPSTREAM DEFECT (fixed in the port): the 'd0 > d1 = d2' branch of
+    // the valid-pair analysis folds the c of the *distinct* eigenvalue into the
+    // repeated one instead of the c that shares it. See the header comment of
+    // src/IntrEllipsoid3Ellipsoid3.ts and oracle/reports/v33-intersection.md.
+    it('classifies the d0 > d1 = d2 branch with the folded terms that share '
+        + 'an eigenvalue', () => {
+        // Both frames are the identity and every extent is a power of two, so
+        // M2 = diag(16, 1, 1) is exact and its two trailing eigenvalues are
+        // exactly equal: the 'd0 > d1 = d2' branch is taken. The center offset
+        // has a component along the distinct axis (1/2) and one in the
+        // repeated eigenplane (1/4), which is what makes the two foldings
+        // differ.
+        const e0 = sphere([0, 0, 0], 1);
+        const e1 = ellipsoid([0.5, 0.25, 0], unitAxes, [0.25, 1, 1]);
+
+        // (1/2, 5/4, 0) is on ellipsoid1 and its distance from the origin is
+        // sqrt(29)/4 = 1.3462..., so ellipsoid1 is not contained in the unit
+        // ball. Upstream's expression reports ELLIPSOID0_CONTAINS_ELLIPSOID1.
+        const witness = vec(0.5, 1.25, 0);
+        expect(quadratic(e1, witness)).toBe(0);
+        expect(quadratic(e0, witness)).toBeGreaterThan(0);
+
+        const result = query.test(e0, e1);
+        expect(result.intersect).toBe(true);
+        expect(result.classification).toBe(C.ELLIPSOIDS_INTERSECTING);
+
+        // The same answer from an independent surface sampling.
+        const extremes = extremesOnSurface(e1, e0);
+        expect(extremes.min).toBeLessThan(0);
+        expect(extremes.max).toBeGreaterThan(0);
+    });
+
+    it('agrees with surface sampling over the d0 > d1 = d2 branch', () => {
+        // Ellipsoid0 is a ball and ellipsoid1 has two equal extents, so the
+        // two trailing eigenvalues of M2 are exactly equal. Upstream's
+        // expression disagrees with the sampled classification on several of
+        // these configurations (83 of 1620 over the wider grid the search
+        // used, recorded in oracle/reports/v33-intersection.md); the corrected
+        // one disagrees on none.
+        const pow2 = [0.25, 0.5, 1, 2];
+        const offsets = [0.25, 0.5, 0.75, 1.25];
+        let checked = 0;
+        for (const a of [1, 2]) {
+            for (const bd of pow2) {
+                for (const br of pow2) {
+                    // The branch needs the distinct eigenvalue a^2/bd^2 to be
+                    // the largest of the three.
+                    if (!(bd < br)) { continue; }
+                    for (const dx of offsets) {
+                        for (const dy of offsets) {
+                            const e0 = sphere([0, 0, 0], a);
+                            const e1 = ellipsoid([dx, dy, 0], unitAxes,
+                                [bd, br, br]);
+                            const extremes = extremesOnSurface(e1, e0);
+                            // Skip the configurations whose sampled extremes
+                            // are too close to zero to classify reliably.
+                            if (Math.min(Math.abs(extremes.min),
+                                Math.abs(extremes.max)) <= 1e-2) {
+                                continue;
+                            }
+                            const expected = extremes.max < 0
+                                ? C.ELLIPSOID0_CONTAINS_ELLIPSOID1
+                                : (extremes.min > 0
+                                    ? (quadratic(e1, e0.center) < 0
+                                        ? C.ELLIPSOID1_CONTAINS_ELLIPSOID0
+                                        : C.ELLIPSOIDS_SEPARATED)
+                                    : C.ELLIPSOIDS_INTERSECTING);
+                            const got = query.test(e0, e1);
+                            expect(got.classification,
+                                `a=${a} bd=${bd} br=${br} dx=${dx} dy=${dy}`)
+                                .toBe(expected);
+                            ++checked;
+                        }
+                    }
+                }
+            }
+        }
+        expect(checked).toBeGreaterThan(100);
+    });
+
     it('pins the reachable GetRoots bracketing assert', () => {
         // Two ordinary ellipsoids: a ball of radius 0.4 at the origin and an
         // ellipsoid of extents (0.49, 0.41, 0.91) whose center is 0.001 away

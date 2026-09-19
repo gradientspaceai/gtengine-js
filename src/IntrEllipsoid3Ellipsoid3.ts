@@ -15,6 +15,28 @@
 // functions getRoots1, getRoots2 and getRoots3, each returning the array of
 // roots rather than filling a caller-supplied buffer.
 //
+// KNOWN UPSTREAM DEFECT (fixed here). The valid-pair analysis folds the
+// coefficients of f(s) = sum_i d_i*c_i/(d_i*s - 1)^2 - 1 that share an
+// eigenvalue, because two equal d values give one term
+// d*(c_i + c_j)/(d*s - 1)^2. The branches for 'd0 = d1 > d2' and
+// 'd0 = d1 = d2' do that correctly, but the branch for 'd0 > d1 = d2' writes
+//   param[1].second += param[0].second;   // upstream
+// which folds in the c of the *distinct* eigenvalue d0 (counting it twice)
+// and drops param[2].second entirely. The port writes
+//   param[1][1] += param[2][1];
+// The defect corrupts the classification, not just an intermediate: with
+// ellipsoid0 the unit ball at the origin and ellipsoid1 centered at
+// (1/2, 1/4, 0) with extents (1/4, 1, 1) -- axis-aligned, so
+// M2 = diag(16, 1, 1) is exact and its two trailing eigenvalues are exactly
+// equal -- upstream reports ELLIPSOID0_CONTAINS_ELLIPSOID1 although
+// ellipsoid1 contains its own surface point (1/2, 5/4, 0), whose distance
+// from the origin is sqrt(29)/4 = 1.346... > 1. The correct answer is
+// ELLIPSOIDS_INTERSECTING, which is what this file returns. Over a grid of
+// 1620 configurations that reach this branch, dense sampling of ellipsoid1's
+// surface against ellipsoid0's quadratic form disagreed with upstream on 83
+// and with the corrected expression on none.
+// See oracle/reports/v33-intersection.md and test/IntrEllipsoid3Ellipsoid3.test.ts.
+//
 // NOTE (upstream defect, preserved): getRoots2/getRoots3 bracket the roots of
 // f(s) with an ad-hoc epsilon = 0.001 -- upstream's own comment asks "What
 // role does epsilon play?" -- and guard each bracket with a LogAssert on the
@@ -388,7 +410,10 @@ export class IntrEllipsoid3Ellipsoid3TI implements
                 if (param[0][1] > 0) {
                     valid.push(param[0]);
                 }
-                param[1][1] += param[0][1];
+                // Upstream writes 'param[1][1] += param[0][1]'. See the
+                // KNOWN UPSTREAM DEFECT note at the top of this file: the
+                // terms that share an eigenvalue are param[1] and param[2].
+                param[1][1] += param[2][1];
                 if (param[1][1] > 0) {
                     valid.push(param[1]);
                 }

@@ -118,7 +118,10 @@ Rules:
    emit fields upstream leaves unset or unspecified on that path.
 6. Outputs whose order upstream does not define (hash containers, pointer
    keyed maps) are canonicalized identically on both sides before emitting
-   (sort), and the case comment says so.
+   (sort), and the case comment says so. `std::sort` is not stable and
+   `Array.prototype.sort` is, so a result ordered by `std::sort` on a partial
+   key (`IntrLine2SegmentMesh2` sorts by `lineParameter` only) is re-sorted
+   with a total key on both sides; ties are the interesting inputs there.
 7. Discrete outputs (`outInt`, `outBool`) always compare exactly. Integers
    must stay below 2^53.
 8. Keep records small (tens of doubles, not thousands): goldens are committed.
@@ -129,7 +132,11 @@ Rules:
    right-handed axis pair) can turn a whole generator into throw records.
    Fix the generator and give the assert its own throw-parity case. When
    probing upstream outside the harness, catch `std::exception`: an uncaught
-   `LogAssert` is exit code `0xC0000409`, not a message.
+   `LogAssert` is exit code `0xC0000409`, not a message. A preserved assert
+   whose firing is decided by libm round-off (`IntrEllipsoid3Ellipsoid3`'s
+   `epsilon` brackets) cannot promise throw parity: reject the throwing
+   configurations in the main cases and pin one deterministic reproduction
+   as its own throw-parity case.
 10. A thin wrapper inherits its delegate's deviations
    (`IntrAlignedBox3Cylinder3` around `IntrCanonicalBox3Cylinder3`, the ray
    and segment variants of a line query). Search `docs/UPSTREAM-FINDINGS.md`
@@ -202,7 +209,23 @@ Every disagreement gets a root cause. In order of likelihood:
    observable symptom rather than a replica of the branch analysis, and
    check the magnitude of the deviation, not only that one exists: a
    necessary condition for a defect is not a sufficient one. A rejection
-   loop keeps the last non-throwing candidate as its fallback.
+   loop keeps the last non-throwing candidate as its fallback. A fix can
+   also be a re-derivation (v33 `IntrSegment2OrientedBox2`: two expressions
+   equal in exact arithmetic but not in floating point on essentially every
+   input). Then split by output field: the main case compares every field
+   but the deviating one on the full generator, a narrow constructed case
+   compares that field where the two expressions are bit-identical, and the
+   `deviation` case demonstrates the fix. Probe with the values the query
+   itself will use (after `GetCenteredForm` of the recorded endpoints), not
+   the draws they were built from. A bool-only query behind a distance query
+   is made to deviate by setting its threshold to upstream's own distance,
+   and gets a balanced branch split from `radius = distance * uniform(0.5,
+   1.5)`. An upstream defect the oracle itself uncovers (v33
+   `IntrEllipsoid3Ellipsoid3`, issue #503) follows PORTING.md: if an explicit
+   input shows a wrong result against an independent reference it is fixed
+   in the port, with a regression test, an exact-predicate restriction of
+   the main case and a `deviation` case whose records are all genuine wrong
+   results.
 4. **Math library rounding**: compare with tolerance as above.
 5. **Upstream undefined or unspecified behaviour** (uninitialised reads,
    evaluation-order dependence, signed overflow): restrict the generator,

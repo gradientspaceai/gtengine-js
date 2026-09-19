@@ -71,11 +71,11 @@ Nothing here has been reported upstream before; this document is the report.
 
 ## Counts
 
-- **492 distinct findings** across **156** tracked issues (one issue
+- **493 distinct findings** across **157** tracked issues (one issue
   frequently holds several findings in related files).
-- By severity: **241 result-corrupting**, **14 wrong but
+- By severity: **242 result-corrupting**, **14 wrong but
   recoverable**, **164 minor**, **73 documentation**.
-- By port status: **254 fixed or corrected in the port** (of which 153 are code
+- By port status: **255 fixed or corrected in the port** (of which 154 are code
   fixes with regression tests, 22 are added guards or asserts where upstream has
   undefined behaviour, 64 are comment corrections, 11 are dead-code removals and
   4 are documented deliberate deviations), **229 preserved deliberately**, and
@@ -356,6 +356,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `IntrEllipse2Ellipse2.h` | quartic root finding | concentric congruent ellipses rotated exactly 90 degrees report no intersection | RC | preserved | [#250](https://github.com/gradientspaceai/gtengine-js/issues/250) |
 | `IntrEllipse2Ellipse2.h` | TI bracket, quartic | the bracket collapses onto its pole for nearly concentric ellipses; near-double roots are lost or invented | RC | preserved | [#458](https://github.com/gradientspaceai/gtengine-js/issues/458) |
 | `IntrEllipse2Ellipse2.h` | `CaseE4ZeroE2NotZeroE3Zero`, `GetRoots` | `<=` where the siblings use `<`; dead `fval = F(s)` stores | minor | preserved | [#250](https://github.com/gradientspaceai/gtengine-js/issues/250) |
+| `IntrEllipsoid3Ellipsoid3.h` | valid-pair analysis, `d0 > d1 = d2` | `param[1].second += param[0].second` folds the coefficient of the distinct eigenvalue into the repeated one (counting it twice) and drops `param[2].second`; `f(s)` is built with the wrong coefficients and the classification is wrong | RC | fixed | [#503](https://github.com/gradientspaceai/gtengine-js/issues/503) |
 | `IntrEllipsoid3Ellipsoid3.h` | `GetRoots` | the ad-hoc `epsilon = 0.001` bracketing asserts fire for ordinary close-centre input | WR | preserved | [#255](https://github.com/gradientspaceai/gtengine-js/issues/255), [#461](https://github.com/gradientspaceai/gtengine-js/issues/461) |
 | `IntrEllipsoid3Ellipsoid3.h` | `Matrix3x3 D0` | dead store | minor | dropped | [#255](https://github.com/gradientspaceai/gtengine-js/issues/255) |
 | `IntrHalfspace2Polygon2.h` | FIQuery | returns `intersect = true` with an empty polygon when the input lies entirely inside | RC | preserved | [#139](https://github.com/gradientspaceai/gtengine-js/issues/139) |
@@ -2673,11 +2674,43 @@ The bracketing uses an ad-hoc `epsilon = 0.001` (upstream's own comment:
 in the offset: 0.002 and 0.0001 classify, 0.001 and 1e-6 throw. Preserved, with a
 deterministic reproduction pinned.
 
-**5. Minor.** `CaseE4ZeroE2NotZeroE3Zero` uses `test0 <= test1` where the other
+**5. `IntrEllipsoid3Ellipsoid3`'s `d0 > d1 = d2` branch folds the wrong coefficient (result-corrupting).**
+The valid-pair analysis reduces `f(s) = sum_i d_i*c_i/(d_i*s - 1)^2 - 1` by
+folding the coefficients that share an eigenvalue, because two equal `d` values
+give the single term `d*(c_i + c_j)/(d*s - 1)^2`. The branches for
+`d0 = d1 > d2` and `d0 = d1 = d2` do that correctly. The branch for
+`d0 > d1 = d2` writes
+
+```cpp
+if (param[0].second > (T)0) { valid.push_back(param[0]); }
+param[1].second += param[0].second;    // should be param[2].second
+if (param[1].second > (T)0) { valid.push_back(param[1]); }
+```
+
+folding in the `c` of the *distinct* eigenvalue `d0` (counted twice, since
+`param[0]` is pushed as well) and never using `param[2].second`. `GetRoots`
+then solves the wrong `f(s)` and the classification is wrong.
+
+**Reproduction (plain doubles, all dyadic).** Ellipsoid0 is the unit ball at the
+origin; ellipsoid1 is axis-aligned, centred at `(1/2, 1/4, 0)`, with extents
+`(1/4, 1, 1)`. Both frames are the identity and the extents are powers of two,
+so `M2 = diag(16, 1, 1)` is exact and its two trailing eigenvalues are exactly
+equal. Upstream reports `ELLIPSOID0_CONTAINS_ELLIPSOID1`, although
+`(1/2, 5/4, 0)` lies on ellipsoid1 and is `sqrt(29)/4 = 1.3462...` from the
+origin; the correct answer is `ELLIPSOIDS_INTERSECTING`. Over 1620
+configurations reaching this branch, dense sampling of ellipsoid1's surface
+against ellipsoid0's quadratic form disagrees with upstream on 83 and with the
+corrected expression on none. The C++ oracle confirms it against the real MSVC
+build: `oracle/cpp/cases/v33-intersection.cpp`'s
+`IntrEllipsoid3Ellipsoid3.test.equalEigenvaluesDeviation` deviates on 2000 of
+2000 records, upstream reporting containment on 1260 and separation on 637 of
+them. Port: fixed (`param[1][1] += param[2][1]`). Found by the C++ oracle wave.
+
+**6. Minor.** `CaseE4ZeroE2NotZeroE3Zero` uses `test0 <= test1` where the other
 three handlers use `test0 < test1`; `GetRoots` contains dead `fval = F(s)` stores;
 `IntrEllipsoid3Ellipsoid3` has a dead `Matrix3x3 D0`.
 
-Issues [#250](https://github.com/gradientspaceai/gtengine-js/issues/250), [#458](https://github.com/gradientspaceai/gtengine-js/issues/458), [#255](https://github.com/gradientspaceai/gtengine-js/issues/255), [#461](https://github.com/gradientspaceai/gtengine-js/issues/461).
+Issues [#250](https://github.com/gradientspaceai/gtengine-js/issues/250), [#458](https://github.com/gradientspaceai/gtengine-js/issues/458), [#255](https://github.com/gradientspaceai/gtengine-js/issues/255), [#461](https://github.com/gradientspaceai/gtengine-js/issues/461), [#503](https://github.com/gradientspaceai/gtengine-js/issues/503).
 
 ### `IntrHalfspace2Polygon2.h`, `IntrHalfspace3Segment3.h`, `IntrOrientedBox2Sector2.h`
 
