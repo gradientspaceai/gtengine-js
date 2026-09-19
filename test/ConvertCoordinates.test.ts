@@ -361,12 +361,25 @@ describe('ConvertCoordinates verification', () => {
                     // conversion table, including its transposes.
                     const XT = apply(A, X, vorU);
                     const YT = apply(B, Y, vorV);
-                    expectVectorsClose(cartesian(V, YT), cartesian(U, XT), 1e-5,
-                        1e-5);
+
+                    // B = C^{-1} A C and its round trip are similarity
+                    // transforms, so they lose cond(C)^2 * eps * |A|. A fixed
+                    // 1e-5 was crossed once by an ill-conditioned draw with
+                    // large entries; use the error model itself (max-norm
+                    // condition number, generous constant).
+                    const maxAbs = (values: readonly number[]): number =>
+                        values.reduce((m, x) => Math.max(m, Math.abs(x)), 0);
+                    const cond = n * n * maxAbs(convert.getC().values)
+                        * maxAbs(convert.getInverseC().values);
+                    const scaleA = Math.max(1, maxAbs(A.values));
+                    const tol = 1e-12 * cond * cond * scaleA;
+                    const scaleX = Math.max(1, maxAbs(X.values))
+                        * Math.max(1, maxAbs(U.values));
+                    expectVectorsClose(cartesian(V, YT), cartesian(U, XT),
+                        tol * scaleX, 0);
 
                     // vToU undoes uToV on transformations too.
-                    // Same conditioning argument as above: cond(C) ~ 1e3-1e4.
-                    expectMatrixClose(convert.vToU(B), A, 1e-5);
+                    expectMatrixClose(convert.vToU(B), A, tol);
                 }, 40);
         });
 
