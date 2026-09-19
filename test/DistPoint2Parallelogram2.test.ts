@@ -303,4 +303,66 @@ describe('DistPoint2Parallelogram2 verification', () => {
             expect(p.values).toEqual(p0.values);
         });
     });
+
+    // The C++ oracle (oracle/cpp/cases/v21-distance.cpp) found the port
+    // grouping the two axis terms of the closest-point reconstruction before
+    // adding the center. Upstream writes
+    //
+    //   result.closest[1] = pgm.center + K[0] * pgm.axis[0]
+    //       + K[1] * pgm.axis[1];
+    //
+    // which C++ evaluates left to right as ((C + K0*A0) + K1*A1). The two
+    // groupings are algebraically equal but differ in the last bits, and the
+    // difference reached distance, sqrDistance and closest[1] on 3 of 20
+    // committed oracle records. This test pins the accumulation order: the
+    // port must equal the left-to-right grouping bit for bit, and the two
+    // groupings must actually differ somewhere in the sample so that the test
+    // cannot pass vacuously.
+    it('accumulates the closest point left to right, as upstream does', () => {
+        let state = 0x9e3779b9;
+        const rand = (): number => {
+            state = (state * 1103515245 + 12345) & 0x7fffffff;
+            return state / 0x7fffffff;
+        };
+        let differ = 0;
+        for (let trial = 0; trial < 500; ++trial) {
+            const center = v(10 * rand() - 5, 10 * rand() - 5);
+            const angle = 2 * Math.PI * rand();
+            const c = Math.cos(angle);
+            const s = Math.sin(angle);
+            const l0 = 0.25 + 3 * rand();
+            const l1 = 0.25 + 3 * rand();
+            const m = 6 * rand() - 3;
+            const axis0 = v(l0 * c, l0 * s);
+            const axis1 = v(l1 * -s + m * c, l1 * c + m * s);
+            const g = Parallelogram2.fromCenterAxis(center, [axis0, axis1]);
+            const p = v(20 * rand() - 10, 20 * rand() - 10);
+
+            const r = query.compute(p, g);
+
+            // Reproduce GetMinimizer's K from the same inputs the query uses,
+            // then form both groupings of the reconstruction.
+            const B = new Matrix(2, 2);
+            B.setCol(0, g.axis[0]);
+            B.setCol(1, g.axis[1]);
+            const A = multiplyATB(B, B);
+            const Z = mulMatrix(inverse2x2(B).inverse,
+                sub(p, g.center)) as Vector;
+            const K = query.getMinimizer(A, Z);
+            const upstreamOrder = add(
+                add(g.center, mul(K.values[0], g.axis[0])),
+                mul(K.values[1], g.axis[1]));
+            const groupedOrder = add(g.center,
+                add(mul(K.values[0], g.axis[0]), mul(K.values[1], g.axis[1])));
+
+            expect(r.closest[1].values).toEqual(upstreamOrder.values);
+            if (upstreamOrder.values[0] !== groupedOrder.values[0]
+                || upstreamOrder.values[1] !== groupedOrder.values[1]) {
+                ++differ;
+            }
+        }
+        // The two groupings really are distinguishable on this sample, so the
+        // assertion above is not vacuous.
+        expect(differ).toBeGreaterThan(0);
+    });
 });

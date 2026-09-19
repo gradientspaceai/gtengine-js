@@ -53,8 +53,11 @@ export class DistPoint2Parallelogram2
         const K = this.getMinimizer(A, Z);
 
         const closest0 = point.clone();
-        const closest1 = add(pgm.center,
-            add(mul(K.values[0], pgm.axis[0]), mul(K.values[1], pgm.axis[1])));
+        // The sum is accumulated left to right, as upstream's
+        // 'pgm.center + K[0] * pgm.axis[0] + K[1] * pgm.axis[1]'.
+        const closest1 = add(
+            add(pgm.center, mul(K.values[0], pgm.axis[0])),
+            mul(K.values[1], pgm.axis[1]));
         const diff = sub(closest0, closest1);
         const sqrDistance = diff.values[0] * diff.values[0]
             + diff.values[1] * diff.values[1];
