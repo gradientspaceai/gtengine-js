@@ -9,7 +9,7 @@ upstream GTE code compiled with MSVC; the port replays the same inputs. See
 - compiler MSVC 194435215 x64 /O2 /fp:precise
 - records-per-case 20
 
-**370 cases, 6620 records, 28794 floating-point outputs compared; 99.61% bit-identical to the C++ build. 324 cases are bit-identical on every output. 39 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
+**398 cases, 7080 records, 33242 floating-point outputs compared; 99.43% bit-identical to the C++ build. 345 cases are bit-identical on every output. 44 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
 
 Discrete outputs (booleans, counts, indices) always compare exactly and are not counted
 in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |port|, |C++|)`.
@@ -20,6 +20,7 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | v19-distance | 43 | 780 | 6976 | 100.00% | 39 | 0 |  |
 | v20-distance | 28 | 440 | 3585 | 98.74% | 21 | 1.33e-15 | `DistLine3Circle3.compute` |
 | v21-distance | 38 | 680 | 5295 | 99.45% | 32 | 8.36e-16 | `DistRay3Circle3.compute` |
+| v22-distance | 28 | 460 | 4448 | 98.25% | 21 | 3.44e-15 | `DistCircle3Circle3.compute.identityRotation` |
 | v30-intersection | 61 | 1200 | 1684 | 100.00% | 60 | 0 |  |
 | v31-intersection | 61 | 1100 | 2644 | 99.36% | 54 | 3.70e-14 | `IntrLine3Torus3.find` |
 | v32-intersection | 64 | 1100 | 3683 | 99.54% | 53 | 9.06e-14 | `IntrEllipse2Ellipse2.find` |
@@ -47,6 +48,11 @@ every record.
 | v21-distance | `DistSegment3OrientedBox3.compute.deviation` | 20 of 20 | UPSTREAM-FINDINGS DistLine3OrientedBox3.h, issue #421: the world-space line point is written into closest[0] before the loop that maps the box-frame closest points back to the world, so upstream transforms it a second time. |
 | v21-distance | `DistRay3Circle3.compute.axis.deviation` | 20 of 20 | UPSTREAM-FINDINGS DistLine3Circle3.h, issue #421: Finalize normalizes the in-plane component of a critical line point without checking that it is nonzero, so upstream reports the circle center as a closest circle point and the distance to the center instead of to the circle. |
 | v21-distance | `DistSegment3Circle3.compute.axis.deviation` | 20 of 20 | UPSTREAM-FINDINGS DistLine3Circle3.h, issue #421: Finalize normalizes the in-plane component of a critical line point without checking that it is nonzero, so upstream reports the circle center as a closest circle point and the distance to the center instead of to the circle. |
+| v22-distance | `DistOrientedBox3Cone3.compute.deviation` | 14 of 20 | UPSTREAM-FINDINGS Minimize1.h item 1, issue #298 |
+| v22-distance | `DistOrientedBox3Cone3.compute.infinite` | 20 of 20 | UPSTREAM-FINDINGS DistOrientedBox3Cone3.h item 2, issue #298 |
+| v22-distance | `DistCircle3Circle3.compute.doubleRoot.deviation` | 14 of 20 | UPSTREAM-FINDINGS DistCircle3Circle3.h, issues #331 and #431 |
+| v22-distance | `DistCircle3Circle3.compute.antiParallel.deviation` | 7 of 20 | UPSTREAM-FINDINGS DistCircle3Circle3.h, issues #331 and #431 |
+| v22-distance | `DistCircle3Circle3.compute.coaxial.deviation` | 19 of 20 | UPSTREAM-FINDINGS DistCircle3Circle3.h, issues #331 and #431 |
 | v30-intersection | `IntrIntervals.findDynamic.leftApproachDeviation` | 20 of 20 | UPSTREAM-FINDINGS IntrIntervals.h dynamic FIQuery (#62) |
 | v31-intersection | `IntrOrientedBox2Sector2.test.clipDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrOrientedBox2Sector2.h boundary clipping; issue #200 |
 | v31-intersection | `IntrHalfspace3Cylinder3.test.rootDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrHalfspace3Cylinder3.h root computation; issue #197 |
