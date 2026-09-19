@@ -24,6 +24,7 @@
 
 import { Array2 } from './Array2.js';
 import { logAssert } from './Logger.js';
+import { stdMax, stdMin } from './Functions.js';
 
 // P(x,y) = (1,x,x^2,x^3)*A*(1,y,y^2,y^3). The matrix term A[ix][iy]
 // corresponds to the polynomial term x^{ix} y^{iy}.
@@ -248,8 +249,8 @@ export class IntpAkimaUniform2 {
         if (arg2 === undefined || arg3 === undefined) {
             let x = arg0;
             let y = arg1;
-            x = Math.min(Math.max(x, this.mXMin), this.mXMax);
-            y = Math.min(Math.max(y, this.mYMin), this.mYMax);
+            x = stdMin(stdMax(x, this.mXMin), this.mXMax);
+            y = stdMin(stdMax(y, this.mYMin), this.mYMax);
             const { index: ix, delta: dx } = this.xLookup(x);
             const { index: iy, delta: dy } = this.yLookup(y);
             return this.mPoly.get(ix, iy).evaluate(dx, dy);
@@ -259,8 +260,8 @@ export class IntpAkimaUniform2 {
         const yOrder = arg1;
         let x = arg2;
         let y = arg3;
-        x = Math.min(Math.max(x, this.mXMin), this.mXMax);
-        y = Math.min(Math.max(y, this.mYMin), this.mYMax);
+        x = stdMin(stdMax(x, this.mXMin), this.mXMax);
+        y = stdMin(stdMax(y, this.mYMin), this.mYMax);
         const { index: ix, delta: dx } = this.xLookup(x);
         const { index: iy, delta: dy } = this.yLookup(y);
         return this.mPoly.get(ix, iy).evaluate(xOrder, yOrder, dx, dy);

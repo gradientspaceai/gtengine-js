@@ -29,6 +29,7 @@ import { logAssert } from './Logger.js';
 import { Segment } from './Segment.js';
 import { Vector, add, dot, mul, normalize, sub } from './Vector.js';
 import { computeOrthogonalComplement3 } from './Vector3.js';
+import { stdMax } from './Functions.js';
 
 // Compute the axis of the capsule segment using least-squares fitting. The
 // radius is the maximum distance from the points to the axis. Hemispherical
@@ -66,7 +67,7 @@ export function getContainerCapsule3(points: readonly Vector[]): Capsule3 {
         const vDotDiff = dot(diff, basis[2]);
         const wDotDiff = dot(diff, basis[0]);
         const discr = maxRadiusSqr - (uDotDiff * uDotDiff + vDotDiff * vDotDiff);
-        const radical = Math.sqrt(Math.max(discr, 0));
+        const radical = Math.sqrt(stdMax(discr, 0));
 
         let test = wDotDiff + radical;
         if (test < minValue) {
@@ -194,7 +195,7 @@ export function mergeContainersCapsule3(capsule0: Capsule3,
     let k0 = dot(diff, diff) - rDiffSqr;
     let k1 = dot(diff, line.direction);
     let discr = k1 * k1 - k0;
-    let root = Math.sqrt(Math.max(discr, 0));
+    let root = Math.sqrt(stdMax(discr, 0));
     let tPos = -k1 - root;
     let tNeg = -k1 + root;
 
@@ -203,7 +204,7 @@ export function mergeContainersCapsule3(capsule0: Capsule3,
     k0 = dot(diff, diff) - rDiffSqr;
     k1 = dot(diff, line.direction);
     discr = k1 * k1 - k0;
-    root = Math.sqrt(Math.max(discr, 0));
+    root = Math.sqrt(stdMax(discr, 0));
     tmp = -k1 - root;
     if (tmp > tPos) {
         tPos = tmp;
@@ -220,7 +221,7 @@ export function mergeContainersCapsule3(capsule0: Capsule3,
     k0 = dot(diff, diff) - rDiffSqr;
     k1 = dot(diff, line.direction);
     discr = k1 * k1 - k0;
-    root = Math.sqrt(Math.max(discr, 0));
+    root = Math.sqrt(stdMax(discr, 0));
     tmp = -k1 - root;
     if (tmp > tPos) {
         tPos = tmp;
@@ -235,7 +236,7 @@ export function mergeContainersCapsule3(capsule0: Capsule3,
     k0 = dot(diff, diff) - rDiffSqr;
     k1 = dot(diff, line.direction);
     discr = k1 * k1 - k0;
-    root = Math.sqrt(Math.max(discr, 0));
+    root = Math.sqrt(stdMax(discr, 0));
     tmp = -k1 - root;
     if (tmp > tPos) {
         tPos = tmp;

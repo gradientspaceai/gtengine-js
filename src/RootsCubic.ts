@@ -49,7 +49,7 @@
 //     polynomial.
 
 import { BSRational } from './BSRational.js';
-import { fma } from './Functions.js';
+import { fma, stdMax } from './Functions.js';
 import { PolynomialRoot, polynomialRootBisect } from './PolynomialRoot.js';
 import {
     PolynomialRootRational, type RootsScalarOps, rootsNumberOps, rootsRationalOps,
@@ -116,7 +116,7 @@ function computeDepressedRootsBisection(rD0: BSRational, rD1: BSRational):
         // One real root, multiplicity 1. The root of x^3 + d0 has magnitude
         // |d0|^(1/3), so b = max(1,|d0|) bounds it.
         const d0 = rD0.toNumber();
-        const b = Math.max(1.0, Math.abs(d0));
+        const b = stdMax(1.0, Math.abs(d0));
         const F = (x: number) => fma(x, x * x, d0);
 
         // Bisect on the interval [-b,b].
@@ -161,7 +161,7 @@ function computeDepressedRootsBisection(rD0: BSRational, rD1: BSRational):
         // valid bound; see the port notes at the top of the file.)
         const d0 = rD0.toNumber();
         const d1 = rD1.toNumber();
-        const b = 1.0 + Math.max(Math.abs(d0), Math.abs(d1));
+        const b = 1.0 + stdMax(Math.abs(d0), Math.abs(d1));
         const F = (x: number) => fma(x, fma(x, x, d1), d0);
 
         // Bisect on the interval [-b,b].

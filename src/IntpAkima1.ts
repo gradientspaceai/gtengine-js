@@ -19,6 +19,7 @@
 // four-element window.
 
 import { logAssert } from './Logger.js';
+import { stdMax, stdMin } from './Functions.js';
 
 // P(x) = c[0] + c[1]*x + c[2]*x^2 + c[3]*x^3
 export class IntpAkima1Polynomial {
@@ -107,14 +108,14 @@ export abstract class IntpAkima1 {
     evaluate(arg0: number, arg1?: number): number {
         if (arg1 === undefined) {
             let x = arg0;
-            x = Math.min(Math.max(x, this.getXMin()), this.getXMax());
+            x = stdMin(stdMax(x, this.getXMin()), this.getXMax());
             const { index, dx } = this.lookup(x);
             return this.mPoly[index].evaluate(dx);
         }
 
         const order = arg0;
         let x = arg1;
-        x = Math.min(Math.max(x, this.getXMin()), this.getXMax());
+        x = stdMin(stdMax(x, this.getXMin()), this.getXMax());
         const { index, dx } = this.lookup(x);
         return this.mPoly[index].evaluate(order, dx);
     }

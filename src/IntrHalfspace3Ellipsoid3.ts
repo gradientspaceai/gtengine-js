@@ -17,6 +17,7 @@ import { mulMatrix } from './Matrix.js';
 import type { Vector } from './Vector.js';
 import { dot } from './Vector.js';
 import type { TIQuery } from './TIQuery.js';
+import { stdMax } from './Functions.js';
 
 // The result of IntrHalfspace3Ellipsoid3TI.test.
 export interface IntrHalfspace3Ellipsoid3TIResult {
@@ -43,7 +44,7 @@ export class IntrHalfspace3Ellipsoid3TI implements
         const mInverse = ellipsoid.getMInverse();
         const discr = dot(halfspace.normal,
             mulMatrix(mInverse, halfspace.normal) as Vector);
-        const extent = Math.sqrt(Math.max(discr, 0));
+        const extent = Math.sqrt(stdMax(discr, 0));
         const center = dot(halfspace.normal, ellipsoid.center)
             - halfspace.constant;
         const tmax = center + extent;

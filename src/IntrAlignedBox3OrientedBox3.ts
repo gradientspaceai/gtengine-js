@@ -42,6 +42,7 @@ import { AlignedBox } from './AlignedBox.js';
 import { OrientedBox } from './OrientedBox.js';
 import { sub, dot } from './Vector.js';
 import type { TIQuery } from './TIQuery.js';
+import { stdMax } from './Functions.js';
 
 // The result of IntrAlignedBox3OrientedBox3TI.test.
 export interface IntrAlignedBox3OrientedBox3TIResult {
@@ -75,7 +76,7 @@ export class IntrAlignedBox3OrientedBox3TI implements
         const e0 = E0.values;
         const e1 = E1.values;
 
-        epsilon = Math.max(epsilon, 0);
+        epsilon = stdMax(epsilon, 0);
         const cutoff = 1 - epsilon;
         let existsParallelPair = false;
 

@@ -64,6 +64,8 @@
 // RootsQuadratic, RootsCubic, RootsQuartic and RootsGeneralPolynomial. It is
 // ported for parity and for dependent files.
 
+import { stdMax } from './Functions.js';
+
 export interface RootMultiplicity {
     root: number;
     multiplicity: number;
@@ -444,7 +446,7 @@ export class RootsPolynomial {
                     c1sqr - 4 * c0 * c2, 8 * c0, 4 * c2, -8);
                 const t = rmCubicMap[rmCubicMap.length - 1].root;
                 const alphaSqr = 2 * t - c2;
-                const alpha = Math.sqrt(Math.max(alphaSqr, 0));
+                const alpha = Math.sqrt(stdMax(alphaSqr, 0));
                 let sgnC1: number;
                 if (c1 > 0) {
                     sgnC1 = 1;
@@ -454,11 +456,11 @@ export class RootsPolynomial {
                     RootsPolynomial.lowDegreeBlock(16);
                 }
                 const arg = t * t - c0;
-                const beta = sgnC1 * Math.sqrt(Math.max(arg, 0));
+                const beta = sgnC1 * Math.sqrt(stdMax(arg, 0));
                 const D0 = alphaSqr - 4 * (t + beta);
-                const sqrtD0 = Math.sqrt(Math.max(D0, 0));
+                const sqrtD0 = Math.sqrt(stdMax(D0, 0));
                 const D1 = alphaSqr - 4 * (t - beta);
-                const sqrtD1 = Math.sqrt(Math.max(D1, 0));
+                const sqrtD1 = Math.sqrt(stdMax(D1, 0));
                 const root0 = (alpha - sqrtD0) / 2;
                 const root1 = (alpha + sqrtD0) / 2;
                 const root2 = (-alpha - sqrtD1) / 2;
@@ -482,7 +484,7 @@ export class RootsPolynomial {
                 c1sqr - 4 * c0 * c2, 8 * c0, 4 * c2, -8);
             const t = rmCubicMap[rmCubicMap.length - 1].root;
             const alphaSqr = 2 * t - c2;
-            const alpha = Math.sqrt(Math.max(alphaSqr, 0));
+            const alpha = Math.sqrt(stdMax(alphaSqr, 0));
             let sgnC1: number;
             if (c1 > 0) {
                 sgnC1 = 1;  // Leads to block 18.
@@ -490,11 +492,11 @@ export class RootsPolynomial {
                 sgnC1 = -1;  // Leads to block 19.
             }
             const arg = t * t - c0;
-            const beta = sgnC1 * Math.sqrt(Math.max(arg, 0));
+            const beta = sgnC1 * Math.sqrt(stdMax(arg, 0));
             let root0: number, root1: number;
             if (sgnC1 > 0) {
                 const D1 = alphaSqr - 4 * (t - beta);
-                const sqrtD1 = Math.sqrt(Math.max(D1, 0));
+                const sqrtD1 = Math.sqrt(stdMax(D1, 0));
                 root0 = (-alpha - sqrtD1) / 2;
                 root1 = (-alpha + sqrtD1) / 2;
 
@@ -504,7 +506,7 @@ export class RootsPolynomial {
                 RootsPolynomial.lowDegreeBlock(18);
             } else {
                 const D0 = alphaSqr - 4 * (t + beta);
-                const sqrtD0 = Math.sqrt(Math.max(D0, 0));
+                const sqrtD0 = Math.sqrt(stdMax(D0, 0));
                 root0 = (alpha - sqrtD0) / 2;
                 root1 = (alpha + sqrtD0) / 2;
 
@@ -532,7 +534,7 @@ export class RootsPolynomial {
                     const alpha = 2 * root0;
                     const beta = c2 + 3 * root0 * root0;
                     const discr = alpha * alpha - 4 * beta;
-                    const temp1 = Math.sqrt(Math.max(discr, 0));
+                    const temp1 = Math.sqrt(stdMax(discr, 0));
                     const root1 = (-alpha - temp1) / 2;
                     const root2 = (-alpha + temp1) / 2;
                     rmInsert(rmMap, root0, 2);

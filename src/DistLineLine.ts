@@ -31,6 +31,7 @@
 import type { DCPQuery } from './DCPQuery.js';
 import type { Line } from './Line.js';
 import { Vector, add, dot, mul, sub } from './Vector.js';
+import { stdMax } from './Functions.js';
 
 export interface DistLineLineResult {
     distance: number;
@@ -50,7 +51,7 @@ export class DistLineLine implements DCPQuery<Line, Line, DistLineLineResult> {
         const a01 = -dot(line0.direction, line1.direction);
         const a11 = dot(line1.direction, line1.direction);
         const b0 = dot(line0.direction, diff);
-        const det = Math.max(a00 * a11 - a01 * a01, 0);
+        const det = stdMax(a00 * a11 - a01 * a01, 0);
         let s0: number;
         let s1: number;
 

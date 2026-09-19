@@ -43,23 +43,14 @@
 
 import type { TIQuery } from './TIQuery.js';
 import type { FIQuery } from './FIQuery.js';
+import { stdMax, stdMin } from './Functions.js';
 
-// The ports of 'std::max' and 'std::min', which are specified as
-// '(a < b ? b : a)' and '(b < a ? b : a)'. Math.max and Math.min are not
-// substitutes: they order -0 below +0, so Math.max(-0, +0) is +0 where
-// std::max(-0, +0) is -0 (and Math.min(+0, -0) is -0 where std::min(+0, -0)
-// is +0). The difference is observable here because the overlap values are
-// returned to the caller: the C++ oracle caught it through
-// IntrRay2Triangle2, whose clip against [0,+infinity) returns
-// std::max(parameter[0], 0) = -0 for a ray whose first contact parameter is
-// a negative zero.
-function stdMax(a: number, b: number): number {
-    return a < b ? b : a;
-}
-
-function stdMin(a: number, b: number): number {
-    return b < a ? b : a;
-}
+// The ports of 'std::max' and 'std::min' come from Functions.ts; see the
+// comment there. The difference from Math.max/Math.min is observable here
+// because the overlap values are returned to the caller: the C++ oracle
+// caught it through IntrRay2Triangle2, whose clip against [0,+infinity)
+// returns std::max(parameter[0], 0) = -0 for a ray whose first contact
+// parameter is a negative zero.
 
 // The kind of intersection set reported by IntrIntervalsFI. Upstream stores
 // these as 'static int32_t const' members of FIQuery::Result.

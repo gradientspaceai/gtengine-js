@@ -12,6 +12,7 @@
 //     overloads are ported (see PORTING.md).
 //   - Upstream function names FMA, RobustSOP and RobustDOP become fma,
 //     robustSOP and robustDOP.
+//   - stdMax and stdMin are port-only additions; see the comment above them.
 //   - JavaScript has no fused-multiply-add operator, so fma() below is a
 //     software implementation that returns the correctly rounded value of
 //     u * v + w computed with a single rounding, matching std::fma. Upstream
@@ -63,6 +64,27 @@ export function sinpi(x: number): number {
 
 export function sqr(x: number): number {
     return x * x;
+}
+
+// The ports of 'std::max' and 'std::min', which are specified as
+// '(a < b ? b : a)' and '(b < a ? b : a)'. Math.max and Math.min are not
+// substitutes: they order -0 below +0, so Math.max(-0, +0) is +0 where
+// std::max(-0, +0) is -0 (and Math.min(+0, -0) is -0 where std::min(+0, -0)
+// is +0), and they return NaN for either operand where std::max(x, NaN)
+// returns x. std::max and std::min return their FIRST argument whenever the
+// comparison is false, so the argument order of the upstream call has to be
+// preserved at every call site.
+//
+// These two are not in upstream Functions.h. They live here because this file
+// is the library's home for scalar helpers (clamp, saturate, sign, sqr, fma)
+// and it depends only on Constants.ts, so every file can import them without
+// creating a cycle.
+export function stdMax(a: number, b: number): number {
+    return a < b ? b : a;
+}
+
+export function stdMin(a: number, b: number): number {
+    return b < a ? b : a;
 }
 
 // Compute u * v + w as a single operation; that is, the exact value of

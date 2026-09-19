@@ -18,7 +18,7 @@
 // the clamp is meant to guard the square root against a slightly negative
 // argument, i.e. std::max((T)0, ...). The upstream expression overestimates
 // the projection interval and therefore reports intersections that do not
-// exist. The port uses Math.max(0, 1 - absNdW * absNdW).
+// exist. The port uses stdMax(0, 1 - absNdW * absNdW).
 //
 // Upstream bug (guarded here): the C++ uses cylinder.height unconditionally,
 // but Cylinder3.h represents an infinite cylinder with the sentinel
@@ -32,6 +32,7 @@ import type { Halfspace } from './Halfspace.js';
 import { logAssert } from './Logger.js';
 import { dot } from './Vector.js';
 import type { TIQuery } from './TIQuery.js';
+import { stdMax } from './Functions.js';
 
 // The result of IntrHalfspace3Cylinder3TI.test.
 export interface IntrHalfspace3Cylinder3TIResult {
@@ -63,7 +64,7 @@ export class IntrHalfspace3Cylinder3TI implements
             - halfspace.constant;
         const absNdW = Math.abs(dot(halfspace.normal,
             cylinder.axis.direction));
-        const root = Math.sqrt(Math.max(0, 1 - absNdW * absNdW));
+        const root = Math.sqrt(stdMax(0, 1 - absNdW * absNdW));
         const tmax = center + cylinder.radius * root
             + 0.5 * cylinder.height * absNdW;
 

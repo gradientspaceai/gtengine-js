@@ -38,6 +38,7 @@ import type { OrientedBox3 } from './OrientedBox.js';
 import { OrientedBoxBV } from './OrientedBoxBV.js';
 import { OrientedBoxTreeOfPoints } from './OrientedBoxTreeOfPoints.js';
 import { Vector, add, dot, mul, sub } from './Vector.js';
+import { stdMax } from './Functions.js';
 
 // The default control parameters appear to be reasonable for applications,
 // but they are exposed to the caller for tuning.
@@ -160,7 +161,7 @@ function computeCone(theta: number, sigma0: number, sigma1: number,
     const a = ellipse.extent.get(0);
     const b = ellipse.extent.get(1);
     const bDivA = b / a;
-    const eSqr = Math.max(0, 1 - bDivA * bDivA);
+    const eSqr = stdMax(0, 1 - bDivA * bDivA);
     const omesqr = 1 - eSqr;
     const e = Math.sqrt(eSqr);
 
@@ -168,7 +169,7 @@ function computeCone(theta: number, sigma0: number, sigma1: number,
     const csTheta = Math.cos(theta);
     const snPhi = sigma0 * e * csTheta;
     const snPhiSqr = snPhi * snPhi;
-    const csPhi = sigma1 * Math.sqrt(Math.max(0, 1 - snPhiSqr));
+    const csPhi = sigma1 * Math.sqrt(stdMax(0, 1 - snPhiSqr));
     const h = a * omesqr * csTheta / (snTheta * Math.abs(csPhi));
     const D = add(mul(csPhi, N), mul(snPhi, U));
     const snThetaSqr = snTheta * snTheta;
@@ -213,8 +214,8 @@ export class ApprCone3ExtractEllipses {
     // port returns them (they remain available from getEllipses()).
     extract(points: readonly Vector[], boxExtentEpsilon: number,
         cosAngleEpsilon: number): Ellipse3[] {
-        this.mBoxExtentEpsilon = Math.max(boxExtentEpsilon, 0);
-        this.mCosAngleEpsilon = Math.max(cosAngleEpsilon, 0);
+        this.mBoxExtentEpsilon = stdMax(boxExtentEpsilon, 0);
+        this.mCosAngleEpsilon = stdMax(cosAngleEpsilon, 0);
         this.mOBBTree = [];
         this.mPlanes = [];
         this.mIndices = [];

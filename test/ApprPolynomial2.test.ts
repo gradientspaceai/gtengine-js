@@ -369,6 +369,21 @@ describe('ApprPolynomial2 verification', () => {
         });
     });
 
+    it('records the x-domain with std::min/std::max tie behaviour', () => {
+        // Upstream accumulates the domain with std::min(x, mXDomain[0]) and
+        // std::max(x, mXDomain[1]), which return their FIRST argument when
+        // the comparison is false. So a sample x = -0 that ties the running
+        // maximum +0 overwrites it with -0, where Math.max would keep +0
+        // (and symmetrically for the minimum).
+        const hi = new ApprPolynomial2(0);
+        hi.fit([[+0, 1], [-0, 1]]);
+        expect(Object.is(hi.getXDomain()[1], -0)).toBe(true);
+
+        const lo = new ApprPolynomial2(0);
+        lo.fit([[-0, 1], [+0, 1]]);
+        expect(Object.is(lo.getXDomain()[0], +0)).toBe(true);
+    });
+
     it('reports failure for an exact fit of the zero polynomial', () => {
         // Upstream returns 'hasNonzero': every coefficient being zero is
         // reported as a failure even though the fit is exact and the stored

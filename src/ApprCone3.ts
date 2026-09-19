@@ -41,6 +41,7 @@ import type {
 } from './LevenbergMarquardtMinimizer.js';
 import { Matrix } from './Matrix.js';
 import { Vector, dot, length, mul, normalize, sub } from './Vector.js';
+import { stdMax, stdMin } from './Functions.js';
 
 // The cone parameters. On input to the fitting methods these are the initial
 // guesses when useConeInputAsInitialGuess is true (in which case 'axis' is
@@ -206,8 +207,8 @@ export class ApprCone3 {
         for (let i = 0; i < numPoints; ++i) {
             const delta = sub(points[i], center);
             const h = dot(coneAxis, delta);
-            hMin = Math.min(hMin, h);
-            hMax = Math.max(hMax, h);
+            hMin = stdMin(hMin, h);
+            hMax = stdMax(hMax, h);
             const projection = sub(delta, mul(coneAxis, h));
             const r = length(projection);
             hrPairs[i] = Vector.fromArray([h, r]);
@@ -262,9 +263,9 @@ function extractCone(minLocation: Vector, cone: ApprCone3Parameters): void {
         minLocation.values[3], minLocation.values[4], minLocation.values[5]
     ]);
 
-    // We know that coneCosAngle will be nonnegative. The Math.min call guards
+    // We know that coneCosAngle will be nonnegative. The stdMin call guards
     // against rounding errors leading to a number slightly larger than 1. The
     // clamping ensures Math.acos will not return a NaN.
-    const coneCosAngle = Math.min(1 / normalize(cone.axis), 1);
+    const coneCosAngle = stdMin(1 / normalize(cone.axis), 1);
     cone.angle = Math.acos(coneCosAngle);
 }

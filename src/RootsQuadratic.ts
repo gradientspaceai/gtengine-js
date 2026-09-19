@@ -31,7 +31,7 @@
 //     the port names them solve (general), solveMonic and solveDepressed.
 
 import { BSRational } from './BSRational.js';
-import { fma } from './Functions.js';
+import { fma, stdMax } from './Functions.js';
 import { PolynomialRoot, polynomialRootBisect } from './PolynomialRoot.js';
 import {
     PolynomialRootRational, type RootsScalarOps, rootsNumberOps, rootsRationalOps,
@@ -73,7 +73,7 @@ function computeDepressedRootsBisection(rD0: BSRational): PolynomialRootRational
     // b = max{1,|d0|}. Use bisection on the interval [-b,b] to estimate the
     // roots.
     const d0 = rD0.toNumber();
-    const b = Math.max(1.0, Math.abs(d0));
+    const b = stdMax(1.0, Math.abs(d0));
     const F = (x: number) => fma(x, x, d0);
 
     // Bisect on the interval [0,b]. The polynomial is an even function, so we

@@ -6,6 +6,7 @@
 
 import { IEEEBinary64 } from './IEEEBinary.js';
 import { logAssert } from './Logger.js';
+import { stdMax, stdMin } from './Functions.js';
 
 // ===========================================================================
 // PORT DEVIATION: directed rounding is emulated, not native.
@@ -324,7 +325,7 @@ export class FPInterval {
         const u1mv0 = FPInterval.mulDown(u1, v0);
         const u0mv0 = FPInterval.mulUp(u0, v0);
         const u1mv1 = FPInterval.mulUp(u1, v1);
-        return new FPInterval(Math.min(u0mv1, u1mv0), Math.max(u0mv0, u1mv1));
+        return new FPInterval(stdMin(u0mv1, u1mv0), stdMax(u0mv0, u1mv1));
     }
 
     static div(u: number, v: number): FPInterval;

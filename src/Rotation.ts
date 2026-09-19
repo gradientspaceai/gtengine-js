@@ -39,6 +39,7 @@ import { logAssert } from './Logger.js';
 import { Matrix, multiplyAB } from './Matrix.js';
 import { Quaternion } from './Quaternion.js';
 import { Vector, dot, normalize } from './Vector.js';
+import { stdMax, stdMin } from './Functions.js';
 
 function assertDimension(n: number): void {
     logAssert(n === 3 || n === 4, 'Dimension must be 3 or 4.');
@@ -170,7 +171,7 @@ function convertMatrixToAxisAngle(r: Matrix, n: number): AxisAngle {
     const trace = r.get(0, 0) + r.get(1, 1) + r.get(2, 2);
     const half = 0.5;
     let cs = half * (trace - 1);
-    cs = Math.max(Math.min(cs, 1), -1);
+    cs = stdMax(stdMin(cs, 1), -1);
     // The angle is in [0,pi]. The axis starts out zero (upstream calls
     // a.axis.MakeZero()).
     const a = new AxisAngle(new Vector(n), Math.acos(cs));
@@ -428,7 +429,7 @@ function convertQuaternionToAxisAngle(q: Quaternion, n: number): AxisAngle {
         a.axis.values[0] = q.values[0] * adjust;
         a.axis.values[1] = q.values[1] * adjust;
         a.axis.values[2] = q.values[2] * adjust;
-        const cs = Math.max(Math.min(q.values[3], 1), -1);
+        const cs = stdMax(stdMin(q.values[3], 1), -1);
         a.angle = 2 * Math.acos(cs);
     } else {
         // The angle is 0 (modulo 2*pi). Any axis will work, so choose the

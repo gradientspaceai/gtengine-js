@@ -38,6 +38,7 @@ import type { DCPQuery } from './DCPQuery.js';
 import type { Line } from './Line.js';
 import type { Segment } from './Segment.js';
 import { Vector, add, dot, mul, sub } from './Vector.js';
+import { stdMax } from './Functions.js';
 
 export interface DistLineSegmentResult {
     distance: number;
@@ -60,7 +61,7 @@ export class DistLineSegment
         const a01 = -dot(line.direction, segDirection);
         const a11 = dot(segDirection, segDirection);
         const b0 = dot(line.direction, diff);
-        const det = Math.max(a00 * a11 - a01 * a01, 0);
+        const det = stdMax(a00 * a11 - a01 * a01, 0);
         let s0: number;
         let s1: number;
 

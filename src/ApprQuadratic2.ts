@@ -20,6 +20,7 @@ import { Hypersphere } from './Hypersphere.js';
 import { Matrix } from './Matrix.js';
 import { SymmetricEigensolver } from './SymmetricEigensolver.js';
 import { Vector, dot } from './Vector.js';
+import { stdMax } from './Functions.js';
 
 export interface ApprQuadratic2Result {
     // The coefficients C[0..5] of the quadratic fit (a unit-length
@@ -129,7 +130,7 @@ export class ApprQuadratic2 {
         // nonnegative.
         return {
             coefficients: coefficients,
-            minEigenvalue: Math.max(es.getEigenvalue(0), 0)
+            minEigenvalue: stdMax(es.getEigenvalue(0), 0)
         };
     }
 }
@@ -208,12 +209,12 @@ export class ApprQuadraticCircle2 {
         circle.center.values[0] = negHalf * coefficients[1];
         circle.center.values[1] = negHalf * coefficients[2];
         const sqrRadius = dot(circle.center, circle.center) - coefficients[0];
-        circle.radius = Math.sqrt(Math.max(sqrRadius, 0));
+        circle.radius = Math.sqrt(stdMax(sqrRadius, 0));
 
         // For an exact fit, numeric round-off errors might make the minimum
         // eigenvalue just slightly negative. Return the clamped value
         // because the application might rely on the return value being
         // nonnegative.
-        return Math.max(es.getEigenvalue(0), 0);
+        return stdMax(es.getEigenvalue(0), 0);
     }
 }

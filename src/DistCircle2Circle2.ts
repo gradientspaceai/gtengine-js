@@ -41,6 +41,7 @@ import type { DCPQuery } from './DCPQuery.js';
 import type { Circle2 } from './Hypersphere.js';
 import { Vector, add, length, mul, normalize, sub } from './Vector.js';
 import { perp } from './Vector2.js';
+import { stdMax } from './Functions.js';
 
 export interface DistCircle2Circle2Result {
     distance: number;
@@ -127,7 +128,7 @@ function doQuery(circle0: Circle2, circle1: Circle2,
                 const r0DivLen = circle0.radius / lenDelta;
                 const u = 0.5 * (1 + rSumDivLen * rDifDivLen);
                 const v = Math.sqrt(
-                    Math.max(r0DivLen * r0DivLen - u * u, 0));
+                    stdMax(r0DivLen * r0DivLen - u * u, 0));
 
                 result.distance = 0;
                 result.sqrDistance = 0;

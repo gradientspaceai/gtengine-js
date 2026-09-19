@@ -43,6 +43,7 @@ import { SymmetricEigensolver3x3 } from './SymmetricEigensolver3x3.js';
 import { Vector, add, dot, mul, normalize, sub } from './Vector.js';
 import { dotPerp } from './Vector2.js';
 import { computeOrthogonalComplement3 } from './Vector3.js';
+import { stdMax, stdMin } from './Functions.js';
 
 // The port of the private ApprCylinder3::ConstructorType enum class.
 enum ConstructorType {
@@ -226,8 +227,8 @@ export class ApprCylinder3 {
         for (let i = 0; i < numPoints; ++i) {
             const h = dot(cylinder.axis.direction,
                 sub(points[i], cylinder.axis.origin));
-            hmin = Math.min(h, hmin);
-            hmax = Math.max(h, hmax);
+            hmin = stdMin(h, hmin);
+            hmax = stdMax(h, hmax);
         }
 
         const hmid = 0.5 * (hmin + hmax);

@@ -20,6 +20,7 @@ import { DistPointRectangle } from './DistPointRectangle.js';
 import { logAssert } from './Logger.js';
 import { Lozenge3 } from './Lozenge3.js';
 import { Vector, add, dot, mul, sub } from './Vector.js';
+import { stdMax } from './Functions.js';
 
 // Compute the plane of the lozenge rectangle using least-squares fit.
 // Parallel planes are chosen close enough together so that all the data
@@ -69,7 +70,7 @@ export function getContainerLozenge3(points: readonly Vector[]): Lozenge3 {
         v = dot(box.axis[1], diff);
         w = dot(box.axis[0], diff);
         discr = rSqr - w * w;
-        radical = Math.sqrt(Math.max(discr, 0));
+        radical = Math.sqrt(stdMax(discr, 0));
 
         test = u + radical;
         if (test < aMin) {
@@ -148,7 +149,7 @@ export function getContainerLozenge3(points: readonly Vector[]): Lozenge3 {
             test = deltaSumSqr + wSqr;
             if (test > rSqr) {
                 discr = (rSqr - wSqr) / deltaSumSqr;
-                const t = -Math.sqrt(Math.max(discr, 0));
+                const t = -Math.sqrt(stdMax(discr, 0));
                 const newA = u + t * deltaU;
                 const newB = v + t * deltaV;
                 if (aIsMax) {

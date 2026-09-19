@@ -36,6 +36,7 @@ import { ApprQuery } from './ApprQuery.js';
 import { GMatrix } from './GMatrix.js';
 import { inverse, mulMatrix } from './Matrix.js';
 import { Vector } from './Vector.js';
+import { stdMax, stdMin } from './Functions.js';
 
 export class ApprPolynomial3 extends ApprQuery<readonly number[]> {
     private mXDegree: number;
@@ -80,10 +81,10 @@ export class ApprPolynomial3 extends ApprQuery<readonly number[]> {
             for (let s = 0; s < numSamples; ++s) {
                 const x = observations[indices[s]][0];
                 const y = observations[indices[s]][1];
-                this.mXDomain[0] = Math.min(x, this.mXDomain[0]);
-                this.mXDomain[1] = Math.max(x, this.mXDomain[1]);
-                this.mYDomain[0] = Math.min(y, this.mYDomain[0]);
-                this.mYDomain[1] = Math.max(y, this.mYDomain[1]);
+                this.mXDomain[0] = stdMin(x, this.mXDomain[0]);
+                this.mXDomain[1] = stdMax(x, this.mXDomain[1]);
+                this.mYDomain[0] = stdMin(y, this.mYDomain[0]);
+                this.mYDomain[1] = stdMax(y, this.mYDomain[1]);
 
                 xPower[s * xStride] = 1;
                 for (let i0 = 1; i0 <= twoXDegree; ++i0) {

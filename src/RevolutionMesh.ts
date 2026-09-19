@@ -15,6 +15,7 @@ import { logAssert } from './Logger.js';
 import { Mesh, MeshChannel, MeshDescription, MeshTopology } from './Mesh.js';
 import { ParametricCurve } from './ParametricCurve.js';
 import { Vector } from './Vector.js';
+import { stdMin } from './Functions.js';
 
 export class RevolutionMesh extends Mesh {
     private mCurve: ParametricCurve | null;
@@ -182,7 +183,7 @@ export class RevolutionMesh extends Mesh {
                 let i = 0;
                 for (let r = 0; r < description.numRows; ++r) {
                     let radius = (r + 1) / (2 * description.numRows);
-                    radius = Math.min(radius, 0.5);
+                    radius = stdMin(radius, 0.5);
                     for (let c = 0; c <= description.numCols; ++c, ++i) {
                         const angle = GTE_C_TWO_PI * c / description.numCols;
                         this.setTCoord(i, Vector.fromArray(

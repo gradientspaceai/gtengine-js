@@ -9,6 +9,8 @@
 // throughout the eigensolver ports. The output reference parameters become a
 // returned object literal per PORTING.md, and 'operator()' becomes 'solve'.
 
+import { stdMax } from './Functions.js';
+
 // evals[i] is the eigenvalue associated with the (row) eigenvector evecs[i].
 export interface SymmetricEigensolver2x2Result {
     evals: [number, number];
@@ -29,7 +31,7 @@ export class SymmetricEigensolver2x2 {
         const zero = 0, one = 1, half = 0.5;
         let c2 = half * (a00 - a11);
         let s2 = a01;
-        const maxAbsComp = Math.max(Math.abs(c2), Math.abs(s2));
+        const maxAbsComp = stdMax(Math.abs(c2), Math.abs(s2));
         if (maxAbsComp > zero) {
             c2 /= maxAbsComp;  // in [-1,1]
             s2 /= maxAbsComp;  // in [-1,1]

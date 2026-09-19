@@ -31,6 +31,7 @@
 import type { DCPQuery } from './DCPQuery.js';
 import type { Triangle } from './Triangle.js';
 import { Vector, add, dot, mul, sub } from './Vector.js';
+import { stdMax } from './Functions.js';
 
 export interface DistPointTriangleResult {
     distance: number;
@@ -127,7 +128,7 @@ export class DistPointTriangle
         const a11 = dot(edge1, edge1);
         const b0 = dot(diff, edge0);
         const b1 = dot(diff, edge1);
-        const det = Math.max(a00 * a11 - a01 * a01, 0);
+        const det = stdMax(a00 * a11 - a01 * a01, 0);
         let s = a01 * b1 - a11 * b0;
         let t = a01 * b0 - a00 * b1;
 

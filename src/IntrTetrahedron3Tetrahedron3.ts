@@ -61,6 +61,7 @@ import { Tetrahedron3 } from './Tetrahedron3.js';
 import type { TIQuery } from './TIQuery.js';
 import { Vector, dot, sub } from './Vector.js';
 import { cross } from './Vector3.js';
+import { stdMax, stdMin } from './Functions.js';
 
 // The port of std::numeric_limits<size_t>::max() used to mark a 'separating'
 // entry that does not participate in the reported separating axis.
@@ -172,7 +173,7 @@ export class IntrTetrahedron3Tetrahedron3TI implements
 
         // Test cross products of pairs of edge directions, one edge from each
         // tetrahedron.
-        const cutoff = Math.min(Math.max(1 - epsilon, 0), 1);
+        const cutoff = stdMin(stdMax(1 - epsilon, 0), 1);
         for (let i0 = 0; i0 < 6; ++i0) {
             const edge0Indices = Tetrahedron3.getEdgeIndices(i0);
             const P0 = tetra0.v[edge0Indices[0]];

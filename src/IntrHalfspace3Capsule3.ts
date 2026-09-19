@@ -15,6 +15,7 @@ import type { Halfspace } from './Halfspace.js';
 import { logAssert } from './Logger.js';
 import { dot } from './Vector.js';
 import type { TIQuery } from './TIQuery.js';
+import { stdMax } from './Functions.js';
 
 // The result of IntrHalfspace3Capsule3TI.test.
 export interface IntrHalfspace3Capsule3TIResult {
@@ -44,7 +45,7 @@ export class IntrHalfspace3Capsule3TI implements
 
         // The capsule and halfspace intersect when the projection interval
         // maximum is nonnegative.
-        result.intersect = (Math.max(e0, e1) + capsule.radius >= 0);
+        result.intersect = (stdMax(e0, e1) + capsule.radius >= 0);
         return result;
     }
 }

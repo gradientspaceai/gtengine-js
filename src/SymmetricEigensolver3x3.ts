@@ -17,6 +17,8 @@
 // except SortEigenstuff whose operator() mutates its eigenvalue/eigenvector
 // arguments in place exactly as upstream; it is ported as method 'sort'.
 
+import { stdMax, stdMin } from './Functions.js';
+
 // A 3-tuple; evals[i] is the eigenvalue of the (row) eigenvector evecs[i].
 export type EigenTriple = [number, number, number];
 export type EigenBasis3 = [EigenTriple, EigenTriple, EigenTriple];
@@ -435,10 +437,10 @@ export class NISymmetricEigensolver3x3 {
         // Precondition the matrix by factoring out the maximum absolute
         // value of the components. This guards against floating-point
         // overflow when computing the eigenvalues.
-        const max0 = Math.max(Math.abs(a00), Math.abs(a01));
-        const max1 = Math.max(Math.abs(a02), Math.abs(a11));
-        const max2 = Math.max(Math.abs(a12), Math.abs(a22));
-        const maxAbsElement = Math.max(Math.max(max0, max1), max2);
+        const max0 = stdMax(Math.abs(a00), Math.abs(a01));
+        const max1 = stdMax(Math.abs(a02), Math.abs(a11));
+        const max2 = stdMax(Math.abs(a12), Math.abs(a22));
+        const maxAbsElement = stdMax(stdMax(max0, max1), max2);
         if (maxAbsElement === 0) {
             // A is the zero matrix.
             return {
@@ -497,7 +499,7 @@ export class NISymmetricEigensolver3x3 {
             // avoid this problem due to rounding errors, the halfDet value
             // is clamped to [-1,1].
             let halfDet = det * 0.5;
-            halfDet = Math.min(Math.max(halfDet, -1), 1);
+            halfDet = stdMin(stdMax(halfDet, -1), 1);
 
             // The eigenvalues of B are ordered as beta0 <= beta1 <= beta2.
             // The number of digits in twoThirdsPi is chosen so that, whether
@@ -655,7 +657,7 @@ export class NISymmetricEigensolver3x3 {
         const absM11 = Math.abs(m11);
         let maxAbsComp: number;
         if (absM00 >= absM11) {
-            maxAbsComp = Math.max(absM00, absM01);
+            maxAbsComp = stdMax(absM00, absM01);
             if (maxAbsComp > 0) {
                 if (absM00 >= absM01) {
                     m01 /= m00;
@@ -674,7 +676,7 @@ export class NISymmetricEigensolver3x3 {
             }
         }
         else {
-            maxAbsComp = Math.max(absM11, absM01);
+            maxAbsComp = stdMax(absM11, absM01);
             if (maxAbsComp > 0) {
                 if (absM11 >= absM01) {
                     m01 /= m11;

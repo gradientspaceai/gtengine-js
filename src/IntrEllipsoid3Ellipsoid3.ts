@@ -33,6 +33,7 @@ import { RootsBisection } from './RootsBisection.js';
 import { SymmetricEigensolver3x3 } from './SymmetricEigensolver3x3.js';
 import { Vector, sub } from './Vector.js';
 import type { TIQuery } from './TIQuery.js';
+import { stdMax, stdMin } from './Functions.js';
 
 // The relationship of the two solid ellipsoids.
 export enum IntrEllipsoid3Ellipsoid3Classification {
@@ -104,7 +105,7 @@ function getRoots2(d0: number, d1: number, c0: number, c1: number): number[] {
     // Compute the root in (-infinity,1/d0).
     let temp0 = (1 - multiplier0 * sqrtd0c0) * invD0;
     let temp1 = (1 - multiplier0 * sqrtd1c1) * invD1;
-    let smin = Math.min(temp0, temp1);
+    let smin = stdMin(temp0, temp1);
     logAssert(F(smin) < 0, 'Unexpected condition.');
     let smax = (1 - multiplier1 * sqrtd0c0) * invD0;
     logAssert(F(smax) > 0, 'Unexpected condition.');
@@ -139,7 +140,7 @@ function getRoots2(d0: number, d1: number, c0: number, c1: number): number[] {
     // Compute the root in (1/d1,+infinity).
     temp0 = (1 + multiplier0 * sqrtd0c0) * invD0;
     temp1 = (1 + multiplier0 * sqrtd1c1) * invD1;
-    smax = Math.max(temp0, temp1);
+    smax = stdMax(temp0, temp1);
     logAssert(F(smax) < 0, 'Unexpected condition.');
     smin = (1 + multiplier1 * sqrtd1c1) * invD1;
     logAssert(F(smin) > 0, 'Unexpected condition.');
@@ -195,7 +196,7 @@ function getRoots3(d0: number, d1: number, d2: number, c0: number, c1: number,
     let temp0 = (1 - multiplier0 * sqrtd0c0) * invD0;
     let temp1 = (1 - multiplier0 * sqrtd1c1) * invD1;
     let temp2 = (1 - multiplier0 * sqrtd2c2) * invD2;
-    let smin = Math.min(Math.min(temp0, temp1), temp2);
+    let smin = stdMin(stdMin(temp0, temp1), temp2);
     logAssert(F(smin) < 0, 'Unexpected condition.');
     let smax = (1 - multiplier1 * sqrtd0c0) * invD0;
     logAssert(F(smax) > 0, 'Unexpected condition.');
@@ -233,7 +234,7 @@ function getRoots3(d0: number, d1: number, d2: number, c0: number, c1: number,
     temp0 = (1 + multiplier0 * sqrtd0c0) * invD0;
     temp1 = (1 + multiplier0 * sqrtd1c1) * invD1;
     temp2 = (1 + multiplier0 * sqrtd2c2) * invD2;
-    smax = Math.max(Math.max(temp0, temp1), temp2);
+    smax = stdMax(stdMax(temp0, temp1), temp2);
     logAssert(F(smax) < 0, 'Unexpected condition.');
     smin = (1 + multiplier1 * sqrtd2c2) * invD2;
     logAssert(F(smin) > 0, 'Unexpected condition.');

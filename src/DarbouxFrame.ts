@@ -26,6 +26,7 @@ import { determinant2x2 } from './Matrix2x2.js';
 import { ParametricSurface } from './ParametricSurface.js';
 import { Vector, add, dot, mul, normalize } from './Vector.js';
 import { cross, unitCross } from './Vector3.js';
+import { stdMax } from './Functions.js';
 
 export interface DarbouxFrame3Result {
     position: Vector;
@@ -133,7 +134,7 @@ export class DarbouxFrame3 {
         const c2 = determinant2x2(metricTensor);
 
         // Principal curvatures are roots of the characteristic polynomial.
-        const temp = Math.sqrt(Math.max(c1 * c1 - 4 * c0 * c2, 0));
+        const temp = Math.sqrt(stdMax(c1 * c1 - 4 * c0 * c2, 0));
         const mult = 0.5 / c2;
         const curvature0 = -mult * (c1 + temp);
         const curvature1 = -mult * (c1 - temp);
