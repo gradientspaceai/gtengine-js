@@ -248,10 +248,14 @@ describe('ContAlignedBox verification', () => {
                     expect(inContainerAlignedBox(vertex, merge)).toBe(true);
                 }
                 for (let d = 0; d < 3; ++d) {
-                    expect(merge.min.get(d)).toBe(
-                        Math.min(b0.min.get(d), b1.min.get(d)));
-                    expect(merge.max.get(d)).toBe(
-                        Math.max(b0.max.get(d), b1.max.get(d)));
+                    // Compared with ===, not Object.is: the merge ports
+                    // std::min / std::max, which return their first argument
+                    // on a -0 / +0 tie where Math.min / Math.max order the
+                    // zeros. The sign of a zero is pinned by its own test.
+                    expect(merge.min.get(d) ===
+                        Math.min(b0.min.get(d), b1.min.get(d))).toBe(true);
+                    expect(merge.max.get(d) ===
+                        Math.max(b0.max.get(d), b1.max.get(d))).toBe(true);
                 }
             });
     });
