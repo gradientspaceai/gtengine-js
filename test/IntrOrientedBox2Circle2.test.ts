@@ -594,3 +594,67 @@ describe('IntrOrientedBox2Circle2 Minkowski-sum oracle', () => {
         expect(tested).toBeGreaterThan(250);
     }, 30000);
 });
+
+// Regression test for a defect found by the C++ oracle of verify group 34.
+//
+// Upstream's oriented wrapper writes
+//   contactPoint = box.center + (sign[0]*P[0])*axis[0] + (sign[1]*P[1])*axis[1]
+// which accumulates left to right. The port added the two basis terms
+// together first, which differs in the last bits; the oracle found it on 2 of
+// 20 golden records of IntrOrientedBox2Circle2.find.
+describe('IntrOrientedBox2Circle2 contact-point accumulation (oracle v34)', () => {
+    it('accumulates in upstream left-to-right order, which is observable', () => {
+        const rng = seededRandom(0x34020201);
+        let tested = 0;
+        let differ = 0;
+        for (let trial = 0; trial < 4000; ++trial) {
+            const angle = rng() * Math.PI;
+            const c = Math.cos(angle);
+            const s = Math.sin(angle);
+            const axis0 = vec(c, s);
+            const axis1 = vec(-s, c);
+            const center = vec(rng() * 8 - 4, rng() * 8 - 4);
+            const extent = vec(0.25 + rng() * 3, 0.25 + rng() * 3);
+            const box = OrientedBox.fromCenterAxisExtent(center,
+                [axis0, axis1], extent);
+            const boxVelocity = vec(rng() * 4 - 2, rng() * 4 - 2);
+            const circle = Hypersphere.fromCenterRadius(
+                vec(rng() * 8 - 4, rng() * 8 - 4), 0.25 + rng() * 3);
+            const circleVelocity = vec(rng() * 4 - 2, rng() * 4 - 2);
+
+            const r = new IntrOrientedBox2Circle2FI().find(box, boxVelocity,
+                circle, circleVelocity);
+            if (r.intersectionType
+                === IntrAlignedBox2Circle2FIResultType.noContact) {
+                continue;
+            }
+            ++tested;
+
+            // Reproduce the query's own delegation to the aligned query, so
+            // that the contact point in the box frame is known exactly.
+            const cdiff = sub(circle.center, box.center);
+            const vdiff = sub(circleVelocity, boxVelocity);
+            const C = vec(dot(cdiff, axis0), dot(cdiff, axis1));
+            const V = vec(dot(vdiff, axis0), dot(vdiff, axis1));
+            const alignedBox = AlignedBox.fromMinMax(mul(-1, extent), extent);
+            const rAligned = new IntrAlignedBox2Circle2FI().find(alignedBox,
+                Vector.zero(2), Hypersphere.fromCenterRadius(C, circle.radius),
+                V);
+            const P = rAligned.contactPoint;
+            const leftToRight = add(
+                add(box.center, mul(P.values[0], axis0)),
+                mul(P.values[1], axis1));
+            const basisFirst = add(box.center,
+                add(mul(P.values[0], axis0), mul(P.values[1], axis1)));
+
+            expect(r.contactPoint.values).toEqual(leftToRight.values);
+            if (leftToRight.values[0] !== basisFirst.values[0]
+                || leftToRight.values[1] !== basisFirst.values[1]) {
+                ++differ;
+            }
+        }
+        expect(tested).toBeGreaterThan(200);
+        // The two groupings are not the same computation.
+        expect(differ).toBeGreaterThan(0);
+    }, 30000);
+});

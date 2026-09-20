@@ -45,6 +45,8 @@ import { logAssert } from './Logger.js';
 import {
     Matrix, addMatrix, inverse, mulMatrix, outerProduct
 } from './Matrix.js';
+import { inverse2x2 } from './Matrix2x2.js';
+import { inverse3x3 } from './Matrix3x3.js';
 import { SymmetricEigensolver } from './SymmetricEigensolver.js';
 import { Vector, div, dot, mul } from './Vector.js';
 
@@ -211,7 +213,18 @@ export class Hyperellipsoid {
             'Hyperellipsoid: mismatched sizes.');
 
         // Compute the center K = -A^{-1}*B/2.
-        const { inverse: invA, invertible } = inverse(A);
+        // Upstream writes Inverse(A, &invertible). Matrix2x2.h and
+        // Matrix3x3.h each declare a more specialized Inverse overload, which
+        // overload resolution prefers for a 2x2 or a 3x3 matrix over the
+        // Gaussian-elimination template in Matrix.h; those overloads use the
+        // closed-form adjugate/determinant formula, which is not
+        // bit-identical to Gaussian elimination. Hyperellipsoid is used as
+        // Ellipse2 and Ellipsoid3 everywhere in the library, so the port
+        // dispatches on the dimension to match. Found by the C++ oracle of
+        // group 34 through IntrPlane3Cylinder3, whose ellipse of intersection
+        // differed from upstream's in the last bits on 4 of 20 records.
+        const { inverse: invA, invertible } =
+            (n === 2 ? inverse2x2(A) : (n === 3 ? inverse3x3(A) : inverse(A)));
         if (!invertible) {
             return false;
         }

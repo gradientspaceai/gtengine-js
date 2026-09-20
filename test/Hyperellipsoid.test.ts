@@ -3,8 +3,11 @@ import {
     Hyperellipsoid, hyperellipsoidNumCoefficients
 } from '../src/Hyperellipsoid.js';
 import {
-    Matrix, addMatrix, lInfinityNorm, multiplyAB, mulMatrix, outerProduct
+    Matrix, addMatrix, inverse, lInfinityNorm, multiplyAB, mulMatrix,
+    outerProduct
 } from '../src/Matrix.js';
+import { inverse2x2 } from '../src/Matrix2x2.js';
+import { inverse3x3 } from '../src/Matrix3x3.js';
 import { Vector, dot, sub, add, mul, normalize } from '../src/Vector.js';
 import {
     check, compareKeys, expectClose, expectStrictWeakOrder,
@@ -593,4 +596,81 @@ describe('Hyperellipsoid verification', () => {
             expectStrictWeakOrder(items, (x, y) => x.lessThan(y));
         }, 50);
     });
+});
+
+// Regression test for a defect found by the C++ oracle of verify group 34.
+//
+// Upstream's FromCoefficients writes Inverse(A, &invertible). Matrix2x2.h and
+// Matrix3x3.h each declare a more specialized Inverse overload, which
+// overload resolution prefers over the Gaussian-elimination template of
+// Matrix.h; those overloads use the closed-form adjugate/determinant formula,
+// which is not bit-identical to Gaussian elimination. The port called the
+// generic inverse, and the oracle found the difference through
+// IntrPlane3Cylinder3, whose ellipse of intersection differed from upstream's
+// in the last bits on 4 of 20 golden records.
+describe('Hyperellipsoid fromCoefficients inverse (oracle v34)', () => {
+    it('uses the closed-form 2x2 inverse, which is observable', () => {
+        const rng = makeRandom(0x34040401);
+        let tested = 0;
+        let differ = 0;
+        for (let trial = 0; trial < 3000; ++trial) {
+            // A positive-definite 2x2 matrix A, a vector B and a constant C
+            // for which the quadratic is an ellipse.
+            const a = 0.25 + 3 * rng();
+            const b = 0.25 + 3 * rng();
+            const t = Math.PI * rng();
+            const c = Math.cos(t);
+            const s = Math.sin(t);
+            const A = Matrix.fromArray(2, 2, [
+                a * c * c + b * s * s, (a - b) * c * s,
+                (a - b) * c * s, a * s * s + b * c * c
+            ]);
+            const B = Vector.fromArray([4 * rng() - 2, 4 * rng() - 2]);
+            const C = -1 - 3 * rng();
+
+            const e = new Hyperellipsoid(2);
+            if (!e.fromCoefficientsABC(A, B, C)) { continue; }
+            ++tested;
+
+            const { inverse: closed } = inverse2x2(A);
+            const { inverse: gauss } = inverse(A);
+            const centerClosed = mul(mulMatrix(closed, B) as Vector, -0.5);
+            const centerGauss = mul(mulMatrix(gauss, B) as Vector, -0.5);
+
+            expect(e.center.values).toEqual(centerClosed.values);
+            if (centerClosed.values[0] !== centerGauss.values[0]
+                || centerClosed.values[1] !== centerGauss.values[1]) {
+                ++differ;
+            }
+        }
+        expect(tested).toBeGreaterThan(500);
+        // The two inverses are not the same computation.
+        expect(differ).toBeGreaterThan(0);
+    }, 30000);
+
+    it('uses the closed-form 3x3 inverse', () => {
+        const rng = makeRandom(0x34040402);
+        let tested = 0;
+        for (let trial = 0; trial < 500; ++trial) {
+            const A = Matrix.fromArray(3, 3, [
+                1 + rng(), 0.1 * rng(), 0.1 * rng(),
+                0, 1 + rng(), 0.1 * rng(),
+                0, 0, 1 + rng()
+            ]);
+            // Symmetrize.
+            A.set(1, 0, A.get(0, 1));
+            A.set(2, 0, A.get(0, 2));
+            A.set(2, 1, A.get(1, 2));
+            const B = Vector.fromArray([2 * rng() - 1, 2 * rng() - 1,
+                2 * rng() - 1]);
+            const C = -1 - rng();
+            const e = new Hyperellipsoid(3);
+            if (!e.fromCoefficientsABC(A, B, C)) { continue; }
+            ++tested;
+            const { inverse: closed } = inverse3x3(A);
+            const centerClosed = mul(mulMatrix(closed, B) as Vector, -0.5);
+            expect(e.center.values).toEqual(centerClosed.values);
+        }
+        expect(tested).toBeGreaterThan(100);
+    }, 30000);
 });

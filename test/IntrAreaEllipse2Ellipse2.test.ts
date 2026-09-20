@@ -419,6 +419,57 @@ describe('AreaEllipse2Ellipse2 verification', () => {
         }
     }, 30000);
 
+    it('is invariant under the orientation of the axis frame', () => {
+        // An ellipse is the same point set whether (axis[0], axis[1]) is
+        // right-handed or left-handed, and Ellipse2 requires neither.
+        // Upstream's chord-region areas and Area4's point ordering take the
+        // polar angle atan2(Dot(axis[1],X), Dot(axis[0],X)) to increase
+        // counterclockwise, which is true only for a right-handed frame; for
+        // a left-handed one every chord region is replaced by its complement
+        // and the reported area is the area of the UNION. The port negates
+        // its private copy of axis[1] for a left-handed frame. Found by the
+        // C++ oracle of group 34.
+        //
+        // Explicit instance with a closed form: two unit circles whose
+        // centres are one unit apart overlap in a lens of area
+        // 2*pi/3 - sqrt(3)/2. With the left-handed frame ((1,0),(0,-1))
+        // upstream's algorithm reports 2*pi minus that.
+        const lens = 2 * Math.PI / 3 - Math.sqrt(3) / 2;
+        const lh0 = Hyperellipsoid.fromCenterAxisExtent(v2(0, 0),
+            [v2(1, 0), v2(0, -1)], v2(1, 1));
+        const lh1 = Hyperellipsoid.fromCenterAxisExtent(v2(1, 0),
+            [v2(1, 0), v2(0, -1)], v2(1, 1));
+        const lensResult = q.compute(lh0, lh1);
+        expect(lensResult.configuration).toBe(Cfg.ONE_CHORD_REGION);
+        expectClose(lensResult.area, lens, 1e-12, 1e-12);
+
+        // A right-handed frame is untouched by the fix, so flipping axis[1]
+        // of either ellipse or of both must reproduce its result.
+        const rnd = seededRandom(0x1ef7);
+        let chord1 = 0, chord4 = 0;
+        for (let iter = 0; iter < 200; ++iter) {
+            const e0 = ellipse(rnd() * 2 - 1, rnd() * 2 - 1, rnd() * Math.PI,
+                0.5 + 2 * rnd(), 0.5 + 2 * rnd());
+            const e1 = ellipse(rnd() * 2 - 1, rnd() * 2 - 1, rnd() * Math.PI,
+                0.5 + 2 * rnd(), 0.5 + 2 * rnd());
+            const base = q.compute(e0, e1);
+            chord1 += (base.configuration === Cfg.ONE_CHORD_REGION ? 1 : 0);
+            chord4 += (base.configuration === Cfg.FOUR_CHORD_REGION ? 1 : 0);
+            const flip = (e: Hyperellipsoid): Hyperellipsoid =>
+                Hyperellipsoid.fromCenterAxisExtent(e.center,
+                    [e.axis[0], mul(-1, e.axis[1])], e.extent);
+            for (const [f0, f1] of [[flip(e0), e1], [e0, flip(e1)],
+                [flip(e0), flip(e1)]]) {
+                const r = q.compute(f0, f1);
+                expect(r.configuration).toBe(base.configuration);
+                expectClose(r.area, base.area, 1e-9, 1e-9);
+            }
+        }
+        // Non-vacuity: both chord configurations were exercised.
+        expect(chord1).toBeGreaterThan(20);
+        expect(chord4).toBeGreaterThan(5);
+    }, 30000);
+
     it('is equivariant under a rigid motion of both ellipses', () => {
         const rnd = seededRandom(0x8181d);
         for (let iter = 0; iter < 150; ++iter) {

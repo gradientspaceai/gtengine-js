@@ -100,10 +100,14 @@ export class IntrOrientedBox2Circle2FI {
             alignedCircle, V);
 
         if (result.intersectionType !== IntrAlignedBox2Circle2FIResultType.noContact) {
-            // Transform back to the original coordinate system.
-            result.contactPoint = add(box.center,
-                add(mul(result.contactPoint.values[0], box.axis[0]),
-                    mul(result.contactPoint.values[1], box.axis[1])));
+            // Transform back to the original coordinate system. Upstream
+            // writes
+            //   box.center + (sign[0]*P[0])*axis[0] + (sign[1]*P[1])*axis[1]
+            // which accumulates left to right; adding the two basis terms
+            // together first differs in the last bits.
+            result.contactPoint = add(
+                add(box.center, mul(result.contactPoint.values[0], box.axis[0])),
+                mul(result.contactPoint.values[1], box.axis[1]));
         }
         return result;
     }

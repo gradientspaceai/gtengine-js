@@ -98,11 +98,16 @@ export class IntrOrientedBox3Sphere3FI {
 
         // Transform back to the original coordinate system.
         if (result.intersectionType !== IntrAlignedBox3Sphere3FIResultType.noContact) {
+            // Upstream writes
+            //   P = box.center + P[0]*axis[0] + P[1]*axis[1] + P[2]*axis[2]
+            // which accumulates left to right; adding the three basis terms
+            // together first differs in the last bits.
             const P = result.contactPoint;
-            result.contactPoint = add(box.center,
-                add(mul(P.values[0], box.axis[0]),
-                    add(mul(P.values[1], box.axis[1]),
-                        mul(P.values[2], box.axis[2]))));
+            result.contactPoint = add(
+                add(
+                    add(box.center, mul(P.values[0], box.axis[0])),
+                    mul(P.values[1], box.axis[1])),
+                mul(P.values[2], box.axis[2]));
         }
         return result;
     }

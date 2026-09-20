@@ -293,6 +293,24 @@ function makeEllipseInfo(ellipse: Hyperellipsoid): EllipseInfo {
         axis1.values[d] /= length1;
     }
 
+    // Port fix for an upstream result-corrupting defect. The chord-region
+    // areas take "the elliptical arc traversed counterclockwise from P0 to
+    // P1" to be the arc of increasing polar angle, and Area4 orders the
+    // intersection points by that angle. Both hold only when
+    // (axis[0], axis[1]) is right-handed. Ellipse2 does not require that,
+    // and the ellipse is the same point set for either orientation, but for
+    // a left-handed frame the polar angle runs clockwise, every chord region
+    // is replaced by its complement and the reported area is
+    // area(E0) + area(E1) - area(intersection) (the union) or worse. Negating
+    // the private copy of axis[1] leaves the ellipse and M unchanged and
+    // restores the assumption; a right-handed frame is untouched, so the
+    // results for it are bit-identical to upstream's. Found by the C++ oracle
+    // of group 34, whose generator drew left-handed frames.
+    if (dotPerp(axis0, axis1) < 0) {
+        axis1.values[0] = -axis1.values[0];
+        axis1.values[1] = -axis1.values[1];
+    }
+
     const AB = ellipse.extent.values[0] * ellipse.extent.values[1];
     return {
         center: ellipse.center.clone(),
