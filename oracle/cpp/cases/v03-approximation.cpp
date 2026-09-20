@@ -2020,6 +2020,386 @@ ORACLE_CASE("ApprPolynomialSpecial4.constructor.sizeAssert")
     io.outInt(fitter.GetMinimumRequired());
 }
 
+// ------------------------------------------------------- ApprParallelLines2
+//
+// The port deliberately fixes four defects of upstream's Fit (issue #91,
+// docs/UPSTREAM-FINDINGS.md):
+//   1. ComputeF writes a30[1] = -3 instead of -3*Z12 (result-corrupting).
+//   2. Fit accepts roots with sigma^2 > 1, which cannot come from a unit
+//      direction (gamma^2 = 1 - sigma^2 < 0).
+//   3. The f1 == 0 branch uses gamma = sqrt(sigma) instead of
+//      sqrt(1 - sigma^2).
+//   4. Fit reads Polynomial1::operator[] past the end of its coefficient
+//      vector when the arithmetic operators eliminate leading zeros. That is
+//      undefined behaviour in C++ (MSVC reads heap memory in release), so
+//      *every* case below rejects the draws that reach it.
+// The namespace below carries a copy of upstream's Fit with the first three
+// fixes switchable, plus the degree check for the fourth. The main case keeps
+// the draws on which the two agree bit for bit, the deviation case those on
+// which they do not.
+
+namespace parallel
+{
+    struct ZValues
+    {
+        double Z20, Z11, Z02, Z30, Z21, Z12, Z03, Z40, Z31, Z22, Z13, Z04;
+
+        explicit ZValues(std::vector<Vector2<double>> const& P)
+            :
+            Z20(0), Z11(0), Z02(0), Z30(0), Z21(0), Z12(0), Z03(0),
+            Z40(0), Z31(0), Z22(0), Z13(0), Z04(0)
+        {
+            double const invN = 1.0 / static_cast<double>(P.size());
+            for (auto const& sample : P)
+            {
+                double xx = sample[0] * sample[0];
+                double xy = sample[0] * sample[1];
+                double yy = sample[1] * sample[1];
+                double xxx = xx * sample[0];
+                double xxy = xy * sample[0];
+                double xyy = xy * sample[1];
+                double yyy = yy * sample[1];
+                double xxxx = xxx * sample[0];
+                double xxxy = xxx * sample[1];
+                double xxyy = xx * yy;
+                double xyyy = yyy * sample[0];
+                double yyyy = yyy * sample[1];
+                Z20 += xx; Z11 += xy; Z02 += yy;
+                Z30 += xxx; Z21 += xxy; Z12 += xyy; Z03 += yyy;
+                Z40 += xxxx; Z31 += xxxy; Z22 += xxyy; Z13 += xyyy; Z04 += yyyy;
+            }
+            Z20 *= invN; Z11 *= invN; Z02 *= invN;
+            Z30 *= invN; Z21 *= invN; Z12 *= invN; Z03 *= invN;
+            Z40 *= invN; Z31 *= invN; Z22 *= invN; Z13 *= invN; Z04 *= invN;
+        }
+    };
+
+    void ComputeProduct(Polynomial1<double> const& A0, Polynomial1<double> const& B0,
+        Polynomial1<double> const& A1, Polynomial1<double> const& B1,
+        Polynomial1<double>& A2, Polynomial1<double>& B2)
+    {
+        Polynomial1<double> gammaSqr{ 1.0, 0.0, -1.0 };
+        A2 = A0 * A1 + gammaSqr * B0 * B1;
+        B2 = A0 * B1 + B0 * A1;
+    }
+
+    // 'fixA30' selects the port's coefficient (-3*Z12) over upstream's (-3).
+    void ComputeF(ZValues const& data, Polynomial1<double>& f0,
+        Polynomial1<double>& f1, bool fixA30)
+    {
+        Polynomial1<double> a11(2);
+        a11[0] = data.Z11;
+        a11[2] = -2.0 * data.Z11;
+        Polynomial1<double> b11(1);
+        b11[1] = data.Z02 - data.Z20;
+        Polynomial1<double> a20(2);
+        a20[0] = data.Z02;
+        a20[2] = data.Z20 - data.Z02;
+        Polynomial1<double> b20(1);
+        b20[1] = -2.0 * data.Z11;
+        Polynomial1<double> a30(3);
+        a30[1] = (fixA30 ? -3.0 * data.Z12 : -3.0);
+        a30[3] = 3.0 * data.Z12 - data.Z30;
+        Polynomial1<double> b30(2);
+        b30[0] = data.Z03;
+        b30[2] = 3.0 * data.Z21 - data.Z03;
+        Polynomial1<double> a21(3);
+        a21[1] = data.Z03 - 2.0 * data.Z21;
+        a21[3] = 3.0 * data.Z21 - data.Z03;
+        Polynomial1<double> b21(2);
+        b21[0] = data.Z12;
+        b21[2] = data.Z30 - 3.0 * data.Z12;
+        Polynomial1<double> a40(4);
+        a40[0] = data.Z04;
+        a40[2] = 6.0 * data.Z22 - 2.0 * data.Z04;
+        a40[4] = data.Z40 - 6.0 * data.Z22 + data.Z04;
+        Polynomial1<double> b40(3);
+        b40[1] = -4.0 * data.Z13;
+        b40[3] = 4.0 * (data.Z13 - data.Z31);
+        Polynomial1<double> a31(4);
+        a31[0] = data.Z13;
+        a31[2] = 3.0 * data.Z31 - 5.0 * data.Z13;
+        a31[4] = 4.0 * (data.Z13 - data.Z31);
+        Polynomial1<double> b31(3);
+        b31[1] = data.Z04 - 3.0 * data.Z22;
+        b31[3] = 6.0 * data.Z22 - data.Z40 - data.Z04;
+
+        Polynomial1<double> c0, d0, c1, d1, c2, d2, c3, d3;
+        Polynomial1<double> c4, d4, c5, d5, c6, d6, c7, d7;
+        ComputeProduct(a20, b20, a20, b20, c0, d0);
+        ComputeProduct(a31, b31, c0, d0, c1, d1);
+        ComputeProduct(a21, b21, a20, b20, c2, d2);
+        ComputeProduct(a30, b30, c2, d2, c3, d3);
+        ComputeProduct(a30, b30, a11, b11, c4, d4);
+        ComputeProduct(a30, b30, c4, d4, c5, d5);
+        ComputeProduct(c0, d0, a11, b11, c6, d6);
+        ComputeProduct(a20, b20, c6, d6, c7, d7);
+        f0 = 2.0 * (c1 - c7) - 3.0 * c3 + c5;
+        f1 = 2.0 * (d1 - d7) - 3.0 * d3 + d5;
+    }
+
+    void UpdateParameters(ZValues const& data, double sigma, double sigmaSqr,
+        double gamma, double& minSigma, double& minGamma, double& minK,
+        double& minRSqr, double& minError)
+    {
+        double A20 = data.Z02 + (data.Z20 - data.Z02) * sigmaSqr;
+        double B20 = -2.0 * data.Z11 * sigma;
+        double S20 = A20 + gamma * B20;
+        double A30 = -sigma * (3.0 * data.Z12 + (data.Z30 - 3.0 * data.Z12) * sigmaSqr);
+        double B30 = data.Z03 + (3.0 * data.Z21 - data.Z03) * sigmaSqr;
+        double S30 = A30 + gamma * B30;
+        double A40 = data.Z04 + ((6.0 * data.Z22 - 2.0 * data.Z04)
+            + (data.Z40 - 6.0 * data.Z22 + data.Z04) * sigmaSqr) * sigmaSqr;
+        double B40 = -4.0 * sigma * (data.Z13 + (data.Z31 - data.Z13) * sigmaSqr);
+        double S40 = A40 + gamma * B40;
+        double k = S30 / (2.0 * S20);
+        double ksqr = k * k;
+        double rsqr = ksqr + S20;
+        double error = S40 - 4.0 * k * S30 + (4.0 * ksqr - S20) * S20;
+        if (error < minError)
+        {
+            minSigma = sigma;
+            minGamma = gamma;
+            minK = k;
+            minRSqr = rsqr;
+            minError = error;
+        }
+    }
+
+    double Coefficient(Polynomial1<double> const& p, uint32_t i)
+    {
+        return i <= p.GetDegree() ? p[i] : 0.0;
+    }
+
+    // Upstream's Fit with the port's fixes 1-3 applied. Also reports through
+    // 'inRange' whether upstream's own reads of f0, f1 and h stay inside
+    // their coefficient vectors (fix 4).
+    void FitFixed(std::vector<Vector2<double>> const& P, uint32_t maxIterations,
+        Vector2<double>& C, Vector2<double>& V, double& radius, bool& inRange)
+    {
+        size_t const n = P.size();
+        double const invN = 1.0 / static_cast<double>(n);
+        std::vector<Vector2<double>> PAdjust = P;
+        Vector2<double> A{ 0.0, 0.0 };
+        for (auto const& sample : PAdjust) { A += sample; }
+        A *= invN;
+        for (auto& sample : PAdjust) { sample -= A; }
+
+        ZValues data(PAdjust);
+        Polynomial1<double> f0, f1;
+        ComputeF(data, f0, f1, true);
+
+        // The degree check uses upstream's own f0, f1 and h.
+        {
+            Polynomial1<double> u0, u1;
+            ComputeF(data, u0, u1, false);
+            Polynomial1<double> sigmaSqrPoly{ 0.0, 0.0, 1.0 };
+            Polynomial1<double> u0Sqr = u0 * u0, u1Sqr = u1 * u1;
+            Polynomial1<double> h = sigmaSqrPoly * u1Sqr + (u0Sqr - u1Sqr);
+            bool const f1IsZero = !(u1 != Polynomial1<double>{ 0.0 });
+            inRange = (u0.GetDegree() >= 8u)
+                && (f1IsZero || (u1.GetDegree() >= 7u && h.GetDegree() >= 16u));
+        }
+
+        Polynomial1<double> freduced0(4), freduced1(3);
+        for (uint32_t i = 0; i <= 4; ++i) { freduced0[i] = Coefficient(f0, 2 * i); }
+        for (uint32_t i = 0; i <= 3; ++i) { freduced1[i] = Coefficient(f1, 2 * i + 1); }
+
+        double minSigma = 0.0, minGamma = 1.0;
+        double minK = data.Z03 / (2.0 * data.Z02);
+        double minKSqr = minK * minK;
+        double minRSqr = minKSqr + data.Z02;
+        double minError = data.Z04 - 4.0 * minK * data.Z03
+            + (4.0 * minKSqr - data.Z02) * data.Z02;
+
+        if (f1 != Polynomial1<double>{ 0.0 })
+        {
+            Polynomial1<double> sigmaSqrPoly{ 0.0, 0.0, 1.0 };
+            Polynomial1<double> f0Sqr = f0 * f0, f1Sqr = f1 * f1;
+            Polynomial1<double> h = sigmaSqrPoly * f1Sqr + (f0Sqr - f1Sqr);
+            Polynomial1<double> hreduced(8);
+            for (uint32_t i = 0; i <= 8; ++i) { hreduced[i] = Coefficient(h, 2 * i); }
+
+            std::array<double, 8> roots{};
+            int32_t numRoots = RootsPolynomial<double>::Find(8, &hreduced[0],
+                maxIterations, roots.data());
+            for (int32_t i = 0; i < numRoots; ++i)
+            {
+                double sigmaSqr = roots[i];
+                if (sigmaSqr > 0.0 && sigmaSqr <= 1.0)
+                {
+                    double sigma = std::sqrt(sigmaSqr);
+                    double gamma = -freduced0(sigmaSqr) / (sigma * freduced1(sigmaSqr));
+                    UpdateParameters(data, sigma, sigmaSqr, gamma,
+                        minSigma, minGamma, minK, minRSqr, minError);
+                }
+            }
+        }
+        else
+        {
+            Polynomial1<double> hreduced(4);
+            for (uint32_t i = 0; i <= 4; ++i) { hreduced[i] = Coefficient(f0, 2 * i); }
+
+            std::array<double, 4> roots{};
+            int32_t numRoots = RootsPolynomial<double>::Find(4, &hreduced[0],
+                maxIterations, roots.data());
+            for (int32_t i = 0; i < numRoots; ++i)
+            {
+                double sigmaSqr = roots[i];
+                if (sigmaSqr > 0.0 && sigmaSqr <= 1.0)
+                {
+                    double sigma = std::sqrt(sigmaSqr);
+                    double gamma = std::sqrt(1.0 - sigmaSqr);
+                    UpdateParameters(data, sigma, sigmaSqr, gamma,
+                        minSigma, minGamma, minK, minRSqr, minError);
+                    gamma = -gamma;
+                    UpdateParameters(data, sigma, sigmaSqr, gamma,
+                        minSigma, minGamma, minK, minRSqr, minError);
+                }
+            }
+        }
+
+        V = Vector2<double>{ minGamma, minSigma };
+        C = A + minK * Vector2<double>{ -minSigma, minGamma };
+        C -= Dot(C, V) * V;
+        radius = std::sqrt(minRSqr);
+    }
+}
+
+namespace parallel
+{
+    // Points for the parallel-lines fit, drawn but not recorded. Modes:
+    //   0  uniform cloud
+    //   1  exact lattice points on two parallel lattice lines
+    //   2  small lattice cloud
+    Points2 Draw(oracle::Ctx& io, int32_t minPoints, int32_t maxPoints)
+    {
+        Points2 out;
+        out.n = io.rawInteger(minPoints, maxPoints);
+        out.mode = io.rawInteger(0, 2);
+        out.P.resize(static_cast<size_t>(out.n));
+        int32_t const n = out.n;
+
+        if (out.mode == 0)
+        {
+            for (int32_t i = 0; i < n; ++i)
+            {
+                out.P[i][0] = io.raw(-10.0, 10.0);
+                out.P[i][1] = io.raw(-10.0, 10.0);
+            }
+        }
+        else if (out.mode == 1)
+        {
+            Vector2<double> center{ static_cast<double>(io.rawInteger(-4, 4)),
+                static_cast<double>(io.rawInteger(-4, 4)) };
+            Vector2<double> dir{ static_cast<double>(io.rawInteger(-3, 3)),
+                static_cast<double>(io.rawInteger(-3, 3)) };
+            if (dir[0] == 0.0 && dir[1] == 0.0) { dir[0] = 1.0; }
+            Vector2<double> normal{ -dir[1], dir[0] };
+            for (int32_t i = 0; i < n; ++i)
+            {
+                double const s = static_cast<double>(io.rawInteger(0, 1) * 2 - 1);
+                double const t = static_cast<double>(io.rawInteger(-4, 4));
+                out.P[i] = Vector2<double>{ center[0] + s * normal[0] + t * dir[0],
+                    center[1] + s * normal[1] + t * dir[1] };
+            }
+        }
+        else
+        {
+            for (int32_t i = 0; i < n; ++i)
+            {
+                out.P[i][0] = static_cast<double>(io.rawInteger(-6, 6));
+                out.P[i][1] = static_cast<double>(io.rawInteger(-6, 6));
+            }
+        }
+        return out;
+    }
+
+    // Draws until upstream's own reads stay in range and the corrected fit
+    // either agrees (want == false) or differs (want == true). The loop is
+    // capped and redraws the point set and maxIterations, which is everything
+    // the test depends on; on exhaustion it falls back to the last in-range
+    // candidate, or to the last candidate at all.
+    struct Draws
+    {
+        Points2 points;
+        uint32_t maxIterations = 16;
+    };
+
+    // Upstream's a30[1] coefficient is wrong, so its h(sigma^2) is a
+    // different polynomial from the corrected one on essentially every
+    // input; the two fits then agree only when neither polynomial's roots
+    // improve the seed (sigma,gamma) = (0,1). That happens on a few percent
+    // of the draws, so the agreeing case needs a generous attempt cap.
+    constexpr int32_t kMaxParallelAttempts = 400;
+
+    Draws DrawUntil(oracle::Ctx& io, bool wantDeviation)
+    {
+        Draws best, fallback;
+        bool haveBest = false, haveFallback = false;
+        int32_t const cap = (wantDeviation ? kMaxAttempts : kMaxParallelAttempts);
+        for (int32_t attempt = 0; attempt < cap; ++attempt)
+        {
+            Draws candidate;
+            candidate.points = Draw(io, 6, 14);
+            candidate.maxIterations =
+                static_cast<uint32_t>(io.rawInteger(8, 32));
+
+            Vector2<double> fixedC{}, fixedV{};
+            double fixedRadius = 0.0;
+            bool inRange = false;
+            FitFixed(candidate.points.P, candidate.maxIterations,
+                fixedC, fixedV, fixedRadius, inRange);
+            if (!haveFallback) { fallback = candidate; haveFallback = true; }
+            if (!inRange) { continue; }
+
+            Vector2<double> C{}, V{};
+            double radius = 0.0;
+            ApprParallelLines2<double> fitter;
+            fitter.Fit(candidate.points.P, candidate.maxIterations, C, V, radius);
+            bool same = (C[0] == fixedC[0] && C[1] == fixedC[1]
+                && V[0] == fixedV[0] && V[1] == fixedV[1]
+                && radius == fixedRadius);
+            if (!haveBest) { best = candidate; haveBest = true; }
+            if (same != wantDeviation) { return candidate; }
+        }
+        return haveBest ? best : fallback;
+    }
+}
+
+// The main case keeps the draws on which upstream's four defects have no
+// effect on the returned (C, V, radius).
+ORACLE_CASE("ApprParallelLines2.fit")
+{
+    auto draws = parallel::DrawUntil(io, false);
+    auto P = RecordPoints2(io, draws.points);
+    uint32_t maxIterations =
+        static_cast<uint32_t>(io.given(static_cast<double>(draws.maxIterations)));
+    Vector2<double> C{}, V{};
+    double radius = 0.0;
+    ApprParallelLines2<double> fitter;
+    fitter.Fit(P, maxIterations, C, V, radius);
+    io.outVec(C);
+    io.outVec(V);
+    io.outReal(radius);
+}
+
+// The deviation case keeps the draws on which they differ (issue #91).
+ORACLE_CASE("ApprParallelLines2.fit.deviation")
+{
+    auto draws = parallel::DrawUntil(io, true);
+    auto P = RecordPoints2(io, draws.points);
+    uint32_t maxIterations =
+        static_cast<uint32_t>(io.given(static_cast<double>(draws.maxIterations)));
+    Vector2<double> C{}, V{};
+    double radius = 0.0;
+    ApprParallelLines2<double> fitter;
+    fitter.Fit(P, maxIterations, C, V, radius);
+    io.outVec(C);
+    io.outVec(V);
+    io.outReal(radius);
+}
+
 // -------------------------------------------------------- ApprCurveByArcs
 
 namespace

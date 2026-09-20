@@ -15,6 +15,7 @@ import { ApprHeightPlane3 } from '../../src/ApprHeightPlane3.js';
 import { ApprOrthogonalLine2 } from '../../src/ApprOrthogonalLine2.js';
 import { ApprOrthogonalLine3 } from '../../src/ApprOrthogonalLine3.js';
 import { ApprOrthogonalPlane3 } from '../../src/ApprOrthogonalPlane3.js';
+import { ApprParallelLines2 } from '../../src/ApprParallelLines2.js';
 import { ApprPolynomial2 } from '../../src/ApprPolynomial2.js';
 import { ApprPolynomial3 } from '../../src/ApprPolynomial3.js';
 import { ApprPolynomial4 } from '../../src/ApprPolynomial4.js';
@@ -944,6 +945,32 @@ describe('oracle: v03-approximation', () => {
         io.outVec(sphere.center);
         io.outReal(sphere.radius);
     }, { exact: true, deviation: 'SymmetricEigensolver.h Tridiagonalize, issue #80' });
+
+    // -------------------------------------------------- ApprParallelLines2
+
+    // The port fixes four upstream defects here (docs/UPSTREAM-FINDINGS.md,
+    // issue #91): the missing Z12 factor in a30[1], the acceptance of roots
+    // with sigma^2 > 1, gamma = sqrt(sigma) in the f1 == 0 branch and the
+    // out-of-range Polynomial1 reads. The C++ generator rejects the draws
+    // that reach the out-of-range reads (undefined behaviour) in both cases,
+    // and splits the rest by whether the corrected fit agrees bit for bit.
+    family.case('ApprParallelLines2.fit', (io) => {
+        const P = points(io, 2);
+        const maxIterations = io.integer();
+        const r = new ApprParallelLines2().fit(P, maxIterations);
+        io.outVec(r.center);
+        io.outVec(r.direction);
+        io.outReal(r.radius);
+    }, { exact: true });
+
+    family.case('ApprParallelLines2.fit.deviation', (io) => {
+        const P = points(io, 2);
+        const maxIterations = io.integer();
+        const r = new ApprParallelLines2().fit(P, maxIterations);
+        io.outVec(r.center);
+        io.outVec(r.direction);
+        io.outReal(r.radius);
+    }, { exact: true, deviation: 'ApprParallelLines2.h items 1-4, issue #91' });
 
     // ----------------------------------------------------- ApprCurveByArcs
 
