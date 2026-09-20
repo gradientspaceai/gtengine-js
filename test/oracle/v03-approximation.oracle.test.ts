@@ -6,6 +6,8 @@
 // C++ case file).
 import { describe } from 'vitest';
 import { ApprCircle2 } from '../../src/ApprCircle2.js';
+import { approximateCurveByArcs, type ApproximateCurveByArcsResult }
+    from '../../src/ApprCurveByArcs.js';
 import { ApprGaussian2 } from '../../src/ApprGaussian2.js';
 import { ApprGaussian3 } from '../../src/ApprGaussian3.js';
 import { ApprHeightLine2 } from '../../src/ApprHeightLine2.js';
@@ -19,8 +21,11 @@ import { ApprPolynomial4 } from '../../src/ApprPolynomial4.js';
 import { ApprPolynomialSpecial2 } from '../../src/ApprPolynomialSpecial2.js';
 import { ApprPolynomialSpecial3 } from '../../src/ApprPolynomialSpecial3.js';
 import { ApprPolynomialSpecial4 } from '../../src/ApprPolynomialSpecial4.js';
+import { ApprQuadratic2, ApprQuadraticCircle2 } from '../../src/ApprQuadratic2.js';
+import { ApprQuadratic3, ApprQuadraticSphere3 } from '../../src/ApprQuadratic3.js';
 import { ApprQuery } from '../../src/ApprQuery.js';
 import { ApprSphere3 } from '../../src/ApprSphere3.js';
+import { BezierCurve } from '../../src/BezierCurve.js';
 import { Hypersphere } from '../../src/Hypersphere.js';
 import { Vector } from '../../src/Vector.js';
 import { OracleFamily, type OracleIO } from './harness.js';
@@ -834,6 +839,135 @@ describe('oracle: v03-approximation', () => {
         const fitter = new ApprPolynomialSpecial4(identityDegrees(count, 1),
             identityDegrees(count, 1), identityDegrees(count + extra, 1));
         io.outInt(fitter.getMinimumRequired());
+    }, { exact: true });
+
+    // ------------------------------------------------------- ApprQuadratic2
+
+    family.case('ApprQuadratic2.fit', (io) => {
+        const P = points(io, 2);
+        const r = new ApprQuadratic2().compute(P);
+        io.outReal(r.minEigenvalue);
+        io.outReals(r.coefficients);
+    }, { exact: true });
+
+    family.case('ApprQuadratic2.fit.cocircular', (io) => {
+        const n = io.integer();
+        const P = new Array<Vector>(n);
+        for (let i = 0; i < n; ++i) { P[i] = io.vec(2); }
+        const r = new ApprQuadratic2().compute(P);
+        io.outReal(r.minEigenvalue);
+        io.outReals(r.coefficients);
+    }, { exact: true });
+
+    family.case('ApprQuadraticCircle2.fit', (io) => {
+        const P = points(io, 2);
+        const circle = new Hypersphere(2);
+        const measure = new ApprQuadraticCircle2().compute(P, circle);
+        io.outReal(measure);
+        io.outVec(circle.center);
+        io.outReal(circle.radius);
+    }, { exact: true });
+
+    family.case('ApprQuadraticCircle2.fit.cocircular', (io) => {
+        const n = io.integer();
+        const P = new Array<Vector>(n);
+        for (let i = 0; i < n; ++i) { P[i] = io.vec(2); }
+        const circle = new Hypersphere(2);
+        const measure = new ApprQuadraticCircle2().compute(P, circle);
+        io.outReal(measure);
+        io.outVec(circle.center);
+        io.outReal(circle.radius);
+    }, { exact: true });
+
+    // ------------------------------------------------------- ApprQuadratic3
+
+    family.case('ApprQuadratic3.fit', (io) => {
+        const P = points(io, 3);
+        const r = new ApprQuadratic3().compute(P);
+        io.outReal(r.minEigenvalue);
+        io.outReals(r.coefficients);
+    }, { exact: true });
+
+    family.case('ApprQuadratic3.fit.cospherical', (io) => {
+        const n = io.integer();
+        const P = new Array<Vector>(n);
+        for (let i = 0; i < n; ++i) { P[i] = io.vec(3); }
+        const r = new ApprQuadratic3().compute(P);
+        io.outReal(r.minEigenvalue);
+        io.outReals(r.coefficients);
+    }, { exact: true });
+
+    family.case('ApprQuadraticSphere3.fit', (io) => {
+        const P = points(io, 3);
+        const sphere = new Hypersphere(3);
+        const measure = new ApprQuadraticSphere3().compute(P, sphere);
+        io.outReal(measure);
+        io.outVec(sphere.center);
+        io.outReal(sphere.radius);
+    }, { exact: true });
+
+    family.case('ApprQuadraticSphere3.fit.cospherical', (io) => {
+        const n = io.integer();
+        const P = new Array<Vector>(n);
+        for (let i = 0; i < n; ++i) { P[i] = io.vec(3); }
+        const sphere = new Hypersphere(3);
+        const measure = new ApprQuadraticSphere3().compute(P, sphere);
+        io.outReal(measure);
+        io.outVec(sphere.center);
+        io.outReal(sphere.radius);
+    }, { exact: true });
+
+    // ----------------------------------------------------- ApprCurveByArcs
+
+    function emitArcs(io: OracleIO, r: ApproximateCurveByArcsResult): void {
+        io.outInt(r.times.length);
+        io.outReals(r.times);
+        for (const p of r.points) { io.outVec(p); }
+        io.outInt(r.arcs.length);
+        for (const arc of r.arcs) {
+            io.outVec(arc.center);
+            io.outReal(arc.radius);
+            io.outVec(arc.end[0]);
+            io.outVec(arc.end[1]);
+        }
+    }
+
+    function bezier(io: OracleIO, degree: number): BezierCurve {
+        const controls = new Array<Vector>(degree + 1);
+        for (let i = 0; i <= degree; ++i) { controls[i] = io.vec(2); }
+        return new BezierCurve(2, degree, controls);
+    }
+
+    family.case('ApprCurveByArcs.compute', (io) => {
+        const degree = io.integer();
+        const curve = bezier(io, degree);
+        const numArcs = io.integer();
+        emitArcs(io, approximateCurveByArcs(curve, numArcs));
+    }, { exact: true });
+
+    family.case('ApprCurveByArcs.compute.collinear', (io) => {
+        const degree = io.integer();
+        const curve = bezier(io, degree);
+        const numArcs = io.integer();
+        const epsilon = io.real();
+        const useEpsilon = io.boolean();
+        emitArcs(io, approximateCurveByArcs(curve, numArcs,
+            useEpsilon ? epsilon : 0));
+    }, { exact: true });
+
+    family.case('ApprCurveByArcs.compute.epsilon', (io) => {
+        const degree = io.integer();
+        const curve = bezier(io, degree);
+        const numArcs = io.integer();
+        const epsilon = io.real();
+        emitArcs(io, approximateCurveByArcs(curve, numArcs, epsilon));
+    }, { exact: true });
+
+    family.case('ApprCurveByArcs.compute.assert', (io) => {
+        const degree = io.integer();
+        const curve = bezier(io, degree);
+        const numArcs = io.integer();
+        emitArcs(io, approximateCurveByArcs(curve, numArcs));
     }, { exact: true });
 
     family.finish();

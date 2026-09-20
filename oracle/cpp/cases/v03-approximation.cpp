@@ -39,6 +39,7 @@
 #include <Mathematics/ApprQuery.h>
 #include <Mathematics/ApprSphere3.h>
 #include <Mathematics/BezierCurve.h>
+#include <Mathematics/SymmetricEigensolver.h>
 
 #include <array>
 #include <cmath>
@@ -1423,6 +1424,140 @@ ORACLE_CASE("ApprPolynomialSpecial4.copyParameters")
     io.outReal(target.Evaluate(probeX, probeY, probeZ));
 }
 
+// ----------------------------------------------------------- ApprQuadratic2
+
+ORACLE_CASE("ApprQuadratic2.fit")
+{
+    auto P = MakePoints2(io, 1, 10);
+    std::array<double, 6> coefficients{};
+    ApprQuadratic2<double> fitter;
+    double measure = fitter(static_cast<int32_t>(P.size()), P.data(), coefficients);
+    io.outReal(measure);
+    for (auto value : coefficients) { io.outReal(value); }
+}
+
+// Points exactly on a lattice conic (the radius-5 circle), where the minimum
+// eigenvalue is at the round-off floor and the clamp to zero is reachable.
+ORACLE_CASE("ApprQuadratic2.fit.cocircular")
+{
+    int32_t const n = io.integer(5, 10);
+    Vector2<double> center{ static_cast<double>(io.rawInteger(-3, 3)),
+        static_cast<double>(io.rawInteger(-3, 3)) };
+    std::vector<Vector2<double>> P(static_cast<size_t>(n));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        int32_t const k = io.rawInteger(0, 11);
+        P[i] = io.givenVec(Vector2<double>{
+            center[0] + static_cast<double>(kCircleLattice[k][0]),
+            center[1] + static_cast<double>(kCircleLattice[k][1]) });
+    }
+    std::array<double, 6> coefficients{};
+    ApprQuadratic2<double> fitter;
+    double measure = fitter(n, P.data(), coefficients);
+    io.outReal(measure);
+    for (auto value : coefficients) { io.outReal(value); }
+}
+
+ORACLE_CASE("ApprQuadraticCircle2.fit")
+{
+    auto P = MakePoints2(io, 1, 10);
+    Circle2<double> circle{};
+    ApprQuadraticCircle2<double> fitter;
+    double measure = fitter(static_cast<int32_t>(P.size()), P.data(), circle);
+    io.outReal(measure);
+    io.outVec(circle.center);
+    io.outReal(circle.radius);
+}
+
+ORACLE_CASE("ApprQuadraticCircle2.fit.cocircular")
+{
+    int32_t const n = io.integer(4, 10);
+    Vector2<double> center{ static_cast<double>(io.rawInteger(-3, 3)),
+        static_cast<double>(io.rawInteger(-3, 3)) };
+    std::vector<Vector2<double>> P(static_cast<size_t>(n));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        int32_t const k = io.rawInteger(0, 11);
+        P[i] = io.givenVec(Vector2<double>{
+            center[0] + static_cast<double>(kCircleLattice[k][0]),
+            center[1] + static_cast<double>(kCircleLattice[k][1]) });
+    }
+    Circle2<double> circle{};
+    ApprQuadraticCircle2<double> fitter;
+    double measure = fitter(n, P.data(), circle);
+    io.outReal(measure);
+    io.outVec(circle.center);
+    io.outReal(circle.radius);
+}
+
+// ----------------------------------------------------------- ApprQuadratic3
+
+ORACLE_CASE("ApprQuadratic3.fit")
+{
+    auto P = MakePoints3(io, 1, 12);
+    std::array<double, 10> coefficients{};
+    ApprQuadratic3<double> fitter;
+    double measure = fitter(static_cast<int32_t>(P.size()), P.data(), coefficients);
+    io.outReal(measure);
+    for (auto value : coefficients) { io.outReal(value); }
+}
+
+ORACLE_CASE("ApprQuadratic3.fit.cospherical")
+{
+    int32_t const n = io.integer(8, 14);
+    Vector3<double> center{ static_cast<double>(io.rawInteger(-3, 3)),
+        static_cast<double>(io.rawInteger(-3, 3)),
+        static_cast<double>(io.rawInteger(-3, 3)) };
+    std::vector<Vector3<double>> P(static_cast<size_t>(n));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        int32_t const k = io.rawInteger(0, 29);
+        P[i] = io.givenVec(Vector3<double>{
+            center[0] + static_cast<double>(kSphereLattice[k][0]),
+            center[1] + static_cast<double>(kSphereLattice[k][1]),
+            center[2] + static_cast<double>(kSphereLattice[k][2]) });
+    }
+    std::array<double, 10> coefficients{};
+    ApprQuadratic3<double> fitter;
+    double measure = fitter(n, P.data(), coefficients);
+    io.outReal(measure);
+    for (auto value : coefficients) { io.outReal(value); }
+}
+
+ORACLE_CASE("ApprQuadraticSphere3.fit")
+{
+    auto P = MakePoints3(io, 1, 12);
+    Sphere3<double> sphere{};
+    ApprQuadraticSphere3<double> fitter;
+    double measure = fitter(static_cast<int32_t>(P.size()), P.data(), sphere);
+    io.outReal(measure);
+    io.outVec(sphere.center);
+    io.outReal(sphere.radius);
+}
+
+ORACLE_CASE("ApprQuadraticSphere3.fit.cospherical")
+{
+    int32_t const n = io.integer(5, 12);
+    Vector3<double> center{ static_cast<double>(io.rawInteger(-3, 3)),
+        static_cast<double>(io.rawInteger(-3, 3)),
+        static_cast<double>(io.rawInteger(-3, 3)) };
+    std::vector<Vector3<double>> P(static_cast<size_t>(n));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        int32_t const k = io.rawInteger(0, 29);
+        P[i] = io.givenVec(Vector3<double>{
+            center[0] + static_cast<double>(kSphereLattice[k][0]),
+            center[1] + static_cast<double>(kSphereLattice[k][1]),
+            center[2] + static_cast<double>(kSphereLattice[k][2]) });
+    }
+    Sphere3<double> sphere{};
+    ApprQuadraticSphere3<double> fitter;
+    double measure = fitter(n, P.data(), sphere);
+    io.outReal(measure);
+    io.outVec(sphere.center);
+    io.outReal(sphere.radius);
+}
+
 // The 'input arrays must have the same size' assert.
 ORACLE_CASE("ApprPolynomialSpecial4.constructor.sizeAssert")
 {
@@ -1435,4 +1570,121 @@ ORACLE_CASE("ApprPolynomialSpecial4.constructor.sizeAssert")
     for (int32_t i = 0; i < count + extra; ++i) { zDegrees[i] = i; }
     ApprPolynomialSpecial4<double> fitter(xDegrees, yDegrees, zDegrees);
     io.outInt(fitter.GetMinimumRequired());
+}
+
+// -------------------------------------------------------- ApprCurveByArcs
+
+namespace
+{
+    void EmitArcs(oracle::Ctx& io, std::vector<double> const& times,
+        std::vector<Vector2<double>> const& points,
+        std::vector<Arc2<double>> const& arcs)
+    {
+        io.outInt(times.size());
+        for (auto t : times) { io.outReal(t); }
+        for (auto const& p : points) { io.outVec(p); }
+        io.outInt(arcs.size());
+        for (auto const& arc : arcs)
+        {
+            io.outVec(arc.center);
+            io.outReal(arc.radius);
+            io.outVec(arc.end[0]);
+            io.outVec(arc.end[1]);
+        }
+    }
+}
+
+// A Bezier curve with lattice control points. The arc-length subdivision
+// (Romberg integration of Length(X'(t)) and a bisection for the time of a
+// given length) and the circumscribed-circle solve use only + - * / and sqrt.
+ORACLE_CASE("ApprCurveByArcs.compute")
+{
+    int32_t degree = io.integer(2, 4);
+    std::vector<Vector2<double>> controls(static_cast<size_t>(degree) + 1);
+    for (int32_t i = 0; i <= degree; ++i)
+    {
+        controls[i] = io.latticeVec<2>(-6, 6);
+    }
+    int32_t numArcs = io.integer(1, 3);
+    auto curve = std::make_shared<BezierCurve<2, double>>(degree, controls.data());
+    std::vector<double> times;
+    std::vector<Vector2<double>> points;
+    std::vector<Arc2<double>> arcs;
+    ApproximateCurveByArcs(std::static_pointer_cast<ParametricCurve<2, double>>(curve),
+        static_cast<size_t>(numArcs), times, points, arcs);
+    EmitArcs(io, times, points, arcs);
+}
+
+// Collinear lattice control points, so the curve is a straight segment and
+// every {P0,M,P1} triple is (numerically) collinear. With epsilon = 0 the
+// test 'fabs(det) >= epsilon' is still true and upstream divides by a
+// near-zero or exactly zero determinant (the preserved defect of issue
+// #163); with epsilon > 0 the numeric_limits::max() line-segment sentinel is
+// taken.
+ORACLE_CASE("ApprCurveByArcs.compute.collinear")
+{
+    int32_t degree = io.integer(2, 4);
+    Vector2<double> base{ static_cast<double>(io.rawInteger(-4, 4)),
+        static_cast<double>(io.rawInteger(-4, 4)) };
+    Vector2<double> dir{ static_cast<double>(io.rawInteger(-3, 3)),
+        static_cast<double>(io.rawInteger(-3, 3)) };
+    if (dir[0] == 0.0 && dir[1] == 0.0) { dir[0] = 1.0; }
+    std::vector<Vector2<double>> controls(static_cast<size_t>(degree) + 1);
+    for (int32_t i = 0; i <= degree; ++i)
+    {
+        double const t = static_cast<double>(io.rawInteger(-4, 4));
+        controls[i] = io.givenVec(Vector2<double>{ base[0] + t * dir[0],
+            base[1] + t * dir[1] });
+    }
+    int32_t numArcs = io.integer(1, 3);
+    double epsilon = io.real(0.0, 0.5);
+    bool useEpsilon = io.boolean();
+    auto curve = std::make_shared<BezierCurve<2, double>>(degree, controls.data());
+    std::vector<double> times;
+    std::vector<Vector2<double>> points;
+    std::vector<Arc2<double>> arcs;
+    ApproximateCurveByArcs(std::static_pointer_cast<ParametricCurve<2, double>>(curve),
+        static_cast<size_t>(numArcs), times, points, arcs,
+        useEpsilon ? epsilon : 0.0);
+    EmitArcs(io, times, points, arcs);
+}
+
+// A positive epsilon on an ordinary curve: the sentinel branch is taken
+// wherever the circumscribing determinant is small.
+ORACLE_CASE("ApprCurveByArcs.compute.epsilon")
+{
+    int32_t degree = io.integer(2, 4);
+    std::vector<Vector2<double>> controls(static_cast<size_t>(degree) + 1);
+    for (int32_t i = 0; i <= degree; ++i)
+    {
+        controls[i] = io.latticeVec<2>(-6, 6);
+    }
+    int32_t numArcs = io.integer(1, 4);
+    double epsilon = io.real(0.0, 20.0);
+    auto curve = std::make_shared<BezierCurve<2, double>>(degree, controls.data());
+    std::vector<double> times;
+    std::vector<Vector2<double>> points;
+    std::vector<Arc2<double>> arcs;
+    ApproximateCurveByArcs(std::static_pointer_cast<ParametricCurve<2, double>>(curve),
+        static_cast<size_t>(numArcs), times, points, arcs, epsilon);
+    EmitArcs(io, times, points, arcs);
+}
+
+// The 'Invalid input' LogAssert for numArcs == 0.
+ORACLE_CASE("ApprCurveByArcs.compute.assert")
+{
+    int32_t degree = io.integer(2, 3);
+    std::vector<Vector2<double>> controls(static_cast<size_t>(degree) + 1);
+    for (int32_t i = 0; i <= degree; ++i)
+    {
+        controls[i] = io.latticeVec<2>(-4, 4);
+    }
+    int32_t numArcs = io.integer(0, 1);
+    auto curve = std::make_shared<BezierCurve<2, double>>(degree, controls.data());
+    std::vector<double> times;
+    std::vector<Vector2<double>> points;
+    std::vector<Arc2<double>> arcs;
+    ApproximateCurveByArcs(std::static_pointer_cast<ParametricCurve<2, double>>(curve),
+        static_cast<size_t>(numArcs), times, points, arcs);
+    EmitArcs(io, times, points, arcs);
 }
