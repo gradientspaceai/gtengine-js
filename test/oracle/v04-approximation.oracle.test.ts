@@ -1,6 +1,8 @@
 // Replays oracle/cpp/cases/v04-approximation.cpp (verify group 4,
 // approximation). Keep the two files in the same order.
 import { describe } from 'vitest';
+import { ApprCone3 } from '../../src/ApprCone3.js';
+import type { ApprCone3Parameters } from '../../src/ApprCone3.js';
 import { ApprCylinder3 } from '../../src/ApprCylinder3.js';
 import { ApprEllipse2 } from '../../src/ApprEllipse2.js';
 import { approximateEllipseByArcs } from '../../src/ApprEllipseByArcs.js';
@@ -244,6 +246,103 @@ describe('oracle: v04-approximation', () => {
         const cylinder = new Cylinder3();
         fitter.computeMesh(pts, indices, cylinder);
         emitCylinder(io, cylinder);
+    });
+
+    // ---- ApprCone3 ---------------------------------------------------------
+    // The generator fixes the initial cone angle to a dyadic value whose
+    // cosine is bit-identical in the MSVC runtime and in V8, so the only libm
+    // call left in the iterated cases is the final acos. Everything else is
+    // emitted with outRealExact and held to bit-identity.
+
+    // The initial cone: vertex, unit axis and the agreed angle.
+    function initialCone(io: OracleIO): ApprCone3Parameters {
+        const vertex = io.vec(3);
+        const axis = io.vec(3);
+        io.integer();  // the angle index j, recorded by C++
+        const angle = io.real();
+        return { vertex, axis, angle };
+    }
+
+    function emitCone(io: OracleIO, cone: ApprCone3Parameters): void {
+        io.outVecExact(cone.vertex);
+        io.outVecExact(cone.axis);
+        io.outReal(cone.angle);  // acos
+    }
+
+    family.case('ApprCone3.gaussNewton.initialGuess', (io) => {
+        const pts = points(io, 3);
+        const maxIterations = io.integer();
+        const cone = initialCone(io);
+        const r = new ApprCone3().computeGaussNewton(pts, maxIterations,
+            0, 0, true, cone);
+        io.outInt(r.numIterations);
+        io.outBool(r.converged);
+        io.outRealExact(r.minError);
+        io.outRealExact(r.minErrorDifference);
+        io.outRealExact(r.minUpdateLength);
+        io.outVecExact(r.minLocation);
+        emitCone(io, cone);
+    });
+
+    // The C++ case records maxIterations after the initial cone, because it
+    // is chosen by probing upstream's own control flow (see the C++ comment).
+    function levenbergMarquardtCone(io: OracleIO): void {
+        const pts = points(io, 3);
+        const maxAdjustments = io.integer();
+        const lambdaFactor = io.real();
+        const lambdaAdjust = io.real();
+        const cone = initialCone(io);
+        const maxIterations = io.integer();
+        const r = new ApprCone3().computeLevenbergMarquardt(pts, maxIterations,
+            0, 0, lambdaFactor, lambdaAdjust, maxAdjustments, true, cone);
+        io.outInt(r.numIterations);
+        io.outInt(r.numAdjustments);
+        io.outBool(r.converged);
+        io.outRealExact(r.minError);
+        io.outRealExact(r.minErrorDifference);
+        io.outRealExact(r.minUpdateLength);
+        io.outVecExact(r.minLocation);
+        emitCone(io, cone);
+    }
+
+    family.case('ApprCone3.levenbergMarquardt.initialGuess',
+        levenbergMarquardtCone);
+
+    family.case('ApprCone3.levenbergMarquardt.staleResidual.deviation',
+        levenbergMarquardtCone,
+        { deviation: 'issue #261: LevenbergMarquardtMinimizer::DoIteration '
+            + 'builds -J^T*F from the residual at the previously rejected '
+            + 'candidate' });
+
+    // atan2 in ComputeInitialCone, then the cos/acos round trip.
+    family.case('ApprCone3.gaussNewton.computeInitialCone', (io) => {
+        const pts = points(io, 3);
+        const cone: ApprCone3Parameters =
+            { vertex: new Vector(3), axis: new Vector(3), angle: 0 };
+        const r = new ApprCone3().computeGaussNewton(pts, 0, 0, 0, false, cone);
+        io.outInt(r.numIterations);
+        io.outBool(r.converged);
+        io.outReal(r.minError);
+        io.outVec(r.minLocation);
+        io.outVec(cone.vertex);
+        io.outVec(cone.axis);
+        io.outReal(cone.angle);
+    });
+
+    family.case('ApprCone3.levenbergMarquardt.computeInitialCone', (io) => {
+        const pts = points(io, 3);
+        const cone: ApprCone3Parameters =
+            { vertex: new Vector(3), axis: new Vector(3), angle: 0 };
+        const r = new ApprCone3().computeLevenbergMarquardt(pts, 0, 0, 0,
+            1e-3, 10, 2, false, cone);
+        io.outInt(r.numIterations);
+        io.outInt(r.numAdjustments);
+        io.outBool(r.converged);
+        io.outReal(r.minError);
+        io.outVec(r.minLocation);
+        io.outVec(cone.vertex);
+        io.outVec(cone.axis);
+        io.outReal(cone.angle);
     });
 
     family.finish();

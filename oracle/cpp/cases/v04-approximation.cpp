@@ -807,3 +807,244 @@ ORACLE_CASE("ApprCylinder3.computeMesh")
         indices.data(), cylinder);
     EmitCylinder(io, cylinder);
 }
+
+// ---- ApprCone3 -------------------------------------------------------------
+
+namespace
+{
+    // A cone angle whose cosine is bit-identical in the MSVC runtime and in
+    // V8. The candidates are the 24 dyadic angles j/16 in [0.0625, 1.5],
+    // which is inside the documented range (0, pi/2). Every k/64 for
+    // k = 1..100 was compared between std::cos and Math.cos; only k = 25 and
+    // k = 54 disagree, and neither is a multiple of 4, so j/16 = 4j/64 always
+    // agrees. Fixing the cosine removes the only libm call that precedes the
+    // Gauss-Newton and Levenberg-Marquardt iterations, which are otherwise
+    // pure arithmetic, linear solves and sqrt.
+    double AgreedAngle(oracle::Ctx& io)
+    {
+        int j = io.integer(1, 24);
+        return io.given(static_cast<double>(j) / 16.0);
+    }
+
+    // 3D samples for the cone fitters.
+    //   mode 0: integer lattice
+    //   mode 1: uniform cloud
+    //   mode 2: on a circular cone about a random axis, with a small radial
+    //           perturbation
+    std::vector<Vector3<double>> ConePoints3(oracle::Ctx& io, int mode)
+    {
+        int n = io.integer(6, 10);
+        std::vector<Vector3<double>> points(static_cast<size_t>(n));
+        if (mode == 0)
+        {
+            for (int i = 0; i < n; ++i) { points[i] = io.latticeVec<3>(-3, 3); }
+        }
+        else if (mode == 1)
+        {
+            for (int i = 0; i < n; ++i) { points[i] = io.vec<3>(-4.0, 4.0); }
+        }
+        else
+        {
+            auto basis = RawFrame3(io);
+            Vector3<double> vertex{};
+            for (int i = 0; i < 3; ++i) { vertex[i] = io.raw(-2.0, 2.0); }
+            double tanAngle = io.raw(0.2, 1.2);
+            for (int i = 0; i < n; ++i)
+            {
+                double h = io.raw(0.5, 3.0);
+                double t = io.raw(-3.14, 3.14);
+                double s = io.raw(0.97, 1.03);
+                Vector3<double> p = vertex + h * basis[0]
+                    + (s * h * tanAngle * std::cos(t)) * basis[1]
+                    + (s * h * tanAngle * std::sin(t)) * basis[2];
+                points[i] = io.givenVec(p);
+            }
+        }
+        return points;
+    }
+
+    void EmitConeAndResult(oracle::Ctx& io, Vector3<double> const& vertex,
+        Vector3<double> const& axis, double angle)
+    {
+        io.outVec(vertex);
+        io.outVec(axis);
+        io.outReal(angle);
+    }
+}
+
+// Gauss-Newton with a caller-supplied initial cone. The tolerances are zero,
+// so the convergence test can only fire on an exactly zero update and the
+// iteration count is fixed by maxIterations. Every output but the final cone
+// angle, which acos produces, is arithmetic-only and is compared bit for bit
+// (io.outRealExact on the replay side).
+ORACLE_CASE("ApprCone3.gaussNewton.initialGuess")
+{
+    int mode = io.index() % 3;
+    auto points = ConePoints3(io, mode);
+    int maxIterations = io.integer(1, 4);
+    Vector3<double> coneVertex = io.vec<3>(-2.0, 2.0);
+    Vector3<double> coneAxis = io.unit<3>();
+    double coneAngle = AgreedAngle(io);
+    ApprCone3<double> fitter{};
+    auto result = fitter(static_cast<int32_t>(points.size()), points.data(),
+        static_cast<size_t>(maxIterations), 0.0, 0.0, true,
+        coneVertex, coneAxis, coneAngle);
+    io.outInt(result.numIterations);
+    io.outBool(result.converged);
+    io.outReal(result.minError);
+    io.outReal(result.minErrorDifference);
+    io.outReal(result.minUpdateLength);
+    for (int i = 0; i < 6; ++i) { io.outReal(result.minLocation[i]); }
+    EmitConeAndResult(io, coneVertex, coneAxis, coneAngle);
+}
+
+// Levenberg-Marquardt with a caller-supplied initial cone. Every fourth
+// record passes a nonpositive lambdaFactor, which upstream turns into a
+// single Gauss-Newton adjustment.
+//
+// LevenbergMarquardtMinimizer::DoIteration builds -J^T*F from the member mF,
+// which holds F at the previously *rejected* candidate whenever the inner
+// lambda-adjustment loop runs DoIteration more than once for the same
+// pCurrent. The port re-evaluates F at pCurrent (issue #261, "fixed"), so
+// upstream and the port agree exactly on the records where no outer
+// iteration repeats a DoIteration, and that is exactly the records where
+// result.numAdjustments is 0 for every prefix of the iteration: DoIteration
+// is repeated iff the inner loop increments numAdjustments. The probe below
+// runs upstream itself with maxIterations = 1, 2, ... and keeps the longest
+// prefix that stays sound, so the recorded maxIterations is an aimed
+// construction rather than a rejection loop.
+namespace
+{
+    // The number of Levenberg-Marquardt iterations of 'fitter' on these
+    // inputs for which upstream never repeats a DoIteration, capped at
+    // maxCap. Zero means even the first iteration repeats one.
+    size_t SoundLMIterations(ApprCone3<double>& fitter,
+        std::vector<Vector3<double>> const& points,
+        Vector3<double> const& vertex, Vector3<double> const& axis,
+        double angle, double lambdaFactor, double lambdaAdjust,
+        size_t maxAdjustments, size_t maxCap, bool wantSound)
+    {
+        size_t chosen = (wantSound ? 0 : maxCap);
+        for (size_t m = 1; m <= maxCap; ++m)
+        {
+            Vector3<double> v = vertex, a = axis;
+            double g = angle;
+            auto probe = fitter(static_cast<int32_t>(points.size()),
+                points.data(), m, 0.0, 0.0, lambdaFactor, lambdaAdjust,
+                maxAdjustments, true, v, a, g);
+            if (wantSound)
+            {
+                if (probe.numAdjustments != 0) { break; }
+                chosen = m;
+            }
+            else if (probe.numAdjustments != 0)
+            {
+                chosen = m;
+                break;
+            }
+        }
+        return chosen;
+    }
+}
+
+ORACLE_CASE("ApprCone3.levenbergMarquardt.initialGuess")
+{
+    int mode = io.index() % 3;
+    auto points = ConePoints3(io, mode);
+    int maxAdjustments = io.integer(1, 3);
+    double lambdaFactor = (io.index() % 4 == 0 ? io.real(-1.0, 0.0)
+        : io.real(1e-4, 1e-2));
+    double lambdaAdjust = io.real(2.0, 10.0);
+    Vector3<double> coneVertex = io.vec<3>(-2.0, 2.0);
+    Vector3<double> coneAxis = io.unit<3>();
+    double coneAngle = AgreedAngle(io);
+    ApprCone3<double> fitter{};
+    size_t maxIterations = SoundLMIterations(fitter, points, coneVertex,
+        coneAxis, coneAngle, lambdaFactor, lambdaAdjust,
+        static_cast<size_t>(maxAdjustments), 4, true);
+    io.given(static_cast<double>(maxIterations));
+    auto result = fitter(static_cast<int32_t>(points.size()), points.data(),
+        maxIterations, 0.0, 0.0,
+        lambdaFactor, lambdaAdjust, static_cast<size_t>(maxAdjustments), true,
+        coneVertex, coneAxis, coneAngle);
+    io.outInt(result.numIterations);
+    io.outInt(result.numAdjustments);
+    io.outBool(result.converged);
+    io.outReal(result.minError);
+    io.outReal(result.minErrorDifference);
+    io.outReal(result.minUpdateLength);
+    for (int i = 0; i < 6; ++i) { io.outReal(result.minLocation[i]); }
+    EmitConeAndResult(io, coneVertex, coneAxis, coneAngle);
+}
+
+// The deliberate port fix of issue #261, demonstrated through ApprCone3:
+// maxIterations is the first prefix length at which upstream repeats a
+// DoIteration and therefore builds the step from a stale residual.
+ORACLE_CASE("ApprCone3.levenbergMarquardt.staleResidual.deviation")
+{
+    int mode = io.index() % 3;
+    auto points = ConePoints3(io, mode);
+    int maxAdjustments = io.integer(1, 3);
+    double lambdaFactor = io.real(1e-4, 1e-2);
+    double lambdaAdjust = io.real(2.0, 10.0);
+    Vector3<double> coneVertex = io.vec<3>(-2.0, 2.0);
+    Vector3<double> coneAxis = io.unit<3>();
+    double coneAngle = AgreedAngle(io);
+    ApprCone3<double> fitter{};
+    size_t maxIterations = SoundLMIterations(fitter, points, coneVertex,
+        coneAxis, coneAngle, lambdaFactor, lambdaAdjust,
+        static_cast<size_t>(maxAdjustments), 4, false);
+    io.given(static_cast<double>(maxIterations));
+    auto result = fitter(static_cast<int32_t>(points.size()), points.data(),
+        maxIterations, 0.0, 0.0,
+        lambdaFactor, lambdaAdjust, static_cast<size_t>(maxAdjustments), true,
+        coneVertex, coneAxis, coneAngle);
+    io.outInt(result.numIterations);
+    io.outInt(result.numAdjustments);
+    io.outBool(result.converged);
+    io.outReal(result.minError);
+    io.outReal(result.minErrorDifference);
+    io.outReal(result.minUpdateLength);
+    for (int i = 0; i < 6; ++i) { io.outReal(result.minLocation[i]); }
+    EmitConeAndResult(io, coneVertex, coneAxis, coneAngle);
+}
+
+// ComputeInitialCone, the private initial-guess helper, reached with
+// maxIterations = 0 so that the minimizer returns its input untouched. Its
+// atan2 and the cos/acos round trip around it are the only libm calls, and
+// none of them decides a branch (the only test, hrSlope < 0, comes from
+// ApprHeightLine2::Fit, which is arithmetic-only), so a tolerance is enough.
+ORACLE_CASE("ApprCone3.gaussNewton.computeInitialCone")
+{
+    int mode = io.index() % 3;
+    auto points = ConePoints3(io, mode);
+    Vector3<double> coneVertex{};
+    Vector3<double> coneAxis{};
+    double coneAngle = 0.0;
+    ApprCone3<double> fitter{};
+    auto result = fitter(static_cast<int32_t>(points.size()), points.data(),
+        0, 0.0, 0.0, false, coneVertex, coneAxis, coneAngle);
+    io.outInt(result.numIterations);
+    io.outBool(result.converged);
+    io.outReal(result.minError);
+    for (int i = 0; i < 6; ++i) { io.outReal(result.minLocation[i]); }
+    EmitConeAndResult(io, coneVertex, coneAxis, coneAngle);
+}
+
+ORACLE_CASE("ApprCone3.levenbergMarquardt.computeInitialCone")
+{
+    int mode = io.index() % 3;
+    auto points = ConePoints3(io, mode);
+    Vector3<double> coneVertex{};
+    Vector3<double> coneAxis{};
+    double coneAngle = 0.0;
+    ApprCone3<double> fitter{};
+    auto result = fitter(static_cast<int32_t>(points.size()), points.data(),
+        0, 0.0, 0.0, 1e-3, 10.0, 2, false, coneVertex, coneAxis, coneAngle);
+    io.outInt(result.numIterations);
+    io.outInt(result.numAdjustments);
+    io.outBool(result.converged);
+    io.outReal(result.minError);
+    for (int i = 0; i < 6; ++i) { io.outReal(result.minLocation[i]); }
+    EmitConeAndResult(io, coneVertex, coneAxis, coneAngle);
+}

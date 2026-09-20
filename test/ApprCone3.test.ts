@@ -363,4 +363,30 @@ describe('ApprCone3 verification', () => {
         // tanAngle a 0/0 NaN; the "all points at one height" case in the
         // upstream report can never merely produce a large quotient.
     });
+
+    // Regression for the C++ oracle (verify group 4): upstream's
+    // ComputeInitialCone writes 'center /= tNumPoints', and Vector.h's
+    // operator/=(Vector&, Real) multiplies each component by 1/scalar instead
+    // of dividing. The two groupings differ in the last bit for a coordinate
+    // sum of -3 over 10 samples, and the difference reaches the fitted cone:
+    // with the divide grouping the vertex z-coordinate is
+    // 0.15220656158215262 and the axis z-coordinate is -0.08297882144584215.
+    // The expected values below are the ones the MSVC-built upstream produces
+    // (the oracle case ApprCone3.gaussNewton.computeInitialCone compares this
+    // code path bit for bit).
+    it('averages the samples by multiplying by 1/n, as Vector::operator/= does',
+        () => {
+            expect(-3 * (1 / 10)).not.toBe(-3 / 10);
+            const xs = [-2, -1, 0, 1, 2, -2, -1, 0, 1, 2];
+            const ys = [0, 1, 2, -1, -2, 1, 0, 2, -2, -1];
+            const zs = [-1, -1, -1, 0, 0, 0, 0, 0, 0, 0];
+            const points = xs.map((x, i) => v3(x, ys[i], zs[i]));
+            const cone: ApprCone3Parameters =
+                { vertex: new Vector(3), axis: new Vector(3), angle: 0 };
+            new ApprCone3().computeGaussNewton(points, 0, 0, 0, false, cone);
+            expect(cone.vertex.values[2]).toBe(0.1522065615821528);
+            expect(cone.vertex.values[2]).not.toBe(0.15220656158215262);
+            expect(cone.axis.values[2]).toBe(-0.08297882144584219);
+            expect(cone.axis.values[2]).not.toBe(-0.08297882144584215);
+        });
 });
