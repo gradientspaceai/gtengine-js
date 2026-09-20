@@ -3,6 +3,10 @@
 import { describe } from 'vitest';
 import { ApprCone3 } from '../../src/ApprCone3.js';
 import type { ApprCone3Parameters } from '../../src/ApprCone3.js';
+import {
+    ApprCone3EllipseAndPoints, ApprCone3EllipseAndPointsControl,
+    ApprCone3ExtractEllipses
+} from '../../src/ApprCone3EllipseAndPoints.js';
 import { ApprCylinder3 } from '../../src/ApprCylinder3.js';
 import { ApprEllipse2 } from '../../src/ApprEllipse2.js';
 import { approximateEllipseByArcs } from '../../src/ApprEllipseByArcs.js';
@@ -12,7 +16,11 @@ import {
 } from '../../src/ApprGreatCircle3.js';
 import { ApprParabola2 } from '../../src/ApprParabola2.js';
 import { ApprParaboloid3 } from '../../src/ApprParaboloid3.js';
+import { Cone } from '../../src/Cone.js';
 import { Cylinder3 } from '../../src/Cylinder3.js';
+import { Ellipse3 } from '../../src/Ellipse3.js';
+import { ApprTorus3 } from '../../src/ApprTorus3.js';
+import type { ApprTorus3Parameters } from '../../src/ApprTorus3.js';
 import { Hyperellipsoid } from '../../src/Hyperellipsoid.js';
 import { Vector } from '../../src/Vector.js';
 import { OracleFamily, type OracleIO } from './harness.js';
@@ -343,6 +351,189 @@ describe('oracle: v04-approximation', () => {
         io.outVec(cone.vertex);
         io.outVec(cone.axis);
         io.outReal(cone.angle);
+    });
+
+    // ---- ApprTorus3 --------------------------------------------------------
+    // Every F and J evaluation calls sin and cos, the non-iterative fit goes
+    // through RootsPolynomial.solveCubic, and the spherical angles of the
+    // initial guess come from atan2 and acos, so all of these are tolerance
+    // cases.
+
+    function torusInput(io: OracleIO): ApprTorus3Parameters {
+        const C = io.vec(3);
+        const N = io.vec(3);
+        const r0 = io.real();
+        const r1 = io.real();
+        return { C, N, r0, r1 };
+    }
+
+    function emitTorus(io: OracleIO, t: ApprTorus3Parameters): void {
+        io.outVec(t.C);
+        io.outVec(t.N);
+        io.outReal(t.r0);
+        io.outReal(t.r1);
+    }
+
+    function newTorus(): ApprTorus3Parameters {
+        return { C: new Vector(3), N: new Vector(3), r0: 0, r1: 0 };
+    }
+
+    family.case('ApprTorus3.compute', (io) => {
+        const pts = points(io, 3);
+        const torus = newTorus();
+        const r = new ApprTorus3().compute(pts, torus);
+        io.outBool(r.success);
+        io.outReal(r.error);
+        emitTorus(io, torus);
+    });
+
+    family.case('ApprTorus3.gaussNewton.initialGuess', (io) => {
+        const pts = points(io, 3);
+        const maxIterations = io.integer();
+        const torus = torusInput(io);
+        const r = new ApprTorus3().computeGaussNewton(pts, maxIterations,
+            0, 0, true, torus);
+        io.outInt(r.numIterations);
+        io.outBool(r.converged);
+        io.outReal(r.minError);
+        io.outReal(r.minErrorDifference);
+        io.outReal(r.minUpdateLength);
+        io.outVec(r.minLocation);
+        emitTorus(io, torus);
+    });
+
+    family.case('ApprTorus3.levenbergMarquardt.initialGuess', (io) => {
+        const pts = points(io, 3);
+        const maxAdjustments = io.integer();
+        const lambdaFactor = io.real();
+        const lambdaAdjust = io.real();
+        const torus = torusInput(io);
+        const maxIterations = io.integer();
+        const r = new ApprTorus3().computeLevenbergMarquardt(pts, maxIterations,
+            0, 0, lambdaFactor, lambdaAdjust, maxAdjustments, true, torus);
+        io.outInt(r.numIterations);
+        io.outInt(r.numAdjustments);
+        io.outBool(r.converged);
+        io.outReal(r.minError);
+        io.outReal(r.minErrorDifference);
+        io.outReal(r.minUpdateLength);
+        io.outVec(r.minLocation);
+        emitTorus(io, torus);
+    });
+
+    family.case('ApprTorus3.gaussNewton.computeInitialTorus', (io) => {
+        const pts = points(io, 3);
+        const torus = newTorus();
+        const r = new ApprTorus3().computeGaussNewton(pts, 0, 0, 0, false, torus);
+        io.outInt(r.numIterations);
+        io.outBool(r.converged);
+        io.outReal(r.minError);
+        io.outVec(r.minLocation);
+        emitTorus(io, torus);
+    });
+
+    family.case('ApprTorus3.levenbergMarquardt.computeInitialTorus', (io) => {
+        const pts = points(io, 3);
+        const torus = newTorus();
+        const r = new ApprTorus3().computeLevenbergMarquardt(pts, 0, 0, 0,
+            1e-3, 10, 2, false, torus);
+        io.outInt(r.numIterations);
+        io.outInt(r.numAdjustments);
+        io.outBool(r.converged);
+        io.outReal(r.minError);
+        io.outVec(r.minLocation);
+        emitTorus(io, torus);
+    });
+
+    // ---- ApprCone3EllipseAndPoints -----------------------------------------
+    // Minimize1's bracket search compares sin/cos-derived error values, so
+    // this is a tolerance case; mode 1 puts the samples exactly on the cone
+    // that (ellipse, theta) determines so the minimum is deep.
+
+    function ellipse3(io: OracleIO): Ellipse3 {
+        const center = io.vec(3);
+        const normal = io.vec(3);
+        const axis0 = io.vec(3);
+        const axis1 = io.vec(3);
+        const extent = io.vec(2);
+        return Ellipse3.fromCenterNormalAxisExtent(center, normal,
+            [axis0, axis1], extent);
+    }
+
+    function control(io: OracleIO): ApprCone3EllipseAndPointsControl {
+        const c = new ApprCone3EllipseAndPointsControl();
+        c.maxSubdivisions = io.integer();
+        c.maxBisections = io.integer();
+        c.epsilon = io.real();
+        c.tolerance = io.real();
+        c.padding = io.real();
+        c.penalty = io.real();
+        return c;
+    }
+
+    function emitCone3(io: OracleIO, cone: Cone): void {
+        io.outVec(cone.ray.origin);
+        io.outVec(cone.ray.direction);
+        io.outReal(cone.angle);
+        io.outReal(cone.cosAngle);
+        io.outReal(cone.sinAngle);
+        io.outReal(cone.tanAngle);
+        io.outReal(cone.cosAngleSqr);
+        io.outReal(cone.sinAngleSqr);
+        io.outReal(cone.invSinAngle);
+    }
+
+    // Minimize1's parabolic-interpolation loop compares F values that sin and
+    // cos make 1 ulp apart, so the bracket can close on a slightly different
+    // theta; near the minimum F is flat, so a 1 ulp difference in F moves the
+    // argmin far more than it moves F. The tolerance is the measured maximum
+    // over the 2000-record deep run (see oracle/reports/v04-approximation.md).
+    family.case('ApprCone3EllipseAndPoints.fit', (io) => {
+        const e = ellipse3(io);
+        const pts = points(io, 3);
+        emitCone3(io, ApprCone3EllipseAndPoints.fit(e, pts, control(io)));
+    }, { tol: 1e-6 });
+
+    family.case('ApprCone3EllipseAndPoints.fit.deviation', (io) => {
+        const e = ellipse3(io);
+        const pts = points(io, 3);
+        emitCone3(io, ApprCone3EllipseAndPoints.fit(e, pts, control(io)));
+    }, { deviation: 'issue #349: ComputeCone divides by the ellipse extent a '
+        + 'without validating it' });
+
+    family.case('ApprCone3ExtractEllipses.extract', (io) => {
+        const n = io.integer();
+        const pts: Vector[] = [];
+        for (let i = 0; i < 2 * n; ++i) { pts.push(io.vec(3)); }
+        const cosAngleEpsilon = io.real();
+        const boxExtentEpsilon = io.real();
+        const extractor = new ApprCone3ExtractEllipses();
+        const ellipses = extractor.extract(pts, boxExtentEpsilon,
+            cosAngleEpsilon);
+        io.outInt(extractor.getPlanes().length);
+        for (const plane of extractor.getPlanes()) {
+            io.outVec(plane.normal);
+            io.outReal(plane.constant);
+        }
+        io.outInt(extractor.getIndices().length);
+        for (const list of extractor.getIndices()) {
+            io.outInt(list.length);
+            for (const index of list) { io.outInt(index); }
+        }
+        io.outInt(ellipses.length);
+        for (const e of ellipses) {
+            io.outVec(e.center);
+            io.outVec(e.normal);
+            io.outVec(e.axis[0]);
+            io.outVec(e.axis[1]);
+            io.outVec(e.extent);
+        }
+    });
+
+    family.case('ApprCone3EllipseAndPoints.fit.throw', (io) => {
+        const e = ellipse3(io);
+        const pts = points(io, 3);
+        emitCone3(io, ApprCone3EllipseAndPoints.fit(e, pts, control(io)));
     });
 
     family.finish();

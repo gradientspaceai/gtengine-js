@@ -1031,6 +1031,214 @@ ORACLE_CASE("ApprCone3.gaussNewton.computeInitialCone")
     EmitConeAndResult(io, coneVertex, coneAxis, coneAngle);
 }
 
+// ---- ApprTorus3 ------------------------------------------------------------
+// Every evaluation of F and J calls sin and cos, the non-iterative fit goes
+// through RootsPolynomial::SolveCubic, and the spherical angles of the
+// initial guess come from atan2 and acos, so all of these cases are compared
+// with a tolerance.
+
+namespace
+{
+    // 3D samples for the torus fitters.
+    //   mode 0: integer lattice
+    //   mode 1: uniform cloud
+    //   mode 2: on a torus about a random axis, sampled in all octants as the
+    //           header requires
+    std::vector<Vector3<double>> TorusPoints3(oracle::Ctx& io, int mode)
+    {
+        int n = io.integer(8, 12);
+        std::vector<Vector3<double>> points(static_cast<size_t>(n));
+        if (mode == 0)
+        {
+            for (int i = 0; i < n; ++i) { points[i] = io.latticeVec<3>(-3, 3); }
+        }
+        else if (mode == 1)
+        {
+            for (int i = 0; i < n; ++i) { points[i] = io.vec<3>(-4.0, 4.0); }
+        }
+        else
+        {
+            auto basis = RawFrame3(io);
+            Vector3<double> center{};
+            for (int i = 0; i < 3; ++i) { center[i] = io.raw(-2.0, 2.0); }
+            double r0 = io.raw(1.5, 3.0);
+            double r1 = io.raw(0.3, 1.0);
+            for (int i = 0; i < n; ++i)
+            {
+                double t = io.raw(-3.14, 3.14);
+                double psi = io.raw(-3.14, 3.14);
+                double radial = r0 + r1 * std::cos(psi);
+                Vector3<double> p = center
+                    + (radial * std::cos(t)) * basis[1]
+                    + (radial * std::sin(t)) * basis[2]
+                    + (r1 * std::sin(psi)) * basis[0];
+                points[i] = io.givenVec(p);
+            }
+        }
+        return points;
+    }
+
+    // The caller-supplied initial torus. Every third record uses the exact
+    // axis (0,0,1) so that the |N[2]| < 1 test of the initial guess takes its
+    // other branch.
+    void RawTorus(oracle::Ctx& io, Vector3<double>& C, Vector3<double>& N,
+        double& r0, double& r1)
+    {
+        Vector3<double> center{};
+        for (int i = 0; i < 3; ++i) { center[i] = io.raw(-2.0, 2.0); }
+        C = io.givenVec(center);
+        if (io.index() % 3 == 0)
+        {
+            Vector3<double> axis{ 0.0, 0.0, 1.0 };
+            N = io.givenVec(axis);
+        }
+        else
+        {
+            N = io.unit<3>();
+        }
+        r0 = io.real(1.0, 3.0);
+        r1 = io.real(0.2, 0.9);
+    }
+
+    void EmitTorus(oracle::Ctx& io, Vector3<double> const& C,
+        Vector3<double> const& N, double r0, double r1)
+    {
+        io.outVec(C);
+        io.outVec(N);
+        io.outReal(r0);
+        io.outReal(r1);
+    }
+
+    // The torus counterpart of SoundLMIterations; see that comment.
+    size_t SoundLMIterationsTorus(ApprTorus3<double> const& fitter,
+        std::vector<Vector3<double>> const& points, Vector3<double> const& C,
+        Vector3<double> const& N, double r0, double r1, double lambdaFactor,
+        double lambdaAdjust, size_t maxAdjustments, size_t maxCap,
+        bool wantSound)
+    {
+        size_t chosen = (wantSound ? 0 : maxCap);
+        for (size_t m = 1; m <= maxCap; ++m)
+        {
+            Vector3<double> c = C, n = N;
+            double a = r0, b = r1;
+            auto probe = fitter(static_cast<int32_t>(points.size()),
+                points.data(), m, 0.0, 0.0, lambdaFactor, lambdaAdjust,
+                maxAdjustments, true, c, n, a, b);
+            if (wantSound)
+            {
+                if (probe.numAdjustments != 0) { break; }
+                chosen = m;
+            }
+            else if (probe.numAdjustments != 0)
+            {
+                chosen = m;
+                break;
+            }
+        }
+        return chosen;
+    }
+}
+
+// The non-iterative fit: an orthogonal-plane fit followed by SolveCubic and
+// an argmin of H over the positive roots.
+ORACLE_CASE("ApprTorus3.compute")
+{
+    int mode = io.index() % 3;
+    auto points = TorusPoints3(io, mode);
+    Vector3<double> C{}, N{};
+    double r0 = 0.0, r1 = 0.0;
+    ApprTorus3<double> fitter{};
+    auto result = fitter(static_cast<int32_t>(points.size()), points.data(),
+        C, N, r0, r1);
+    io.outBool(result.first);
+    io.outReal(result.second);
+    EmitTorus(io, C, N, r0, r1);
+}
+
+ORACLE_CASE("ApprTorus3.gaussNewton.initialGuess")
+{
+    int mode = io.index() % 3;
+    auto points = TorusPoints3(io, mode);
+    int maxIterations = io.integer(1, 2);
+    Vector3<double> C{}, N{};
+    double r0 = 0.0, r1 = 0.0;
+    RawTorus(io, C, N, r0, r1);
+    ApprTorus3<double> fitter{};
+    auto result = fitter(static_cast<int32_t>(points.size()), points.data(),
+        static_cast<size_t>(maxIterations), 0.0, 0.0, true, C, N, r0, r1);
+    io.outInt(result.numIterations);
+    io.outBool(result.converged);
+    io.outReal(result.minError);
+    io.outReal(result.minErrorDifference);
+    io.outReal(result.minUpdateLength);
+    for (int i = 0; i < 7; ++i) { io.outReal(result.minLocation[i]); }
+    EmitTorus(io, C, N, r0, r1);
+}
+
+// Restricted to the iteration prefixes on which upstream never repeats a
+// DoIteration; see the ApprCone3 Levenberg-Marquardt comment and issue #261.
+ORACLE_CASE("ApprTorus3.levenbergMarquardt.initialGuess")
+{
+    int mode = io.index() % 3;
+    auto points = TorusPoints3(io, mode);
+    int maxAdjustments = io.integer(1, 3);
+    double lambdaFactor = io.real(1e-4, 1e-2);
+    double lambdaAdjust = io.real(2.0, 10.0);
+    Vector3<double> C{}, N{};
+    double r0 = 0.0, r1 = 0.0;
+    RawTorus(io, C, N, r0, r1);
+    ApprTorus3<double> fitter{};
+    size_t maxIterations = SoundLMIterationsTorus(fitter, points, C, N, r0, r1,
+        lambdaFactor, lambdaAdjust, static_cast<size_t>(maxAdjustments), 2, true);
+    io.given(static_cast<double>(maxIterations));
+    auto result = fitter(static_cast<int32_t>(points.size()), points.data(),
+        maxIterations, 0.0, 0.0, lambdaFactor, lambdaAdjust,
+        static_cast<size_t>(maxAdjustments), true, C, N, r0, r1);
+    io.outInt(result.numIterations);
+    io.outInt(result.numAdjustments);
+    io.outBool(result.converged);
+    io.outReal(result.minError);
+    io.outReal(result.minErrorDifference);
+    io.outReal(result.minUpdateLength);
+    for (int i = 0; i < 7; ++i) { io.outReal(result.minLocation[i]); }
+    EmitTorus(io, C, N, r0, r1);
+}
+
+// The initial-guess path of the two minimizer overloads, reached with
+// maxIterations = 0 so that the minimizer returns its input untouched.
+ORACLE_CASE("ApprTorus3.gaussNewton.computeInitialTorus")
+{
+    int mode = io.index() % 3;
+    auto points = TorusPoints3(io, mode);
+    Vector3<double> C{}, N{};
+    double r0 = 0.0, r1 = 0.0;
+    ApprTorus3<double> fitter{};
+    auto result = fitter(static_cast<int32_t>(points.size()), points.data(),
+        0, 0.0, 0.0, false, C, N, r0, r1);
+    io.outInt(result.numIterations);
+    io.outBool(result.converged);
+    io.outReal(result.minError);
+    for (int i = 0; i < 7; ++i) { io.outReal(result.minLocation[i]); }
+    EmitTorus(io, C, N, r0, r1);
+}
+
+ORACLE_CASE("ApprTorus3.levenbergMarquardt.computeInitialTorus")
+{
+    int mode = io.index() % 3;
+    auto points = TorusPoints3(io, mode);
+    Vector3<double> C{}, N{};
+    double r0 = 0.0, r1 = 0.0;
+    ApprTorus3<double> fitter{};
+    auto result = fitter(static_cast<int32_t>(points.size()), points.data(),
+        0, 0.0, 0.0, 1e-3, 10.0, 2, false, C, N, r0, r1);
+    io.outInt(result.numIterations);
+    io.outInt(result.numAdjustments);
+    io.outBool(result.converged);
+    io.outReal(result.minError);
+    for (int i = 0; i < 7; ++i) { io.outReal(result.minLocation[i]); }
+    EmitTorus(io, C, N, r0, r1);
+}
+
 ORACLE_CASE("ApprCone3.levenbergMarquardt.computeInitialCone")
 {
     int mode = io.index() % 3;
@@ -1047,4 +1255,261 @@ ORACLE_CASE("ApprCone3.levenbergMarquardt.computeInitialCone")
     io.outReal(result.minError);
     for (int i = 0; i < 6; ++i) { io.outReal(result.minLocation[i]); }
     EmitConeAndResult(io, coneVertex, coneAxis, coneAngle);
+}
+
+// ---- ApprCone3EllipseAndPoints ---------------------------------------------
+// ApprCone3EllipseAndPoints::Fit minimizes a least-squares error over the
+// cone angle with Minimize1, and the error function calls sin, cos and sqrt,
+// so the case is compared with a tolerance. Minimize1's bracket search
+// compares those libm-derived values, which is why mode 1 places the samples
+// exactly on the cone that the (ellipse, theta) pair determines: the error
+// function then has one deep minimum instead of a flat landscape of
+// near-ties.
+
+namespace
+{
+    // A right-handed Ellipse3: RawFrame3 returns { N, U, V } with N = U x V,
+    // so normal = basis[0], axis[0] = basis[1] and axis[1] = basis[2].
+    Ellipse3<double> RawEllipse3(oracle::Ctx& io, bool degenerateExtents)
+    {
+        auto basis = RawFrame3(io);
+        Ellipse3<double> ellipse{};
+        Vector3<double> center{};
+        for (int i = 0; i < 3; ++i) { center[i] = io.raw(-2.0, 2.0); }
+        ellipse.center = io.givenVec(center);
+        ellipse.normal = io.givenVec(basis[0]);
+        ellipse.axis[0] = io.givenVec(basis[1]);
+        ellipse.axis[1] = io.givenVec(basis[2]);
+        Vector2<double> extent{};
+        if (degenerateExtents)
+        {
+            // Zero or negative extents, the inputs on which upstream's
+            // ComputeCone divides by a without validating it.
+            extent[0] = io.rawInteger(0, 1) == 0 ? 0.0 : io.raw(-3.0, -0.5);
+            extent[1] = io.raw(0.4, 2.0);
+            if (io.rawInteger(0, 1) == 0) { std::swap(extent[0], extent[1]); }
+        }
+        else
+        {
+            // a >= b > 0, the convention Ellipse3 uses for its extents.
+            extent[0] = io.raw(1.0, 3.0);
+            extent[1] = io.raw(0.4, 1.0);
+        }
+        ellipse.extent = io.givenVec(extent);
+        return ellipse;
+    }
+
+    // A copy of ApprCone3EllipseAndPoints::ComputeCone, used only to place
+    // the sample points on the cone whose cross-section is 'ellipse'. It is a
+    // generator, not part of the compared computation.
+    void ReferenceCone(double theta, double sigma0, double sigma1,
+        Ellipse3<double> const& ellipse, Vector3<double>& K,
+        Vector3<double>& D)
+    {
+        double const zero = 0.0, one = 1.0;
+        auto const& C = ellipse.center;
+        auto const& N = ellipse.normal;
+        auto const& U = ellipse.axis[0];
+        double a = ellipse.extent[0];
+        double b = ellipse.extent[1];
+        double bDivA = b / a;
+        double eSqr = std::max(zero, one - bDivA * bDivA);
+        double omesqr = one - eSqr;
+        double e = std::sqrt(eSqr);
+        double snTheta = std::sin(theta);
+        double csTheta = std::cos(theta);
+        double snPhi = sigma0 * e * csTheta;
+        double snPhiSqr = snPhi * snPhi;
+        double csPhi = sigma1 * std::sqrt(std::max(zero, one - snPhiSqr));
+        double h = a * omesqr * csTheta / (snTheta * std::fabs(csPhi));
+        D = csPhi * N + snPhi * U;
+        double snThetaSqr = snTheta * snTheta;
+        double csThetaSqr = csTheta * csTheta;
+        Vector3<double> Q = C - ((h * snPhi * snThetaSqr) / (csThetaSqr - snPhiSqr)) * U;
+        K = Q - h * D;
+    }
+
+    // Samples for the cone fit.
+    //   mode 0: a uniform cloud, so the minimizer sees a generic landscape
+    //   mode 1: exactly on the cone determined by (ellipse, theta), which is
+    //           the configuration the header is written for
+    std::vector<Vector3<double>> ConeFitPoints(oracle::Ctx& io, int mode,
+        Ellipse3<double> const& ellipse)
+    {
+        int n = io.integer(4, 8);
+        std::vector<Vector3<double>> points(static_cast<size_t>(n));
+        if (mode == 0)
+        {
+            for (int i = 0; i < n; ++i) { points[i] = io.vec<3>(-4.0, 4.0); }
+        }
+        else
+        {
+            double theta = io.raw(0.3, 1.2);
+            Vector3<double> K{}, D{};
+            ReferenceCone(theta, 1.0, 1.0, ellipse, K, D);
+            std::array<Vector3<double>, 3> frame{};
+            frame[0] = D;
+            ComputeOrthogonalComplement(1, frame.data());
+            double csTheta = std::cos(theta);
+            double snTheta = std::sin(theta);
+            for (int i = 0; i < n; ++i)
+            {
+                double s = io.raw(0.5, 4.0);
+                double alpha = io.raw(-3.14, 3.14);
+                Vector3<double> dir = csTheta * frame[0]
+                    + (snTheta * std::cos(alpha)) * frame[1]
+                    + (snTheta * std::sin(alpha)) * frame[2];
+                Vector3<double> p = K + s * dir;
+                points[i] = io.givenVec(p);
+            }
+        }
+        return points;
+    }
+
+    void EmitCone3(oracle::Ctx& io, Cone3<double> const& cone)
+    {
+        io.outVec(cone.ray.origin);
+        io.outVec(cone.ray.direction);
+        io.outReal(cone.angle);
+        io.outReal(cone.cosAngle);
+        io.outReal(cone.sinAngle);
+        io.outReal(cone.tanAngle);
+        io.outReal(cone.cosAngleSqr);
+        io.outReal(cone.sinAngleSqr);
+        io.outReal(cone.invSinAngle);
+    }
+}
+
+ORACLE_CASE("ApprCone3EllipseAndPoints.fit")
+{
+    int mode = io.index() % 2;
+    auto ellipse = RawEllipse3(io, false);
+    auto points = ConeFitPoints(io, mode, ellipse);
+    ApprCone3EllipseAndPoints<double>::Control control{};
+    control.maxSubdivisions = io.integer(1, 4);
+    control.maxBisections = io.integer(1, 8);
+    control.epsilon = io.real(1e-9, 1e-7);
+    control.tolerance = io.real(1e-5, 1e-3);
+    control.padding = io.real(1e-4, 1e-2);
+    control.penalty = io.real(0.5, 2.0);
+    auto cone = ApprCone3EllipseAndPoints<double>::Fit(ellipse, points, control);
+    EmitCone3(io, cone);
+}
+
+// Deliberate port fix, issue #349: ComputeCone divides by the ellipse extent
+// a without validating it and Fit divides the accumulated error by
+// points.size() with no empty-set guard. The port asserts on both. Only the
+// extent guard is observable: with an empty point set the error function is
+// NaN, upstream's own "Failed to find fitted cone" assertion fires and the
+// two sides agree on throwing. A zero or negative extent instead lets
+// upstream return a degenerate cone, which the port refuses.
+ORACLE_CASE("ApprCone3EllipseAndPoints.fit.deviation")
+{
+    int mode = io.index() % 2;
+    auto ellipse = RawEllipse3(io, true);
+    auto points = ConeFitPoints(io, mode, ellipse);
+    ApprCone3EllipseAndPoints<double>::Control control{};
+    control.maxSubdivisions = io.integer(1, 4);
+    control.maxBisections = io.integer(1, 8);
+    control.epsilon = io.real(1e-9, 1e-7);
+    control.tolerance = io.real(1e-5, 1e-3);
+    control.padding = io.real(1e-4, 1e-2);
+    control.penalty = io.real(0.5, 2.0);
+    auto cone = ApprCone3EllipseAndPoints<double>::Fit(ellipse, points, control);
+    EmitCone3(io, cone);
+}
+
+// ApprCone3ExtractEllipses. The samples are two exact circular cross-sections
+// of one cone, which is what the class is written for. Every plane must end
+// up with at least three supporting points: upstream runs ApprGaussian3 and
+// ApprEllipse2 over the empty index list of a point-less plane (issue #349,
+// fixed in the port by discarding such planes), and a plane with one or two
+// points gives an ellipse with infinite extents, whose all-NaN outputs would
+// test nothing. The generator therefore picks the boxExtentEpsilon from a
+// fixed ladder, keeping the first value for which upstream's own GetIndices
+// reports at least three points for every plane; the choice is recorded.
+ORACLE_CASE("ApprCone3ExtractEllipses.extract")
+{
+    int perSection = io.integer(6, 8);
+    auto basis = RawFrame3(io);
+    Vector3<double> apex{};
+    for (int i = 0; i < 3; ++i) { apex[i] = io.raw(-1.0, 1.0); }
+    double tanAngle = io.raw(0.4, 1.0);
+    double h0 = io.raw(1.0, 2.0);
+    double h1 = io.raw(3.0, 5.0);
+    double phase = io.raw(-3.14, 3.14);
+    std::vector<Vector3<double>> points{};
+    for (int s = 0; s < 2; ++s)
+    {
+        double h = (s == 0 ? h0 : h1);
+        for (int i = 0; i < perSection; ++i)
+        {
+            double a = phase + 6.283185307179586 * static_cast<double>(i)
+                / static_cast<double>(perSection);
+            Vector3<double> p = apex + h * basis[0]
+                + (h * tanAngle * std::cos(a)) * basis[1]
+                + (h * tanAngle * std::sin(a)) * basis[2];
+            points.push_back(io.givenVec(p));
+        }
+    }
+    double cosAngleEpsilon = io.real(1e-4, 1e-2);
+    double const ladder[5] = { 1e-8, 1e-6, 1e-4, 1e-2, 1e-1 };
+    double boxExtentEpsilon = ladder[4];
+    for (int k = 0; k < 5; ++k)
+    {
+        ApprCone3ExtractEllipses<double> probe{};
+        std::vector<Ellipse3<double>> probeEllipses{};
+        probe.Extract(points, ladder[k], cosAngleEpsilon, probeEllipses);
+        bool ok = !probe.GetIndices().empty();
+        for (auto const& list : probe.GetIndices())
+        {
+            if (list.size() < 3) { ok = false; }
+        }
+        if (ok) { boxExtentEpsilon = ladder[k]; break; }
+    }
+    boxExtentEpsilon = io.given(boxExtentEpsilon);
+    ApprCone3ExtractEllipses<double> extractor{};
+    std::vector<Ellipse3<double>> ellipses{};
+    extractor.Extract(points, boxExtentEpsilon, cosAngleEpsilon, ellipses);
+    io.outInt(extractor.GetPlanes().size());
+    for (auto const& plane : extractor.GetPlanes())
+    {
+        io.outVec(plane.normal);
+        io.outReal(plane.constant);
+    }
+    io.outInt(extractor.GetIndices().size());
+    for (auto const& list : extractor.GetIndices())
+    {
+        io.outInt(list.size());
+        for (auto index : list) { io.outInt(index); }
+    }
+    io.outInt(ellipses.size());
+    for (auto const& e : ellipses)
+    {
+        io.outVec(e.center);
+        io.outVec(e.normal);
+        io.outVec(e.axis[0]);
+        io.outVec(e.axis[1]);
+        io.outVec(e.extent);
+    }
+}
+
+// Throw parity for the two LogAssert guards upstream keeps: an invalid
+// Control and the "Failed to find fitted cone" assertion, which fires on an
+// empty point set because the error function is NaN for every theta.
+ORACLE_CASE("ApprCone3EllipseAndPoints.fit.throw")
+{
+    auto ellipse = RawEllipse3(io, false);
+    int n = io.integer(0, 3);
+    std::vector<Vector3<double>> points(static_cast<size_t>(n));
+    for (int i = 0; i < n; ++i) { points[i] = io.vec<3>(-4.0, 4.0); }
+    ApprCone3EllipseAndPoints<double>::Control control{};
+    control.maxSubdivisions = io.integer(0, 3);
+    control.maxBisections = io.integer(0, 3);
+    control.epsilon = io.real(-1e-8, 1e-7);
+    control.tolerance = io.real(1e-5, 1e-3);
+    control.padding = io.real(1e-4, 1e-2);
+    control.penalty = io.real(0.5, 2.0);
+    auto cone = ApprCone3EllipseAndPoints<double>::Fit(ellipse, points, control);
+    EmitCone3(io, cone);
 }
