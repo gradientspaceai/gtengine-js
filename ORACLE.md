@@ -124,6 +124,14 @@ Rules:
    `Array.prototype.sort` is, so a result ordered by `std::sort` on a partial
    key (`IntrLine2SegmentMesh2` sorts by `lineParameter` only) is re-sorted
    with a total key on both sides; ties are the interesting inputs there.
+   MSVC's `std::sort` is an insertion sort, hence stable, for at most 32
+   elements, so a small case can agree by accident (v03,
+   `SymmetricEigensolver::ComputePermutation` on tied eigenvalues): the
+   unspecified order is still a finding for `docs/UPSTREAM-FINDINGS.md`.
+   The harness treats any NaN as equal to any NaN, so a record whose
+   outputs are all NaN (a fit over an empty index list) tests nothing; keep
+   such inputs out of the generator or give them a case that emits
+   something discrete.
 7. Discrete outputs (`outInt`, `outBool`) always compare exactly. Integers
    must stay below 2^53.
 8. Keep records small (tens of doubles, not thousands): goldens are committed.

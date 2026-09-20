@@ -71,14 +71,14 @@ Nothing here has been reported upstream before; this document is the report.
 
 ## Counts
 
-- **495 distinct findings** across **158** tracked issues (one issue
+- **496 distinct findings** across **158** tracked issues (one issue
   frequently holds several findings in related files).
 - By severity: **243 result-corrupting**, **14 wrong but
-  recoverable**, **165 minor**, **73 documentation**.
-- By port status: **257 fixed or corrected in the port** (of which 156 are code
+  recoverable**, **166 minor**, **73 documentation**.
+- By port status: **258 fixed or corrected in the port** (of which 156 are code
   fixes with regression tests, 22 are added guards or asserts where upstream has
   undefined behaviour, 64 are comment corrections, 11 are dead-code removals and
-  4 are documented deliberate deviations), **229 preserved deliberately**, and
+  5 are documented deliberate deviations), **229 preserved deliberately**, and
   **9 not ported** (the `GTE_USE_VEC_MAT` branches, dead code that cannot
   compile, and two arbitrary-precision paths).
 - **288 distinct upstream headers** are implicated.
@@ -559,6 +559,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `SurfaceExtractorMC.h` | 15-case table | not face-consistent: a shared face with alternating signs is resolved differently by each voxel | RC | preserved | [#443](https://github.com/gradientspaceai/gtengine-js/issues/443) |
 | `SurfaceExtractorTetrahedra.h` | `GetGradient` (~L296) | the odd-parity branch condition `dx + dy + dz >= 0` is unconditionally true; the plane is at 2 | RC | fixed | [#132](https://github.com/gradientspaceai/gtengine-js/issues/132) |
 | `SWInterval.h` | outward rounding | `std::nextafter(value, +-max)` pulls an infinite bound back to `+-MAX_VALUE`, destroying enclosure | RC | preserved | [#50](https://github.com/gradientspaceai/gtengine-js/issues/50), [#367](https://github.com/gradientspaceai/gtengine-js/issues/367) |
+| `SymmetricEigensolver.h` | `ComputePermutation` | `std::sort` is unstable, so for tied eigenvalues the order, and which eigenvector `GetEigenvector(i)` returns, is unspecified (it happens to be stable for n <= 32 with MSVC, which uses insertion sort there) | minor | fixed | [#478](https://github.com/gradientspaceai/gtengine-js/issues/478) |
 | `SymmetricEigensolver.h` | `Tridiagonalize` | stores the reflection parameter for a degenerate Householder step, corrupting `Q` | RC | fixed | [#80](https://github.com/gradientspaceai/gtengine-js/issues/80) |
 | `SymmetricEigensolver3x3.h` | `GetCosSin` | lacks the `maxAbsComp` rescaling its 2x2 sibling documents; underflows for extreme matrix scales | RC | fixed | [#379](https://github.com/gradientspaceai/gtengine-js/issues/379) |
 | `TanEstimate.h` | `TanEstimateRR` comment | claims `r` in `[-pi, pi]`; `remainder(x, pi)` gives `[-pi/2, pi/2]`, leaving two branches dead | doc | preserved | [#57](https://github.com/gradientspaceai/gtengine-js/issues/57) |
@@ -4025,6 +4026,14 @@ column permutation for tied singular values is unspecified. `SingularValueDecomp
 has no analogue of item 1: it stores full Householder vectors and replays them
 consistently. `SymmetricEigensolver::Solve`'s block scan does not have item 3's
 trailing-block defect.
+
+**6. `SymmetricEigensolver::ComputePermutation` has the same unstable `std::sort`**
+on the eigenvalues alone, so for tied eigenvalues the permutation, and therefore
+which eigenvector `GetEigenvector(i)` returns, is unspecified. It makes the conic
+coefficients `ApprQuadratic2` returns for rank-deficient data platform-dependent.
+With MSVC the sort is an insertion sort (stable) for at most 32 elements, which is
+why the C++ oracle of group 3 agrees bit for bit with the port on matrices up to
+10x10; that is an implementation accident. Port: `Array.prototype.sort`, stable.
 
 Issues [#42](https://github.com/gradientspaceai/gtengine-js/issues/42), [#80](https://github.com/gradientspaceai/gtengine-js/issues/80), [#379](https://github.com/gradientspaceai/gtengine-js/issues/379), [#476](https://github.com/gradientspaceai/gtengine-js/issues/476), [#478](https://github.com/gradientspaceai/gtengine-js/issues/478).
 
