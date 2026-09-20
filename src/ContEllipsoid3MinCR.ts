@@ -31,12 +31,13 @@
 //
 // Randomness: upstream jitters the constraint planes with std::mt19937 and
 // std::uniform_real_distribution<Real>(0,1). The port reproduces the
-// Mersenne twister MT19937 with the C++ default seed (5489) and the standard
-// std::generate_canonical<double,53> two-draw construction that libstdc++
+// Mersenne twister MT19937 with the C++ default seed (5489) and the
+// std::generate_canonical<double,53> two-draw construction that the MSVC STL
 // uses for uniform_real_distribution<double>(0,1), so the jitter sequence is
-// deterministic and matches upstream's up to floating-point rounding of the
-// final division. The generator is created fresh per call, exactly as
-// upstream creates a local std::mt19937 in MaxProduct.
+// deterministic and bit-identical to the reference build. See the comment on
+// MT19937.nextCanonical for why the exact construction matters and how the
+// standard library implementations differ. The generator is created fresh per
+// call, exactly as upstream creates a local std::mt19937 in MaxProduct.
 //
 // One upstream bug is fixed. Both plane-sorting loops compute the slack
 // 'numer = 1 - A[i].D' of a candidate blocking plane and their comments say
@@ -371,10 +372,25 @@ class MT19937 {
     }
 
     // std::generate_canonical<double, 53>: with R = 2^32 and b = 53 bits of
-    // mantissa, k = ceil(b/log2(R)) = 2 draws are summed and scaled by R^k.
+    // mantissa, k = ceil(b/log2(R)) = 2 draws are combined.
+    //
+    // The C++ standard describes the combination as the exact sum
+    // (g0 + g1*R) / R^k, which is what libstdc++ and libc++ compute in
+    // floating point, rounding the 64-bit integer to 53 bits. The MSVC STL,
+    // against whose build the oracle compares (oracle/cpp), takes the
+    // power-of-two shortcut instead: it forms the 53-bit integer
+    //   S = (g0 >> 11) + (g1 << 21)
+    // and returns S * 2^-53, TRUNCATING the low 11 bits of the first draw
+    // where the portable formula rounds them. The two differ by up to 2 ulps
+    // of the returned value. That difference is invisible while it is added
+    // to a constraint coefficient of order 1 (the jitter is 1e-12), but it is
+    // the whole of the coefficient when a point lies on a coordinate plane of
+    // the ellipsoid frame, and 1/zmax then differs in its last bits. The port
+    // therefore reproduces the MSVC construction, which is the behaviour of
+    // the reference build.
     nextCanonical(): number {
         const g0 = this.next();
         const g1 = this.next();
-        return (g0 + g1 * 4294967296) / 18446744073709551616;
+        return ((g0 >>> 11) + g1 * 2097152) / 9007199254740992;
     }
 }

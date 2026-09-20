@@ -211,9 +211,14 @@ export function getContainerLozenge3(points: readonly Vector[]): Lozenge3 {
         }
     }
 
-    lozenge.rectangle.center = add(box.center,
-        add(mul(0.5 * (aMin + aMax), box.axis[2]),
-            mul(0.5 * (bMin + bMax), box.axis[1])));
+    // Upstream accumulates the change of basis from left to right,
+    // (C + a*A2) + b*A1, in every one of the four branches; the port keeps
+    // that grouping and only replaces the corner offsets by the interval
+    // midpoints. Adding the two basis terms first would differ in the last
+    // bits (see test/ContLozenge3.test.ts).
+    lozenge.rectangle.center =
+        add(add(box.center, mul(0.5 * (aMin + aMax), box.axis[2])),
+            mul(0.5 * (bMin + bMax), box.axis[1]));
 
     return lozenge;
 }
