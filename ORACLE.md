@@ -200,7 +200,14 @@ Every disagreement gets a root cause. In order of likelihood:
    first differs in the last bits on nearly every record (three of the 19
    headers of v20). Its regression test runs the port beside both groupings,
    requires bit-identity with upstream's order and requires the groupings to
-   differ somewhere. A wrong
+   differ somewhere. A second class is C++ overload resolution: a call
+   written `Inverse(A, &invertible)` resolves to the closed-form overload of
+   `Matrix2x2.h` / `Matrix3x3.h` when those headers are visible at the point
+   of instantiation and to the Gaussian-elimination template of `Matrix.h`
+   otherwise, and the two differ in the last bits (v34, `Hyperellipsoid`
+   reached through `IntrPlane3Cylinder3`). Check which overload upstream's
+   translation unit really calls; the fix goes into the shared file even
+   when another group owns it. A wrong
    *result* (not just rounding) also gets a regression test in
    `test/<Name>.test.ts`.
 3. **Deliberate port fix** of an upstream defect (search
@@ -259,6 +266,17 @@ Every disagreement gets a root cause. In order of likelihood:
    evaluation-order dependence, signed overflow): restrict the generator,
    describe it under "Upstream bug suspects" in the group report.
 
+Agreement is not correctness. A bit-for-bit match says the port does what
+upstream does, not that either is right: v34's first
+`IntrAreaEllipse2Ellipse2` generator drew left-handed axis frames
+(`axis[1] = Perp(axis[0])`; GTE's `Perp` is the clockwise one), both sides
+returned the area of the union on three records of four, and every record
+matched (issue #507). Where an independent reference is cheap (a grid count,
+a closed form, a brute-force minimum), check the main case's deep-run outputs
+against it once, on both sides, and check that generated inputs satisfy the
+conventions the rest of the library uses (right-handed frames, unit
+directions, ordered intervals) unless the case is about violating them.
+
 Never loosen a tolerance or narrow a generator to make a disagreement
 disappear without knowing which of these it is.
 
@@ -268,6 +286,13 @@ The committed goldens hold 20 records per case. Before the final push, run
 `npm run oracle:deep -- 2000 <family>` (2000 records per case, not committed).
 A disagreement that only a deep run reaches gets its own targeted case whose
 generator concentrates on that configuration, so the committed goldens cover it.
+A deep run of one family takes seconds to a few minutes. One that takes longer
+is an uncapped rejection loop that cannot be satisfied for some draw: every
+quantity the acceptance test depends on must be redrawn inside the loop (v34's
+stale-adjacency case fixed the cone per record and looped over the boxes only;
+record 27 never terminated), and every loop is capped. The deep run is not
+done until the replay has printed its result; the orchestrator re-runs it
+before landing a group.
 
 ## Branch and report format
 

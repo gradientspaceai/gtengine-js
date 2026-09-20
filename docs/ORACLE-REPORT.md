@@ -9,7 +9,7 @@ upstream GTE code compiled with MSVC; the port replays the same inputs. See
 - compiler MSVC 194435215 x64 /O2 /fp:precise
 - records-per-case 20
 
-**500 cases, 8960 records, 55881 floating-point outputs compared; 99.66% bit-identical to the C++ build. 439 cases are bit-identical on every output. 52 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
+**566 cases, 10100 records, 63304 floating-point outputs compared; 99.69% bit-identical to the C++ build. 495 cases are bit-identical on every output. 61 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
 
 Discrete outputs (booleans, counts, indices) always compare exactly and are not counted
 in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |port|, |C++|)`.
@@ -26,6 +26,7 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | v31-intersection | 61 | 1100 | 2644 | 99.36% | 54 | 3.70e-14 | `IntrLine3Torus3.find` |
 | v32-intersection | 64 | 1100 | 3683 | 99.54% | 53 | 9.06e-14 | `IntrEllipse2Ellipse2.find` |
 | v33-intersection | 68 | 1180 | 3703 | 100.00% | 59 | 0 |  |
+| v34-intersection | 66 | 1140 | 7423 | 99.93% | 56 | 2.78e-15 | `IntrAreaEllipse2Ellipse2.compute` |
 | v35-intersection | 56 | 960 | 6847 | 100.00% | 48 | 0 |  |
 
 ## Deliberate deviations from the C++ build
@@ -80,6 +81,15 @@ every record.
 | v33-intersection | `IntrRay3Capsule3.doQuery.capTangentDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrLine3Capsule3.h, "intersect" is never set when only one hemisphere root is accepted; issue #461 |
 | v33-intersection | `IntrSegment3Capsule3.doQuery.junctionDeviation` | 15 of 20 | docs/UPSTREAM-FINDINGS.md IntrLine3Capsule3.h, a cap-junction root accepted twice collapses the interval; issue #461 |
 | v33-intersection | `IntrSphere3Frustum3.test.clampDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md DistPoint3Frustum3.h, the two unclamped far-edge assignments; issue #421 |
+| v34-intersection | `IntrOrientedBox3Sphere3.find.probeDeviation` | 20 of 20 | UPSTREAM-FINDINGS IntrAlignedBox3Sphere3.h DoQuery; #458, #465 |
+| v34-intersection | `IntrRay2Arc2.find.insideDeviation` | 12 of 20 | UPSTREAM-FINDINGS IntrRay2Arc2.h operator(); #304 |
+| v34-intersection | `IntrSegment2Arc2.find.insideDeviation` | 12 of 20 | UPSTREAM-FINDINGS IntrSegment2Arc2.h operator(); #304 |
+| v34-intersection | `IntrSegment3Ellipsoid3.test.containedDeviation` | 20 of 20 | UPSTREAM-FINDINGS IntrSegment3Ellipsoid3.h TIQuery; #304 |
+| v34-intersection | `IntrLine3Cone3.find.vertexDeviation` | 4 of 20 | UPSTREAM-FINDINGS IntrLine3Cone3.h through-vertex; #304, #465 |
+| v34-intersection | `IntrAlignedBox3Cone3.test.staleAdjacencyDeviation` | 20 of 20 | UPSTREAM-FINDINGS IntrAlignedBox3Cone3.h BoxFullyInConeSlab; #301 |
+| v34-intersection | `IntrAreaEllipse2Ellipse2.compute.uninitializedDeviation` | 17 of 20 | UPSTREAM-FINDINGS IntrAreaEllipse2Ellipse2.h uninitialized members; #301 |
+| v34-intersection | `IntrAreaEllipse2Ellipse2.compute.leftHandedDeviation` | 20 of 20 | UPSTREAM-FINDINGS IntrAreaEllipse2Ellipse2.h left-handed axis frame; #507 |
+| v34-intersection | `IntrConvexMesh3Plane3.find.coplanarFaceDeviation` | 20 of 20 | UPSTREAM-FINDINGS IntrConvexMesh3Plane3.h GetIntersectionPolygon; #301 |
 | v35-intersection | `IntrTetrahedron3Tetrahedron3.test.edgeCutoffDeviation` | 20 of 20 | UPSTREAM-FINDINGS IntrTetrahedron3Tetrahedron3.h edge-edge cutoff; issue #307 |
 | v35-intersection | `IntrTetrahedron3Tetrahedron3.test.edgeSeparationDeviation` | 20 of 20 | UPSTREAM-FINDINGS IntrTetrahedron3Tetrahedron3.h edge-edge separation test; issue #307 |
 | v35-intersection | `IntrTriangle3Triangle3.test.moving.parallelDeviation` | 20 of 20 | UPSTREAM-FINDINGS IntrTriangle3Triangle3.h moving parallel test; issue #334 |

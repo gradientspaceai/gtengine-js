@@ -71,11 +71,11 @@ Nothing here has been reported upstream before; this document is the report.
 
 ## Counts
 
-- **493 distinct findings** across **157** tracked issues (one issue
+- **495 distinct findings** across **158** tracked issues (one issue
   frequently holds several findings in related files).
-- By severity: **242 result-corrupting**, **14 wrong but
-  recoverable**, **164 minor**, **73 documentation**.
-- By port status: **255 fixed or corrected in the port** (of which 154 are code
+- By severity: **243 result-corrupting**, **14 wrong but
+  recoverable**, **165 minor**, **73 documentation**.
+- By port status: **257 fixed or corrected in the port** (of which 156 are code
   fixes with regression tests, 22 are added guards or asserts where upstream has
   undefined behaviour, 64 are comment corrections, 11 are dead-code removals and
   4 are documented deliberate deviations), **229 preserved deliberately**, and
@@ -300,6 +300,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `HelmertTransformation7.h` | `UpdateF` | `0.0` double literal in template code; stray `;;` | minor | corrected | [#262](https://github.com/gradientspaceai/gtengine-js/issues/262) |
 | `Histogram.h` | bucket index (L80-87, 126-133, 171-178) | the maximum sample lands in bucket `B-2` about 7% of the time | minor | preserved | [#436](https://github.com/gradientspaceai/gtengine-js/issues/436) |
 | `Histogram.h` | rescaled path | a subnormal sample range overflows `mult` and writes outside `mBuckets` | RC | preserved | [#436](https://github.com/gradientspaceai/gtengine-js/issues/436) |
+| `Hyperellipsoid.h` | `FromCoefficients` | `Inverse(A, &invertible)` with only `Matrix.h` included: whether the closed-form `Matrix2x2.h`/`Matrix3x3.h` overload or the Gaussian-elimination template is called depends on the including translation unit, so two units can compute different last bits | minor | fixed | [#217](https://github.com/gradientspaceai/gtengine-js/issues/217) |
 | `Hyperellipsoid.h` | `ToCoefficients` | divides by `maxValue` with no zero check; `maxIndex` computed but never read | minor | preserved | [#217](https://github.com/gradientspaceai/gtengine-js/issues/217) |
 | `Hyperplane.h` | `ComputeFromPoints` | passes `-1` as the SVD `multiplier`, which asserts for every `N != 3` | WR | fixed | [#217](https://github.com/gradientspaceai/gtengine-js/issues/217) |
 | `Hyperplane.h` | `ComputeFromPoints` | `N = 2` constructs `SingularValueDecomposition(2,1,32)`, which itself asserts | WR | fixed | [#217](https://github.com/gradientspaceai/gtengine-js/issues/217) |
@@ -342,6 +343,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `IntrAlignedBox3Sphere3.h` | `FIQuery::operator()` | `contactPoint += boxCenter` is unconditional, so a no-contact result reports the box centre | minor | preserved | [#250](https://github.com/gradientspaceai/gtengine-js/issues/250) |
 | `IntrAlignedBox3Sphere3.h` | `DoQueryRayRoundedFace`, `DoQuery` | first-wins probe selection over pieces of the Minkowski sum reports contacts late or misses them entirely | RC | fixed | [#458](https://github.com/gradientspaceai/gtengine-js/issues/458), [#465](https://github.com/gradientspaceai/gtengine-js/issues/465) |
 | `IntrAreaEllipse2Ellipse2.h` | `mZero`, `mOne`, `mTwo`, `mPi`, `mTwoPi` | declared with no constructor and never assigned; every area reads indeterminate values | RC | fixed | [#301](https://github.com/gradientspaceai/gtengine-js/issues/301) |
+| `IntrAreaEllipse2Ellipse2.h` | `ComputeAreaChordRegion`, `Area4` | polar angle assumed to increase counterclockwise: for a left-handed axis frame every chord region is replaced by its complement (the union area for one chord) | RC | fixed | [#507](https://github.com/gradientspaceai/gtengine-js/issues/507) |
 | `IntrAreaEllipse2Ellipse2.h` | class comment | "axes are not required to be normalized" is false for the polar angles, the `Area4` ordering and the full-ellipse area | doc | fixed | [#301](https://github.com/gradientspaceai/gtengine-js/issues/301), [#465](https://github.com/gradientspaceai/gtengine-js/issues/465) |
 | `IntrCanonicalBox3Cylinder3.h` | `DoQueryNoZeros`, `(U1, -D)` block | sign typo puts a segment endpoint on the wrong box edge; false negatives | RC | fixed | [#197](https://github.com/gradientspaceai/gtengine-js/issues/197) |
 | `IntrCapsule3Capsule3.h` | `operator()` | uses the non-robust segment-segment distance, so a strictly contained capsule is reported as no intersection | RC | preserved | [#455](https://github.com/gradientspaceai/gtengine-js/issues/455) |
@@ -2223,6 +2225,17 @@ complement the SVD path is meant to compute; pinned across `N = 2..5`.
 zero check and computes a `maxIndex` that is never read. `maxValue == 0` requires
 every extent to be zero and yields NaN or Inf rather than a crash.
 
+**4. `Hyperellipsoid::FromCoefficients` calls `Inverse(A, &invertible)`** while
+`Hyperellipsoid.h` includes only `Matrix.h`. `Matrix2x2.h` and `Matrix3x3.h` declare
+more specialized closed-form `Inverse` overloads, and the call is dependent, so
+which one is chosen depends on whether those headers are visible at the point of
+instantiation. Two translation units of one program can therefore produce ellipse
+parameters that differ in the last bits (up to 1.2e-14 relative in the group 34
+oracle run, where `IntrPlane3Cylinder3.h` resolves to the closed form). Not
+result-corrupting; an `#include` of the two headers in `Hyperellipsoid.h` makes it
+deterministic. Port: dispatches on the dimension (closed form for 2 and 3,
+elimination otherwise), pinned bit for bit against the MSVC build.
+
 Issue [#217](https://github.com/gradientspaceai/gtengine-js/issues/217).
 
 ### `IEEEBinary16.h`
@@ -2534,7 +2547,22 @@ The matrix `M` is length-invariant, but the polar angles
 divides by `|U|^2`, so the claim holds only for a common axis scale.) Port:
 normalizes private axis copies, with no behaviour change for unit axes.
 
-Issues [#301](https://github.com/gradientspaceai/gtengine-js/issues/301), [#465](https://github.com/gradientspaceai/gtengine-js/issues/465).
+**3. A left-handed axis frame gives the complementary area (result-corrupting).**
+`ComputeAreaChordRegion` takes "the elliptical arc traversed counterclockwise from
+P0 to P1" to be the arc of increasing polar angle
+`atan2(Dot(axis[1], X), Dot(axis[0], X))`, `Area2` chooses the endpoint order from
+the world-orientation test `DotPerp(N1, N0)`, and `Area4` sorts the intersection
+points by the polar angle to get a counterclockwise order. These agree only for a
+right-handed `(axis[0], axis[1])`. `Ellipse2` does not require one, and the ellipse
+is the same point set either way, but for a left-handed frame every chord region
+is replaced by its complement: two unit circles one unit apart with axes
+`((1,0),(0,-1))` give `2*pi - (2*pi/3 - sqrt(3)/2) = 5.0548`, the area of the union,
+instead of the lens `1.2284`. Found by the C++ oracle (group 34): against a grid
+count, upstream is wrong on 998 of 1000 left-handed chord configurations and on
+none of 1000 right-handed ones. Port: negates its private copy of `axis[1]` when
+`DotPerp(axis[0], axis[1]) < 0`; right-handed input is bit-identical to upstream.
+
+Issues [#301](https://github.com/gradientspaceai/gtengine-js/issues/301), [#465](https://github.com/gradientspaceai/gtengine-js/issues/465), [#507](https://github.com/gradientspaceai/gtengine-js/issues/507).
 
 ### `IntrCanonicalBox3Cylinder3.h`, `IntrHalfspace3Cylinder3.h`, `IntrCylinder3Cylinder3.h`, `IntrLine3Cylinder3.h`, `IntrRay3Cylinder3.h`, `IntrSegment3Cylinder3.h`, `IntrTriangle3Cylinder3.h`
 
