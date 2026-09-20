@@ -150,6 +150,31 @@ export class OracleIO {
         }
     }
 
+    // Require this one output to be bit-identical even when the case carries
+    // a tolerance. Conversions that mix an arithmetic-only result with a libm
+    // one (Rotation's matrix-to-axis-angle computes the axis with sqrt alone
+    // and the angle with acos) emit the arithmetic part this way, so it is
+    // still held to the default expectation.
+    outRealExact(x: number): void {
+        const e = this.expected('a real');
+        this.actual.push(x);
+        ++this.numReal;
+        if (sameBits(x, e)) {
+            ++this.numExact;
+            return;
+        }
+        const scale = Math.max(1, Math.abs(x), Math.abs(e));
+        const err = Math.abs(x - e) / scale;
+        if (Number.isFinite(err)) { this.maxRelErr = Math.max(this.maxRelErr, err); }
+        this.valueFailures.push(`output ${this.outPos - 1}: port ${x} (${toHex(x)}) vs `
+            + `C++ ${e} (${toHex(e)}), scaled error ${err.toExponential(3)}, `
+            + 'exact match required');
+    }
+
+    outVecExact(v: Vector): void {
+        for (let i = 0; i < v.size; ++i) { this.outRealExact(v.get(i)); }
+    }
+
     // Discrete outputs always compare exactly.
     outInt(i: number): void {
         const e = this.expected('an integer');

@@ -595,4 +595,77 @@ describe('Quaternion verification', () => {
                 expectClose(Math.acos(cs), t * angle, 1e-7, 1e-7);
             });
     });
+
+    // Regression for the defect the C++ oracle found (family v02-algebra,
+    // case Quaternion.arithmetic). Upstream writes Normalize as 'q /= length'
+    // in both Vector.h and Quaternion.h, but the two headers' scalar
+    // operator/= are different computations: Vector.h forms invScalar =
+    // 1/scalar once and multiplies, Quaternion.h divides each component. The
+    // port shares one normalize(), so the choice has to travel with the type.
+    describe('Normalize division (Vector.h vs Quaternion.h)', () => {
+        // The two candidate computations, transcribed from upstream.
+        const normalizeByReciprocal = (a: readonly number[]) => {
+            let d = a[0] * a[0];
+            for (let i = 1; i < a.length; ++i) { d += a[i] * a[i]; }
+            const len = Math.sqrt(d);
+            const inv = 1 / len;
+            return a.map((x) => x * inv);
+        };
+        const normalizeByDivision = (a: readonly number[]) => {
+            let d = a[0] * a[0];
+            for (let i = 1; i < a.length; ++i) { d += a[i] * a[i]; }
+            const len = Math.sqrt(d);
+            return a.map((x) => x / len);
+        };
+
+        // A tuple on which the two disagree in the last bit.
+        const a = [0.6813915666693986, -0.13595993919836063,
+            0.6923124533869933, -0.19614250425923483];
+
+        it('the two candidate computations really do differ', () => {
+            const byReciprocal = normalizeByReciprocal(a);
+            const byDivision = normalizeByDivision(a);
+            expect(byReciprocal).not.toEqual(byDivision);
+        });
+
+        it('normalize of a Quaternion matches Quaternion.h bit for bit', () => {
+            const q = Quaternion.fromArray(a);
+            normalize(q);
+            const expected = normalizeByDivision(a);
+            for (let i = 0; i < 4; ++i) {
+                expect(Object.is(q.values[i], expected[i])).toBe(true);
+            }
+        });
+
+        it('normalize of a plain Vector still matches Vector.h bit for bit', () => {
+            const v = Vector.fromArray(a);
+            normalize(v);
+            const expected = normalizeByReciprocal(a);
+            for (let i = 0; i < 4; ++i) {
+                expect(Object.is(v.values[i], expected[i])).toBe(true);
+            }
+        });
+
+        it('the division flag follows the type', () => {
+            expect(new Vector(4).divideByScalarUsesReciprocal).toBe(true);
+            expect(new Quaternion().divideByScalarUsesReciprocal).toBe(false);
+        });
+
+        it('every nonzero-length quaternion normalizes by division', () => {
+            check(fc.tuple(finite(-10, 10), finite(-10, 10), finite(-10, 10),
+                finite(-10, 10)), ([x, y, z, w]) => {
+                    const t = [x, y, z, w];
+                    // Upstream's Normalize zeroes the tuple when the computed
+                    // length is 0, which a subnormal component can produce
+                    // even though the tuple is not zero.
+                    if (length(Vector.fromArray(t)) === 0) { return; }
+                    const q = Quaternion.fromArray(t);
+                    normalize(q);
+                    const expected = normalizeByDivision(t);
+                    for (let i = 0; i < 4; ++i) {
+                        expect(Object.is(q.values[i], expected[i])).toBe(true);
+                    }
+                });
+        });
+    });
 });

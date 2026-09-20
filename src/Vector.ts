@@ -181,6 +181,20 @@ export class Vector {
     get dotAccumulatesFromZero(): boolean {
         return false;
     }
+
+    // Which of upstream's two scalar 'operator/=' implementations this tuple
+    // uses. Vector.h computes invScalar = 1/scalar once and multiplies every
+    // component by it; Quaternion.h divides every component by the scalar.
+    // The two are not interchangeable in floating point -- a*(1/b) and a/b
+    // differ in the last bit for most b -- and both headers write Normalize
+    // as 'v /= length', so the shared normalize() has to know which form it
+    // is running. Vector.h's is the default; Quaternion overrides this.
+    // Found by the C++ oracle, case Quaternion.arithmetic of family
+    // v02-algebra. Only the non-robust normalize() consults it: Quaternion.h
+    // has no robust Normalize, so the robust path stays Vector.h's.
+    get divideByScalarUsesReciprocal(): boolean {
+        return true;
+    }
 }
 
 function assertSameSize(v0: Vector, v1: Vector): void {
@@ -336,9 +350,17 @@ export function normalize(v: Vector, robust: boolean = false): number {
 
     const len = Math.sqrt(dot(v, v));
     if (len > 0) {
-        const invLen = 1 / len;
-        for (let i = 0; i < v.size; ++i) {
-            v.values[i] *= invLen;
+        // 'v /= len' in both headers, but the two headers' operator/= are not
+        // the same computation; see Vector.divideByScalarUsesReciprocal.
+        if (v.divideByScalarUsesReciprocal) {
+            const invLen = 1 / len;
+            for (let i = 0; i < v.size; ++i) {
+                v.values[i] *= invLen;
+            }
+        } else {
+            for (let i = 0; i < v.size; ++i) {
+                v.values[i] /= len;
+            }
         }
     } else {
         v.makeZero();
