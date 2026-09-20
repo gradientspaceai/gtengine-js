@@ -1,8 +1,15 @@
 // Replays oracle/cpp/cases/v04-approximation.cpp (verify group 4,
 // approximation). Keep the two files in the same order.
 import { describe } from 'vitest';
+import { ApprEllipse2 } from '../../src/ApprEllipse2.js';
+import { approximateEllipseByArcs } from '../../src/ApprEllipseByArcs.js';
+import { ApprEllipsoid3 } from '../../src/ApprEllipsoid3.js';
+import {
+    ApprGreatArc3, ApprGreatCircle3
+} from '../../src/ApprGreatCircle3.js';
 import { ApprParabola2 } from '../../src/ApprParabola2.js';
 import { ApprParaboloid3 } from '../../src/ApprParaboloid3.js';
+import { Hyperellipsoid } from '../../src/Hyperellipsoid.js';
 import { Vector } from '../../src/Vector.js';
 import { OracleFamily, type OracleIO } from './harness.js';
 
@@ -83,6 +90,100 @@ describe('oracle: v04-approximation', () => {
         io.outReals(r.v);
         io.outReal(r.meanSquareError);
     }, { exact: true });
+
+    // ---- ApprGreatCircle3 --------------------------------------------------
+
+    family.case('ApprGreatCircle3.compute', (io) => {
+        io.outVec(new ApprGreatCircle3().compute(points(io, 3)));
+    }, { exact: true });
+
+    // atan2 on every sample; the generator keeps the largest-gap search
+    // libm-stable (see the C++ comment).
+    family.case('ApprGreatArc3.compute', (io) => {
+        const r = new ApprGreatArc3().compute(points(io, 3));
+        io.outVec(r.normal);
+        io.outVec(r.arcEnd0);
+        io.outVec(r.arcEnd1);
+    });
+
+    // ---- ApprEllipseByArcs -------------------------------------------------
+
+    function arcs(io: OracleIO): void {
+        const a = io.real();
+        const b = io.real();
+        const numArcs = io.integer();
+        const r = approximateEllipseByArcs(a, b, numArcs);
+        io.outBool(r !== null);
+        io.outInt(r === null ? 0 : r.points.length);
+        if (r !== null) { for (const p of r.points) { io.outVec(p); } }
+        io.outInt(r === null ? 0 : r.centers.length);
+        if (r !== null) {
+            for (const c of r.centers) { io.outVec(c); }
+            io.outReals(r.radii);
+        }
+    }
+
+    // std::pow is on the path for every intermediate point.
+    family.case('ApprEllipseByArcs.approximate', arcs);
+
+    family.case('ApprEllipseByArcs.approximate.deviation', (io) => {
+        io.integer();  // the adjacent-double offset k, recorded by C++
+        arcs(io);
+    }, { deviation: 'issue #322: Circumscribe failure discarded in the '
+        + 'intermediate-arc loop, leaving the previous arc stored' });
+
+    // ---- ApprEllipse2 / ApprEllipsoid3 -------------------------------------
+    // RootsPolynomial.solveCubic (pow, atan2, sin, cos) is on the centre
+    // update, so these are tolerance cases. The iteration count is fixed by
+    // the caller, so it cannot drift.
+
+    function hyperellipsoid(io: OracleIO, n: number): Hyperellipsoid {
+        const center = io.vec(n);
+        const axis: Vector[] = [];
+        for (let i = 0; i < n; ++i) { axis.push(io.vec(n)); }
+        const extent = io.vec(n);
+        return Hyperellipsoid.fromCenterAxisExtent(center, axis, extent);
+    }
+
+    function emitHyperellipsoid(io: OracleIO, error: number,
+        e: Hyperellipsoid): void {
+        io.outReal(error);
+        io.outVec(e.center);
+        for (const a of e.axis) { io.outVec(a); }
+        io.outVec(e.extent);
+    }
+
+    family.case('ApprEllipse2.compute.box', (io) => {
+        const pts = points(io, 2);
+        const numIterations = io.integer();
+        const ellipse = new Hyperellipsoid(2);
+        const error = new ApprEllipse2().compute(pts, numIterations, false, ellipse);
+        emitHyperellipsoid(io, error, ellipse);
+    });
+
+    family.case('ApprEllipse2.compute.ellipse', (io) => {
+        const pts = points(io, 2);
+        const numIterations = io.integer();
+        const ellipse = hyperellipsoid(io, 2);
+        const error = new ApprEllipse2().compute(pts, numIterations, true, ellipse);
+        emitHyperellipsoid(io, error, ellipse);
+    });
+
+    family.case('ApprEllipsoid3.compute.box', (io) => {
+        const pts = points(io, 3);
+        const numIterations = io.integer();
+        const ellipsoid = new Hyperellipsoid(3);
+        const error = new ApprEllipsoid3().compute(pts, numIterations, false, ellipsoid);
+        emitHyperellipsoid(io, error, ellipsoid);
+    });
+
+    family.case('ApprEllipsoid3.compute.ellipsoid', (io) => {
+        const pts = points(io, 3);
+        const numIterations = io.integer();
+        const ellipsoid = hyperellipsoid(io, 3);
+        const error = new ApprEllipsoid3().compute(pts, numIterations, true, ellipsoid);
+        emitHyperellipsoid(io, error, ellipsoid);
+    });
 
     family.finish();
 });
