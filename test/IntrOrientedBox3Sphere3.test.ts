@@ -477,3 +477,76 @@ describe('IntrOrientedBox3Sphere3 verification', () => {
         expectVectorClose(r.contactPoint, sphere.center, 1e-12, 1e-12);
     });
 });
+
+// Regression test for a defect found by the C++ oracle of verify group 34.
+//
+// Upstream's oriented wrapper writes
+//   P = box.center + P[0]*axis[0] + P[1]*axis[1] + P[2]*axis[2]
+// which accumulates left to right. The port added the three basis terms
+// together first, which differs in the last bits; the oracle found it on 3 of
+// 20 golden records of IntrOrientedBox3Sphere3.find.
+describe('IntrOrientedBox3Sphere3 contact-point accumulation (oracle v34)', () => {
+    it('accumulates in upstream left-to-right order, which is observable', () => {
+        const rng = seededRandom(0x34030301);
+        let tested = 0;
+        let differ = 0;
+        for (let trial = 0; trial < 4000; ++trial) {
+            const angle = rng() * Math.PI;
+            const c = Math.cos(angle);
+            const s = Math.sin(angle);
+            const axis0 = vec(c, s, 0);
+            const axis1 = vec(-s, c, 0);
+            const axis2 = vec(0, 0, 1);
+            const center = vec(rng() * 8 - 4, rng() * 8 - 4, rng() * 8 - 4);
+            const extent = vec(0.25 + rng() * 3, 0.25 + rng() * 3,
+                0.25 + rng() * 3);
+            const box = OrientedBox.fromCenterAxisExtent(center,
+                [axis0, axis1, axis2], extent);
+            const boxVelocity = vec(rng() * 4 - 2, rng() * 4 - 2, rng() * 4 - 2);
+            const sphere = Hypersphere.fromCenterRadius(
+                vec(rng() * 8 - 4, rng() * 8 - 4, rng() * 8 - 4),
+                0.25 + rng() * 3);
+            const sphereVelocity = vec(rng() * 4 - 2, rng() * 4 - 2,
+                rng() * 4 - 2);
+
+            const r = new IntrOrientedBox3Sphere3FI().find(box, boxVelocity,
+                sphere, sphereVelocity);
+            if (r.intersectionType
+                === IntrAlignedBox3Sphere3FIResultType.noContact) {
+                continue;
+            }
+            ++tested;
+
+            // Reproduce the query's own delegation to the aligned query, so
+            // that the contact point in the box frame is known exactly.
+            const cdiff = sub(sphere.center, box.center);
+            const vdiff = sub(sphereVelocity, boxVelocity);
+            const C = vec(dot(cdiff, axis0), dot(cdiff, axis1),
+                dot(cdiff, axis2));
+            const V = vec(dot(vdiff, axis0), dot(vdiff, axis1),
+                dot(vdiff, axis2));
+            const alignedBox = AlignedBox.fromMinMax(mul(-1, extent), extent);
+            const rAligned = new IntrAlignedBox3Sphere3FI().find(alignedBox,
+                Vector.zero(3), Hypersphere.fromCenterRadius(C, sphere.radius),
+                V);
+            const P = rAligned.contactPoint;
+            const leftToRight = add(
+                add(add(box.center, mul(P.values[0], axis0)),
+                    mul(P.values[1], axis1)),
+                mul(P.values[2], axis2));
+            const basisFirst = add(box.center,
+                add(mul(P.values[0], axis0),
+                    add(mul(P.values[1], axis1), mul(P.values[2], axis2))));
+
+            expect(r.contactPoint.values).toEqual(leftToRight.values);
+            let any = false;
+            for (let d = 0; d < 3; ++d) {
+                if (leftToRight.values[d] !== basisFirst.values[d]) { any = true; }
+            }
+            if (any) { ++differ; }
+        }
+        expect(tested).toBeGreaterThan(200);
+        // The two groupings are not the same computation.
+        expect(differ).toBeGreaterThan(0);
+    }, 30000);
+});

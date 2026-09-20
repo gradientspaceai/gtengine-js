@@ -8,12 +8,29 @@ import {
     defaultIntrPlane3Cylinder3FIResult
 } from '../src/IntrPlane3Cylinder3.js';
 import { Line } from '../src/Line.js';
+import { Hyperellipsoid } from '../src/Hyperellipsoid.js';
+import {
+    Matrix, mulMatrix, outerProduct, subMatrix
+} from '../src/Matrix.js';
 import { Vector, add, dot, length, mul, normalize, sub } from '../src/Vector.js';
-import { cross } from '../src/Vector3.js';
+import { computeOrthogonalComplement3, cross } from '../src/Vector3.js';
 import {
     check, expectClose, expectVectorClose, fc, plane as arbPlane, positive,
     rotationFrame, unitVector, wellScaled, wellScaledVector
 } from './helpers/arbitraries.js';
+
+// A small deterministic pseudorandom generator (mulberry32) for the oracle
+// regression sweep at the end of this file.
+function makeRandomPC3(seed: number): () => number {
+    let a = seed >>> 0;
+    return () => {
+        a = (a + 0x6D2B79F5) >>> 0;
+        let t = a;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
 
 function plane(normal: number[], origin: number[]): Hyperplane {
     const n = Vector.fromArray(normal);
@@ -546,4 +563,86 @@ describe('IntrPlane3Cylinder3 verification', () => {
         expect(r.ellipse.extent.values).toEqual([1, 1]);
         expect(r.trimLine[0].direction.values).toEqual([1, 0, 0]);
     });
+});
+
+// Regression test for a defect found by the C++ oracle of verify group 34.
+//
+// Upstream's GetEllipseOfIntersection writes
+//   result.ellipse.center = plane.origin + ellipse2.center[0]*A
+//                                        + ellipse2.center[1]*B
+// which accumulates left to right. The port added the two basis terms
+// together first, which differs in the last bits; the oracle found it on 4 of
+// 20 golden records of IntrPlane3Cylinder3.find (together with the
+// Hyperellipsoid inverse defect covered by test/Hyperellipsoid.test.ts).
+describe('IntrPlane3Cylinder3 ellipse-center accumulation (oracle v34)', () => {
+    it('accumulates in upstream left-to-right order, which is observable', () => {
+        const rng = makeRandomPC3(0x34050501);
+        let tested = 0;
+        let differ = 0;
+        for (let trial = 0; trial < 2000; ++trial) {
+            const n = Vector.fromArray([
+                2 * rng() - 1, 2 * rng() - 1, 2 * rng() - 1]);
+            if (normalize(n) === 0) { continue; }
+            const w = Vector.fromArray([
+                2 * rng() - 1, 2 * rng() - 1, 2 * rng() - 1]);
+            if (normalize(w) === 0) { continue; }
+            if (Math.abs(dot(n, w)) < 1e-3) { continue; }
+            const planeOrigin = Vector.fromArray([
+                8 * rng() - 4, 8 * rng() - 4, 8 * rng() - 4]);
+            const cylOrigin = Vector.fromArray([
+                8 * rng() - 4, 8 * rng() - 4, 8 * rng() - 4]);
+            const radius = 0.25 + 3 * rng();
+            const height = 0.5 + 4 * rng();
+            const p = Hyperplane.fromNormalOrigin(n, planeOrigin);
+            const cyl = Cylinder3.fromAxisRadiusHeight(
+                Line.fromOriginDirection(cylOrigin, w), radius, height);
+
+            const r = new IntrPlane3Cylinder3FI().find(p, cyl);
+            if (!r.intersect
+                || (r.type !== IntrPlane3Cylinder3FIResultType.ellipse
+                    && r.type !== IntrPlane3Cylinder3FIResultType.circle)) {
+                continue;
+            }
+            ++tested;
+
+            // Reproduce the query's own basis and 2D ellipse.
+            const basis: Vector[] = [p.normal.clone(), Vector.zero(3),
+                Vector.zero(3)];
+            computeOrthogonalComplement3(1, basis);
+            const A = basis[1];
+            const B = basis[2];
+            const M = subMatrix(Matrix.identity(3, 3),
+                outerProduct(cyl.axis.direction, cyl.axis.direction));
+            const PmC = sub(p.origin, cyl.axis.origin);
+            const MtPmC = mulMatrix(M, PmC) as Vector;
+            const MtA = mulMatrix(M, A) as Vector;
+            const MtB = mulMatrix(M, B) as Vector;
+            const coefficients = [
+                dot(PmC, MtPmC) - cyl.radius * cyl.radius,
+                2 * dot(A, MtPmC),
+                2 * dot(B, MtPmC),
+                dot(A, MtA),
+                2 * dot(A, MtB),
+                dot(B, MtB)
+            ];
+            const e2 = new Hyperellipsoid(2);
+            e2.fromCoefficients(coefficients);
+
+            const leftToRight = add(
+                add(p.origin, mul(e2.center.values[0], A)),
+                mul(e2.center.values[1], B));
+            const basisFirst = add(p.origin,
+                add(mul(e2.center.values[0], A), mul(e2.center.values[1], B)));
+
+            expect(r.ellipse.center.values).toEqual(leftToRight.values);
+            let any = false;
+            for (let d = 0; d < 3; ++d) {
+                if (leftToRight.values[d] !== basisFirst.values[d]) { any = true; }
+            }
+            if (any) { ++differ; }
+        }
+        expect(tested).toBeGreaterThan(500);
+        // The two groupings are not the same computation.
+        expect(differ).toBeGreaterThan(0);
+    }, 30000);
 });

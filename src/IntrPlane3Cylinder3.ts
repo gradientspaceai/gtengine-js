@@ -240,9 +240,13 @@ function getEllipseOfIntersection(plane: Plane3, cylinder: Cylinder3,
     result.type = (ellipse2.extent.values[0] !== ellipse2.extent.values[1]
         ? IntrPlane3Cylinder3FIResultType.ellipse
         : IntrPlane3Cylinder3FIResultType.circle);
-    result.ellipse.center = add(plane.origin,
-        add(mul(ellipse2.center.values[0], A),
-            mul(ellipse2.center.values[1], B)));
+    // Upstream writes
+    //   plane.origin + ellipse2.center[0]*A + ellipse2.center[1]*B
+    // which accumulates left to right; adding the two basis terms together
+    // first differs in the last bits.
+    result.ellipse.center = add(
+        add(plane.origin, mul(ellipse2.center.values[0], A)),
+        mul(ellipse2.center.values[1], B));
     result.ellipse.normal = plane.normal.clone();
     result.ellipse.axis[0] = add(mul(ellipse2.axis[0].values[0], A),
         mul(ellipse2.axis[0].values[1], B));
