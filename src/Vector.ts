@@ -167,6 +167,20 @@ export class Vector {
     greaterThanOrEqual(vec: Vector): boolean {
         return this.compare(vec) >= 0;
     }
+
+    // Which of upstream's two Dot accumulations this tuple uses. Upstream
+    // keeps two copies of the geometric free functions: Vector.h's Dot seeds
+    // the accumulation with v0[0]*v1[0] and GVector.h's with the literal 0.
+    // The seeds are not interchangeable in floating point, because 0 + x is x
+    // for every x except -0, where it is +0. The two therefore disagree, in
+    // the sign of a zero, exactly when every product v0[i]*v1[i] is -0 (and
+    // GVector.h's version also yields 0 rather than NaN for an empty tuple).
+    // The port shares one dot() for both, so the seed travels with the
+    // object: GVector overrides this to true. Found by the C++ oracle, case
+    // GVector.dot.signedZero of family v01-algebra.
+    get dotAccumulatesFromZero(): boolean {
+        return false;
+    }
 }
 
 function assertSameSize(v0: Vector, v1: Vector): void {
@@ -256,6 +270,15 @@ export function compDiv(v0: Vector, v1: Vector): Vector {
 // normalized vector to zero when the length is zero.
 export function dot(v0: Vector, v1: Vector): number {
     assertSameSize(v0, v1);
+    if (v0.dotAccumulatesFromZero) {
+        // GVector.h's Dot: 'Real dot(0); for (i = 0; ...) dot += v0[i]*v1[i]'.
+        let result = 0;
+        for (let i = 0; i < v0.size; ++i) {
+            result += v0.values[i] * v1.values[i];
+        }
+        return result;
+    }
+    // Vector.h's Dot: the accumulation is seeded with the first product.
     let result = v0.values[0] * v1.values[0];
     for (let i = 1; i < v0.size; ++i) {
         result += v0.values[i] * v1.values[i];

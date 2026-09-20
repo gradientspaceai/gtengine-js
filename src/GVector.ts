@@ -28,9 +28,11 @@
 //   shared div() from Vector.ts returns the zero vector (Vector.h behavior).
 // - HProject/Project of a size<=1 tuple return an empty GVector upstream;
 //   the shared hproject()/project() throw as Vector.h's static_assert does.
-// - GVector.h's Dot accumulates from zero, so Dot of two empty tuples is 0;
-//   the shared dot() starts from v0[0]*v1[0] (Vector.h behavior) and yields
-//   NaN for an empty tuple. Likewise length()/normalize() read v[0].
+// - GVector.h's Dot accumulates from the literal zero where Vector.h's starts
+//   from v0[0]*v1[0]. The shared dot() honors both: it switches on the
+//   dotAccumulatesFromZero flag, which this class overrides (see Vector.ts).
+//   length()/normalize() still read v[0], so they are NaN for an empty tuple
+//   where upstream GVector.h reads out of bounds.
 // - GVector.h's Orthonormalize and ComputeExtremes call LogError for invalid
 //   input; the shared orthonormalize() returns 0 and computeExtremes()
 //   returns null, as Vector.h's bool-returning versions do.
@@ -141,5 +143,11 @@ export class GVector extends Vector {
 
     override greaterThanOrEqual(vec: Vector): boolean {
         return this.vectorCompare(vec) >= 0;
+    }
+
+    // GVector.h's Dot seeds the accumulation with the literal 0, not with
+    // v0[0]*v1[0] as Vector.h's does. See the comment on Vector's getter.
+    override get dotAccumulatesFromZero(): boolean {
+        return true;
     }
 }

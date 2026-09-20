@@ -292,6 +292,72 @@ describe('GVector verification', () => {
         });
     });
 
+    // Regression for the port defect the C++ oracle found in verify group 1
+    // (case GVector.dot.signedZero of family v01-algebra). Upstream keeps two
+    // Dot implementations: Vector.h seeds the accumulation with v0[0]*v1[0]
+    // and GVector.h with the literal 0. Both groupings are below; they are
+    // equal in exact arithmetic but not in floating point, and the port must
+    // pick the one belonging to the argument's type.
+    describe('Dot accumulation seed (Vector.h vs GVector.h)', () => {
+        // The two candidate computations, transcribed from upstream.
+        const dotFromFirstProduct = (a: readonly number[], b: readonly number[]) => {
+            let result = a[0] * b[0];
+            for (let i = 1; i < a.length; ++i) {
+                result += a[i] * b[i];
+            }
+            return result;
+        };
+        const dotFromZero = (a: readonly number[], b: readonly number[]) => {
+            let result = 0;
+            for (let i = 0; i < a.length; ++i) {
+                result += a[i] * b[i];
+            }
+            return result;
+        };
+
+        // Every product is -0, which is the only input class on which the two
+        // seeds disagree: 0 + x is x for every x but -0, where it is +0.
+        const a = [0, 0, 0];
+        const b = [-1, -2, -3];
+
+        it('the two candidate groupings really do differ', () => {
+            expect(Object.is(dotFromFirstProduct(a, b), -0)).toBe(true);
+            expect(Object.is(dotFromZero(a, b), +0)).toBe(true);
+        });
+
+        it('dot of GVectors matches GVector.h bit for bit', () => {
+            const value = dot(GVector.fromArray(a), GVector.fromArray(b));
+            expect(Object.is(value, dotFromZero(a, b))).toBe(true);
+            expect(Object.is(value, +0)).toBe(true);
+        });
+
+        it('dot of plain Vectors still matches Vector.h bit for bit', () => {
+            const value = dot(Vector.fromArray(a), Vector.fromArray(b));
+            expect(Object.is(value, dotFromFirstProduct(a, b))).toBe(true);
+            expect(Object.is(value, -0)).toBe(true);
+        });
+
+        it('the seed flag follows the type', () => {
+            expect(new Vector(3).dotAccumulatesFromZero).toBe(false);
+            expect(new GVector(3).dotAccumulatesFromZero).toBe(true);
+        });
+
+        it('the seeds agree on every other input', () => {
+            check(fc.tuple(
+                fc.array(finite(-100, 100), { minLength: 1, maxLength: 6 }),
+                fc.array(finite(-100, 100), { minLength: 1, maxLength: 6 })),
+            ([xs, ys]) => {
+                const n = Math.min(xs.length, ys.length);
+                const p = xs.slice(0, n);
+                const q = ys.slice(0, n);
+                expect(dot(GVector.fromArray(p), GVector.fromArray(q)))
+                    .toBe(dotFromZero(p, q));
+                expect(dot(Vector.fromArray(p), Vector.fromArray(q)))
+                    .toBe(dotFromFirstProduct(p, q));
+            });
+        });
+    });
+
     it('div of a GVector by zero yields zero (Vector.h, not GVector.h)', () => {
         // Documented deviation: upstream GVector operator/= calls
         // LogError("Division by zero."); the shared div() keeps Vector.h's
