@@ -1883,17 +1883,52 @@ ORACLE_CASE("IntrSegment3Cone3.find.throughInterior")
 // difference that rounds to a nonzero value, and its case analysis then
 // reports a point, the empty set or a segment reaching the cone's maximum
 // height where the intersection is a ray or the vertex alone.
+namespace
+{
+    // The configuration in which the port's correction is visible after the
+    // ray or segment clip: the line contains the cone vertex, c2 > 0 (the
+    // direction is interior to the cone's angular region, so the true
+    // intersection with the positive cone is the ray of nonnegative heights
+    // from the vertex), the vertex parameter lies in the clipped range
+    // [lo,hi], and the cone's minimum height is zero (otherwise both sides
+    // clamp the ray to the same hmin plane and agree).
+    bool ThroughVertexRayConfiguration(Vector3<double> const& origin,
+        Vector3<double> const& direction, Cone3<double> const& cone,
+        double lo, double hi)
+    {
+        if (cone.GetMinHeight() != 0.0) { return false; }
+        Vector3<double> U = (Dot(direction, cone.ray.direction) >= 0.0
+            ? direction : -direction);
+        double UdU = Dot(U, U);
+        double DdU = Dot(cone.ray.direction, U);
+        double c2 = DdU * DdU - cone.cosAngleSqr * UdU;
+        if (c2 <= 0.0) { return false; }
+        Vector3<double> PmV = origin - cone.ray.origin;
+        double tv = -Dot(direction, PmV) / Dot(direction, direction);
+        return lo <= tv && tv <= hi;
+    }
+}
+
 ORACLE_CASE("IntrRay3Cone3.find.throughVertexDeviation")
 {
-    int kind = io.rawInteger(0, 3);
     ConeData c{};
-    RawCone(io, 0, kind, 3, 3.0, c);
-    Vector3<double> direction{};
-    RawIntegerDirection(io, direction);
-    int k = io.rawInteger(1, 3);
-    int sign = io.rawInteger(0, 1);
-    double kk = static_cast<double>(sign == 0 ? -k : k);
-    Vector3<double> origin = c.origin + kk * direction;
+    Vector3<double> direction{}, origin{};
+    for (int attempt = 0; attempt < 20000; ++attempt)
+    {
+        int kind = (io.rawInteger(0, 1) == 0 ? 0 : 2);
+        RawCone(io, 0, kind, 3, 3.0, c);
+        RawIntegerDirection(io, direction);
+        int k = io.rawInteger(1, 3);
+        int sign = io.rawInteger(0, 1);
+        double kk = static_cast<double>(sign == 0 ? -k : k);
+        origin = c.origin + kk * direction;
+        Cone3<double> probe = MakeCone(c);
+        if (ThroughVertexRayConfiguration(origin, direction, probe, 0.0,
+            std::numeric_limits<double>::max()))
+        {
+            break;
+        }
+    }
     EmitCone(io, c);
     io.givenVec(origin);
     io.givenVec(direction);
@@ -1909,17 +1944,26 @@ ORACLE_CASE("IntrRay3Cone3.find.throughVertexDeviation")
 // (P - V) + tv * (p1 - p0) is exactly zero as well.
 ORACLE_CASE("IntrSegment3Cone3.find.throughVertexDeviation")
 {
-    int kind = io.rawInteger(0, 3);
     ConeData c{};
-    RawCone(io, 0, kind, 3, 3.0, c);
-    Vector3<double> direction{};
-    RawIntegerDirection(io, direction);
-    int k = io.rawInteger(1, 3);
-    int sign = io.rawInteger(0, 1);
-    double kk = static_cast<double>(sign == 0 ? -k : k);
-    double L = std::ldexp(1.0, io.rawInteger(0, 2));
-    Vector3<double> p0 = c.origin + kk * direction;
-    Vector3<double> p1 = p0 + L * direction;
+    Vector3<double> p0{}, p1{};
+    for (int attempt = 0; attempt < 20000; ++attempt)
+    {
+        int kind = (io.rawInteger(0, 1) == 0 ? 0 : 2);
+        RawCone(io, 0, kind, 3, 3.0, c);
+        Vector3<double> direction{};
+        RawIntegerDirection(io, direction);
+        int k = io.rawInteger(1, 3);
+        int sign = io.rawInteger(0, 1);
+        double kk = static_cast<double>(sign == 0 ? -k : k);
+        double L = std::ldexp(1.0, io.rawInteger(0, 2));
+        p0 = c.origin + kk * direction;
+        p1 = p0 + L * direction;
+        Cone3<double> probe = MakeCone(c);
+        if (ThroughVertexRayConfiguration(p0, p1 - p0, probe, 0.0, 1.0))
+        {
+            break;
+        }
+    }
     EmitCone(io, c);
     io.givenVec(p0);
     io.givenVec(p1);
