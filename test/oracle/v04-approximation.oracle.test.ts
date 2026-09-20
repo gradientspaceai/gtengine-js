@@ -1,6 +1,7 @@
 // Replays oracle/cpp/cases/v04-approximation.cpp (verify group 4,
 // approximation). Keep the two files in the same order.
 import { describe } from 'vitest';
+import { ApprCylinder3 } from '../../src/ApprCylinder3.js';
 import { ApprEllipse2 } from '../../src/ApprEllipse2.js';
 import { approximateEllipseByArcs } from '../../src/ApprEllipseByArcs.js';
 import { ApprEllipsoid3 } from '../../src/ApprEllipsoid3.js';
@@ -9,6 +10,7 @@ import {
 } from '../../src/ApprGreatCircle3.js';
 import { ApprParabola2 } from '../../src/ApprParabola2.js';
 import { ApprParaboloid3 } from '../../src/ApprParaboloid3.js';
+import { Cylinder3 } from '../../src/Cylinder3.js';
 import { Hyperellipsoid } from '../../src/Hyperellipsoid.js';
 import { Vector } from '../../src/Vector.js';
 import { OracleFamily, type OracleIO } from './harness.js';
@@ -183,6 +185,65 @@ describe('oracle: v04-approximation', () => {
         const ellipsoid = hyperellipsoid(io, 3);
         const error = new ApprEllipsoid3().compute(pts, numIterations, true, ellipsoid);
         emitHyperellipsoid(io, error, ellipsoid);
+    });
+
+    // ---- ApprCylinder3 -----------------------------------------------------
+
+    function emitCylinder(io: OracleIO, cylinder: Cylinder3): void {
+        io.outVec(cylinder.axis.origin);
+        io.outVec(cylinder.axis.direction);
+        io.outReal(cylinder.radius);
+        io.outReal(cylinder.height);
+    }
+
+    family.case('ApprCylinder3.compute.eigenIndex', (io) => {
+        const pts = points(io, 3);
+        const fitter = ApprCylinder3.fromEigenIndex(io.integer());
+        const cylinder = new Cylinder3();
+        io.outReal(fitter.compute(pts, cylinder));
+        emitCylinder(io, cylinder);
+    }, { exact: true });
+
+    family.case('ApprCylinder3.compute.specifiedAxis', (io) => {
+        const pts = points(io, 3);
+        const fitter = ApprCylinder3.fromCylinderAxis(io.vec(3));
+        const cylinder = new Cylinder3();
+        io.outReal(fitter.compute(pts, cylinder));
+        emitCylinder(io, cylinder);
+    }, { exact: true });
+
+    family.case('ApprCylinder3.compute.throw', (io) => {
+        const pts = points(io, 3);
+        const fitter = ApprCylinder3.fromCylinderAxis(io.vec(3));
+        const cylinder = new Cylinder3();
+        io.outReal(fitter.compute(pts, cylinder));
+        emitCylinder(io, cylinder);
+    }, { exact: true });
+
+    // cos and sin generate the candidate directions of the hemisphere search.
+    family.case('ApprCylinder3.compute.hemisphere', (io) => {
+        const pts = points(io, 3);
+        const numThetaSamples = io.integer();
+        const numPhiSamples = io.integer();
+        const fitter = ApprCylinder3.fromHemisphereSearch(0, numThetaSamples,
+            numPhiSamples, true);
+        const cylinder = new Cylinder3();
+        io.outReal(fitter.compute(pts, cylinder));
+        emitCylinder(io, cylinder);
+    });
+
+    family.case('ApprCylinder3.computeMesh', (io) => {
+        const pts = points(io, 3);
+        const numThetaSamples = io.integer();
+        const numPhiSamples = io.integer();
+        // The same triangle fan the C++ case builds from the point count.
+        const indices: number[] = [];
+        for (let t = 0; t < pts.length - 2; ++t) { indices.push(0, t + 1, t + 2); }
+        const fitter = ApprCylinder3.fromHemisphereSearch(0, numThetaSamples,
+            numPhiSamples, false);
+        const cylinder = new Cylinder3();
+        fitter.computeMesh(pts, indices, cylinder);
+        emitCylinder(io, cylinder);
     });
 
     family.finish();

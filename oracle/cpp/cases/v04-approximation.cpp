@@ -656,3 +656,154 @@ ORACLE_CASE("ApprEllipsoid3.compute.ellipsoid")
 // ApprEllipsoid3 carries the same discarded GetContainer flag as
 // ApprEllipse2 and is unreachable for the same reason; see the comment
 // above.
+
+// ---- ApprCylinder3 ---------------------------------------------------------
+
+namespace
+{
+    // 3D samples for the cylinder fitters.
+    //   mode 0: integer lattice (many coplanar and coincident configurations)
+    //   mode 1: uniform cloud
+    //   mode 2: on a cylinder of radius r about a random axis, with a small
+    //           radial perturbation so the least-squares problem is not
+    //           exactly degenerate
+    std::vector<Vector3<double>> CylinderPoints3(oracle::Ctx& io, int mode)
+    {
+        int n = io.integer(6, 10);
+        std::vector<Vector3<double>> points(static_cast<size_t>(n));
+        if (mode == 0)
+        {
+            for (int i = 0; i < n; ++i) { points[i] = io.latticeVec<3>(-3, 3); }
+        }
+        else if (mode == 1)
+        {
+            for (int i = 0; i < n; ++i) { points[i] = io.vec<3>(-4.0, 4.0); }
+        }
+        else
+        {
+            auto basis = RawFrame3(io);
+            Vector3<double> center{};
+            for (int i = 0; i < 3; ++i) { center[i] = io.raw(-2.0, 2.0); }
+            double radius = io.raw(0.5, 3.0);
+            for (int i = 0; i < n; ++i)
+            {
+                double t = io.raw(-3.14, 3.14);
+                double h = io.raw(-3.0, 3.0);
+                double s = io.raw(0.97, 1.03);
+                Vector3<double> p = center
+                    + (s * radius * std::cos(t)) * basis[1]
+                    + (s * radius * std::sin(t)) * basis[2]
+                    + h * basis[0];
+                points[i] = io.givenVec(p);
+            }
+        }
+        return points;
+    }
+
+    void EmitCylinder(oracle::Ctx& io, Cylinder3<double> const& cylinder)
+    {
+        io.outVec(cylinder.axis.origin);
+        io.outVec(cylinder.axis.direction);
+        io.outReal(cylinder.radius);
+        io.outReal(cylinder.height);
+    }
+}
+
+// The covariance eigenvector constructor. Preprocess, G and the iterative
+// SymmetricEigensolver3x3 use arithmetic and sqrt only.
+ORACLE_CASE("ApprCylinder3.compute.eigenIndex")
+{
+    int mode = io.index() % 3;
+    auto points = CylinderPoints3(io, mode);
+    int eigenIndex = io.integer(0, 2);
+    ApprCylinder3<double> fitter(static_cast<size_t>(eigenIndex));
+    Cylinder3<double> cylinder{};
+    double error = fitter(points.size(), points.data(), cylinder);
+    io.outReal(error);
+    EmitCylinder(io, cylinder);
+}
+
+// The specified-axis constructor. The axis is a recorded unit vector, so no
+// libm enters the compared computation.
+ORACLE_CASE("ApprCylinder3.compute.specifiedAxis")
+{
+    int mode = io.index() % 3;
+    auto points = CylinderPoints3(io, mode);
+    auto axis = io.unit<3>();
+    ApprCylinder3<double> fitter(axis);
+    Cylinder3<double> cylinder{};
+    double error = fitter(points.size(), points.data(), cylinder);
+    io.outReal(error);
+    EmitCylinder(io, cylinder);
+}
+
+// Throw parity for the two LogAssert guards of the point-fitting operator:
+// a zero cylinder axis and fewer than 6 points. Normalize(axis, true) leaves
+// a zero vector zero, so the assertion in operator() fires.
+ORACLE_CASE("ApprCylinder3.compute.throw")
+{
+    int n = io.integer(4, 7);
+    std::vector<Vector3<double>> points(static_cast<size_t>(n));
+    for (int i = 0; i < n; ++i) { points[i] = io.latticeVec<3>(-3, 3); }
+    Vector3<double> axis{};
+    axis.MakeZero();
+    if (io.index() % 3 != 0)
+    {
+        for (int attempt = 0; attempt < 8; ++attempt)
+        {
+            for (int i = 0; i < 3; ++i)
+            {
+                axis[i] = static_cast<double>(io.rawInteger(-1, 1));
+            }
+            if (axis != Vector3<double>::Zero()) { break; }
+        }
+    }
+    axis = io.givenVec(axis);
+    ApprCylinder3<double> fitter(axis);
+    Cylinder3<double> cylinder{};
+    double error = fitter(points.size(), points.data(), cylinder);
+    io.outReal(error);
+    EmitCylinder(io, cylinder);
+}
+
+// The single-threaded hemisphere search. cos and sin generate the candidate
+// directions and the winner is chosen by comparing G values, so this case is
+// compared with a tolerance; the sample grid is tiny (at most 13 candidate
+// directions) to keep the argmin well separated and the record small.
+ORACLE_CASE("ApprCylinder3.compute.hemisphere")
+{
+    int mode = io.index() % 3;
+    auto points = CylinderPoints3(io, mode);
+    int numThetaSamples = io.integer(2, 4);
+    int numPhiSamples = io.integer(1, 3);
+    ApprCylinder3<double> fitter(0, static_cast<size_t>(numThetaSamples),
+        static_cast<size_t>(numPhiSamples), true);
+    Cylinder3<double> cylinder{};
+    double error = fitter(points.size(), points.data(), cylinder);
+    io.outReal(error);
+    EmitCylinder(io, cylinder);
+}
+
+// The single-threaded mesh fit. The triangles are a fan over the recorded
+// points, which the replay rebuilds from the point count.
+ORACLE_CASE("ApprCylinder3.computeMesh")
+{
+    int mode = io.index() % 3;
+    auto points = CylinderPoints3(io, mode);
+    int numThetaSamples = io.integer(2, 4);
+    int numPhiSamples = io.integer(1, 3);
+    int numTriangles = static_cast<int>(points.size()) - 2;
+    std::vector<int32_t> indices(static_cast<size_t>(3 * numTriangles));
+    for (int t = 0; t < numTriangles; ++t)
+    {
+        indices[3 * t + 0] = 0;
+        indices[3 * t + 1] = t + 1;
+        indices[3 * t + 2] = t + 2;
+    }
+    ApprCylinder3<double> fitter(0, static_cast<size_t>(numThetaSamples),
+        static_cast<size_t>(numPhiSamples), false);
+    Cylinder3<double> cylinder{};
+    fitter(points.size(), points.data(), static_cast<size_t>(numTriangles),
+        indices.data(), cylinder);
+    EmitCylinder(io, cylinder);
+}
