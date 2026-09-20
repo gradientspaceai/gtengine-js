@@ -89,6 +89,21 @@ describe('oracle: v01-algebra', () => {
         io.outReal(length(v, true));
     }, { exact: true });
 
+    // Upstream issue #370 (preserved by the port): the robust Length and
+    // Normalize return NaN when the largest-magnitude component is subnormal
+    // enough that 1/maxAbsComp overflows.
+    family.case('Vector.length.subnormal', (io) => {
+        const v = io.vec(4);
+        const plain = v.clone();
+        const robust = v.clone();
+        io.outReal(length(v, false));
+        io.outReal(length(v, true));
+        io.outReal(normalize(plain, false));
+        io.outVec(plain);
+        io.outReal(normalize(robust, true));
+        io.outVec(robust);
+    }, { exact: true });
+
     family.case('Vector.normalize', (io) => {
         const v = io.vec(4);
         const plain = v.clone();
@@ -126,8 +141,10 @@ describe('oracle: v01-algebra', () => {
         }
         const result = computeExtremes(v);
         io.outBool(result !== null);
-        io.outVec(result!.vmin);
-        io.outVec(result!.vmax);
+        // Upstream's "invalid input" arm returns false and leaves vmin/vmax
+        // untouched; the C++ case zeroes them before the call.
+        io.outVec(result?.vmin ?? new Vector(3));
+        io.outVec(result?.vmax ?? new Vector(3));
     }, { exact: true });
 
     family.case('Vector.liftProject', (io) => {
@@ -503,6 +520,17 @@ describe('oracle: v01-algebra', () => {
         io.outMat(r.inverse);
         io.outReal(determinant(M));
         io.outMat(inverse(M).inverse);
+    }, { exact: true });
+
+    // Upstream issue #375 (preserved by the port): an all-denormal matrix
+    // gives NaN inverse entries with invertible = true.
+    family.case('Matrix.inverse.denormal', (io) => {
+        const n = io.integer();
+        const M = mat(io, n, n);
+        const r = inverse(M);
+        io.outBool(r.invertible);
+        io.outMat(r.inverse);
+        io.outReal(determinant(M));
     }, { exact: true });
 
     family.case('Matrix.access', (io) => {

@@ -313,6 +313,36 @@ ORACLE_CASE("Vector.length")
     io.outReal(Length(v, true));
 }
 
+ORACLE_CASE("Vector.length.subnormal")
+{
+    // Upstream issue #370, preserved by the port: the robust paths of Length
+    // and Normalize rescale with 'v /= maxAbsComp', which Vector.h implements
+    // as a multiplication by 1/maxAbsComp. When the largest component is
+    // subnormal and below about 2^-1024 that reciprocal overflows to infinity
+    // and the zero components become 0 * inf = NaN, so the robust length is
+    // NaN while the plain one is correct. Between 2^-1074 and 2^-1024 the
+    // reciprocal is still finite and both paths agree; both regimes occur
+    // here, as does the all-zero vector.
+    Vector<4, double> v;
+    for (int32_t i = 0; i < 4; ++i)
+    {
+        int32_t kind = io.rawInteger(0, 3);
+        double sign = (io.rawInteger(0, 1) == 0 ? 1.0 : -1.0);
+        double mantissa = io.raw(1.0, 2.0);
+        int32_t exponent = io.rawInteger(-1074, -1000);
+        double x = (kind == 0 ? sign * 0.0 : sign * std::ldexp(mantissa, exponent));
+        v[i] = io.given(x);
+    }
+    Vector<4, double> plain = v;
+    Vector<4, double> robust = v;
+    io.outReal(Length(v, false));
+    io.outReal(Length(v, true));
+    io.outReal(Normalize(plain, false));
+    io.outVec(plain);
+    io.outReal(Normalize(robust, true));
+    io.outVec(robust);
+}
+
 ORACLE_CASE("Vector.normalize")
 {
     int32_t mode = io.index() % 3;
@@ -399,7 +429,9 @@ ORACLE_CASE("Vector.getOrthogonal")
 
 ORACLE_CASE("Vector.computeExtremes")
 {
-    int32_t numVectors = io.integer(1, 5);
+    // numVectors == 0 is the "invalid input" arm: the return value is false
+    // and vmin/vmax keep the zero values they were given.
+    int32_t numVectors = io.integer(0, 5);
     int32_t mode = io.index() % 3;
     std::vector<Vector<3, double>> v(static_cast<size_t>(numVectors));
     for (int32_t i = 0; i < numVectors; ++i)
@@ -1106,6 +1138,32 @@ namespace
         io.outMat(Inverse(M));
     }
 
+    // Upstream issue #375, preserved by the port: for a matrix whose entries
+    // are all of denormal magnitude the pivot search finds a nonzero pivot,
+    // but 1/pivot overflows to infinity and the row operations produce
+    // inf * 0 = NaN, so Inverse returns NaN entries while reporting
+    // invertible = true and Determinant can be NaN as well.
+    template <int32_t N>
+    void DenormalInverse(oracle::Ctx& io)
+    {
+        Matrix<N, N, double> M;
+        for (int32_t r = 0; r < N; ++r)
+        {
+            for (int32_t c = 0; c < N; ++c)
+            {
+                double sign = (io.rawInteger(0, 1) == 0 ? 1.0 : -1.0);
+                double mantissa = io.raw(1.0, 2.0);
+                int32_t exponent = io.rawInteger(-1074, -1023);
+                M(r, c) = io.given(sign * std::ldexp(mantissa, exponent));
+            }
+        }
+        bool invertible = false;
+        Matrix<N, N, double> invM = Inverse(M, &invertible);
+        io.outBool(invertible);
+        io.outMat(invM);
+        io.outReal(Determinant(M));
+    }
+
     template <int32_t R, int32_t C>
     void MatAccess(oracle::Ctx& io, int32_t mode)
     {
@@ -1226,6 +1284,23 @@ ORACLE_CASE("Matrix.inverse")
     else
     {
         MatInverse<5>(io, mode);
+    }
+}
+
+ORACLE_CASE("Matrix.inverse.denormal")
+{
+    int32_t n = io.integer(2, 4);
+    if (n == 2)
+    {
+        DenormalInverse<2>(io);
+    }
+    else if (n == 3)
+    {
+        DenormalInverse<3>(io);
+    }
+    else
+    {
+        DenormalInverse<4>(io);
     }
 }
 
