@@ -9,7 +9,7 @@ upstream GTE code compiled with MSVC; the port replays the same inputs. See
 - compiler MSVC 194435215 x64 /O2 /fp:precise
 - records-per-case 20
 
-**398 cases, 7080 records, 33242 floating-point outputs compared; 99.43% bit-identical to the C++ build. 345 cases are bit-identical on every output. 44 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
+**500 cases, 8960 records, 55881 floating-point outputs compared; 99.66% bit-identical to the C++ build. 439 cases are bit-identical on every output. 52 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
 
 Discrete outputs (booleans, counts, indices) always compare exactly and are not counted
 in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |port|, |C++|)`.
@@ -17,6 +17,7 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | family | cases | records | real outputs | bit-identical | fully exact cases | max scaled error | worst case |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | smoke | 7 | 140 | 1224 | 99.67% | 6 | 1.11e-16 | `Rotation.axisAngleToMatrixAndQuaternion` |
+| v01-algebra | 46 | 920 | 15792 | 100.00% | 46 | 0 |  |
 | v19-distance | 43 | 780 | 6976 | 100.00% | 39 | 0 |  |
 | v20-distance | 28 | 440 | 3585 | 98.74% | 21 | 1.33e-15 | `DistLine3Circle3.compute` |
 | v21-distance | 38 | 680 | 5295 | 99.45% | 32 | 8.36e-16 | `DistRay3Circle3.compute` |
@@ -25,6 +26,7 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | v31-intersection | 61 | 1100 | 2644 | 99.36% | 54 | 3.70e-14 | `IntrLine3Torus3.find` |
 | v32-intersection | 64 | 1100 | 3683 | 99.54% | 53 | 9.06e-14 | `IntrEllipse2Ellipse2.find` |
 | v33-intersection | 68 | 1180 | 3703 | 100.00% | 59 | 0 |  |
+| v35-intersection | 56 | 960 | 6847 | 100.00% | 48 | 0 |  |
 
 ## Deliberate deviations from the C++ build
 
@@ -78,3 +80,11 @@ every record.
 | v33-intersection | `IntrRay3Capsule3.doQuery.capTangentDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrLine3Capsule3.h, "intersect" is never set when only one hemisphere root is accepted; issue #461 |
 | v33-intersection | `IntrSegment3Capsule3.doQuery.junctionDeviation` | 15 of 20 | docs/UPSTREAM-FINDINGS.md IntrLine3Capsule3.h, a cap-junction root accepted twice collapses the interval; issue #461 |
 | v33-intersection | `IntrSphere3Frustum3.test.clampDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md DistPoint3Frustum3.h, the two unclamped far-edge assignments; issue #421 |
+| v35-intersection | `IntrTetrahedron3Tetrahedron3.test.edgeCutoffDeviation` | 20 of 20 | UPSTREAM-FINDINGS IntrTetrahedron3Tetrahedron3.h edge-edge cutoff; issue #307 |
+| v35-intersection | `IntrTetrahedron3Tetrahedron3.test.edgeSeparationDeviation` | 20 of 20 | UPSTREAM-FINDINGS IntrTetrahedron3Tetrahedron3.h edge-edge separation test; issue #307 |
+| v35-intersection | `IntrTriangle3Triangle3.test.moving.parallelDeviation` | 20 of 20 | UPSTREAM-FINDINGS IntrTriangle3Triangle3.h moving parallel test; issue #334 |
+| v35-intersection | `IntrTriangle3Triangle3.find.moving.parallelDeviation` | 20 of 20 | UPSTREAM-FINDINGS IntrTriangle3Triangle3.h moving parallel test; issue #334 |
+| v35-intersection | `IntrSphere3Cone3.find.vertexDeviation` | 20 of 20 | UPSTREAM-FINDINGS IntrSphere3Cone3.h FI point omits the cone vertex; issue #307 |
+| v35-intersection | `IntrRay3Cone3.find.throughVertexDeviation` | 20 of 20 | UPSTREAM-FINDINGS IntrLine3Cone3.h through-vertex analysis; issues #304, #465 |
+| v35-intersection | `IntrSegment3Cone3.find.throughVertexDeviation` | 20 of 20 | UPSTREAM-FINDINGS IntrLine3Cone3.h through-vertex analysis; issues #304, #465 |
+| v35-intersection | `IntrOrientedBox3Cone3.test.staleAdjacencyDeviation` | 20 of 20 | UPSTREAM-FINDINGS IntrAlignedBox3Cone3.h BoxFullyInConeSlab stale adjacency; issue #301 |

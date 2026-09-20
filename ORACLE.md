@@ -190,7 +190,11 @@ Every disagreement gets a root cause. In order of likelihood:
    below `+0` and propagate NaN, where upstream's `(a < b ? b : a)` returns
    its first argument on ties and unordered compares. Where the result can
    reach an output, port the comparison form (first instance: v31,
-   `IntrIntervals`). The most productive class so far is the change of
+   `IntrIntervals`). An accumulation *seed* is part of the evaluation order:
+   `Vector.h`'s `Dot` starts from `v0[0]*v1[0]` and `GVector.h`'s from the
+   literal `0`, and `0 + x` is `x` except for `x = -0`, so a port that merges
+   two upstream copies of a function must keep both seeds (v01, `GVector`
+   `dot`; signed-zero generators find it). The most productive class so far is the change of
    basis: `C + c0*a0 + c1*a1 + c2*a2` accumulates left to right,
    `((C + c0*a0) + c1*a1) + c2*a2`, and a port that adds the basis terms
    first differs in the last bits on nearly every record (three of the 19
@@ -224,7 +228,12 @@ Every disagreement gets a root cause. In order of likelihood:
    check the magnitude of the deviation, not only that one exists: a
    necessary condition for a defect is not a sufficient one; select on the
    observable the defect actually corrupts (upstream's distance can be right
-   while its closest points are wrong). A rejection loop caps its attempts
+   while its closest points are wrong). When a defect is decided by the
+   rounded sign of a quantity that is zero in exact arithmetic (v35, the
+   through-vertex discriminant of `IntrLine3Cone3`), the rounded value being
+   nonzero is the exact separator: a value that rounds to exactly zero sends
+   upstream into its own sound branch, and without the condition only a
+   quarter of the `deviation` records deviate. A rejection loop caps its attempts
    and falls back to the best non-throwing candidate seen (least defective
    for a sound case, most defective for a `deviation` case): an uncapped
    loop around an expensive query turned a 14 s generation into a deep run
