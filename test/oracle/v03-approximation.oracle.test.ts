@@ -851,13 +851,22 @@ describe('oracle: v03-approximation', () => {
     }, { exact: true });
 
     family.case('ApprQuadratic2.fit.cocircular', (io) => {
-        const n = io.integer();
-        const P = new Array<Vector>(n);
-        for (let i = 0; i < n; ++i) { P[i] = io.vec(2); }
+        const P = points(io, 2);
         const r = new ApprQuadratic2().compute(P);
         io.outReal(r.minEigenvalue);
         io.outReals(r.coefficients);
     }, { exact: true });
+
+    // The port fixes SymmetricEigensolver.h's degenerate Householder step
+    // (docs/UPSTREAM-FINDINGS.md, issue #80): upstream stores the reflection
+    // parameter 2 for a reflection that is the identity, so GetEigenvector
+    // rebuilds a spurious reflection and returns a different eigenvector.
+    family.case('ApprQuadratic2.fit.decoupledDeviation', (io) => {
+        const P = points(io, 2);
+        const r = new ApprQuadratic2().compute(P);
+        io.outReal(r.minEigenvalue);
+        io.outReals(r.coefficients);
+    }, { exact: true, deviation: 'SymmetricEigensolver.h Tridiagonalize, issue #80' });
 
     family.case('ApprQuadraticCircle2.fit', (io) => {
         const P = points(io, 2);
@@ -869,15 +878,22 @@ describe('oracle: v03-approximation', () => {
     }, { exact: true });
 
     family.case('ApprQuadraticCircle2.fit.cocircular', (io) => {
-        const n = io.integer();
-        const P = new Array<Vector>(n);
-        for (let i = 0; i < n; ++i) { P[i] = io.vec(2); }
+        const P = points(io, 2);
         const circle = new Hypersphere(2);
         const measure = new ApprQuadraticCircle2().compute(P, circle);
         io.outReal(measure);
         io.outVec(circle.center);
         io.outReal(circle.radius);
     }, { exact: true });
+
+    family.case('ApprQuadraticCircle2.fit.decoupledDeviation', (io) => {
+        const P = points(io, 2);
+        const circle = new Hypersphere(2);
+        const measure = new ApprQuadraticCircle2().compute(P, circle);
+        io.outReal(measure);
+        io.outVec(circle.center);
+        io.outReal(circle.radius);
+    }, { exact: true, deviation: 'SymmetricEigensolver.h Tridiagonalize, issue #80' });
 
     // ------------------------------------------------------- ApprQuadratic3
 
@@ -889,13 +905,18 @@ describe('oracle: v03-approximation', () => {
     }, { exact: true });
 
     family.case('ApprQuadratic3.fit.cospherical', (io) => {
-        const n = io.integer();
-        const P = new Array<Vector>(n);
-        for (let i = 0; i < n; ++i) { P[i] = io.vec(3); }
+        const P = points(io, 3);
         const r = new ApprQuadratic3().compute(P);
         io.outReal(r.minEigenvalue);
         io.outReals(r.coefficients);
     }, { exact: true });
+
+    family.case('ApprQuadratic3.fit.decoupledDeviation', (io) => {
+        const P = points(io, 3);
+        const r = new ApprQuadratic3().compute(P);
+        io.outReal(r.minEigenvalue);
+        io.outReals(r.coefficients);
+    }, { exact: true, deviation: 'SymmetricEigensolver.h Tridiagonalize, issue #80' });
 
     family.case('ApprQuadraticSphere3.fit', (io) => {
         const P = points(io, 3);
@@ -907,15 +928,22 @@ describe('oracle: v03-approximation', () => {
     }, { exact: true });
 
     family.case('ApprQuadraticSphere3.fit.cospherical', (io) => {
-        const n = io.integer();
-        const P = new Array<Vector>(n);
-        for (let i = 0; i < n; ++i) { P[i] = io.vec(3); }
+        const P = points(io, 3);
         const sphere = new Hypersphere(3);
         const measure = new ApprQuadraticSphere3().compute(P, sphere);
         io.outReal(measure);
         io.outVec(sphere.center);
         io.outReal(sphere.radius);
     }, { exact: true });
+
+    family.case('ApprQuadraticSphere3.fit.decoupledDeviation', (io) => {
+        const P = points(io, 3);
+        const sphere = new Hypersphere(3);
+        const measure = new ApprQuadraticSphere3().compute(P, sphere);
+        io.outReal(measure);
+        io.outVec(sphere.center);
+        io.outReal(sphere.radius);
+    }, { exact: true, deviation: 'SymmetricEigensolver.h Tridiagonalize, issue #80' });
 
     // ----------------------------------------------------- ApprCurveByArcs
 

@@ -78,28 +78,47 @@ namespace
     //   2  every point the same lattice point (zero covariance)
     //   3  collinear on an integer lattice line
     //   4  exactly cocircular: radius 5 about an integer center
-    std::vector<Vector2<double>> MakePoints2(oracle::Ctx& io, int32_t minPoints,
-        int32_t maxPoints, int32_t numModes = 5)
+    // Drawn but NOT recorded, so a rejection loop can redraw every quantity
+    // its acceptance test depends on. RecordPoints2 writes the accepted draw.
+    struct Points2
     {
-        int32_t const n = io.integer(minPoints, maxPoints);
-        int32_t const mode = io.integer(0, numModes - 1);
-        std::vector<Vector2<double>> P(static_cast<size_t>(n));
+        int32_t n = 0, mode = 0;
+        std::vector<Vector2<double>> P;
+    };
 
-        if (mode == 0)
+    Points2 DrawPoints2(oracle::Ctx& io, int32_t minPoints, int32_t maxPoints,
+        int32_t numModes = 5, int32_t forcedMode = -1)
+    {
+        Points2 out;
+        out.n = io.rawInteger(minPoints, maxPoints);
+        out.mode = io.rawInteger(0, numModes - 1);
+        if (forcedMode >= 0) { out.mode = forcedMode; }
+        out.P.resize(static_cast<size_t>(out.n));
+        int32_t const n = out.n;
+
+        if (out.mode == 0)
         {
-            for (int32_t i = 0; i < n; ++i) { P[i] = io.vec<2>(-10.0, 10.0); }
+            for (int32_t i = 0; i < n; ++i)
+            {
+                out.P[i][0] = io.raw(-10.0, 10.0);
+                out.P[i][1] = io.raw(-10.0, 10.0);
+            }
         }
-        else if (mode == 1)
+        else if (out.mode == 1)
         {
-            for (int32_t i = 0; i < n; ++i) { P[i] = io.latticeVec<2>(-6, 6); }
+            for (int32_t i = 0; i < n; ++i)
+            {
+                out.P[i][0] = static_cast<double>(io.rawInteger(-6, 6));
+                out.P[i][1] = static_cast<double>(io.rawInteger(-6, 6));
+            }
         }
-        else if (mode == 2)
+        else if (out.mode == 2)
         {
             Vector2<double> q{ static_cast<double>(io.rawInteger(-6, 6)),
                 static_cast<double>(io.rawInteger(-6, 6)) };
-            for (int32_t i = 0; i < n; ++i) { P[i] = io.givenVec(q); }
+            for (int32_t i = 0; i < n; ++i) { out.P[i] = q; }
         }
-        else if (mode == 3)
+        else if (out.mode == 3)
         {
             Vector2<double> base{ static_cast<double>(io.rawInteger(-4, 4)),
                 static_cast<double>(io.rawInteger(-4, 4)) };
@@ -108,7 +127,7 @@ namespace
             for (int32_t i = 0; i < n; ++i)
             {
                 double const t = static_cast<double>(io.rawInteger(-4, 4));
-                P[i] = io.givenVec(Vector2<double>{ base[0] + t * dir[0], base[1] + t * dir[1] });
+                out.P[i] = Vector2<double>{ base[0] + t * dir[0], base[1] + t * dir[1] };
             }
         }
         else
@@ -118,12 +137,26 @@ namespace
             for (int32_t i = 0; i < n; ++i)
             {
                 int32_t const k = io.rawInteger(0, 11);
-                P[i] = io.givenVec(Vector2<double>{
+                out.P[i] = Vector2<double>{
                     center[0] + static_cast<double>(kCircleLattice[k][0]),
-                    center[1] + static_cast<double>(kCircleLattice[k][1]) });
+                    center[1] + static_cast<double>(kCircleLattice[k][1]) };
             }
         }
-        return P;
+        return out;
+    }
+
+    std::vector<Vector2<double>> RecordPoints2(oracle::Ctx& io, Points2 const& draw)
+    {
+        io.given(static_cast<double>(draw.n));
+        io.given(static_cast<double>(draw.mode));
+        for (auto const& p : draw.P) { io.givenVec(p); }
+        return draw.P;
+    }
+
+    std::vector<Vector2<double>> MakePoints2(oracle::Ctx& io, int32_t minPoints,
+        int32_t maxPoints, int32_t numModes = 5)
+    {
+        return RecordPoints2(io, DrawPoints2(io, minPoints, maxPoints, numModes));
     }
 
     // A 3D point set. Modes:
@@ -133,27 +166,47 @@ namespace
     //   3  collinear on an integer lattice line
     //   4  coplanar on an integer lattice plane
     //   5  exactly cospherical: radius 5 about an integer center
-    std::vector<Vector3<double>> MakePoints3(oracle::Ctx& io, int32_t minPoints,
-        int32_t maxPoints, int32_t numModes = 6)
+    struct Points3
     {
-        int32_t const n = io.integer(minPoints, maxPoints);
-        int32_t const mode = io.integer(0, numModes - 1);
-        std::vector<Vector3<double>> P(static_cast<size_t>(n));
+        int32_t n = 0, mode = 0;
+        std::vector<Vector3<double>> P;
+    };
+
+    Points3 DrawPoints3(oracle::Ctx& io, int32_t minPoints, int32_t maxPoints,
+        int32_t numModes = 6, int32_t forcedMode = -1)
+    {
+        Points3 out;
+        out.n = io.rawInteger(minPoints, maxPoints);
+        out.mode = io.rawInteger(0, numModes - 1);
+        if (forcedMode >= 0) { out.mode = forcedMode; }
+        out.P.resize(static_cast<size_t>(out.n));
+        int32_t const n = out.n, mode = out.mode;
+        std::vector<Vector3<double>>& P = out.P;
 
         if (mode == 0)
         {
-            for (int32_t i = 0; i < n; ++i) { P[i] = io.vec<3>(-10.0, 10.0); }
+            for (int32_t i = 0; i < n; ++i)
+            {
+                P[i][0] = io.raw(-10.0, 10.0);
+                P[i][1] = io.raw(-10.0, 10.0);
+                P[i][2] = io.raw(-10.0, 10.0);
+            }
         }
         else if (mode == 1)
         {
-            for (int32_t i = 0; i < n; ++i) { P[i] = io.latticeVec<3>(-6, 6); }
+            for (int32_t i = 0; i < n; ++i)
+            {
+                P[i][0] = static_cast<double>(io.rawInteger(-6, 6));
+                P[i][1] = static_cast<double>(io.rawInteger(-6, 6));
+                P[i][2] = static_cast<double>(io.rawInteger(-6, 6));
+            }
         }
         else if (mode == 2)
         {
             Vector3<double> q{ static_cast<double>(io.rawInteger(-6, 6)),
                 static_cast<double>(io.rawInteger(-6, 6)),
                 static_cast<double>(io.rawInteger(-6, 6)) };
-            for (int32_t i = 0; i < n; ++i) { P[i] = io.givenVec(q); }
+            for (int32_t i = 0; i < n; ++i) { P[i] = q; }
         }
         else if (mode == 3)
         {
@@ -166,8 +219,8 @@ namespace
             for (int32_t i = 0; i < n; ++i)
             {
                 double const t = static_cast<double>(io.rawInteger(-4, 4));
-                P[i] = io.givenVec(Vector3<double>{ base[0] + t * dir[0],
-                    base[1] + t * dir[1], base[2] + t * dir[2] });
+                P[i] = Vector3<double>{ base[0] + t * dir[0],
+                    base[1] + t * dir[1], base[2] + t * dir[2] };
             }
         }
         else if (mode == 4)
@@ -185,10 +238,10 @@ namespace
             {
                 double const s = static_cast<double>(io.rawInteger(-3, 3));
                 double const t = static_cast<double>(io.rawInteger(-3, 3));
-                P[i] = io.givenVec(Vector3<double>{
+                P[i] = Vector3<double>{
                     base[0] + s * u[0] + t * v[0],
                     base[1] + s * u[1] + t * v[1],
-                    base[2] + s * u[2] + t * v[2] });
+                    base[2] + s * u[2] + t * v[2] };
             }
         }
         else
@@ -199,13 +252,27 @@ namespace
             for (int32_t i = 0; i < n; ++i)
             {
                 int32_t const k = io.rawInteger(0, 29);
-                P[i] = io.givenVec(Vector3<double>{
+                P[i] = Vector3<double>{
                     center[0] + static_cast<double>(kSphereLattice[k][0]),
                     center[1] + static_cast<double>(kSphereLattice[k][1]),
-                    center[2] + static_cast<double>(kSphereLattice[k][2]) });
+                    center[2] + static_cast<double>(kSphereLattice[k][2]) };
             }
         }
-        return P;
+        return out;
+    }
+
+    std::vector<Vector3<double>> RecordPoints3(oracle::Ctx& io, Points3 const& draw)
+    {
+        io.given(static_cast<double>(draw.n));
+        io.given(static_cast<double>(draw.mode));
+        for (auto const& p : draw.P) { io.givenVec(p); }
+        return draw.P;
+    }
+
+    std::vector<Vector3<double>> MakePoints3(oracle::Ctx& io, int32_t minPoints,
+        int32_t maxPoints, int32_t numModes = 6)
+    {
+        return RecordPoints3(io, DrawPoints3(io, minPoints, maxPoints, numModes));
     }
 
     // An index list into a set of n observations. Records the index count and
@@ -1425,10 +1492,379 @@ ORACLE_CASE("ApprPolynomialSpecial4.copyParameters")
 }
 
 // ----------------------------------------------------------- ApprQuadratic2
+//
+// The four ApprQuadratic entry points minimize C^T M C over unit C by taking
+// the eigenvector of the smallest eigenvalue of M from SymmetricEigensolver
+// (the NxN Householder + implicit-shift QL solver). The port deliberately
+// fixes a result-corrupting defect of that solver: when a Householder step is
+// degenerate (the subcolumn below the subdiagonal is already zero, so
+// 'length == 0' and the reflection actually applied is the identity),
+// upstream still stores the reflection parameter 2/Dot(v,v) == 2, and
+// GetEigenvector rebuilds H = I - 2*e*e^T instead of the identity. The
+// eigenvalues are unaffected (the stored value lands in the lower triangle,
+// which the diagonal copy never reads) but Q is corrupted.
+// docs/UPSTREAM-FINDINGS.md, issue #80.
+//
+// EigenDecouples below replicates upstream's Tridiagonalize verbatim and
+// reports whether any step is degenerate. That is an exact characterization
+// of the inputs on which the two implementations differ: the fix changes only
+// the value stored for a degenerate step. The main cases reject those inputs
+// by rejection sampling; the .decoupledDeviation cases keep only them.
+
+namespace
+{
+    // A verbatim copy of SymmetricEigensolver<double>::Tridiagonalize that
+    // returns true as soon as a degenerate Householder step occurs. 'matrix'
+    // is a copy, since the routine overwrites it.
+    bool EigenDecouples(std::vector<double> matrix, int32_t size)
+    {
+        std::vector<double> v(size, 0.0), p(size, 0.0), w(size, 0.0);
+        int32_t r, c;
+        for (int32_t i = 0, ip1 = 1; i < size - 2; ++i, ++ip1)
+        {
+            double length = 0.0;
+            for (r = 0; r < ip1; ++r) { v[r] = 0.0; }
+            for (r = ip1; r < size; ++r)
+            {
+                double vr = matrix[r + static_cast<size_t>(size) * i];
+                v[r] = vr;
+                length += vr * vr;
+            }
+            double vdv = 1.0;
+            length = std::sqrt(length);
+            if (length > 0.0)
+            {
+                double v1 = v[ip1];
+                double sgn = (v1 >= 0.0 ? 1.0 : -1.0);
+                double invDenom = 1.0 / (v1 + sgn * length);
+                v[ip1] = 1.0;
+                for (r = ip1 + 1; r < size; ++r)
+                {
+                    v[r] *= invDenom;
+                    vdv += v[r] * v[r];
+                }
+            }
+            else
+            {
+                // The degenerate step: upstream stores 2 for a reflection
+                // that is the identity.
+                return true;
+            }
+
+            double invvdv = 1.0 / vdv;
+            double twoinvvdv = invvdv * 2.0;
+            double pdvtvdv = 0.0;
+            for (r = i; r < size; ++r)
+            {
+                p[r] = 0.0;
+                for (c = i; c < r; ++c)
+                {
+                    p[r] += matrix[r + static_cast<size_t>(size) * c] * v[c];
+                }
+                for (/**/; c < size; ++c)
+                {
+                    p[r] += matrix[c + static_cast<size_t>(size) * r] * v[c];
+                }
+                p[r] *= twoinvvdv;
+                pdvtvdv += p[r] * v[r];
+            }
+
+            pdvtvdv *= invvdv;
+            for (r = i; r < size; ++r) { w[r] = p[r] - pdvtvdv * v[r]; }
+
+            for (r = i; r < size; ++r)
+            {
+                double vr = v[r], wr = w[r];
+                double offset = vr * wr * 2.0;
+                matrix[r + static_cast<size_t>(size) * r] -= offset;
+                for (c = r + 1; c < size; ++c)
+                {
+                    offset = vr * w[c] + wr * v[c];
+                    matrix[c + static_cast<size_t>(size) * r] -= offset;
+                }
+            }
+
+            matrix[i + static_cast<size_t>(size) * ip1] = twoinvvdv;
+            for (r = ip1 + 1; r < size; ++r)
+            {
+                matrix[i + static_cast<size_t>(size) * r] = v[r];
+            }
+        }
+        return false;
+    }
+
+    // A verbatim copy of ApprQuadratic2::operator()'s matrix assembly.
+    std::vector<double> BuildQuadratic2M(std::vector<Vector2<double>> const& P)
+    {
+        int32_t const numPoints = static_cast<int32_t>(P.size());
+        Matrix<6, 6, double> M{};
+        for (int32_t i = 0; i < numPoints; ++i)
+        {
+            double x = P[i][0];
+            double y = P[i][1];
+            double x2 = x * x;
+            double y2 = y * y;
+            double xy = x * y;
+            double x3 = x * x2;
+            double xy2 = x * y2;
+            double x2y = x * xy;
+            double y3 = y * y2;
+            double x4 = x * x3;
+            double x2y2 = x * xy2;
+            double x3y = x * x2y;
+            double y4 = y * y3;
+            double xy3 = x * y3;
+
+            M(0, 1) += x;
+            M(0, 2) += y;
+            M(0, 3) += x2;
+            M(0, 4) += xy;
+            M(0, 5) += y2;
+            M(1, 3) += x3;
+            M(1, 4) += x2y;
+            M(1, 5) += xy2;
+            M(2, 5) += y3;
+            M(3, 3) += x4;
+            M(3, 4) += x3y;
+            M(3, 5) += x2y2;
+            M(4, 5) += xy3;
+            M(5, 5) += y4;
+        }
+
+        double const rNumPoints = static_cast<double>(numPoints);
+        M(0, 0) = rNumPoints;
+        M(1, 1) = M(0, 3);
+        M(1, 2) = M(0, 4);
+        M(2, 2) = M(0, 5);
+        M(2, 3) = M(1, 4);
+        M(2, 4) = M(1, 5);
+        M(4, 4) = M(3, 5);
+        for (int32_t row = 0; row < 6; ++row)
+        {
+            for (int32_t col = 0; col < row; ++col) { M(row, col) = M(col, row); }
+        }
+        for (int32_t row = 0; row < 6; ++row)
+        {
+            for (int32_t col = 0; col < 6; ++col) { M(row, col) /= rNumPoints; }
+        }
+        M(0, 0) = 1.0;
+        return std::vector<double>(&M[0], &M[0] + 36);
+    }
+
+    // A verbatim copy of ApprQuadraticCircle2::operator()'s assembly.
+    std::vector<double> BuildQuadraticCircle2M(std::vector<Vector2<double>> const& P)
+    {
+        int32_t const numPoints = static_cast<int32_t>(P.size());
+        Matrix<4, 4, double> M{};
+        for (int32_t i = 0; i < numPoints; ++i)
+        {
+            double x = P[i][0];
+            double y = P[i][1];
+            double x2 = x * x;
+            double y2 = y * y;
+            double xy = x * y;
+            double r2 = x2 + y2;
+            double xr2 = x * r2;
+            double yr2 = y * r2;
+            double r4 = r2 * r2;
+
+            M(0, 1) += x;
+            M(0, 2) += y;
+            M(0, 3) += r2;
+            M(1, 1) += x2;
+            M(1, 2) += xy;
+            M(1, 3) += xr2;
+            M(2, 2) += y2;
+            M(2, 3) += yr2;
+            M(3, 3) += r4;
+        }
+
+        double const rNumPoints = static_cast<double>(numPoints);
+        M(0, 0) = rNumPoints;
+        for (int32_t row = 0; row < 4; ++row)
+        {
+            for (int32_t col = 0; col < row; ++col) { M(row, col) = M(col, row); }
+        }
+        for (int32_t row = 0; row < 4; ++row)
+        {
+            for (int32_t col = 0; col < 4; ++col) { M(row, col) /= rNumPoints; }
+        }
+        M(0, 0) = 1.0;
+        return std::vector<double>(&M[0], &M[0] + 16);
+    }
+
+    // A verbatim copy of ApprQuadratic3::operator()'s assembly. Note that
+    // upstream does NOT set M(0,0) = 1 here (the documented omission).
+    std::vector<double> BuildQuadratic3M(std::vector<Vector3<double>> const& P)
+    {
+        int32_t const numPoints = static_cast<int32_t>(P.size());
+        Matrix<10, 10, double> M{};
+        for (int32_t i = 0; i < numPoints; ++i)
+        {
+            double x = P[i][0], y = P[i][1], z = P[i][2];
+            double x2 = x * x, y2 = y * y, z2 = z * z;
+            double xy = x * y, xz = x * z, yz = y * z;
+            double x3 = x * x2, xy2 = x * y2, xz2 = x * z2;
+            double x2y = x * xy, x2z = x * xz, xyz = x * yz;
+            double y3 = y * y2, yz2 = y * z2, y2z = y * yz, z3 = z * z2;
+            double x4 = x * x3, x2y2 = x * xy2, x2z2 = x * xz2;
+            double x3y = x * x2y, x3z = x * x2z, x2yz = x * xyz;
+            double y4 = y * y3, y2z2 = y * yz2, xy3 = x * y3;
+            double xy2z = x * y2z, y3z = y * y2z, z4 = z * z3;
+            double xyz2 = x * yz2, xz3 = x * z3, yz3 = y * z3;
+
+            M(0, 1) += x;
+            M(0, 2) += y;
+            M(0, 3) += z;
+            M(0, 4) += x2;
+            M(0, 5) += xy;
+            M(0, 6) += xz;
+            M(0, 7) += y2;
+            M(0, 8) += yz;
+            M(0, 9) += z2;
+            M(1, 4) += x3;
+            M(1, 5) += x2y;
+            M(1, 6) += x2z;
+            M(1, 7) += xy2;
+            M(1, 8) += xyz;
+            M(1, 9) += xz2;
+            M(2, 5) += xy2;
+            M(2, 7) += y3;
+            M(2, 8) += y2z;
+            M(2, 9) += yz2;
+            M(3, 9) += z3;
+            M(4, 4) += x4;
+            M(4, 5) += x3y;
+            M(4, 6) += x3z;
+            M(4, 7) += x2y2;
+            M(4, 8) += x2yz;
+            M(4, 9) += x2z2;
+            M(5, 7) += xy3;
+            M(5, 8) += xy2z;
+            M(5, 9) += xyz2;
+            M(6, 9) += xz3;
+            M(7, 7) += y4;
+            M(7, 8) += y3z;
+            M(7, 9) += y2z2;
+            M(8, 9) += yz3;
+            M(9, 9) += z4;
+        }
+
+        double const rNumPoints = static_cast<double>(numPoints);
+        M(0, 0) = rNumPoints;
+        M(1, 1) = M(0, 4);
+        M(1, 2) = M(0, 5);
+        M(1, 3) = M(0, 6);
+        M(2, 2) = M(0, 7);
+        M(2, 3) = M(0, 8);
+        M(2, 4) = M(1, 5);
+        M(2, 6) = M(1, 8);
+        M(3, 3) = M(0, 9);
+        M(3, 4) = M(1, 6);
+        M(3, 5) = M(1, 8);
+        M(3, 6) = M(1, 9);
+        M(3, 7) = M(2, 8);
+        M(3, 8) = M(2, 9);
+        M(5, 5) = M(4, 7);
+        M(5, 6) = M(4, 8);
+        M(6, 6) = M(4, 9);
+        M(6, 7) = M(5, 8);
+        M(6, 8) = M(5, 9);
+        M(8, 8) = M(7, 9);
+        for (int32_t row = 0; row < 10; ++row)
+        {
+            for (int32_t col = 0; col < row; ++col) { M(row, col) = M(col, row); }
+        }
+        for (int32_t row = 0; row < 10; ++row)
+        {
+            for (int32_t col = 0; col < 10; ++col) { M(row, col) /= rNumPoints; }
+        }
+        return std::vector<double>(&M[0], &M[0] + 100);
+    }
+
+    // A verbatim copy of ApprQuadraticSphere3::operator()'s assembly.
+    std::vector<double> BuildQuadraticSphere3M(std::vector<Vector3<double>> const& P)
+    {
+        int32_t const numPoints = static_cast<int32_t>(P.size());
+        Matrix<5, 5, double> M{};
+        for (int32_t i = 0; i < numPoints; ++i)
+        {
+            double x = P[i][0], y = P[i][1], z = P[i][2];
+            double x2 = x * x, y2 = y * y, z2 = z * z;
+            double xy = x * y, xz = x * z, yz = y * z;
+            double r2 = x2 + y2 + z2;
+            double xr2 = x * r2, yr2 = y * r2, zr2 = z * r2;
+            double r4 = r2 * r2;
+
+            M(0, 1) += x;
+            M(0, 2) += y;
+            M(0, 3) += z;
+            M(0, 4) += r2;
+            M(1, 1) += x2;
+            M(1, 2) += xy;
+            M(1, 3) += xz;
+            M(1, 4) += xr2;
+            M(2, 2) += y2;
+            M(2, 3) += yz;
+            M(2, 4) += yr2;
+            M(3, 3) += z2;
+            M(3, 4) += zr2;
+            M(4, 4) += r4;
+        }
+
+        double const rNumPoints = static_cast<double>(numPoints);
+        M(0, 0) = rNumPoints;
+        for (int32_t row = 0; row < 5; ++row)
+        {
+            for (int32_t col = 0; col < row; ++col) { M(row, col) = M(col, row); }
+        }
+        for (int32_t row = 0; row < 5; ++row)
+        {
+            for (int32_t col = 0; col < 5; ++col) { M(row, col) /= rNumPoints; }
+        }
+        M(0, 0) = 1.0;
+        return std::vector<double>(&M[0], &M[0] + 25);
+    }
+
+    // Rejection sampling for the decoupling predicate. The loop is capped and
+    // redraws the whole point set (count, mode and every coordinate) on every
+    // attempt, which is everything the predicate depends on; on exhaustion it
+    // falls back to the last candidate.
+    using Build2 = std::vector<double>(*)(std::vector<Vector2<double>> const&);
+    using Build3 = std::vector<double>(*)(std::vector<Vector3<double>> const&);
+    constexpr int32_t kMaxAttempts = 24;
+
+    Points2 DrawPoints2Decoupling(oracle::Ctx& io, int32_t minPoints,
+        int32_t maxPoints, int32_t numModes, int32_t forcedMode,
+        Build2 build, int32_t size, bool want)
+    {
+        Points2 draw;
+        for (int32_t attempt = 0; attempt < kMaxAttempts; ++attempt)
+        {
+            draw = DrawPoints2(io, minPoints, maxPoints, numModes, forcedMode);
+            if (EigenDecouples(build(draw.P), size) == want) { break; }
+        }
+        return draw;
+    }
+
+    Points3 DrawPoints3Decoupling(oracle::Ctx& io, int32_t minPoints,
+        int32_t maxPoints, int32_t numModes, int32_t forcedMode,
+        Build3 build, int32_t size, bool want)
+    {
+        Points3 draw;
+        for (int32_t attempt = 0; attempt < kMaxAttempts; ++attempt)
+        {
+            draw = DrawPoints3(io, minPoints, maxPoints, numModes, forcedMode);
+            if (EigenDecouples(build(draw.P), size) == want) { break; }
+        }
+        return draw;
+    }
+}
 
 ORACLE_CASE("ApprQuadratic2.fit")
 {
-    auto P = MakePoints2(io, 1, 10);
+    auto P = RecordPoints2(io,
+        DrawPoints2Decoupling(io, 1, 10, 5, -1, BuildQuadratic2M, 6, false));
     std::array<double, 6> coefficients{};
     ApprQuadratic2<double> fitter;
     double measure = fitter(static_cast<int32_t>(P.size()), P.data(), coefficients);
@@ -1440,27 +1876,33 @@ ORACLE_CASE("ApprQuadratic2.fit")
 // eigenvalue is at the round-off floor and the clamp to zero is reachable.
 ORACLE_CASE("ApprQuadratic2.fit.cocircular")
 {
-    int32_t const n = io.integer(5, 10);
-    Vector2<double> center{ static_cast<double>(io.rawInteger(-3, 3)),
-        static_cast<double>(io.rawInteger(-3, 3)) };
-    std::vector<Vector2<double>> P(static_cast<size_t>(n));
-    for (int32_t i = 0; i < n; ++i)
-    {
-        int32_t const k = io.rawInteger(0, 11);
-        P[i] = io.givenVec(Vector2<double>{
-            center[0] + static_cast<double>(kCircleLattice[k][0]),
-            center[1] + static_cast<double>(kCircleLattice[k][1]) });
-    }
+    auto P = RecordPoints2(io,
+        DrawPoints2Decoupling(io, 5, 10, 5, 4, BuildQuadratic2M, 6, false));
     std::array<double, 6> coefficients{};
     ApprQuadratic2<double> fitter;
-    double measure = fitter(n, P.data(), coefficients);
+    double measure = fitter(static_cast<int32_t>(P.size()), P.data(), coefficients);
+    io.outReal(measure);
+    for (auto value : coefficients) { io.outReal(value); }
+}
+
+// The degenerate Householder step of SymmetricEigensolver::Tridiagonalize
+// (issue #80): upstream's Q is rebuilt with a spurious reflection, so its
+// eigenvector differs from the port's.
+ORACLE_CASE("ApprQuadratic2.fit.decoupledDeviation")
+{
+    auto P = RecordPoints2(io,
+        DrawPoints2Decoupling(io, 1, 5, 5, -1, BuildQuadratic2M, 6, true));
+    std::array<double, 6> coefficients{};
+    ApprQuadratic2<double> fitter;
+    double measure = fitter(static_cast<int32_t>(P.size()), P.data(), coefficients);
     io.outReal(measure);
     for (auto value : coefficients) { io.outReal(value); }
 }
 
 ORACLE_CASE("ApprQuadraticCircle2.fit")
 {
-    auto P = MakePoints2(io, 1, 10);
+    auto P = RecordPoints2(io,
+        DrawPoints2Decoupling(io, 1, 10, 5, -1, BuildQuadraticCircle2M, 4, false));
     Circle2<double> circle{};
     ApprQuadraticCircle2<double> fitter;
     double measure = fitter(static_cast<int32_t>(P.size()), P.data(), circle);
@@ -1471,20 +1913,23 @@ ORACLE_CASE("ApprQuadraticCircle2.fit")
 
 ORACLE_CASE("ApprQuadraticCircle2.fit.cocircular")
 {
-    int32_t const n = io.integer(4, 10);
-    Vector2<double> center{ static_cast<double>(io.rawInteger(-3, 3)),
-        static_cast<double>(io.rawInteger(-3, 3)) };
-    std::vector<Vector2<double>> P(static_cast<size_t>(n));
-    for (int32_t i = 0; i < n; ++i)
-    {
-        int32_t const k = io.rawInteger(0, 11);
-        P[i] = io.givenVec(Vector2<double>{
-            center[0] + static_cast<double>(kCircleLattice[k][0]),
-            center[1] + static_cast<double>(kCircleLattice[k][1]) });
-    }
+    auto P = RecordPoints2(io,
+        DrawPoints2Decoupling(io, 4, 10, 5, 4, BuildQuadraticCircle2M, 4, false));
     Circle2<double> circle{};
     ApprQuadraticCircle2<double> fitter;
-    double measure = fitter(n, P.data(), circle);
+    double measure = fitter(static_cast<int32_t>(P.size()), P.data(), circle);
+    io.outReal(measure);
+    io.outVec(circle.center);
+    io.outReal(circle.radius);
+}
+
+ORACLE_CASE("ApprQuadraticCircle2.fit.decoupledDeviation")
+{
+    auto P = RecordPoints2(io,
+        DrawPoints2Decoupling(io, 1, 5, 5, -1, BuildQuadraticCircle2M, 4, true));
+    Circle2<double> circle{};
+    ApprQuadraticCircle2<double> fitter;
+    double measure = fitter(static_cast<int32_t>(P.size()), P.data(), circle);
     io.outReal(measure);
     io.outVec(circle.center);
     io.outReal(circle.radius);
@@ -1494,7 +1939,8 @@ ORACLE_CASE("ApprQuadraticCircle2.fit.cocircular")
 
 ORACLE_CASE("ApprQuadratic3.fit")
 {
-    auto P = MakePoints3(io, 1, 12);
+    auto P = RecordPoints3(io,
+        DrawPoints3Decoupling(io, 1, 12, 6, -1, BuildQuadratic3M, 10, false));
     std::array<double, 10> coefficients{};
     ApprQuadratic3<double> fitter;
     double measure = fitter(static_cast<int32_t>(P.size()), P.data(), coefficients);
@@ -1504,29 +1950,30 @@ ORACLE_CASE("ApprQuadratic3.fit")
 
 ORACLE_CASE("ApprQuadratic3.fit.cospherical")
 {
-    int32_t const n = io.integer(8, 14);
-    Vector3<double> center{ static_cast<double>(io.rawInteger(-3, 3)),
-        static_cast<double>(io.rawInteger(-3, 3)),
-        static_cast<double>(io.rawInteger(-3, 3)) };
-    std::vector<Vector3<double>> P(static_cast<size_t>(n));
-    for (int32_t i = 0; i < n; ++i)
-    {
-        int32_t const k = io.rawInteger(0, 29);
-        P[i] = io.givenVec(Vector3<double>{
-            center[0] + static_cast<double>(kSphereLattice[k][0]),
-            center[1] + static_cast<double>(kSphereLattice[k][1]),
-            center[2] + static_cast<double>(kSphereLattice[k][2]) });
-    }
+    auto P = RecordPoints3(io,
+        DrawPoints3Decoupling(io, 8, 14, 6, 5, BuildQuadratic3M, 10, false));
     std::array<double, 10> coefficients{};
     ApprQuadratic3<double> fitter;
-    double measure = fitter(n, P.data(), coefficients);
+    double measure = fitter(static_cast<int32_t>(P.size()), P.data(), coefficients);
+    io.outReal(measure);
+    for (auto value : coefficients) { io.outReal(value); }
+}
+
+ORACLE_CASE("ApprQuadratic3.fit.decoupledDeviation")
+{
+    auto P = RecordPoints3(io,
+        DrawPoints3Decoupling(io, 1, 6, 6, -1, BuildQuadratic3M, 10, true));
+    std::array<double, 10> coefficients{};
+    ApprQuadratic3<double> fitter;
+    double measure = fitter(static_cast<int32_t>(P.size()), P.data(), coefficients);
     io.outReal(measure);
     for (auto value : coefficients) { io.outReal(value); }
 }
 
 ORACLE_CASE("ApprQuadraticSphere3.fit")
 {
-    auto P = MakePoints3(io, 1, 12);
+    auto P = RecordPoints3(io,
+        DrawPoints3Decoupling(io, 1, 12, 6, -1, BuildQuadraticSphere3M, 5, false));
     Sphere3<double> sphere{};
     ApprQuadraticSphere3<double> fitter;
     double measure = fitter(static_cast<int32_t>(P.size()), P.data(), sphere);
@@ -1537,22 +1984,23 @@ ORACLE_CASE("ApprQuadraticSphere3.fit")
 
 ORACLE_CASE("ApprQuadraticSphere3.fit.cospherical")
 {
-    int32_t const n = io.integer(5, 12);
-    Vector3<double> center{ static_cast<double>(io.rawInteger(-3, 3)),
-        static_cast<double>(io.rawInteger(-3, 3)),
-        static_cast<double>(io.rawInteger(-3, 3)) };
-    std::vector<Vector3<double>> P(static_cast<size_t>(n));
-    for (int32_t i = 0; i < n; ++i)
-    {
-        int32_t const k = io.rawInteger(0, 29);
-        P[i] = io.givenVec(Vector3<double>{
-            center[0] + static_cast<double>(kSphereLattice[k][0]),
-            center[1] + static_cast<double>(kSphereLattice[k][1]),
-            center[2] + static_cast<double>(kSphereLattice[k][2]) });
-    }
+    auto P = RecordPoints3(io,
+        DrawPoints3Decoupling(io, 5, 12, 6, 5, BuildQuadraticSphere3M, 5, false));
     Sphere3<double> sphere{};
     ApprQuadraticSphere3<double> fitter;
-    double measure = fitter(n, P.data(), sphere);
+    double measure = fitter(static_cast<int32_t>(P.size()), P.data(), sphere);
+    io.outReal(measure);
+    io.outVec(sphere.center);
+    io.outReal(sphere.radius);
+}
+
+ORACLE_CASE("ApprQuadraticSphere3.fit.decoupledDeviation")
+{
+    auto P = RecordPoints3(io,
+        DrawPoints3Decoupling(io, 1, 6, 6, -1, BuildQuadraticSphere3M, 5, true));
+    Sphere3<double> sphere{};
+    ApprQuadraticSphere3<double> fitter;
+    double measure = fitter(static_cast<int32_t>(P.size()), P.data(), sphere);
     io.outReal(measure);
     io.outVec(sphere.center);
     io.outReal(sphere.radius);
