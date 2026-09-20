@@ -327,9 +327,10 @@ describe('oracle: v14-containment', () => {
         io.outBool(inContainerSphereCapsule3(sphere, capsule));
     }, { exact: true });
 
+    // The C++ case records the CONTAINER capsule first, then the test capsule.
     family.case('ContCapsule3.inContainer.capsule', (io) => {
-        const testCapsule = cap3(io);
         const capsule = cap3(io);
+        const testCapsule = cap3(io);
         io.outBool(inContainerCapsuleCapsule3(testCapsule, capsule));
     }, { exact: true });
 

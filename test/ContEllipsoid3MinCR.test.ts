@@ -551,4 +551,59 @@ describe('ContEllipsoid3MinCR verification', () => {
                 }
             });
     });
+
+    // Upstream jitters the constraint planes with std::mt19937 and
+    // std::uniform_real_distribution<double>(0,1). The C++ standard describes
+    // the two-draw combination as the exact sum (g0 + g1*2^32)/2^64, which
+    // libstdc++ and libc++ compute in floating point, but the MSVC STL - the
+    // build the C++ oracle compares against (oracle/cpp) - takes the
+    // power-of-two shortcut ((g0 >> 11) + (g1 << 21)) * 2^-53, truncating the
+    // low 11 bits of the first draw where the portable formula rounds them.
+    // The two differ by up to 2 ulps, which is invisible while the jitter is
+    // added to a coefficient of order 1 but IS the coefficient when a point
+    // lies on a coordinate plane of the ellipsoid frame. The port reproduces
+    // the MSVC construction.
+    describe('the plane jitter matches the reference std::mt19937 stream', () => {
+        // The first three values of
+        // std::uniform_real_distribution<double>(0,1) over a default-seeded
+        // std::mt19937, as printed by an MSVC 19.44 build.
+        const msvcHex = ['3fc1574f7b6848dc', '3feab863ef3cfc3f', '3fef00f6fbe41046'];
+        // mt19937's first two outputs, from which the first canonical value is
+        // built.
+        const g0 = 3499211612, g1 = 581869302;
+
+        function fromHex(hex: string): number {
+            const view = new DataView(new ArrayBuffer(8));
+            view.setBigUint64(0, BigInt('0x' + hex));
+            return view.getFloat64(0);
+        }
+
+        it('is the truncating MSVC generate_canonical, not the rounding one', () => {
+            const msvc = ((g0 >>> 11) + g1 * 2097152) / 9007199254740992;
+            const portable = (g0 + g1 * 4294967296) / 18446744073709551616;
+            expect(Object.is(msvc, fromHex(msvcHex[0]))).toBe(true);
+            // The two constructions really do differ, so the test below is not
+            // vacuous.
+            expect(Object.is(portable, msvc)).toBe(false);
+        });
+
+        // A single input point at the ellipsoid centre makes every constraint
+        // coefficient exactly zero, so the whole of A[0] is the jitter and the
+        // result is a pure function of the first three canonical values.
+        it('produces the reference D for a cloud at the centre', () => {
+            const C = v(0, 0, 0);
+            const R = Matrix.fromArray(3, 3, [1, 0, 0, 0, 1, 0, 0, 0, 1]);
+            const D = getContainerEllipsoid3MinCR([v(0, 0, 0)], C, R);
+            const j = msvcHex.map((h) => 1e-12 * fromHex(h));
+            const oneThird = 1 / 3;
+            const expected = [
+                oneThird / j[0],
+                oneThird / j[1],
+                1 / j[2] + (oneThird / j[2] - 1 / j[2])
+            ];
+            for (let k = 0; k < 3; ++k) {
+                expect(Object.is(D[k], expected[k])).toBe(true);
+            }
+        });
+    });
 });

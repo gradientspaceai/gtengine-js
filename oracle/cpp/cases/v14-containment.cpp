@@ -847,17 +847,61 @@ ORACLE_CASE("ContCapsule3.inContainer.point")
 
 ORACLE_CASE("ContCapsule3.inContainer.sphere")
 {
+    // rel 0 is an independent sphere, rel 1 a sphere centred on the capsule
+    // axis with exactly the complementary radius, so 'distance <= rDiff' is
+    // evaluated at equality, and rel 2 a sphere strictly inside.
     int mode = io.index() % 2;
+    int rel = (io.index() / 2) % 3;
     auto capsule = Cap3(io, mode, 4, 5.0);
-    auto sphere = Sph<3>(io, mode, 4, 5.0);
+    Sphere3<double> sphere{};
+    if (rel == 0)
+    {
+        sphere = Sph<3>(io, mode, 4, 5.0);
+    }
+    else
+    {
+        Vector3<double> center = 0.5 * (capsule.segment.p[0] + capsule.segment.p[1]);
+        Vector3<double> offset{};
+        offset.MakeZero();
+        offset[io.rawInteger(0, 2)] = (rel == 1 ? 0.5 * capsule.radius : 0.0);
+        sphere.center = center + offset;
+        sphere.radius = (rel == 1 ? 0.5 * capsule.radius : 0.25 * capsule.radius);
+        io.givenVec(sphere.center);
+        io.given(sphere.radius);
+    }
     io.outBool(InContainer<double>(sphere, capsule));
 }
 
 ORACLE_CASE("ContCapsule3.inContainer.capsule")
 {
+    // rel 0 is an independent capsule, rel 1 the container itself (both end
+    // spheres are exactly on the boundary) and rel 2 a capsule strictly
+    // inside.
     int mode = io.index() % 2;
-    auto testCapsule = Cap3(io, mode, 4, 5.0);
+    int rel = (io.index() / 2) % 3;
     auto capsule = Cap3(io, mode, 4, 5.0);
+    Capsule3<double> testCapsule{};
+    if (rel == 0)
+    {
+        testCapsule = Cap3(io, mode, 4, 5.0);
+    }
+    else if (rel == 1)
+    {
+        testCapsule = capsule;
+        io.givenVec(testCapsule.segment.p[0]);
+        io.givenVec(testCapsule.segment.p[1]);
+        io.given(testCapsule.radius);
+    }
+    else
+    {
+        Vector3<double> center = 0.5 * (capsule.segment.p[0] + capsule.segment.p[1]);
+        testCapsule.segment.p[0] = 0.5 * (capsule.segment.p[0] + center);
+        testCapsule.segment.p[1] = 0.5 * (capsule.segment.p[1] + center);
+        testCapsule.radius = 0.25 * capsule.radius;
+        io.givenVec(testCapsule.segment.p[0]);
+        io.givenVec(testCapsule.segment.p[1]);
+        io.given(testCapsule.radius);
+    }
     io.outBool(InContainer<double>(testCapsule, capsule));
 }
 

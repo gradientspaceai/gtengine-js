@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { ApprGaussian3 } from '../src/ApprGaussian3.js';
 import {
     getContainerLozenge3,
     inContainerLozenge3
@@ -321,4 +322,131 @@ describe('ContLozenge3 verification', () => {
                 expect(inContainerLozenge3(q, lozenge)).toBe(d < lozenge.radius);
             });
     });
+
+    // Upstream writes the rectangle centre as a change of basis accumulated
+    // from left to right, C + a*A2 + b*A1 = ((C + a*A2) + b*A1). Grouping the
+    // two basis terms first, C + (a*A2 + b*A1), is the same value in exact
+    // arithmetic and differs in the last bits in floating point. The port must
+    // use upstream's grouping (the C++ oracle cannot see this: upstream's own
+    // branch that evaluates the same coefficients as the port, its "container
+    // is a sphere" branch, is only reachable with a = b = 0; the other three
+    // branches carry the deliberate corner-to-midpoint fix of issue #174).
+    describe('the rectangle centre accumulates the basis terms left to right',
+        () => {
+            // The relevant part of getContainerLozenge3, with the grouping as
+            // a parameter.
+            function centre(points: readonly Vector[], basisFirst: boolean): Vector {
+                const fitter = new ApprGaussian3();
+                fitter.fit(points);
+                const box = fitter.getParameters().clone();
+                let diff = sub(points[0], box.center);
+                let wMin = dot(box.axis[0], diff);
+                let wMax = wMin;
+                let w = 0;
+                for (let i = 1; i < points.length; ++i) {
+                    diff = sub(points[i], box.center);
+                    w = dot(box.axis[0], diff);
+                    if (w < wMin) { wMin = w; } else if (w > wMax) { wMax = w; }
+                }
+                const rSqr = (0.5 * (wMax - wMin)) * (0.5 * (wMax - wMin));
+                box.center = add(box.center, mul(0.5 * (wMax + wMin), box.axis[0]));
+
+                let aMin = Number.MAX_VALUE, aMax = -Number.MAX_VALUE;
+                let bMin = Number.MAX_VALUE, bMax = -Number.MAX_VALUE;
+                for (let i = 0; i < points.length; ++i) {
+                    diff = sub(points[i], box.center);
+                    const u = dot(box.axis[2], diff);
+                    const vv = dot(box.axis[1], diff);
+                    w = dot(box.axis[0], diff);
+                    const radical = Math.sqrt(Math.max(rSqr - w * w, 0));
+                    let t = u + radical;
+                    if (t < aMin) { aMin = t; }
+                    t = u - radical;
+                    if (t > aMax) { aMax = t; }
+                    t = vv + radical;
+                    if (t < bMin) { bMin = t; }
+                    t = vv - radical;
+                    if (t > bMax) { bMax = t; }
+                }
+                if (aMin >= aMax) { aMin = aMax = 0.5 * (aMin + aMax); }
+                if (bMin >= bMax) { bMin = bMax = 0.5 * (bMin + bMax); }
+
+                // Correction for points inside the mitered corner but outside
+                // the quarter sphere.
+                for (let i = 0; i < points.length; ++i) {
+                    diff = sub(points[i], box.center);
+                    const u = dot(box.axis[2], diff);
+                    const vv = dot(box.axis[1], diff);
+                    let aIsMax: boolean | null = null;
+                    let bIsMax = false;
+                    if (u > aMax) {
+                        if (vv > bMax) { aIsMax = true; bIsMax = true; }
+                        else if (vv < bMin) { aIsMax = true; bIsMax = false; }
+                    } else if (u < aMin) {
+                        if (vv > bMax) { aIsMax = false; bIsMax = true; }
+                        else if (vv < bMin) { aIsMax = false; bIsMax = false; }
+                    }
+                    if (aIsMax === null) { continue; }
+                    const deltaU = u - (aIsMax ? aMax : aMin);
+                    const deltaV = vv - (bIsMax ? bMax : bMin);
+                    const deltaSumSqr = deltaU * deltaU + deltaV * deltaV;
+                    w = dot(box.axis[0], diff);
+                    const wSqr = w * w;
+                    if (deltaSumSqr + wSqr > rSqr) {
+                        const t = -Math.sqrt(Math.max((rSqr - wSqr) / deltaSumSqr, 0));
+                        const newA = u + t * deltaU;
+                        const newB = vv + t * deltaV;
+                        if (aIsMax) { aMax = newA; } else { aMin = newA; }
+                        if (bIsMax) { bMax = newB; } else { bMin = newB; }
+                    }
+                }
+
+                const a = 0.5 * (aMin + aMax);
+                const b = 0.5 * (bMin + bMax);
+                return basisFirst
+                    ? add(box.center, add(mul(a, box.axis[2]), mul(b, box.axis[1])))
+                    : add(add(box.center, mul(a, box.axis[2])), mul(b, box.axis[1]));
+            }
+
+            // Clouds on which the corner correction does not fire, so that the
+            // helper above reproduces the port exactly.
+            const clouds: Vector[][] = [];
+            let seed = 987654321;
+            const next = (): number => {
+                seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+                return seed / 0x7fffffff;
+            };
+            for (let k = 0; k < 400; ++k) {
+                const n = 3 + (k % 6);
+                const points: Vector[] = [];
+                for (let i = 0; i < n; ++i) {
+                    points.push(v(next() * 12 - 6, next() * 12 - 6, next() * 12 - 6));
+                }
+                clouds.push(points);
+            }
+
+            it('matches the port bit for bit on every cloud', () => {
+                for (const points of clouds) {
+                    const port = getContainerLozenge3(points);
+                    const leftToRight = centre(points, false);
+                    for (let i = 0; i < 3; ++i) {
+                        expect(Object.is(port.rectangle.center.get(i),
+                            leftToRight.get(i))).toBe(true);
+                    }
+                }
+            });
+
+            it('is not the same computation as grouping the basis terms first',
+                () => {
+                    let differ = 0;
+                    for (const points of clouds) {
+                        const a = centre(points, false);
+                        const b = centre(points, true);
+                        for (let i = 0; i < 3; ++i) {
+                            if (!Object.is(a.get(i), b.get(i))) { ++differ; }
+                        }
+                    }
+                    expect(differ).toBeGreaterThan(0);
+                });
+        });
 });
