@@ -9,7 +9,7 @@ upstream GTE code compiled with MSVC; the port replays the same inputs. See
 - compiler MSVC 194435215 x64 /O2 /fp:precise
 - records-per-case 20
 
-**566 cases, 10100 records, 63304 floating-point outputs compared; 99.69% bit-identical to the C++ build. 495 cases are bit-identical on every output. 61 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
+**618 cases, 11060 records, 91212 floating-point outputs compared; 99.66% bit-identical to the C++ build. 532 cases are bit-identical on every output. 65 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
 
 Discrete outputs (booleans, counts, indices) always compare exactly and are not counted
 in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |port|, |C++|)`.
@@ -18,6 +18,7 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | smoke | 7 | 140 | 1224 | 99.67% | 6 | 1.11e-16 | `Rotation.axisAngleToMatrixAndQuaternion` |
 | v01-algebra | 46 | 920 | 15792 | 100.00% | 46 | 0 |  |
+| v02-algebra | 52 | 960 | 27908 | 99.59% | 37 | 2.33e-16 | `Rotation.eulerAnglesToAxisAngle` |
 | v19-distance | 43 | 780 | 6976 | 100.00% | 39 | 0 |  |
 | v20-distance | 28 | 440 | 3585 | 98.74% | 21 | 1.33e-15 | `DistLine3Circle3.compute` |
 | v21-distance | 38 | 680 | 5295 | 99.45% | 32 | 8.36e-16 | `DistRay3Circle3.compute` |
@@ -37,6 +38,10 @@ every record.
 
 | family | case | disagreeing records | record of the decision |
 | --- | --- | ---: | --- |
+| v02-algebra | `Rotation.matrixToAxisAngle.nearPi` | 19 of 20 | issue #374 (Rotation.h Convert(Matrix, AxisAngle)) |
+| v02-algebra | `Rotation.eulerAngles.refactorization` | 20 of 20 | issue #225 (Rotation.h operator()(i0,i1,i2)) |
+| v02-algebra | `Transform.inverse.matrixChannel` | 20 of 20 | issue #265 (Transform.h Inverse M channel) |
+| v02-algebra | `Transform.getHInverse.lastRow` | 20 of 20 | issue #265 (Transform.h GetHInverse last row) |
 | v19-distance | `DistRaySegment.compute.3d.deviation` | 20 of 20 | UPSTREAM-FINDINGS DistRaySegment.h, issue #126 |
 | v19-distance | `DistSegmentSegment.computeRobust.3d.deviation` | 9 of 20 | UPSTREAM-FINDINGS DistSegmentSegment.h, issue #418 |
 | v19-distance | `DistLine2Triangle2.compute.deviation` | 20 of 20 | UPSTREAM-FINDINGS DistLine2Triangle2.h, issue #441 |

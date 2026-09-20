@@ -25,8 +25,9 @@
 //   dot(q0,q1), length(q) and normalize(q) are exactly upstream's Dot,
 //   Length and Normalize for quaternions (normalize mutates in place and
 //   returns the length, and zeroes the tuple when the length is 0, as
-//   upstream). The element comparisons (equals, lessThan, ...) are
-//   inherited too.
+//   upstream). normalize() needs the override below, because Quaternion.h's
+//   'q /= length' divides where Vector.h's multiplies by the reciprocal.
+//   The element comparisons (equals, lessThan, ...) are inherited too.
 // - The upstream operators that must keep the Quaternion type are ported as
 //   free functions suffixed with the type context, matching Matrix.ts's
 //   negateMatrix/addMatrix/... scheme: negateQuaternion, addQuaternion,
@@ -73,6 +74,15 @@ export class Quaternion extends Vector {
     override clone(): Quaternion {
         return new Quaternion(this.values[0], this.values[1], this.values[2],
             this.values[3]);
+    }
+
+    // Quaternion.h's 'operator/=(Quaternion&, Real)' divides each component
+    // by the scalar, where Vector.h's computes the reciprocal once and
+    // multiplies. Normalize is 'q /= length' in both headers, so the shared
+    // normalize() must use Quaternion.h's division here. See
+    // Vector.divideByScalarUsesReciprocal.
+    override get divideByScalarUsesReciprocal(): boolean {
+        return false;
     }
 
     // Special quaternions.
