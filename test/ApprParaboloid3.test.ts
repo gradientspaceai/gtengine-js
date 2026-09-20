@@ -369,4 +369,20 @@ describe('ApprParaboloid3 verification', () => {
         expect(ApprParaboloid3.fit(collinear).u).toEqual([0, 0, 0, 0, 0, 0]);
         expect(ApprParaboloid3.fit(collinear).meanSquareError).toBe(0);
     });
+
+    // Regression for the C++ oracle (verify group 4): upstream's
+    // 'average /= tNumPoints' is Vector.h's operator/=, which multiplies each
+    // component by 1/scalar instead of dividing. The two groupings differ in
+    // the last bit for a coordinate sum of -3 over 10 samples, and the port
+    // must reproduce upstream's.
+    it('averages by multiplying by 1/n, as Vector::operator/= does', () => {
+        expect(-3 * (1 / 10)).not.toBe(-3 / 10);
+        const xs = [-2, -1, 0, 1, 2, -2, -1, 0, 1, 2];
+        const ys = [0, 1, 2, -1, -2, 1, 0, 2, -2, -1];
+        const zs = [-1, -1, -1, 0, 0, 0, 0, 0, 0, 0];
+        const points = xs.map((x, i) => v3(x, ys[i], zs[i]));
+        const r = ApprParaboloid3.fitRobust(points);
+        expect(r.average.values[2]).toBe(-3 * (1 / 10));
+        expect(r.average.values[2]).not.toBe(-3 / 10);
+    });
 });
