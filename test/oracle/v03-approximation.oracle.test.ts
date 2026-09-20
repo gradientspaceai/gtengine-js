@@ -13,6 +13,12 @@ import { ApprHeightPlane3 } from '../../src/ApprHeightPlane3.js';
 import { ApprOrthogonalLine2 } from '../../src/ApprOrthogonalLine2.js';
 import { ApprOrthogonalLine3 } from '../../src/ApprOrthogonalLine3.js';
 import { ApprOrthogonalPlane3 } from '../../src/ApprOrthogonalPlane3.js';
+import { ApprPolynomial2 } from '../../src/ApprPolynomial2.js';
+import { ApprPolynomial3 } from '../../src/ApprPolynomial3.js';
+import { ApprPolynomial4 } from '../../src/ApprPolynomial4.js';
+import { ApprPolynomialSpecial2 } from '../../src/ApprPolynomialSpecial2.js';
+import { ApprPolynomialSpecial3 } from '../../src/ApprPolynomialSpecial3.js';
+import { ApprPolynomialSpecial4 } from '../../src/ApprPolynomialSpecial4.js';
 import { ApprQuery } from '../../src/ApprQuery.js';
 import { ApprSphere3 } from '../../src/ApprSphere3.js';
 import { Hypersphere } from '../../src/Hypersphere.js';
@@ -27,6 +33,32 @@ function points(io: OracleIO, dimension: number): Vector[] {
     const P = new Array<Vector>(n);
     for (let i = 0; i < n; ++i) { P[i] = io.vec(dimension); }
     return P;
+}
+
+// The replay of MakeObs2/MakeObs3/MakeObs4: the count, the (ignored)
+// generator mode, then 'dimension' doubles per observation.
+function observations(io: OracleIO, dimension: number): number[][] {
+    const n = io.integer();
+    io.integer();
+    const obs = new Array<number[]>(n);
+    for (let i = 0; i < n; ++i) { obs[i] = io.reals(dimension); }
+    return obs;
+}
+
+// The replay of MakeDegrees.
+function degrees(io: OracleIO): number[] {
+    const count = io.integer();
+    const values = new Array<number>(count);
+    for (let i = 0; i < count; ++i) { values[i] = io.integer(); }
+    return values;
+}
+
+// The identity degree list that the special-polynomial cases pair with the
+// drawn x list.
+function identityDegrees(count: number, stride: number): number[] {
+    const values = new Array<number>(count);
+    for (let i = 0; i < count; ++i) { values[i] = stride * i; }
+    return values;
 }
 
 // The replay of MakeIndices.
@@ -474,6 +506,334 @@ describe('oracle: v03-approximation', () => {
         io.outVec(target.getParameters().origin);
         io.outVec(target.getParameters().normal);
         io.outReal(target.error(probe));
+    }, { exact: true });
+
+    // ------------------------------------------------------ ApprPolynomial2
+
+    function coefficients(io: OracleIO, values: readonly number[]): void {
+        io.outInt(values.length);
+        io.outReals(values);
+    }
+
+    family.case('ApprPolynomial2.fit', (io) => {
+        const obs = observations(io, 2);
+        const degree = io.integer();
+        const probeX = io.real();
+        const probe = io.reals(2);
+        const fitter = new ApprPolynomial2(degree);
+        io.outBool(fitter.fit(obs));
+        io.outInt(fitter.getMinimumRequired());
+        coefficients(io, fitter.getParameters());
+        io.outReals(fitter.getXDomain());
+        io.outReal(fitter.evaluate(probeX));
+        io.outReal(fitter.error(probe));
+    }, { exact: true });
+
+    family.case('ApprPolynomial2.fitIndexed', (io) => {
+        const obs = observations(io, 2);
+        const subset = indices(io);
+        const degree = io.integer();
+        const probeX = io.real();
+        const fitter = new ApprPolynomial2(degree);
+        io.outBool(fitter.fitIndexed(obs, subset));
+        coefficients(io, fitter.getParameters());
+        io.outReals(fitter.getXDomain());
+        io.outReal(fitter.evaluate(probeX));
+    }, { exact: true });
+
+    family.case('ApprPolynomial2.copyParameters', (io) => {
+        const obs = observations(io, 2);
+        const degree = io.integer();
+        const probeX = io.real();
+        const source = new ApprPolynomial2(degree);
+        const target = new ApprPolynomial2(degree);
+        source.fit(obs);
+        target.copyParameters(source);
+        coefficients(io, target.getParameters());
+        io.outReals(target.getXDomain());
+        io.outReal(target.evaluate(probeX));
+    }, { exact: true });
+
+    // ------------------------------------------------------ ApprPolynomial3
+
+    family.case('ApprPolynomial3.fit', (io) => {
+        const obs = observations(io, 3);
+        const xDegree = io.integer();
+        const yDegree = io.integer();
+        const probeX = io.real();
+        const probeY = io.real();
+        const probe = io.reals(3);
+        const fitter = new ApprPolynomial3(xDegree, yDegree);
+        io.outBool(fitter.fit(obs));
+        io.outInt(fitter.getMinimumRequired());
+        coefficients(io, fitter.getParameters());
+        io.outReals(fitter.getXDomain());
+        io.outReals(fitter.getYDomain());
+        io.outReal(fitter.evaluate(probeX, probeY));
+        io.outReal(fitter.error(probe));
+    }, { exact: true });
+
+    family.case('ApprPolynomial3.fitIndexed', (io) => {
+        const obs = observations(io, 3);
+        const subset = indices(io);
+        const xDegree = io.integer();
+        const yDegree = io.integer();
+        const probeX = io.real();
+        const probeY = io.real();
+        const fitter = new ApprPolynomial3(xDegree, yDegree);
+        io.outBool(fitter.fitIndexed(obs, subset));
+        coefficients(io, fitter.getParameters());
+        io.outReals(fitter.getXDomain());
+        io.outReals(fitter.getYDomain());
+        io.outReal(fitter.evaluate(probeX, probeY));
+    }, { exact: true });
+
+    family.case('ApprPolynomial3.copyParameters', (io) => {
+        const obs = observations(io, 3);
+        const xDegree = io.integer();
+        const yDegree = io.integer();
+        const probeX = io.real();
+        const probeY = io.real();
+        const source = new ApprPolynomial3(xDegree, yDegree);
+        const target = new ApprPolynomial3(xDegree, yDegree);
+        source.fit(obs);
+        target.copyParameters(source);
+        coefficients(io, target.getParameters());
+        io.outReals(target.getXDomain());
+        io.outReals(target.getYDomain());
+        io.outReal(target.evaluate(probeX, probeY));
+    }, { exact: true });
+
+    // ------------------------------------------------------ ApprPolynomial4
+
+    family.case('ApprPolynomial4.fit', (io) => {
+        const obs = observations(io, 4);
+        const xDegree = io.integer();
+        const yDegree = io.integer();
+        const zDegree = io.integer();
+        const probeX = io.real();
+        const probeY = io.real();
+        const probeZ = io.real();
+        const probe = io.reals(4);
+        const fitter = new ApprPolynomial4(xDegree, yDegree, zDegree);
+        io.outBool(fitter.fit(obs));
+        io.outInt(fitter.getMinimumRequired());
+        coefficients(io, fitter.getParameters());
+        io.outReals(fitter.getXDomain());
+        io.outReals(fitter.getYDomain());
+        io.outReals(fitter.getZDomain());
+        io.outReal(fitter.evaluate(probeX, probeY, probeZ));
+        io.outReal(fitter.error(probe));
+    }, { exact: true });
+
+    family.case('ApprPolynomial4.fitIndexed', (io) => {
+        const obs = observations(io, 4);
+        const subset = indices(io);
+        const xDegree = io.integer();
+        const yDegree = io.integer();
+        const zDegree = io.integer();
+        const probeX = io.real();
+        const probeY = io.real();
+        const probeZ = io.real();
+        const fitter = new ApprPolynomial4(xDegree, yDegree, zDegree);
+        io.outBool(fitter.fitIndexed(obs, subset));
+        coefficients(io, fitter.getParameters());
+        io.outReals(fitter.getXDomain());
+        io.outReals(fitter.getYDomain());
+        io.outReals(fitter.getZDomain());
+        io.outReal(fitter.evaluate(probeX, probeY, probeZ));
+    }, { exact: true });
+
+    family.case('ApprPolynomial4.copyParameters', (io) => {
+        const obs = observations(io, 4);
+        const xDegree = io.integer();
+        const yDegree = io.integer();
+        const zDegree = io.integer();
+        const probeX = io.real();
+        const probeY = io.real();
+        const probeZ = io.real();
+        const source = new ApprPolynomial4(xDegree, yDegree, zDegree);
+        const target = new ApprPolynomial4(xDegree, yDegree, zDegree);
+        source.fit(obs);
+        target.copyParameters(source);
+        coefficients(io, target.getParameters());
+        io.outReals(target.getXDomain());
+        io.outReal(target.evaluate(probeX, probeY, probeZ));
+    }, { exact: true });
+
+    // ----------------------------------------------- ApprPolynomialSpecial2
+
+    family.case('ApprPolynomialSpecial2.fit', (io) => {
+        const obs = observations(io, 2);
+        const list = degrees(io);
+        const probeX = io.real();
+        const probe = io.reals(2);
+        const fitter = new ApprPolynomialSpecial2(list);
+        io.outBool(fitter.fit(obs));
+        io.outInt(fitter.getMinimumRequired());
+        coefficients(io, fitter.getParameters());
+        io.outReals(fitter.getXDomain());
+        io.outReal(fitter.evaluate(probeX));
+        io.outReal(fitter.error(probe));
+    }, { exact: true });
+
+    family.case('ApprPolynomialSpecial2.fitIndexed', (io) => {
+        const obs = observations(io, 2);
+        const subset = indices(io);
+        const list = degrees(io);
+        const probeX = io.real();
+        const fitter = new ApprPolynomialSpecial2(list);
+        io.outBool(fitter.fitIndexed(obs, subset));
+        coefficients(io, fitter.getParameters());
+        io.outReals(fitter.getXDomain());
+        io.outReal(fitter.evaluate(probeX));
+    }, { exact: true });
+
+    family.case('ApprPolynomialSpecial2.copyParameters', (io) => {
+        const obs = observations(io, 2);
+        const list = degrees(io);
+        const probeX = io.real();
+        const source = new ApprPolynomialSpecial2(list);
+        const target = new ApprPolynomialSpecial2(list);
+        source.fit(obs);
+        target.copyParameters(source);
+        coefficients(io, target.getParameters());
+        io.outReals(target.getXDomain());
+        io.outReal(target.evaluate(probeX));
+    }, { exact: true });
+
+    family.case('ApprPolynomialSpecial2.constructor.assert', (io) => {
+        const count = io.integer();
+        const list = new Array<number>(count);
+        for (let i = 0; i < count; ++i) { list[i] = io.integer(); }
+        const fitter = new ApprPolynomialSpecial2(list);
+        io.outInt(fitter.getMinimumRequired());
+    }, { exact: true });
+
+    // ----------------------------------------------- ApprPolynomialSpecial3
+
+    family.case('ApprPolynomialSpecial3.fit', (io) => {
+        const obs = observations(io, 3);
+        const xDegrees = degrees(io);
+        const probeX = io.real();
+        const probeY = io.real();
+        const probe = io.reals(3);
+        const fitter = new ApprPolynomialSpecial3(xDegrees,
+            identityDegrees(xDegrees.length, 1));
+        io.outBool(fitter.fit(obs));
+        io.outInt(fitter.getMinimumRequired());
+        coefficients(io, fitter.getParameters());
+        io.outReals(fitter.getXDomain());
+        io.outReals(fitter.getYDomain());
+        io.outReal(fitter.evaluate(probeX, probeY));
+        io.outReal(fitter.error(probe));
+    }, { exact: true });
+
+    family.case('ApprPolynomialSpecial3.fitIndexed', (io) => {
+        const obs = observations(io, 3);
+        const subset = indices(io);
+        const xDegrees = degrees(io);
+        const probeX = io.real();
+        const probeY = io.real();
+        const fitter = new ApprPolynomialSpecial3(xDegrees,
+            identityDegrees(xDegrees.length, 2));
+        io.outBool(fitter.fitIndexed(obs, subset));
+        coefficients(io, fitter.getParameters());
+        io.outReals(fitter.getXDomain());
+        io.outReals(fitter.getYDomain());
+        io.outReal(fitter.evaluate(probeX, probeY));
+    }, { exact: true });
+
+    family.case('ApprPolynomialSpecial3.copyParameters', (io) => {
+        const obs = observations(io, 3);
+        const xDegrees = degrees(io);
+        const probeX = io.real();
+        const probeY = io.real();
+        const yDegrees = identityDegrees(xDegrees.length, 1);
+        const source = new ApprPolynomialSpecial3(xDegrees, yDegrees);
+        const target = new ApprPolynomialSpecial3(xDegrees, yDegrees);
+        source.fit(obs);
+        target.copyParameters(source);
+        coefficients(io, target.getParameters());
+        io.outReals(target.getXDomain());
+        io.outReals(target.getYDomain());
+        io.outReal(target.evaluate(probeX, probeY));
+    }, { exact: true });
+
+    family.case('ApprPolynomialSpecial3.constructor.affineAssert', (io) => {
+        const count = io.integer();
+        const xDegrees = new Array<number>(count);
+        const yDegrees = new Array<number>(count);
+        for (let i = 0; i < count; ++i) {
+            xDegrees[i] = io.integer();
+            yDegrees[i] = io.integer();
+        }
+        const fitter = new ApprPolynomialSpecial3(xDegrees, yDegrees);
+        io.outInt(fitter.getMinimumRequired());
+    }, { exact: true });
+
+    // ----------------------------------------------- ApprPolynomialSpecial4
+
+    family.case('ApprPolynomialSpecial4.fit', (io) => {
+        const obs = observations(io, 4);
+        const xDegrees = degrees(io);
+        const probeX = io.real();
+        const probeY = io.real();
+        const probeZ = io.real();
+        const probe = io.reals(4);
+        const fitter = new ApprPolynomialSpecial4(xDegrees,
+            identityDegrees(xDegrees.length, 1),
+            identityDegrees(xDegrees.length, 2));
+        io.outBool(fitter.fit(obs));
+        io.outInt(fitter.getMinimumRequired());
+        coefficients(io, fitter.getParameters());
+        io.outReals(fitter.getXDomain());
+        io.outReals(fitter.getYDomain());
+        io.outReals(fitter.getZDomain());
+        io.outReal(fitter.evaluate(probeX, probeY, probeZ));
+        io.outReal(fitter.error(probe));
+    }, { exact: true });
+
+    family.case('ApprPolynomialSpecial4.fitIndexed', (io) => {
+        const obs = observations(io, 4);
+        const subset = indices(io);
+        const xDegrees = degrees(io);
+        const probeX = io.real();
+        const probeY = io.real();
+        const probeZ = io.real();
+        const fitter = new ApprPolynomialSpecial4(xDegrees,
+            identityDegrees(xDegrees.length, 2),
+            identityDegrees(xDegrees.length, 1));
+        io.outBool(fitter.fitIndexed(obs, subset));
+        coefficients(io, fitter.getParameters());
+        io.outReals(fitter.getXDomain());
+        io.outReals(fitter.getYDomain());
+        io.outReals(fitter.getZDomain());
+        io.outReal(fitter.evaluate(probeX, probeY, probeZ));
+    }, { exact: true });
+
+    family.case('ApprPolynomialSpecial4.copyParameters', (io) => {
+        const obs = observations(io, 4);
+        const xDegrees = degrees(io);
+        const probeX = io.real();
+        const probeY = io.real();
+        const probeZ = io.real();
+        const other = identityDegrees(xDegrees.length, 1);
+        const source = new ApprPolynomialSpecial4(xDegrees, other, other);
+        const target = new ApprPolynomialSpecial4(xDegrees, other, other);
+        source.fit(obs);
+        target.copyParameters(source);
+        coefficients(io, target.getParameters());
+        io.outReals(target.getXDomain());
+        io.outReal(target.evaluate(probeX, probeY, probeZ));
+    }, { exact: true });
+
+    family.case('ApprPolynomialSpecial4.constructor.sizeAssert', (io) => {
+        const count = io.integer();
+        const extra = io.integer();
+        const fitter = new ApprPolynomialSpecial4(identityDegrees(count, 1),
+            identityDegrees(count, 1), identityDegrees(count + extra, 1));
+        io.outInt(fitter.getMinimumRequired());
     }, { exact: true });
 
     family.finish();

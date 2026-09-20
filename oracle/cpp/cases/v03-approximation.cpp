@@ -225,6 +225,194 @@ namespace
         }
         return indices;
     }
+
+    // Observations (x,w). Records the count, the mode and then 2 doubles per
+    // observation. Modes:
+    //   0  uniform
+    //   1  small integer lattice
+    //   2  degenerate x-domain (every sample shares its x)
+    //   3  exact polynomial samples w = sum c[i]*x^i on a lattice
+    //   4  degenerate w-domain (every sample shares its w)
+    std::vector<std::array<double, 2>> MakeObs2(oracle::Ctx& io, int32_t minN,
+        int32_t maxN)
+    {
+        int32_t const n = io.integer(minN, maxN);
+        int32_t const mode = io.integer(0, 4);
+        std::vector<std::array<double, 2>> obs(static_cast<size_t>(n));
+        double const fixedX = static_cast<double>(io.rawInteger(-4, 4));
+        double const fixedW = static_cast<double>(io.rawInteger(-4, 4));
+        std::array<double, 4> c{};
+        for (int32_t i = 0; i < 4; ++i)
+        {
+            c[i] = static_cast<double>(io.rawInteger(-3, 3));
+        }
+
+        for (int32_t i = 0; i < n; ++i)
+        {
+            double x, w;
+            if (mode == 0)
+            {
+                x = io.raw(-5.0, 5.0);
+                w = io.raw(-5.0, 5.0);
+            }
+            else if (mode == 1)
+            {
+                x = static_cast<double>(io.rawInteger(-5, 5));
+                w = static_cast<double>(io.rawInteger(-5, 5));
+            }
+            else if (mode == 2)
+            {
+                x = fixedX;
+                w = static_cast<double>(io.rawInteger(-5, 5));
+            }
+            else if (mode == 3)
+            {
+                x = static_cast<double>(io.rawInteger(-3, 3));
+                w = ((c[3] * x + c[2]) * x + c[1]) * x + c[0];
+            }
+            else
+            {
+                x = static_cast<double>(io.rawInteger(-5, 5));
+                w = fixedW;
+            }
+            obs[i][0] = io.given(x);
+            obs[i][1] = io.given(w);
+        }
+        return obs;
+    }
+
+    // Observations (x,y,w). Modes as for MakeObs2, with mode 3 sampling the
+    // bilinear polynomial c0 + c1*x + c2*y + c3*x*y exactly.
+    std::vector<std::array<double, 3>> MakeObs3(oracle::Ctx& io, int32_t minN,
+        int32_t maxN)
+    {
+        int32_t const n = io.integer(minN, maxN);
+        int32_t const mode = io.integer(0, 4);
+        std::vector<std::array<double, 3>> obs(static_cast<size_t>(n));
+        double const fixedX = static_cast<double>(io.rawInteger(-4, 4));
+        double const fixedW = static_cast<double>(io.rawInteger(-4, 4));
+        std::array<double, 4> c{};
+        for (int32_t i = 0; i < 4; ++i)
+        {
+            c[i] = static_cast<double>(io.rawInteger(-3, 3));
+        }
+
+        for (int32_t i = 0; i < n; ++i)
+        {
+            double x, y, w;
+            if (mode == 0)
+            {
+                x = io.raw(-5.0, 5.0);
+                y = io.raw(-5.0, 5.0);
+                w = io.raw(-5.0, 5.0);
+            }
+            else if (mode == 1)
+            {
+                x = static_cast<double>(io.rawInteger(-4, 4));
+                y = static_cast<double>(io.rawInteger(-4, 4));
+                w = static_cast<double>(io.rawInteger(-4, 4));
+            }
+            else if (mode == 2)
+            {
+                x = fixedX;
+                y = static_cast<double>(io.rawInteger(-4, 4));
+                w = static_cast<double>(io.rawInteger(-4, 4));
+            }
+            else if (mode == 3)
+            {
+                x = static_cast<double>(io.rawInteger(-3, 3));
+                y = static_cast<double>(io.rawInteger(-3, 3));
+                w = c[0] + c[1] * x + c[2] * y + c[3] * x * y;
+            }
+            else
+            {
+                x = static_cast<double>(io.rawInteger(-4, 4));
+                y = static_cast<double>(io.rawInteger(-4, 4));
+                w = fixedW;
+            }
+            obs[i][0] = io.given(x);
+            obs[i][1] = io.given(y);
+            obs[i][2] = io.given(w);
+        }
+        return obs;
+    }
+
+    // Observations (x,y,z,w). Modes as for MakeObs2, with mode 3 sampling the
+    // affine polynomial c0 + c1*x + c2*y + c3*z exactly.
+    std::vector<std::array<double, 4>> MakeObs4(oracle::Ctx& io, int32_t minN,
+        int32_t maxN)
+    {
+        int32_t const n = io.integer(minN, maxN);
+        int32_t const mode = io.integer(0, 4);
+        std::vector<std::array<double, 4>> obs(static_cast<size_t>(n));
+        double const fixedX = static_cast<double>(io.rawInteger(-3, 3));
+        double const fixedW = static_cast<double>(io.rawInteger(-3, 3));
+        std::array<double, 4> c{};
+        for (int32_t i = 0; i < 4; ++i)
+        {
+            c[i] = static_cast<double>(io.rawInteger(-3, 3));
+        }
+
+        for (int32_t i = 0; i < n; ++i)
+        {
+            double x, y, z, w;
+            if (mode == 0)
+            {
+                x = io.raw(-4.0, 4.0);
+                y = io.raw(-4.0, 4.0);
+                z = io.raw(-4.0, 4.0);
+                w = io.raw(-4.0, 4.0);
+            }
+            else if (mode == 1)
+            {
+                x = static_cast<double>(io.rawInteger(-3, 3));
+                y = static_cast<double>(io.rawInteger(-3, 3));
+                z = static_cast<double>(io.rawInteger(-3, 3));
+                w = static_cast<double>(io.rawInteger(-3, 3));
+            }
+            else if (mode == 2)
+            {
+                x = fixedX;
+                y = static_cast<double>(io.rawInteger(-3, 3));
+                z = static_cast<double>(io.rawInteger(-3, 3));
+                w = static_cast<double>(io.rawInteger(-3, 3));
+            }
+            else if (mode == 3)
+            {
+                x = static_cast<double>(io.rawInteger(-2, 2));
+                y = static_cast<double>(io.rawInteger(-2, 2));
+                z = static_cast<double>(io.rawInteger(-2, 2));
+                w = c[0] + c[1] * x + c[2] * y + c[3] * z;
+            }
+            else
+            {
+                x = static_cast<double>(io.rawInteger(-3, 3));
+                y = static_cast<double>(io.rawInteger(-3, 3));
+                z = static_cast<double>(io.rawInteger(-3, 3));
+                w = fixedW;
+            }
+            obs[i][0] = io.given(x);
+            obs[i][1] = io.given(y);
+            obs[i][2] = io.given(z);
+            obs[i][3] = io.given(w);
+        }
+        return obs;
+    }
+
+    // A strictly increasing nonnegative degree list with gaps. Records the
+    // count and then the degrees.
+    std::vector<int32_t> MakeDegrees(oracle::Ctx& io, int32_t maxCount)
+    {
+        int32_t const count = io.integer(1, maxCount);
+        std::vector<int32_t> degrees(static_cast<size_t>(count));
+        int32_t last = -1;
+        for (int32_t i = 0; i < count; ++i)
+        {
+            last += io.rawInteger(1, 3);
+            degrees[i] = static_cast<int32_t>(io.given(static_cast<double>(last)));
+        }
+        return degrees;
+    }
 }
 
 // ---------------------------------------------------------------- ApprQuery
@@ -798,4 +986,453 @@ ORACLE_CASE("ApprOrthogonalPlane3.copyParameters")
     io.outVec(target.GetParameters().first);
     io.outVec(target.GetParameters().second);
     io.outReal(target.Error(probe));
+}
+
+// ---------------------------------------------------------- ApprPolynomial2
+
+ORACLE_CASE("ApprPolynomial2.fit")
+{
+    auto obs = MakeObs2(io, 1, 8);
+    int32_t degree = io.integer(1, 3);
+    double probeX = io.real(-6.0, 6.0);
+    std::array<double, 2> probe{ io.real(-6.0, 6.0), io.real(-6.0, 6.0) };
+    ApprPolynomial2<double> fitter(degree);
+    bool success = fitter.Fit(obs);
+    io.outBool(success);
+    io.outInt(fitter.GetMinimumRequired());
+    io.outInt(fitter.GetParameters().size());
+    for (auto value : fitter.GetParameters()) { io.outReal(value); }
+    io.outReal(fitter.GetXDomain()[0]);
+    io.outReal(fitter.GetXDomain()[1]);
+    io.outReal(fitter.Evaluate(probeX));
+    io.outReal(fitter.Error(probe));
+}
+
+ORACLE_CASE("ApprPolynomial2.fitIndexed")
+{
+    auto obs = MakeObs2(io, 2, 8);
+    auto indices = MakeIndices(io, static_cast<int32_t>(obs.size()), 1);
+    int32_t degree = io.integer(1, 3);
+    double probeX = io.real(-6.0, 6.0);
+    ApprPolynomial2<double> fitter(degree);
+    bool success = fitter.FitIndexed(obs.size(), obs.data(), indices.size(), indices.data());
+    io.outBool(success);
+    io.outInt(fitter.GetParameters().size());
+    for (auto value : fitter.GetParameters()) { io.outReal(value); }
+    io.outReal(fitter.GetXDomain()[0]);
+    io.outReal(fitter.GetXDomain()[1]);
+    io.outReal(fitter.Evaluate(probeX));
+}
+
+// CopyParameters carries the degree, the domain and the coefficients.
+ORACLE_CASE("ApprPolynomial2.copyParameters")
+{
+    auto obs = MakeObs2(io, 2, 8);
+    int32_t degree = io.integer(1, 3);
+    double probeX = io.real(-6.0, 6.0);
+    ApprPolynomial2<double> source(degree), target(degree);
+    source.Fit(obs);
+    target.CopyParameters(&source);
+    io.outInt(target.GetParameters().size());
+    for (auto value : target.GetParameters()) { io.outReal(value); }
+    io.outReal(target.GetXDomain()[0]);
+    io.outReal(target.GetXDomain()[1]);
+    io.outReal(target.Evaluate(probeX));
+}
+
+// ---------------------------------------------------------- ApprPolynomial3
+
+ORACLE_CASE("ApprPolynomial3.fit")
+{
+    auto obs = MakeObs3(io, 1, 10);
+    int32_t xDegree = io.integer(0, 2);
+    int32_t yDegree = io.integer(0, 2);
+    double probeX = io.real(-6.0, 6.0);
+    double probeY = io.real(-6.0, 6.0);
+    std::array<double, 3> probe{ io.real(-6.0, 6.0), io.real(-6.0, 6.0), io.real(-6.0, 6.0) };
+    ApprPolynomial3<double> fitter(xDegree, yDegree);
+    bool success = fitter.Fit(obs);
+    io.outBool(success);
+    io.outInt(fitter.GetMinimumRequired());
+    io.outInt(fitter.GetParameters().size());
+    for (auto value : fitter.GetParameters()) { io.outReal(value); }
+    io.outReal(fitter.GetXDomain()[0]);
+    io.outReal(fitter.GetXDomain()[1]);
+    io.outReal(fitter.GetYDomain()[0]);
+    io.outReal(fitter.GetYDomain()[1]);
+    io.outReal(fitter.Evaluate(probeX, probeY));
+    io.outReal(fitter.Error(probe));
+}
+
+ORACLE_CASE("ApprPolynomial3.fitIndexed")
+{
+    auto obs = MakeObs3(io, 2, 10);
+    auto indices = MakeIndices(io, static_cast<int32_t>(obs.size()), 1);
+    int32_t xDegree = io.integer(0, 2);
+    int32_t yDegree = io.integer(0, 2);
+    double probeX = io.real(-6.0, 6.0);
+    double probeY = io.real(-6.0, 6.0);
+    ApprPolynomial3<double> fitter(xDegree, yDegree);
+    bool success = fitter.FitIndexed(obs.size(), obs.data(), indices.size(), indices.data());
+    io.outBool(success);
+    io.outInt(fitter.GetParameters().size());
+    for (auto value : fitter.GetParameters()) { io.outReal(value); }
+    io.outReal(fitter.GetXDomain()[0]);
+    io.outReal(fitter.GetXDomain()[1]);
+    io.outReal(fitter.GetYDomain()[0]);
+    io.outReal(fitter.GetYDomain()[1]);
+    io.outReal(fitter.Evaluate(probeX, probeY));
+}
+
+ORACLE_CASE("ApprPolynomial3.copyParameters")
+{
+    auto obs = MakeObs3(io, 2, 10);
+    int32_t xDegree = io.integer(0, 2);
+    int32_t yDegree = io.integer(0, 2);
+    double probeX = io.real(-6.0, 6.0);
+    double probeY = io.real(-6.0, 6.0);
+    ApprPolynomial3<double> source(xDegree, yDegree), target(xDegree, yDegree);
+    source.Fit(obs);
+    target.CopyParameters(&source);
+    io.outInt(target.GetParameters().size());
+    for (auto value : target.GetParameters()) { io.outReal(value); }
+    io.outReal(target.GetXDomain()[0]);
+    io.outReal(target.GetXDomain()[1]);
+    io.outReal(target.GetYDomain()[0]);
+    io.outReal(target.GetYDomain()[1]);
+    io.outReal(target.Evaluate(probeX, probeY));
+}
+
+// ---------------------------------------------------------- ApprPolynomial4
+
+ORACLE_CASE("ApprPolynomial4.fit")
+{
+    auto obs = MakeObs4(io, 1, 12);
+    int32_t xDegree = io.integer(0, 2);
+    int32_t yDegree = io.integer(0, 2);
+    int32_t zDegree = io.integer(0, 2);
+    double probeX = io.real(-5.0, 5.0);
+    double probeY = io.real(-5.0, 5.0);
+    double probeZ = io.real(-5.0, 5.0);
+    std::array<double, 4> probe{ io.real(-5.0, 5.0), io.real(-5.0, 5.0),
+        io.real(-5.0, 5.0), io.real(-5.0, 5.0) };
+    ApprPolynomial4<double> fitter(xDegree, yDegree, zDegree);
+    bool success = fitter.Fit(obs);
+    io.outBool(success);
+    io.outInt(fitter.GetMinimumRequired());
+    io.outInt(fitter.GetParameters().size());
+    for (auto value : fitter.GetParameters()) { io.outReal(value); }
+    io.outReal(fitter.GetXDomain()[0]);
+    io.outReal(fitter.GetXDomain()[1]);
+    io.outReal(fitter.GetYDomain()[0]);
+    io.outReal(fitter.GetYDomain()[1]);
+    io.outReal(fitter.GetZDomain()[0]);
+    io.outReal(fitter.GetZDomain()[1]);
+    io.outReal(fitter.Evaluate(probeX, probeY, probeZ));
+    io.outReal(fitter.Error(probe));
+}
+
+ORACLE_CASE("ApprPolynomial4.fitIndexed")
+{
+    auto obs = MakeObs4(io, 2, 12);
+    auto indices = MakeIndices(io, static_cast<int32_t>(obs.size()), 1);
+    int32_t xDegree = io.integer(0, 2);
+    int32_t yDegree = io.integer(0, 1);
+    int32_t zDegree = io.integer(0, 1);
+    double probeX = io.real(-5.0, 5.0);
+    double probeY = io.real(-5.0, 5.0);
+    double probeZ = io.real(-5.0, 5.0);
+    ApprPolynomial4<double> fitter(xDegree, yDegree, zDegree);
+    bool success = fitter.FitIndexed(obs.size(), obs.data(), indices.size(), indices.data());
+    io.outBool(success);
+    io.outInt(fitter.GetParameters().size());
+    for (auto value : fitter.GetParameters()) { io.outReal(value); }
+    io.outReal(fitter.GetXDomain()[0]);
+    io.outReal(fitter.GetXDomain()[1]);
+    io.outReal(fitter.GetYDomain()[0]);
+    io.outReal(fitter.GetYDomain()[1]);
+    io.outReal(fitter.GetZDomain()[0]);
+    io.outReal(fitter.GetZDomain()[1]);
+    io.outReal(fitter.Evaluate(probeX, probeY, probeZ));
+}
+
+ORACLE_CASE("ApprPolynomial4.copyParameters")
+{
+    auto obs = MakeObs4(io, 2, 12);
+    int32_t xDegree = io.integer(0, 1);
+    int32_t yDegree = io.integer(0, 1);
+    int32_t zDegree = io.integer(0, 1);
+    double probeX = io.real(-5.0, 5.0);
+    double probeY = io.real(-5.0, 5.0);
+    double probeZ = io.real(-5.0, 5.0);
+    ApprPolynomial4<double> source(xDegree, yDegree, zDegree);
+    ApprPolynomial4<double> target(xDegree, yDegree, zDegree);
+    source.Fit(obs);
+    target.CopyParameters(&source);
+    io.outInt(target.GetParameters().size());
+    for (auto value : target.GetParameters()) { io.outReal(value); }
+    io.outReal(target.GetXDomain()[0]);
+    io.outReal(target.GetXDomain()[1]);
+    io.outReal(target.Evaluate(probeX, probeY, probeZ));
+}
+
+// --------------------------------------------------- ApprPolynomialSpecial2
+
+ORACLE_CASE("ApprPolynomialSpecial2.fit")
+{
+    auto obs = MakeObs2(io, 1, 8);
+    auto degrees = MakeDegrees(io, 3);
+    double probeX = io.real(-6.0, 6.0);
+    std::array<double, 2> probe{ io.real(-6.0, 6.0), io.real(-6.0, 6.0) };
+    ApprPolynomialSpecial2<double> fitter(degrees);
+    bool success = fitter.Fit(obs);
+    io.outBool(success);
+    io.outInt(fitter.GetMinimumRequired());
+    io.outInt(fitter.GetParameters().size());
+    for (auto value : fitter.GetParameters()) { io.outReal(value); }
+    io.outReal(fitter.GetXDomain()[0]);
+    io.outReal(fitter.GetXDomain()[1]);
+    io.outReal(fitter.Evaluate(probeX));
+    io.outReal(fitter.Error(probe));
+}
+
+ORACLE_CASE("ApprPolynomialSpecial2.fitIndexed")
+{
+    auto obs = MakeObs2(io, 2, 8);
+    auto indices = MakeIndices(io, static_cast<int32_t>(obs.size()), 1);
+    auto degrees = MakeDegrees(io, 3);
+    double probeX = io.real(-6.0, 6.0);
+    ApprPolynomialSpecial2<double> fitter(degrees);
+    bool success = fitter.FitIndexed(obs.size(), obs.data(), indices.size(), indices.data());
+    io.outBool(success);
+    io.outInt(fitter.GetParameters().size());
+    for (auto value : fitter.GetParameters()) { io.outReal(value); }
+    io.outReal(fitter.GetXDomain()[0]);
+    io.outReal(fitter.GetXDomain()[1]);
+    io.outReal(fitter.Evaluate(probeX));
+}
+
+ORACLE_CASE("ApprPolynomialSpecial2.copyParameters")
+{
+    auto obs = MakeObs2(io, 2, 8);
+    auto degrees = MakeDegrees(io, 3);
+    double probeX = io.real(-6.0, 6.0);
+    ApprPolynomialSpecial2<double> source(degrees), target(degrees);
+    source.Fit(obs);
+    target.CopyParameters(&source);
+    io.outInt(target.GetParameters().size());
+    for (auto value : target.GetParameters()) { io.outReal(value); }
+    io.outReal(target.GetXDomain()[0]);
+    io.outReal(target.GetXDomain()[1]);
+    io.outReal(target.Evaluate(probeX));
+}
+
+// The constructor's LogAssert on a degree list that is not strictly
+// increasing (the port preserves both asserts).
+ORACLE_CASE("ApprPolynomialSpecial2.constructor.assert")
+{
+    int32_t count = io.integer(1, 3);
+    std::vector<int32_t> degrees(static_cast<size_t>(count));
+    for (int32_t i = 0; i < count; ++i)
+    {
+        degrees[i] = static_cast<int32_t>(io.given(
+            static_cast<double>(io.rawInteger(-1, 2))));
+    }
+    ApprPolynomialSpecial2<double> fitter(degrees);
+    io.outInt(fitter.GetMinimumRequired());
+}
+
+// --------------------------------------------------- ApprPolynomialSpecial3
+
+ORACLE_CASE("ApprPolynomialSpecial3.fit")
+{
+    auto obs = MakeObs3(io, 1, 10);
+    auto xDegrees = MakeDegrees(io, 3);
+    double probeX = io.real(-6.0, 6.0);
+    double probeY = io.real(-6.0, 6.0);
+    std::array<double, 3> probe{ io.real(-6.0, 6.0), io.real(-6.0, 6.0), io.real(-6.0, 6.0) };
+    // The upstream constructor requires the two lists to have equal size and
+    // each to be strictly increasing (the preserved defect below), so the y
+    // list is the identity list of the same size.
+    std::vector<int32_t> yDegrees(xDegrees.size());
+    for (size_t i = 0; i < yDegrees.size(); ++i)
+    {
+        yDegrees[i] = static_cast<int32_t>(i);
+    }
+    ApprPolynomialSpecial3<double> fitter(xDegrees, yDegrees);
+    bool success = fitter.Fit(obs);
+    io.outBool(success);
+    io.outInt(fitter.GetMinimumRequired());
+    io.outInt(fitter.GetParameters().size());
+    for (auto value : fitter.GetParameters()) { io.outReal(value); }
+    io.outReal(fitter.GetXDomain()[0]);
+    io.outReal(fitter.GetXDomain()[1]);
+    io.outReal(fitter.GetYDomain()[0]);
+    io.outReal(fitter.GetYDomain()[1]);
+    io.outReal(fitter.Evaluate(probeX, probeY));
+    io.outReal(fitter.Error(probe));
+}
+
+ORACLE_CASE("ApprPolynomialSpecial3.fitIndexed")
+{
+    auto obs = MakeObs3(io, 2, 10);
+    auto indices = MakeIndices(io, static_cast<int32_t>(obs.size()), 1);
+    auto xDegrees = MakeDegrees(io, 3);
+    double probeX = io.real(-6.0, 6.0);
+    double probeY = io.real(-6.0, 6.0);
+    std::vector<int32_t> yDegrees(xDegrees.size());
+    for (size_t i = 0; i < yDegrees.size(); ++i)
+    {
+        yDegrees[i] = static_cast<int32_t>(2 * i);
+    }
+    ApprPolynomialSpecial3<double> fitter(xDegrees, yDegrees);
+    bool success = fitter.FitIndexed(obs.size(), obs.data(), indices.size(), indices.data());
+    io.outBool(success);
+    io.outInt(fitter.GetParameters().size());
+    for (auto value : fitter.GetParameters()) { io.outReal(value); }
+    io.outReal(fitter.GetXDomain()[0]);
+    io.outReal(fitter.GetXDomain()[1]);
+    io.outReal(fitter.GetYDomain()[0]);
+    io.outReal(fitter.GetYDomain()[1]);
+    io.outReal(fitter.Evaluate(probeX, probeY));
+}
+
+ORACLE_CASE("ApprPolynomialSpecial3.copyParameters")
+{
+    auto obs = MakeObs3(io, 2, 10);
+    auto xDegrees = MakeDegrees(io, 3);
+    double probeX = io.real(-6.0, 6.0);
+    double probeY = io.real(-6.0, 6.0);
+    std::vector<int32_t> yDegrees(xDegrees.size());
+    for (size_t i = 0; i < yDegrees.size(); ++i)
+    {
+        yDegrees[i] = static_cast<int32_t>(i);
+    }
+    ApprPolynomialSpecial3<double> source(xDegrees, yDegrees);
+    ApprPolynomialSpecial3<double> target(xDegrees, yDegrees);
+    source.Fit(obs);
+    target.CopyParameters(&source);
+    io.outInt(target.GetParameters().size());
+    for (auto value : target.GetParameters()) { io.outReal(value); }
+    io.outReal(target.GetXDomain()[0]);
+    io.outReal(target.GetXDomain()[1]);
+    io.outReal(target.GetYDomain()[0]);
+    io.outReal(target.GetYDomain()[1]);
+    io.outReal(target.Evaluate(probeX, probeY));
+}
+
+// The preserved upstream defect: the constructor asserts that each degree
+// list is *separately* strictly increasing, which rejects the affine model
+// {1, x, y} that the header documents as admissible.
+ORACLE_CASE("ApprPolynomialSpecial3.constructor.affineAssert")
+{
+    int32_t count = io.integer(2, 3);
+    std::vector<int32_t> xDegrees(static_cast<size_t>(count));
+    std::vector<int32_t> yDegrees(static_cast<size_t>(count));
+    for (int32_t i = 0; i < count; ++i)
+    {
+        xDegrees[i] = static_cast<int32_t>(io.given(static_cast<double>(i == 0 ? 0 : 1)));
+        yDegrees[i] = static_cast<int32_t>(io.given(static_cast<double>(i)));
+    }
+    ApprPolynomialSpecial3<double> fitter(xDegrees, yDegrees);
+    io.outInt(fitter.GetMinimumRequired());
+}
+
+// --------------------------------------------------- ApprPolynomialSpecial4
+
+ORACLE_CASE("ApprPolynomialSpecial4.fit")
+{
+    auto obs = MakeObs4(io, 1, 12);
+    auto xDegrees = MakeDegrees(io, 3);
+    double probeX = io.real(-5.0, 5.0);
+    double probeY = io.real(-5.0, 5.0);
+    double probeZ = io.real(-5.0, 5.0);
+    std::array<double, 4> probe{ io.real(-5.0, 5.0), io.real(-5.0, 5.0),
+        io.real(-5.0, 5.0), io.real(-5.0, 5.0) };
+    std::vector<int32_t> yDegrees(xDegrees.size()), zDegrees(xDegrees.size());
+    for (size_t i = 0; i < xDegrees.size(); ++i)
+    {
+        yDegrees[i] = static_cast<int32_t>(i);
+        zDegrees[i] = static_cast<int32_t>(2 * i);
+    }
+    ApprPolynomialSpecial4<double> fitter(xDegrees, yDegrees, zDegrees);
+    bool success = fitter.Fit(obs);
+    io.outBool(success);
+    io.outInt(fitter.GetMinimumRequired());
+    io.outInt(fitter.GetParameters().size());
+    for (auto value : fitter.GetParameters()) { io.outReal(value); }
+    io.outReal(fitter.GetXDomain()[0]);
+    io.outReal(fitter.GetXDomain()[1]);
+    io.outReal(fitter.GetYDomain()[0]);
+    io.outReal(fitter.GetYDomain()[1]);
+    io.outReal(fitter.GetZDomain()[0]);
+    io.outReal(fitter.GetZDomain()[1]);
+    io.outReal(fitter.Evaluate(probeX, probeY, probeZ));
+    io.outReal(fitter.Error(probe));
+}
+
+ORACLE_CASE("ApprPolynomialSpecial4.fitIndexed")
+{
+    auto obs = MakeObs4(io, 2, 12);
+    auto indices = MakeIndices(io, static_cast<int32_t>(obs.size()), 1);
+    auto xDegrees = MakeDegrees(io, 3);
+    double probeX = io.real(-5.0, 5.0);
+    double probeY = io.real(-5.0, 5.0);
+    double probeZ = io.real(-5.0, 5.0);
+    std::vector<int32_t> yDegrees(xDegrees.size()), zDegrees(xDegrees.size());
+    for (size_t i = 0; i < xDegrees.size(); ++i)
+    {
+        yDegrees[i] = static_cast<int32_t>(2 * i);
+        zDegrees[i] = static_cast<int32_t>(i);
+    }
+    ApprPolynomialSpecial4<double> fitter(xDegrees, yDegrees, zDegrees);
+    bool success = fitter.FitIndexed(obs.size(), obs.data(), indices.size(), indices.data());
+    io.outBool(success);
+    io.outInt(fitter.GetParameters().size());
+    for (auto value : fitter.GetParameters()) { io.outReal(value); }
+    io.outReal(fitter.GetXDomain()[0]);
+    io.outReal(fitter.GetXDomain()[1]);
+    io.outReal(fitter.GetYDomain()[0]);
+    io.outReal(fitter.GetYDomain()[1]);
+    io.outReal(fitter.GetZDomain()[0]);
+    io.outReal(fitter.GetZDomain()[1]);
+    io.outReal(fitter.Evaluate(probeX, probeY, probeZ));
+}
+
+ORACLE_CASE("ApprPolynomialSpecial4.copyParameters")
+{
+    auto obs = MakeObs4(io, 2, 12);
+    auto xDegrees = MakeDegrees(io, 3);
+    double probeX = io.real(-5.0, 5.0);
+    double probeY = io.real(-5.0, 5.0);
+    double probeZ = io.real(-5.0, 5.0);
+    std::vector<int32_t> yDegrees(xDegrees.size()), zDegrees(xDegrees.size());
+    for (size_t i = 0; i < xDegrees.size(); ++i)
+    {
+        yDegrees[i] = static_cast<int32_t>(i);
+        zDegrees[i] = static_cast<int32_t>(i);
+    }
+    ApprPolynomialSpecial4<double> source(xDegrees, yDegrees, zDegrees);
+    ApprPolynomialSpecial4<double> target(xDegrees, yDegrees, zDegrees);
+    source.Fit(obs);
+    target.CopyParameters(&source);
+    io.outInt(target.GetParameters().size());
+    for (auto value : target.GetParameters()) { io.outReal(value); }
+    io.outReal(target.GetXDomain()[0]);
+    io.outReal(target.GetXDomain()[1]);
+    io.outReal(target.Evaluate(probeX, probeY, probeZ));
+}
+
+// The 'input arrays must have the same size' assert.
+ORACLE_CASE("ApprPolynomialSpecial4.constructor.sizeAssert")
+{
+    int32_t count = io.integer(1, 3);
+    int32_t extra = io.integer(0, 2);
+    std::vector<int32_t> xDegrees(static_cast<size_t>(count));
+    std::vector<int32_t> yDegrees(static_cast<size_t>(count));
+    std::vector<int32_t> zDegrees(static_cast<size_t>(count + extra));
+    for (int32_t i = 0; i < count; ++i) { xDegrees[i] = i; yDegrees[i] = i; }
+    for (int32_t i = 0; i < count + extra; ++i) { zDegrees[i] = i; }
+    ApprPolynomialSpecial4<double> fitter(xDegrees, yDegrees, zDegrees);
+    io.outInt(fitter.GetMinimumRequired());
 }
