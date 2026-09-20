@@ -1,7 +1,7 @@
 # Group 34 (`v34-intersection`) — C++ oracle report
 
-65 cases, 20 records each in `oracle/golden/v34-intersection.txt` (1300 records).
-57 of the cases are ordinary comparisons and 8 are deliberate `deviation` cases.
+66 cases, 20 records each in `oracle/golden/v34-intersection.txt` (1320 records).
+57 of the cases are ordinary comparisons and 9 are deliberate `deviation` cases.
 56 of the 57 ordinary cases are declared `exact` (bit-identical to the MSVC
 build of upstream GTE on every floating-point output); the remaining one,
 `IntrAreaEllipse2Ellipse2.compute`, reaches `atan2`, `atan`, `sin`, `cos` and
@@ -21,7 +21,7 @@ C++), and the `AreaEllipse2Ellipse2::operator()` of the non-query class.
 | header | cases | comparison | deep run |
 | --- | --- | --- | --- |
 | `IntrAlignedBox3Cone3.h` | `test`, `test.straddle`, `computeBoxHeightInterval`, `coneAxisIntersectsBox`, `hasPointInsideCone`, `test.staleAdjacencyDeviation` | exact (+1 deviation) | pass |
-| `IntrAreaEllipse2Ellipse2.h` | `compute`, `compute.uninitializedDeviation` | tol 1e-8 (libm) (+1 deviation) | pass |
+| `IntrAreaEllipse2Ellipse2.h` | `compute`, `compute.uninitializedDeviation`, `compute.leftHandedDeviation` | tol 1e-8 (libm) (+2 deviations) | pass |
 | `IntrConvexMesh3Plane3.h` | `find.tetrahedron`, `find.configurationOnly`, `find.tangent`, `find.box`, `find.coplanarFaceDeviation` | exact (+1 deviation) | pass |
 | `IntrLine3Cone3.h` | `find`, `doQuery.fi`, `find.vertexDeviation` | exact (+1 deviation) | pass |
 | `IntrLine3Plane3.h` | `test`, `find`, `doQuery.fi`, `find.parallel` | exact | pass |
@@ -133,7 +133,25 @@ distributions below are from the committed 20-record goldens and the
 - **Ellipse areas.** The two ellipses are drawn with centres within a short
   offset of each other, which reaches `ELLIPSES_ARE_SEPARATED`,
   `E0_CONTAINS_E1`, `E1_CONTAINS_E0`, `ONE_CHORD_REGION` and
-  `FOUR_CHORD_REGION`.
+  `FOUR_CHORD_REGION` (225 / 8 / 25 / 657 / 85 of the first 1000 deep
+  records). The axis frames of the main case are right-handed; see
+  "Upstream defect found and fixed" below for why that matters. The main case
+  and the left-handed `deviation` case also reject, by a closed-form predicate
+  on the inputs, the pairs in which one of the eight axis-extreme points of
+  one ellipse lies on the other to within 1e-6: there the find-intersection
+  query's eliminated coordinate sits at the branch point of
+  `sqrt(1 - d*y^2)`, the quartic root from `RootsPolynomial::SolveQuartic`
+  (`pow`, `cos`, `atan2`) is only `sqrt(epsilon)` accurate, and whether the
+  crossing survives the query's validity test is decided by the last bit of
+  the C math library. On the 2000-record deep run MSVC dropped such a crossing
+  on one lattice record and V8 on another (both confirmed with a standalone
+  build of upstream: it reports 1 point for the ellipses centre `(-1,-1)`
+  extents `(3,1)` and centre `(-2,1)` extents `(2,1)`, axes `(0,-1)`, which
+  cross at the vertex `(-2,-1)` and at one more point; the port reports both).
+  Control flow decided by libm is not comparable even with a tolerance, so
+  those inputs are excluded rather than tolerated. The main case was checked
+  against an independent reference as well: on the first 1000 deep records
+  both the port's and upstream's area agree with a 600 x 600 grid count.
 
 ### Outputs canonicalized on both sides
 
@@ -173,6 +191,32 @@ translation unit actually picks depends on whether `Matrix2x2.h` or
 such ambiguity — every module is always available — and the specialized
 overloads exist precisely to be used, so the port dispatches on the dimension.
 
+## Upstream defect found and fixed
+
+**`AreaEllipse2Ellipse2` returns the complementary area for a left-handed axis
+frame** (issue [#507](https://github.com/gradientspaceai/gtengine-js/issues/507),
+result-corrupting). `ComputeAreaChordRegion` takes "the arc traversed
+counterclockwise from P0 to P1" to be the arc of increasing polar angle
+`atan2(Dot(axis[1],X), Dot(axis[0],X))`, and `Area4` orders the intersection
+points by that angle, which is counterclockwise only when `(axis[0], axis[1])`
+is right-handed. `Ellipse2` does not require that and the ellipse is the same
+point set either way. For two unit circles one unit apart with axes
+`((1,0),(0,-1))` the algorithm returns `2*pi - lens = 5.0548` where the lens is
+`2*pi/3 - sqrt(3)/2 = 1.2284`.
+
+It was found because the first version of this group's generator used
+`axis[1] = Perp(axis[0])`, and GTE's `Perp` is the clockwise one. Upstream and
+the port agreed bit for bit on every record and the areas were wrong on both
+sides for 74 % of them, which a bit-for-bit comparison cannot see; a check
+against a grid-count reference, made while root-causing the libm disagreement
+described above, did. The port now negates its private copy of `axis[1]` for a
+left-handed frame (`M` and the ellipse are unchanged, right-handed input is
+untouched and remains bit-identical to upstream). Regression test
+`is invariant under the orientation of the axis frame` in
+`test/IntrAreaEllipse2Ellipse2.test.ts`; `deviation` case
+`compute.leftHandedDeviation`, on whose first 1000 deep records upstream is
+wrong against the grid reference on 998 and the port on none.
+
 ## Deliberate deviations demonstrated
 
 | case | records disagreeing (golden / deep) | record of the decision |
@@ -184,6 +228,7 @@ overloads exist precisely to be used, so the port dispatches on the dimension.
 | `IntrLine3Cone3.find.vertexDeviation` | see below | `docs/UPSTREAM-FINDINGS.md` `IntrLine3Cone3.h`; issues [#304](https://github.com/gradientspaceai/gtengine-js/issues/304), [#465](https://github.com/gradientspaceai/gtengine-js/issues/465) |
 | `IntrAlignedBox3Cone3.test.staleAdjacencyDeviation` | 20/20, 2000/2000 | `docs/UPSTREAM-FINDINGS.md` `IntrAlignedBox3Cone3.h` `BoxFullyInConeSlab`; issue [#301](https://github.com/gradientspaceai/gtengine-js/issues/301) |
 | `IntrAreaEllipse2Ellipse2.compute.uninitializedDeviation` | 20/20, 2000/2000 | `docs/UPSTREAM-FINDINGS.md` `IntrAreaEllipse2Ellipse2.h`; issue [#301](https://github.com/gradientspaceai/gtengine-js/issues/301) |
+| `IntrAreaEllipse2Ellipse2.compute.leftHandedDeviation` | 20/20, 2000/2000 | `docs/UPSTREAM-FINDINGS.md` `IntrAreaEllipse2Ellipse2.h` item 3; issue [#507](https://github.com/gradientspaceai/gtengine-js/issues/507) |
 | `IntrConvexMesh3Plane3.find.coplanarFaceDeviation` | 20/20, 2000/2000 | `docs/UPSTREAM-FINDINGS.md` `IntrConvexMesh3Plane3.h` `GetIntersectionPolygon`; issue [#301](https://github.com/gradientspaceai/gtengine-js/issues/301) |
 
 Each deviation is confined to inputs on which upstream is actually defective,
@@ -236,7 +281,10 @@ ranges:
   vertices (indices >= 8) survive; the next `ClearCandidates` visits only the
   twelve box edges, and the next clipping query then silently drops those
   candidate edges through `InsertEdge` and reports a false negative. The
-  deviation case runs three queries on ONE query object — a clipping
+  deviation case (whose generator redraws the cone together with the boxes in
+  a capped rejection loop: some lattice frusta admit no pair on which the stale
+  bits matter, and the first version, which fixed the cone per record, never
+  terminated on deep record 27) runs three queries on ONE query object — a clipping
   configuration, a fully-in-slab configuration and the first configuration
   again — and emits all three answers; the first two agree and the third does
   not. The generator rejects the triples on which the reused object and a fresh
@@ -302,7 +350,10 @@ entry point has a case. Two deliberate restrictions are worth recording:
 
 ## Upstream bug suspects
 
-None new for this group's headers.
+One new result-corrupting defect, fixed in the port: `AreaEllipse2Ellipse2`
+and left-handed axis frames, issue
+[#507](https://github.com/gradientspaceai/gtengine-js/issues/507), described
+under "Upstream defect found and fixed".
 
 One observation about a *shared* file, for the group that owns it, is recorded
 above under "Port defects fixed": `Hyperellipsoid::FromCoefficients` calls

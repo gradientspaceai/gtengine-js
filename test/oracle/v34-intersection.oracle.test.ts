@@ -894,6 +894,13 @@ describe('oracle: v34-intersection', () => {
         areaEllipsesCompute,
         { deviation: 'UPSTREAM-FINDINGS IntrAreaEllipse2Ellipse2.h uninitialized members; #301' });
 
+    // Deliberate deviation: left-handed axis frames, for which upstream's
+    // chord regions are the complementary ones. The C++ side is upstream
+    // with the two #301 corrections applied, so only this defect differs.
+    family.case('IntrAreaEllipse2Ellipse2.compute.leftHandedDeviation',
+        areaEllipsesCompute,
+        { deviation: 'UPSTREAM-FINDINGS IntrAreaEllipse2Ellipse2.h left-handed axis frame; #507' });
+
     // ======================== IntrConvexMesh3Plane3 ======================
 
     const Q = IntrConvexMesh3Plane3FI;

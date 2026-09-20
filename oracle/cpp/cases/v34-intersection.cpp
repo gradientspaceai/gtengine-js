@@ -3160,8 +3160,19 @@ namespace
 
     // Two ellipses that overlap often enough for the chord-region branches to
     // be reached: the second centre is a short offset from the first.
+    //
+    // The axis frames are RIGHT-HANDED (axis[1] = -Perp(axis[0]), GTE's Perp
+    // being the clockwise one). Upstream's chord-region areas and Area4's
+    // point ordering assume that the polar angle
+    // atan2(Dot(axis[1],X), Dot(axis[0],X)) increases counterclockwise; for a
+    // left-handed frame they return the area of the complementary regions
+    // (the union of the ellipses for ONE_CHORD_REGION). The first version of
+    // this generator drew left-handed frames, upstream and the port agreed bit
+    // for bit on them, and 3 of 4 areas were wrong on both sides. The port now
+    // corrects it; bit 0 / bit 1 of 'leftHanded' flip the frame of e0 / e1 for
+    // the deviation case below.
     void RawAreaEllipses(oracle::Ctx& io, int mode, Ellipse2<double>& e0,
-        Ellipse2<double>& e1)
+        Ellipse2<double>& e1, int leftHanded = 0)
     {
         for (int k = 0; k < 2; ++k)
         {
@@ -3187,13 +3198,65 @@ namespace
                 } while (len < 0.1 || len > 1.0);
                 Normalize(e.axis[0]);
             }
-            e.axis[1] = Perp(e.axis[0]);
+            e.axis[1] = (((leftHanded >> k) & 1) != 0 ? Perp(e.axis[0])
+                : -Perp(e.axis[0]));
             for (int d = 0; d < 2; ++d)
             {
                 e.extent[d] = (mode == 0 ? static_cast<double>(io.rawInteger(1, 3))
                     : io.raw(0.5, 3.0));
             }
         }
+    }
+
+    // FIQuery<Ellipse2,Ellipse2> eliminates one world coordinate and solves a
+    // quartic in the other with RootsPolynomial::SolveQuartic (pow, cos,
+    // atan2). Where the ellipses cross at a point of either ellipse whose
+    // tangent is parallel to a coordinate axis, the eliminated coordinate is
+    // sqrt(1 - d*y^2) at its branch point: the root is only sqrt(epsilon)
+    // accurate and whether the point passes the query's validity test is
+    // decided by the last bit of the quartic root, that is by the C math
+    // library. On the deep run MSVC missed such a crossing on one lattice
+    // record and V8 on another (standalone probes: upstream reports 1 point
+    // for the pair ((-1,-1),(3,1)) / ((-2,1),(2,1)), axes (0,-1), whose
+    // crossing (-2,-1) is a vertex of the first ellipse, and the port reports
+    // 1 point for ((-2,2),(1,3)) / ((-1,-1),(3,3)), whose crossing (-1,2) is
+    // one too). Control flow decided by libm is not comparable even with a
+    // tolerance, so the main case rejects the pairs for which one of the
+    // eight axis-extreme points of one ellipse lies on the other to within
+    // 1e-6. The predicate is a closed-form superset of the knife edge, built
+    // from the inputs alone.
+    bool AreaPairIsLibmStable(Ellipse2<double> const& e0, Ellipse2<double> const& e1)
+    {
+        for (int k = 0; k < 2; ++k)
+        {
+            Ellipse2<double> const& a = (k == 0 ? e0 : e1);
+            Ellipse2<double> const& b = (k == 0 ? e1 : e0);
+            for (int d = 0; d < 2; ++d)
+            {
+                // M^{-1} n for the coordinate direction n = Unit(d).
+                Vector2<double> w{};
+                w.MakeZero();
+                for (int i = 0; i < 2; ++i)
+                {
+                    double s = a.extent[i] * a.extent[i] * a.axis[i][d];
+                    w = w + s * a.axis[i];
+                }
+                double len = std::sqrt(w[d]);
+                for (int sign = -1; sign <= 1; sign += 2)
+                {
+                    Vector2<double> X = a.center + (static_cast<double>(sign) / len) * w;
+                    Vector2<double> diff = X - b.center;
+                    double q = 0.0;
+                    for (int i = 0; i < 2; ++i)
+                    {
+                        double t = Dot(b.axis[i], diff) / b.extent[i];
+                        q += t * t;
+                    }
+                    if (std::fabs(q - 1.0) < 1e-6) { return false; }
+                }
+            }
+        }
+        return true;
     }
 
     void RecordEllipse(oracle::Ctx& io, Ellipse2<double> const& e)
@@ -3221,7 +3284,11 @@ ORACLE_CASE("IntrAreaEllipse2Ellipse2.compute")
 {
     int mode = io.index() % 2;
     Ellipse2<double> e0{}, e1{};
-    RawAreaEllipses(io, mode, e0, e1);
+    for (int attempt = 0; attempt < 200; ++attempt)
+    {
+        RawAreaEllipses(io, mode, e0, e1);
+        if (AreaPairIsLibmStable(e0, e1)) { break; }
+    }
     RecordEllipse(io, e0);
     RecordEllipse(io, e1);
     FixedAreaEllipse2Ellipse2 query;
@@ -3247,6 +3314,39 @@ ORACLE_CASE("IntrAreaEllipse2Ellipse2.compute.uninitializedDeviation")
     RecordEllipse(io, e0);
     RecordEllipse(io, e1);
     AreaEllipse2Ellipse2<double> query{};
+    auto r = query(e0, e1);
+    io.outInt(static_cast<int32_t>(r.configuration));
+    OutNumPoints(io, r.findResult.numPoints);
+    io.outReal(r.area);
+}
+
+// Deliberate deviation: one or both axis frames are left-handed. The ellipse
+// is the same point set, but upstream (here with the two documented
+// corrections applied, so that the comparison isolates this defect) replaces
+// every chord region by its complement. The generator keeps the pairs on
+// which the left-handed answer differs from the answer for the same ellipses
+// with right-handed frames by more than 1e-6, which are the chord
+// configurations; containment and separation do not read the polar angles.
+// docs/UPSTREAM-FINDINGS.md IntrAreaEllipse2Ellipse2.h item 3.
+ORACLE_CASE("IntrAreaEllipse2Ellipse2.compute.leftHandedDeviation")
+{
+    int mode = io.index() % 2;
+    int leftHanded = 1 + io.index() % 3;
+    Ellipse2<double> e0{}, e1{};
+    for (int attempt = 0; attempt < 200; ++attempt)
+    {
+        RawAreaEllipses(io, mode, e0, e1, leftHanded);
+        Ellipse2<double> r0 = e0, r1 = e1;
+        if ((leftHanded & 1) != 0) { r0.axis[1] = -r0.axis[1]; }
+        if ((leftHanded & 2) != 0) { r1.axis[1] = -r1.axis[1]; }
+        FixedAreaEllipse2Ellipse2 probe;
+        double areaLeft = probe(e0, e1).area;
+        double areaRight = probe(r0, r1).area;
+        if (AreaPairIsLibmStable(e0, e1) && std::fabs(areaLeft - areaRight) > 1e-6) { break; }
+    }
+    RecordEllipse(io, e0);
+    RecordEllipse(io, e1);
+    FixedAreaEllipse2Ellipse2 query;
     auto r = query(e0, e1);
     io.outInt(static_cast<int32_t>(r.configuration));
     OutNumPoints(io, r.findResult.numPoints);
