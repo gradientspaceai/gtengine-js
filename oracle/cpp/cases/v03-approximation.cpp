@@ -480,3 +480,322 @@ ORACLE_CASE("ApprSphere3.fitUsingLengths.epsilon")
     io.outVec(sphere.center);
     io.outReal(sphere.radius);
 }
+
+// ------------------------------------------------------------ ApprGaussian2
+
+ORACLE_CASE("ApprGaussian2.fit")
+{
+    auto P = MakePoints2(io, 1, 10);
+    auto probe = io.vec<2>(-12.0, 12.0);
+    ApprGaussian2<double> fitter;
+    bool success = fitter.Fit(P);
+    io.outBool(success);
+    io.outInt(fitter.GetMinimumRequired());
+    io.outVec(fitter.GetParameters().center);
+    io.outVec(fitter.GetParameters().axis[0]);
+    io.outVec(fitter.GetParameters().axis[1]);
+    io.outVec(fitter.GetParameters().extent);
+    io.outReal(fitter.Error(probe));
+}
+
+ORACLE_CASE("ApprGaussian2.fitIndexed")
+{
+    auto P = MakePoints2(io, 2, 8);
+    auto indices = MakeIndices(io, static_cast<int32_t>(P.size()), 1);
+    auto probe = io.vec<2>(-12.0, 12.0);
+    ApprGaussian2<double> fitter;
+    bool success = fitter.FitIndexed(P.size(), P.data(), indices.size(), indices.data());
+    io.outBool(success);
+    io.outVec(fitter.GetParameters().center);
+    io.outVec(fitter.GetParameters().axis[0]);
+    io.outVec(fitter.GetParameters().axis[1]);
+    io.outVec(fitter.GetParameters().extent);
+    io.outReal(fitter.Error(probe));
+}
+
+// CopyParameters through the base-class pointer.
+ORACLE_CASE("ApprGaussian2.copyParameters")
+{
+    auto P = MakePoints2(io, 2, 8);
+    auto probe = io.vec<2>(-12.0, 12.0);
+    ApprGaussian2<double> source, target;
+    source.Fit(P);
+    target.CopyParameters(&source);
+    io.outVec(target.GetParameters().center);
+    io.outVec(target.GetParameters().axis[0]);
+    io.outVec(target.GetParameters().axis[1]);
+    io.outVec(target.GetParameters().extent);
+    io.outReal(target.Error(probe));
+}
+
+// ------------------------------------------------------------ ApprGaussian3
+
+ORACLE_CASE("ApprGaussian3.fit")
+{
+    auto P = MakePoints3(io, 1, 10);
+    auto probe = io.vec<3>(-12.0, 12.0);
+    ApprGaussian3<double> fitter;
+    bool success = fitter.Fit(P);
+    io.outBool(success);
+    io.outInt(fitter.GetMinimumRequired());
+    io.outVec(fitter.GetParameters().center);
+    io.outVec(fitter.GetParameters().axis[0]);
+    io.outVec(fitter.GetParameters().axis[1]);
+    io.outVec(fitter.GetParameters().axis[2]);
+    io.outVec(fitter.GetParameters().extent);
+    io.outReal(fitter.Error(probe));
+}
+
+ORACLE_CASE("ApprGaussian3.fitIndexed")
+{
+    auto P = MakePoints3(io, 2, 8);
+    auto indices = MakeIndices(io, static_cast<int32_t>(P.size()), 1);
+    auto probe = io.vec<3>(-12.0, 12.0);
+    ApprGaussian3<double> fitter;
+    bool success = fitter.FitIndexed(P.size(), P.data(), indices.size(), indices.data());
+    io.outBool(success);
+    io.outVec(fitter.GetParameters().center);
+    io.outVec(fitter.GetParameters().axis[0]);
+    io.outVec(fitter.GetParameters().axis[1]);
+    io.outVec(fitter.GetParameters().axis[2]);
+    io.outVec(fitter.GetParameters().extent);
+    io.outReal(fitter.Error(probe));
+}
+
+ORACLE_CASE("ApprGaussian3.copyParameters")
+{
+    auto P = MakePoints3(io, 2, 8);
+    auto probe = io.vec<3>(-12.0, 12.0);
+    ApprGaussian3<double> source, target;
+    source.Fit(P);
+    target.CopyParameters(&source);
+    io.outVec(target.GetParameters().center);
+    io.outVec(target.GetParameters().axis[0]);
+    io.outVec(target.GetParameters().axis[1]);
+    io.outVec(target.GetParameters().axis[2]);
+    io.outVec(target.GetParameters().extent);
+    io.outReal(target.Error(probe));
+}
+
+// ----------------------------------------------------------- ApprHeightLine2
+
+ORACLE_CASE("ApprHeightLine2.fit")
+{
+    auto P = MakePoints2(io, 1, 10);
+    auto probe = io.vec<2>(-12.0, 12.0);
+    ApprHeightLine2<double> fitter;
+    bool success = fitter.Fit(P);
+    io.outBool(success);
+    io.outInt(fitter.GetMinimumRequired());
+    io.outVec(fitter.GetParameters().first);
+    io.outVec(fitter.GetParameters().second);
+    io.outReal(fitter.Error(probe));
+}
+
+// A degenerate x-domain (every sample shares its x) makes covar00 exactly
+// zero, which is the documented failure branch.
+ORACLE_CASE("ApprHeightLine2.fit.verticalData")
+{
+    int32_t const n = io.integer(1, 8);
+    double const x = static_cast<double>(io.rawInteger(-5, 5));
+    std::vector<Vector2<double>> P(static_cast<size_t>(n));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        double const y = static_cast<double>(io.rawInteger(-5, 5));
+        P[i] = io.givenVec(Vector2<double>{ x, y });
+    }
+    auto probe = io.vec<2>(-12.0, 12.0);
+    ApprHeightLine2<double> fitter;
+    bool success = fitter.Fit(P);
+    io.outBool(success);
+    io.outVec(fitter.GetParameters().first);
+    io.outVec(fitter.GetParameters().second);
+    io.outReal(fitter.Error(probe));
+}
+
+ORACLE_CASE("ApprHeightLine2.copyParameters")
+{
+    auto P = MakePoints2(io, 2, 8);
+    auto probe = io.vec<2>(-12.0, 12.0);
+    ApprHeightLine2<double> source, target;
+    source.Fit(P);
+    target.CopyParameters(&source);
+    io.outVec(target.GetParameters().first);
+    io.outVec(target.GetParameters().second);
+    io.outReal(target.Error(probe));
+}
+
+// ---------------------------------------------------------- ApprHeightPlane3
+
+ORACLE_CASE("ApprHeightPlane3.fit")
+{
+    auto P = MakePoints3(io, 1, 10);
+    auto probe = io.vec<3>(-12.0, 12.0);
+    ApprHeightPlane3<double> fitter;
+    bool success = fitter.Fit(P);
+    io.outBool(success);
+    io.outInt(fitter.GetMinimumRequired());
+    io.outVec(fitter.GetParameters().first);
+    io.outVec(fitter.GetParameters().second);
+    io.outReal(fitter.Error(probe));
+}
+
+// Samples whose (x,y) projections are collinear on a lattice line make the
+// 2x2 determinant exactly zero, which is the documented failure branch.
+ORACLE_CASE("ApprHeightPlane3.fit.collinearXY")
+{
+    int32_t const n = io.integer(1, 8);
+    Vector2<double> base{ static_cast<double>(io.rawInteger(-4, 4)),
+        static_cast<double>(io.rawInteger(-4, 4)) };
+    Vector2<double> dir{ static_cast<double>(io.rawInteger(-3, 3)),
+        static_cast<double>(io.rawInteger(-3, 3)) };
+    std::vector<Vector3<double>> P(static_cast<size_t>(n));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        double const t = static_cast<double>(io.rawInteger(-4, 4));
+        double const z = static_cast<double>(io.rawInteger(-5, 5));
+        P[i] = io.givenVec(Vector3<double>{ base[0] + t * dir[0],
+            base[1] + t * dir[1], z });
+    }
+    auto probe = io.vec<3>(-12.0, 12.0);
+    ApprHeightPlane3<double> fitter;
+    bool success = fitter.Fit(P);
+    io.outBool(success);
+    io.outVec(fitter.GetParameters().first);
+    io.outVec(fitter.GetParameters().second);
+    io.outReal(fitter.Error(probe));
+}
+
+ORACLE_CASE("ApprHeightPlane3.copyParameters")
+{
+    auto P = MakePoints3(io, 3, 8);
+    auto probe = io.vec<3>(-12.0, 12.0);
+    ApprHeightPlane3<double> source, target;
+    source.Fit(P);
+    target.CopyParameters(&source);
+    io.outVec(target.GetParameters().first);
+    io.outVec(target.GetParameters().second);
+    io.outReal(target.Error(probe));
+}
+
+// ------------------------------------------------------- ApprOrthogonalLine2
+
+// The return value is 'eval[0] < eval[1]', so the lattice and coincident
+// modes (which produce exactly equal eigenvalues) reach the false branch.
+ORACLE_CASE("ApprOrthogonalLine2.fit")
+{
+    auto P = MakePoints2(io, 1, 10);
+    auto probe = io.vec<2>(-12.0, 12.0);
+    ApprOrthogonalLine2<double> fitter;
+    bool unique = fitter.Fit(P);
+    io.outBool(unique);
+    io.outInt(fitter.GetMinimumRequired());
+    io.outVec(fitter.GetParameters().origin);
+    io.outVec(fitter.GetParameters().direction);
+    io.outReal(fitter.Error(probe));
+}
+
+ORACLE_CASE("ApprOrthogonalLine2.fitIndexed")
+{
+    auto P = MakePoints2(io, 2, 8);
+    auto indices = MakeIndices(io, static_cast<int32_t>(P.size()), 1);
+    auto probe = io.vec<2>(-12.0, 12.0);
+    ApprOrthogonalLine2<double> fitter;
+    bool unique = fitter.FitIndexed(P.size(), P.data(), indices.size(), indices.data());
+    io.outBool(unique);
+    io.outVec(fitter.GetParameters().origin);
+    io.outVec(fitter.GetParameters().direction);
+    io.outReal(fitter.Error(probe));
+}
+
+ORACLE_CASE("ApprOrthogonalLine2.copyParameters")
+{
+    auto P = MakePoints2(io, 2, 8);
+    auto probe = io.vec<2>(-12.0, 12.0);
+    ApprOrthogonalLine2<double> source, target;
+    source.Fit(P);
+    target.CopyParameters(&source);
+    io.outVec(target.GetParameters().origin);
+    io.outVec(target.GetParameters().direction);
+    io.outReal(target.Error(probe));
+}
+
+// ------------------------------------------------------- ApprOrthogonalLine3
+
+ORACLE_CASE("ApprOrthogonalLine3.fit")
+{
+    auto P = MakePoints3(io, 1, 10);
+    auto probe = io.vec<3>(-12.0, 12.0);
+    ApprOrthogonalLine3<double> fitter;
+    bool unique = fitter.Fit(P);
+    io.outBool(unique);
+    io.outInt(fitter.GetMinimumRequired());
+    io.outVec(fitter.GetParameters().origin);
+    io.outVec(fitter.GetParameters().direction);
+    io.outReal(fitter.Error(probe));
+}
+
+ORACLE_CASE("ApprOrthogonalLine3.fitIndexed")
+{
+    auto P = MakePoints3(io, 2, 8);
+    auto indices = MakeIndices(io, static_cast<int32_t>(P.size()), 1);
+    auto probe = io.vec<3>(-12.0, 12.0);
+    ApprOrthogonalLine3<double> fitter;
+    bool unique = fitter.FitIndexed(P.size(), P.data(), indices.size(), indices.data());
+    io.outBool(unique);
+    io.outVec(fitter.GetParameters().origin);
+    io.outVec(fitter.GetParameters().direction);
+    io.outReal(fitter.Error(probe));
+}
+
+ORACLE_CASE("ApprOrthogonalLine3.copyParameters")
+{
+    auto P = MakePoints3(io, 2, 8);
+    auto probe = io.vec<3>(-12.0, 12.0);
+    ApprOrthogonalLine3<double> source, target;
+    source.Fit(P);
+    target.CopyParameters(&source);
+    io.outVec(target.GetParameters().origin);
+    io.outVec(target.GetParameters().direction);
+    io.outReal(target.Error(probe));
+}
+
+// ------------------------------------------------------ ApprOrthogonalPlane3
+
+ORACLE_CASE("ApprOrthogonalPlane3.fit")
+{
+    auto P = MakePoints3(io, 1, 10);
+    auto probe = io.vec<3>(-12.0, 12.0);
+    ApprOrthogonalPlane3<double> fitter;
+    bool unique = fitter.Fit(P);
+    io.outBool(unique);
+    io.outInt(fitter.GetMinimumRequired());
+    io.outVec(fitter.GetParameters().first);
+    io.outVec(fitter.GetParameters().second);
+    io.outReal(fitter.Error(probe));
+}
+
+ORACLE_CASE("ApprOrthogonalPlane3.fitIndexed")
+{
+    auto P = MakePoints3(io, 2, 8);
+    auto indices = MakeIndices(io, static_cast<int32_t>(P.size()), 1);
+    auto probe = io.vec<3>(-12.0, 12.0);
+    ApprOrthogonalPlane3<double> fitter;
+    bool unique = fitter.FitIndexed(P.size(), P.data(), indices.size(), indices.data());
+    io.outBool(unique);
+    io.outVec(fitter.GetParameters().first);
+    io.outVec(fitter.GetParameters().second);
+    io.outReal(fitter.Error(probe));
+}
+
+ORACLE_CASE("ApprOrthogonalPlane3.copyParameters")
+{
+    auto P = MakePoints3(io, 3, 8);
+    auto probe = io.vec<3>(-12.0, 12.0);
+    ApprOrthogonalPlane3<double> source, target;
+    source.Fit(P);
+    target.CopyParameters(&source);
+    io.outVec(target.GetParameters().first);
+    io.outVec(target.GetParameters().second);
+    io.outReal(target.Error(probe));
+}
