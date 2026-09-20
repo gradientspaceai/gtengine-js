@@ -46,6 +46,11 @@ export interface CaseOptions {
     // entry). The test fails when every record agrees, which means the
     // deviation no longer exists and the case should become a normal one.
     deviation?: string;
+    // Per-case vitest timeout in milliseconds. A deep run replays 2000
+    // records, and a case whose upstream code runs a long fixed iteration
+    // (ApprCone3ExtractEllipses calls ApprEllipse2 with 1024 iterations per
+    // extracted plane) needs more than the default.
+    timeout?: number;
 }
 
 const DEFAULT_TOL = 1e-12;
@@ -340,7 +345,7 @@ export class OracleFamily {
                 expect.fail(`${failures.length} of ${records!.length} records disagree with `
                     + `the C++ oracle:\n  ${shown}`);
             }
-        });
+        }, options.timeout);
     }
 
     // Call last: fails when the golden file has cases no test claimed, and
