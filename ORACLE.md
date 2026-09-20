@@ -194,7 +194,12 @@ Every disagreement gets a root cause. In order of likelihood:
    `Vector.h`'s `Dot` starts from `v0[0]*v1[0]` and `GVector.h`'s from the
    literal `0`, and `0 + x` is `x` except for `x = -0`, so a port that merges
    two upstream copies of a function must keep both seeds (v01, `GVector`
-   `dot`; signed-zero generators find it). The most productive class so far is the change of
+   `dot`; signed-zero generators find it). The same holds for scalar
+   division: `Vector.h`, `GVector.h` and `GMatrix.h` write `v /= scalar` as a
+   multiplication by `1/scalar`, `Quaternion.h` divides each component, and
+   `a*(1/b)` differs from `a/b` in the last bit for most `b`, so the identical
+   source line `v /= length` in two `Normalize` functions is two computations
+   (v02, `Quaternion` `normalize`). The most productive class so far is the change of
    basis: `C + c0*a0 + c1*a1 + c2*a2` accumulates left to right,
    `((C + c0*a0) + c1*a1) + c2*a2`, and a port that adds the basis terms
    first differs in the last bits on nearly every record (three of the 19
