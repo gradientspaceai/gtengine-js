@@ -2780,11 +2780,30 @@ ORACLE_CASE("IntrAlignedBox3Cone3.hasPointInsideCone")
 // IntrAlignedBox3Cone3.h BoxFullyInConeSlab, issue #301.
 ORACLE_CASE("IntrAlignedBox3Cone3.test.staleAdjacencyDeviation")
 {
-    auto cone = Cn<3>(io, 0, 3, 4.0, 3);
+    // The cone is redrawn with the boxes: some lattice frusta admit no
+    // straddling/in-slab pair on which the stale bits matter, and a rejection
+    // loop over the boxes alone never terminates for them (deep-run record
+    // 27). The draws are unrecorded and the accepted cone is recorded below
+    // in the layout of Cn<3>, so the replay reads a cone as everywhere else.
+    // The loop is capped; a record that exhausts the cap keeps its last
+    // candidate, on which upstream and the port agree.
+    Cone3<double> cone{};
     Vector3<double> loA{}, hiA{}, loB{}, hiB{};
     AlignedBox3<double> boxA{}, boxB{};
-    for (;;)
+    for (int attempt = 0; attempt < 20000; ++attempt)
     {
+        for (int i = 0; i < 3; ++i)
+        {
+            cone.ray.origin[i] = static_cast<double>(io.rawInteger(-3, 3));
+        }
+        int k = io.rawInteger(0, 5);
+        cone.ray.direction.MakeZero();
+        cone.ray.direction[k % 3] = (k < 3 ? 1.0 : -1.0);
+        double angle = io.raw(0.15, 1.35);
+        cone.SetAngle(angle);
+        double minHeight = static_cast<double>(io.rawInteger(1, 3));
+        double maxHeight = minHeight + static_cast<double>(io.rawInteger(1, 3));
+        cone.MakeConeFrustum(minHeight, maxHeight);
         boxA = RawStraddlingBox(io, cone, loA, hiA);
         boxB = RawInSlabBox(io, cone, loB, hiB);
         // The reused-object answer for the third query differs from the
@@ -2797,6 +2816,17 @@ ORACLE_CASE("IntrAlignedBox3Cone3.test.staleAdjacencyDeviation")
         auto clean = fresh(boxA, cone);
         if (stale.intersect != clean.intersect) { break; }
     }
+    io.givenVec(cone.ray.origin);
+    io.givenVec(cone.ray.direction);
+    io.given(cone.angle);
+    io.given(cone.cosAngle);
+    io.given(cone.sinAngle);
+    io.given(cone.tanAngle);
+    io.given(cone.cosAngleSqr);
+    io.given(cone.sinAngleSqr);
+    io.given(cone.invSinAngle);
+    io.given(cone.GetMinHeight());
+    io.given(cone.GetMaxHeight());
     io.givenVec(loA);
     io.givenVec(hiA);
     io.givenVec(loB);
