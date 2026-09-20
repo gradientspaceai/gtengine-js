@@ -38,7 +38,8 @@ import {
     IntrTriangle2Triangle2FI, IntrTriangle2Triangle2TI
 } from '../../src/IntrTriangle2Triangle2.js';
 import {
-    IntrTriangle3AlignedBox3FI, IntrTriangle3AlignedBox3TI
+    IntrTriangle3AlignedBox3FI, IntrTriangle3AlignedBox3TI,
+    intrTriangle3BoxFacePlanes
 } from '../../src/IntrTriangle3AlignedBox3.js';
 import {
     IntrTriangle3CanonicalBox3FI, IntrTriangle3CanonicalBox3TI
@@ -377,6 +378,18 @@ describe('oracle: v35-intersection', () => {
         emitTriangleBoxFI(io,
             new IntrTriangle3OrientedBox3FI().find(triangle, box));
     };
+
+    // The port's exported 'intrTriangle3BoxFacePlanes' against upstream's
+    // inline expressions in the three FI queries.
+    family.case('IntrTriangle3OrientedBox3.facePlanes', (io) => {
+        const box = orientedBox3(io);
+        const planes = intrTriangle3BoxFacePlanes(box.center, box.axis,
+            box.extent);
+        for (const plane of planes) {
+            io.outVec(plane.normal);
+            io.outReal(plane.constant);
+        }
+    }, { exact: true });
 
     family.case('IntrTriangle3OrientedBox3.test', orientedTest,
         { exact: true });

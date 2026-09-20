@@ -872,6 +872,34 @@ ORACLE_CASE("IntrTriangle3AlignedBox3.find.onFaces")
     EmitTriangleBoxFI(io, r);
 }
 
+// The port factors the six box-face planes that the aligned-box and
+// oriented-box FI queries build inline into the exported free function
+// 'intrTriangle3BoxFacePlanes'. This case compares it against upstream's
+// inline expressions in their general (oriented-box) form.
+ORACLE_CASE("IntrTriangle3OrientedBox3.facePlanes")
+{
+    int mode = io.index() % 2;
+    auto box = OBox3(io, mode, 3, 3.0);
+    std::array<Plane3<double>, 6> planes{};
+    planes[0].normal = -box.axis[0];
+    planes[0].constant = Dot(planes[0].normal, box.center) - box.extent[0];
+    planes[1].normal = -box.axis[1];
+    planes[1].constant = Dot(planes[1].normal, box.center) - box.extent[1];
+    planes[2].normal = -box.axis[2];
+    planes[2].constant = Dot(planes[2].normal, box.center) - box.extent[2];
+    planes[3].normal = +box.axis[0];
+    planes[3].constant = Dot(planes[3].normal, box.center) - box.extent[0];
+    planes[4].normal = +box.axis[1];
+    planes[4].constant = Dot(planes[4].normal, box.center) - box.extent[1];
+    planes[5].normal = +box.axis[2];
+    planes[5].constant = Dot(planes[5].normal, box.center) - box.extent[2];
+    for (auto const& plane : planes)
+    {
+        io.outVec(plane.normal);
+        io.outReal(plane.constant);
+    }
+}
+
 ORACLE_CASE("IntrTriangle3OrientedBox3.test")
 {
     int mode = io.index() % 2;
@@ -1892,6 +1920,38 @@ namespace
     // from the vertex), the vertex parameter lies in the clipped range
     // [lo,hi], and the cone's minimum height is zero (otherwise both sides
     // clamp the ray to the same hmin plane and agree).
+    // An integer direction close to the (signed coordinate axis) cone axis,
+    // so that c2 = Dot(D,U)^2 - cosAngleSqr*|U|^2 is positive for a fair
+    // fraction of the cone angles: U has a large component along the cone
+    // axis and components in {-1,0,1} on the other two.
+    void RawIntegerDirectionNearAxis(oracle::Ctx& io,
+        Vector3<double> const& coneDirection, Vector3<double>& U)
+    {
+        int j = 0;
+        for (int i = 0; i < 3; ++i)
+        {
+            if (coneDirection[i] != 0.0) { j = i; }
+        }
+        for (int i = 0; i < 3; ++i)
+        {
+            U[i] = static_cast<double>(io.rawInteger(-1, 1));
+        }
+        int m = io.rawInteger(2, 4);
+        int sign = io.rawInteger(0, 1);
+        U[j] = static_cast<double>(sign == 0 ? -m : m);
+    }
+
+    // The configuration in which the port's correction survives the ray or
+    // segment clip: the line contains the cone vertex, c2 > 0 (the direction
+    // is interior to the cone's angular region, so the intersection with the
+    // positive cone is the ray of nonnegative heights from the vertex), the
+    // vertex parameter lies in the clipped range [lo,hi], the cone's minimum
+    // height is zero (otherwise both sides clamp the ray to the same hmin
+    // plane and agree) and upstream's discriminant does not round to exactly
+    // zero. The exact discriminant of a through-vertex line is zero; when the
+    // rounded one is zero as well, upstream reaches its own vertex branch and
+    // computes what the port computes, so the nonzero-discriminant condition
+    // is what separates the defective inputs from the sound ones.
     bool ThroughVertexRayConfiguration(Vector3<double> const& origin,
         Vector3<double> const& direction, Cone3<double> const& cone,
         double lo, double hi)
@@ -1899,11 +1959,17 @@ namespace
         if (cone.GetMinHeight() != 0.0) { return false; }
         Vector3<double> U = (Dot(direction, cone.ray.direction) >= 0.0
             ? direction : -direction);
+        Vector3<double> PmV = origin - cone.ray.origin;
         double UdU = Dot(U, U);
         double DdU = Dot(cone.ray.direction, U);
+        double DdPmV = Dot(cone.ray.direction, PmV);
+        double UdPmV = Dot(U, PmV);
+        double PmVdPmV = Dot(PmV, PmV);
         double c2 = DdU * DdU - cone.cosAngleSqr * UdU;
+        double c1 = DdU * DdPmV - cone.cosAngleSqr * UdPmV;
+        double c0 = DdPmV * DdPmV - cone.cosAngleSqr * PmVdPmV;
         if (c2 <= 0.0) { return false; }
-        Vector3<double> PmV = origin - cone.ray.origin;
+        if (c1 * c1 - c0 * c2 == 0.0) { return false; }
         double tv = -Dot(direction, PmV) / Dot(direction, direction);
         return lo <= tv && tv <= hi;
     }
@@ -1917,10 +1983,9 @@ ORACLE_CASE("IntrRay3Cone3.find.throughVertexDeviation")
     {
         int kind = (io.rawInteger(0, 1) == 0 ? 0 : 2);
         RawCone(io, 0, kind, 3, 3.0, c);
-        RawIntegerDirection(io, direction);
+        RawIntegerDirectionNearAxis(io, c.direction, direction);
         int k = io.rawInteger(1, 3);
-        int sign = io.rawInteger(0, 1);
-        double kk = static_cast<double>(sign == 0 ? -k : k);
+        double kk = static_cast<double>(-k);
         origin = c.origin + kk * direction;
         Cone3<double> probe = MakeCone(c);
         if (ThroughVertexRayConfiguration(origin, direction, probe, 0.0,
@@ -1951,11 +2016,11 @@ ORACLE_CASE("IntrSegment3Cone3.find.throughVertexDeviation")
         int kind = (io.rawInteger(0, 1) == 0 ? 0 : 2);
         RawCone(io, 0, kind, 3, 3.0, c);
         Vector3<double> direction{};
-        RawIntegerDirection(io, direction);
-        int k = io.rawInteger(1, 3);
-        int sign = io.rawInteger(0, 1);
-        double kk = static_cast<double>(sign == 0 ? -k : k);
-        double L = std::ldexp(1.0, io.rawInteger(0, 2));
+        RawIntegerDirectionNearAxis(io, c.direction, direction);
+        int e = io.rawInteger(0, 2);
+        double L = std::ldexp(1.0, e);
+        int k = io.rawInteger(1, 1 << e);
+        double kk = static_cast<double>(-k);
         p0 = c.origin + kk * direction;
         p1 = p0 + L * direction;
         Cone3<double> probe = MakeCone(c);
