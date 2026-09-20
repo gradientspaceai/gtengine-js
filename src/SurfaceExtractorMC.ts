@@ -339,8 +339,11 @@ export class SurfaceExtractorMC extends MarchingCubes {
                 + normal.values[2] * normal.values[2];
             const len = Math.sqrt(sqrLength);
             if (len > 0) {
+                // Vector.h's Normalize divides with operator/=, which
+                // multiplies by the reciprocal of the length.
+                const invLen = 1 / len;
                 for (let i = 0; i < 3; ++i) {
-                    normal.values[i] /= len;
+                    normal.values[i] *= invLen;
                 }
             } else {
                 for (let i = 0; i < 3; ++i) {
