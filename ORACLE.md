@@ -207,7 +207,16 @@ Every disagreement gets a root cause. In order of likelihood:
    multiplication by `1/scalar`, `Quaternion.h` divides each component, and
    `a*(1/b)` differs from `a/b` in the last bit for most `b`, so the identical
    source line `v /= length` in two `Normalize` functions is two computations
-   (v02, `Quaternion` `normalize`). The most productive class so far is the change of
+   (v02, `Quaternion` `normalize`), and a port that inlines `average /= n`
+   as a per-component `x / n` is 1 ulp off, which an initial-guess routine
+   amplified to 6e-10 (v04, three `Appr` files). A standard-library facility is ported
+   as the reference build implements it, not as the standard describes it:
+   MSVC's `std::generate_canonical<double, 53>` over `mt19937` is
+   `((g0 >> 11) + (g1 << 21)) * 2^-53`, which truncates where the portable
+   `(g0 + g1*2^32) / 2^64` rounds, 2 ulps apart on the first value (v14,
+   the plane jitter of `ContEllipsoid3MinCR`). `std::shuffle` with
+   `std::default_random_engine` is not comparable at all; list such paths
+   under "Not covered". The most productive class so far is the change of
    basis: `C + c0*a0 + c1*a1 + c2*a2` accumulates left to right,
    `((C + c0*a0) + c1*a1) + c2*a2`, and a port that adds the basis terms
    first differs in the last bits on nearly every record (three of the 19
