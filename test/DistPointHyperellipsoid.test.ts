@@ -248,9 +248,19 @@ function isWellConditioned(h: Hyperellipsoid, p: Vector): boolean {
             jmin = i;
         }
     }
-    const z = Math.abs(dot(sub(p, h.center), h.axis[jmin]))
-        / h.extent.values[jmin];
-    return z === 0 || z > 1e-5;
+    // Every axis whose extent ties with the smallest one can be the one
+    // upstream's sort puts last, so all of them are checked.
+    const emin = h.extent.values[jmin];
+    for (let i = 0; i < h.dimension; ++i) {
+        if (h.extent.values[i] <= emin * (1 + 1e-9)) {
+            const z = Math.abs(dot(sub(p, h.center), h.axis[i]))
+                / h.extent.values[i];
+            if (z !== 0 && z <= 1e-5) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 // Coordinates of X in the hyperellipsoid frame.
@@ -489,7 +499,14 @@ describe('DistPointHyperellipsoid verification', () => {
             };
             const moved = Hyperellipsoid.fromCenterAxisExtent(
                 add(rot(h.center), tr), h.axis.map(a => rot(a)), h.extent);
-            if (!isWellConditioned(h, p)) {
+            // The band is frame dependent: a coordinate that is exactly zero
+            // in the original frame (the sound branch) comes back as a
+            // round-off residue of 1e-17 after the rigid motion, which is
+            // inside it. Seed 1342454235: P = (-0.05, 0, 0), extents
+            // (0.2266, 0.2, 0.2); the moved query leaves the surface by 9e-6
+            // and its distance is off by 9.6e-7.
+            if (!isWellConditioned(h, p)
+                || !isWellConditioned(moved, add(rot(p), tr))) {
                 return;
             }
             // Near the center of a near-spheroid the minimizer is barely
