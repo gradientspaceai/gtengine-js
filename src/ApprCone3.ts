@@ -183,9 +183,13 @@ export class ApprCone3 {
             center.values[1] += points[i].values[1];
             center.values[2] += points[i].values[2];
         }
-        center.values[0] /= numPoints;
-        center.values[1] /= numPoints;
-        center.values[2] /= numPoints;
+        // Upstream writes 'center /= tNumPoints', and Vector.h's
+        // operator/=(Vector&, Real) multiplies each component by 1/scalar
+        // rather than dividing, which differs in the last bit.
+        const invNumPoints = 1 / numPoints;
+        center.values[0] *= invNumPoints;
+        center.values[1] *= invNumPoints;
+        center.values[2] *= invNumPoints;
 
         // The cone axis is estimated from ZZTZ (see the PDF).
         let coneAxis = new Vector(3);

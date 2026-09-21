@@ -112,9 +112,13 @@ export class ApprParaboloid3 {
             average.values[1] += points[i].values[1];
             average.values[2] += points[i].values[2];
         }
-        average.values[0] /= numPoints;
-        average.values[1] /= numPoints;
-        average.values[2] /= numPoints;
+        // Upstream writes 'average /= tNumPoints', and Vector.h's
+        // operator/=(Vector&, Real) multiplies each component by 1/scalar
+        // rather than dividing, which differs in the last bit.
+        const invNumPoints = 1 / numPoints;
+        average.values[0] *= invNumPoints;
+        average.values[1] *= invNumPoints;
+        average.values[2] *= invNumPoints;
 
         for (let i = 0; i < numPoints; ++i) {
             accumulate(A, B,

@@ -190,10 +190,14 @@ export abstract class OBBTree {
             box.center.values[1] += centroid.values[1];
             box.center.values[2] += centroid.values[2];
         }
+        // Upstream writes 'box.center /= denom', and Vector.h's operator/=
+        // multiplies by the reciprocal; x * (1 / n) and x / n differ in the
+        // last bit for most n.
         const denom = i1 - i0 + 1;
-        box.center.values[0] /= denom;
-        box.center.values[1] /= denom;
-        box.center.values[2] /= denom;
+        const invDenom = 1 / denom;
+        box.center.values[0] *= invDenom;
+        box.center.values[1] *= invDenom;
+        box.center.values[2] *= invDenom;
 
         // Compute the covariance matrix of the centroids.
         let covar00 = 0, covar01 = 0, covar02 = 0;

@@ -9,7 +9,7 @@ upstream GTE code compiled with MSVC; the port replays the same inputs. See
 - compiler MSVC 194435215 x64 /O2 /fp:precise
 - records-per-case 20
 
-**693 cases, 12460 records, 101856 floating-point outputs compared; 99.70% bit-identical to the C++ build. 602 cases are bit-identical on every output. 70 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
+**799 cases, 14400 records, 112980 floating-point outputs compared; 99.43% bit-identical to the C++ build. 690 cases are bit-identical on every output. 79 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
 
 Discrete outputs (booleans, counts, indices) always compare exactly and are not counted
 in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |port|, |C++|)`.
@@ -20,6 +20,8 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | v01-algebra | 46 | 920 | 15792 | 100.00% | 46 | 0 |  |
 | v02-algebra | 52 | 960 | 27908 | 99.59% | 37 | 2.33e-16 | `Rotation.eulerAnglesToAxisAngle` |
 | v03-approximation | 75 | 1400 | 10644 | 100.00% | 70 | 0 |  |
+| v04-approximation | 36 | 660 | 6632 | 94.99% | 24 | 4.61e-13 | `ApprTorus3.gaussNewton.initialGuess` |
+| v14-containment | 70 | 1280 | 4492 | 100.00% | 64 | 0 |  |
 | v19-distance | 43 | 780 | 6976 | 100.00% | 39 | 0 |  |
 | v20-distance | 28 | 440 | 3585 | 98.74% | 21 | 1.33e-15 | `DistLine3Circle3.compute` |
 | v21-distance | 38 | 680 | 5295 | 99.45% | 32 | 8.36e-16 | `DistRay3Circle3.compute` |
@@ -48,6 +50,15 @@ every record.
 | v03-approximation | `ApprQuadratic3.fit.decoupledDeviation` | 3 of 20 | SymmetricEigensolver.h Tridiagonalize, issue #80 |
 | v03-approximation | `ApprQuadraticSphere3.fit.decoupledDeviation` | 9 of 20 | SymmetricEigensolver.h Tridiagonalize, issue #80 |
 | v03-approximation | `ApprParallelLines2.fit.deviation` | 20 of 20 | ApprParallelLines2.h items 1-4, issue #91 |
+| v04-approximation | `ApprEllipseByArcs.approximate.deviation` | 4 of 20 | issue #322: Circumscribe failure discarded in the intermediate-arc loop, leaving the previous arc stored |
+| v04-approximation | `ApprCone3.levenbergMarquardt.staleResidual.deviation` | 14 of 20 | issue #261: LevenbergMarquardtMinimizer::DoIteration builds -J^T*F from the residual at the previously rejected candidate |
+| v04-approximation | `ApprCone3EllipseAndPoints.fit.deviation` | 9 of 20 | issue #349: ComputeCone divides by the ellipse extent a without validating it |
+| v14-containment | `ContLozenge3.getContainer.cornerDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md ContLozenge3.h, issue #174 |
+| v14-containment | `ContEllipse2MinCR.compute.verticalLineDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md ContEllipse2MinCR.h, issue #234 |
+| v14-containment | `ContEllipsoid3MinCR.compute.assertDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md ContEllipsoid3MinCR.h, issue #409 |
+| v14-containment | `ContPointInPolyhedron3.contains.convex0QuadDeviation` | 8 of 20 | docs/UPSTREAM-FINDINGS.md ContPointInPolyhedron3.h, issue #343 |
+| v14-containment | `ContPointInPolyhedron3.contains.convex12QuadDeviation` | 7 of 20 | docs/UPSTREAM-FINDINGS.md ContPointInPolyhedron3.h, issue #343 |
+| v14-containment | `ContPointInPolyhedron3.contains.simple1QuadDeviation` | 8 of 20 | docs/UPSTREAM-FINDINGS.md ContPointInPolyhedron3.h, issue #343 |
 | v19-distance | `DistRaySegment.compute.3d.deviation` | 20 of 20 | UPSTREAM-FINDINGS DistRaySegment.h, issue #126 |
 | v19-distance | `DistSegmentSegment.computeRobust.3d.deviation` | 9 of 20 | UPSTREAM-FINDINGS DistSegmentSegment.h, issue #418 |
 | v19-distance | `DistLine2Triangle2.compute.deviation` | 20 of 20 | UPSTREAM-FINDINGS DistLine2Triangle2.h, issue #441 |
