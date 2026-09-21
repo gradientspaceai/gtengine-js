@@ -841,6 +841,54 @@ ORACLE_CASE("UnsymmetricEigenvalues.solve.cycling")
     OutUnsymmetric(io, 3, numIterations, solver);
 }
 
+// Two more exact reproductions of the preserved non-convergence defect
+// (issue #476): FrancisQRStep has no exceptional shift, so the iteration can
+// cycle on a well separated real spectrum. Variant 0 is a nearly symmetric
+// 3x3 found by a CI run of the port; variant 1 is the same matrix with a00
+// shifted by 1e-13, which converges in 33 iterations and is the contrast;
+// variant 2 is the zero-diagonal matrix of the UPSTREAM-FINDINGS entry. The
+// probe keeps issue #42 (the dropped trailing eigenvalue) out of the case by
+// falling back to the cycling variant whenever the trailing block decouples,
+// which is why variant 1 survives only with a budget below its 33
+// iterations: once it converges, upstream drops A(2,2) and the port does
+// not, which is the subject of the deviation case above.
+ORACLE_CASE("UnsymmetricEigenvalues.solve.nonConvergence")
+{
+    double const cycling[9] =
+    {
+        -8.0, -7.99999999999999, 0.0,
+        -7.99999999999999, 0.250000000000008, 7.99999999999999,
+        0.0, 7.99999999999999, -8.0
+    };
+    double const zeroDiagonal[9] = { 0.0, 8.0, 0.0, 8.0, 0.0, 8.0, 0.0, 8.0, 0.0 };
+    uint32_t maxIterations = static_cast<uint32_t>(io.rawInteger(1, 64));
+    int32_t variant = io.rawInteger(0, 2);
+    std::vector<double> m(9, 0.0);
+    for (int32_t attempt = 0; attempt < 3; ++attempt)
+    {
+        if (variant == 2)
+        {
+            for (int32_t i = 0; i < 9; ++i) { m[i] = zeroDiagonal[i]; }
+        }
+        else
+        {
+            for (int32_t i = 0; i < 9; ++i) { m[i] = cycling[i]; }
+            if (variant == 1) { m[0] = cycling[0] + 1e-13; }
+        }
+        ProbeUnsymmetric probe(3, maxIterations);
+        probe.Solve(m.data());
+        if (probe.TrailingFlag() == 1) { break; }
+        variant = 0;
+    }
+    io.given(static_cast<double>(variant));
+    io.given(static_cast<double>(maxIterations));
+    for (double e : m) { io.given(e); }
+    int32_t sortType = io.integer(-1, 1);
+    UnsymmetricEigenvalues<double> solver(3, maxIterations);
+    uint32_t numIterations = solver.Solve(m.data(), sortType);
+    OutUnsymmetric(io, 3, numIterations, solver);
+}
+
 // =======================================================================
 // BandedMatrix.h
 // =======================================================================
@@ -1115,6 +1163,54 @@ ORACLE_CASE("BandedMatrix.computeInverse")
     }
     // ComputeInverse works on a copy, so the matrix itself is unchanged.
     OutBanded(io, matrix);
+}
+
+// UPSTREAM DEFECT found by this oracle (both sides agree bit for bit, and
+// both are wrong). ComputeInverse runs Gaussian elimination with NO pivoting
+// and rejects a matrix only when the pivot is exactly zero. When a leading
+// principal minor of the banded matrix vanishes, the pivot is zero in exact
+// arithmetic but a round-off residue in floating point, so the test passes,
+// the multiplier is about 1e16 and the reported inverse is wrong in the
+// second digit while the return value is 'true'. The 6x6 matrix below is a
+// deep-run witness (2 of 1605 integer records of the case above): its fourth
+// leading principal minor is 0 and its determinant is -656, so it is
+// invertible, yet the reported inverse differs from the exact rational
+// inverse by 4.4e-2 relative. The port preserves the behaviour, so the case
+// is compared bit for bit; see oracle/reports/v38-numerical.md.
+ORACLE_CASE("BandedMatrix.computeInverse.zeroLeadingMinor")
+{
+    Banded b;
+    b.size = 6;
+    b.numLBands = 2;
+    b.numUBands = 4;
+    b.mode = 9;
+    ResizeBanded(b);
+    // A power-of-two scale keeps every entry exactly representable, so the
+    // elimination reproduces the same cancellation at every scale.
+    double s = PowerOfTwo(io.rawInteger(-8, 8));
+    double const dBand[6] = { 1, 2, 0, 1, 2, -2 };
+    double const lBand0[5] = { 4, -4, 0, -3, 4 };
+    double const lBand1[4] = { 0, 2, 4, -2 };
+    double const uBand0[5] = { 0, -2, -2, 4, -3 };
+    double const uBand1[4] = { 3, -1, -2, -2 };
+    double const uBand2[3] = { -3, -1, 3 };
+    double const uBand3[2] = { 3, 3 };
+    for (int32_t i = 0; i < 6; ++i) { b.d[i] = s * dBand[i]; }
+    for (int32_t i = 0; i < 5; ++i) { b.l[0][i] = s * lBand0[i]; }
+    for (int32_t i = 0; i < 4; ++i) { b.l[1][i] = s * lBand1[i]; }
+    for (int32_t i = 0; i < 5; ++i) { b.u[0][i] = s * uBand0[i]; }
+    for (int32_t i = 0; i < 4; ++i) { b.u[1][i] = s * uBand1[i]; }
+    for (int32_t i = 0; i < 3; ++i) { b.u[2][i] = s * uBand2[i]; }
+    for (int32_t i = 0; i < 2; ++i) { b.u[3][i] = s * uBand3[i]; }
+    RecordBanded(io, b);
+    bool rowMajor = io.boolean();
+    std::vector<double> inverse(36, 0.0);
+    BandedMatrix<double> matrix = MakeBanded(b);
+    bool success = rowMajor
+        ? matrix.ComputeInverse<true>(inverse.data())
+        : matrix.ComputeInverse<false>(inverse.data());
+    io.outBool(success);
+    for (double e : inverse) { io.outReal(e); }
 }
 
 // The constructor rejects size <= 0 and band counts outside [0, size) by
@@ -1620,6 +1716,47 @@ ORACLE_CASE("LCPSolver.solve.maxIterations")
     Lcp lcp = DrawLcpRaw(io, mode, 3, 6);
     RecordLcp(io, lcp);
     int32_t maxIterations = io.integer(1, 2);
+    RunLcp(io, lcp, maxIterations);
+}
+
+// UPSTREAM DEFECT found by this oracle (both sides agree bit for bit, and
+// both are wrong). The header's own comment anticipates the mechanism -- "it
+// is possible that theoretically mAugmented[r][driving] is zero but rounding
+// errors cause it to be slightly negative" -- and hopes the outcome is a
+// FAILED_TO_CONVERGE. On the small integer LCP below (q < 0, M <= 0
+// entrywise, so w = q + M*z < 0 for every z >= 0 and the problem is provably
+// infeasible) the outcome is worse: at iteration 6 the ratio test accepts a
+// pivot of -1.1102230246251565e-16, the reciprocal is about 1e16, the
+// dictionary loses all its digits, and after 19 iterations the artificial
+// variable happens to leave the basis, so the solver returns
+// HAS_NONTRIVIAL_SOLUTION with z = (16, 4, 2/9, 16, 4, 0) and a residual
+// |w - q - M*z| of about 80. This is the round-off failure recorded as
+// gtengine-js issue #476 for a SUBNORMAL pivot, reached here with ordinary
+// integer data. Found once in 2000 records of LCPSolver.solve.noSolution.
+ORACLE_CASE("LCPSolver.solve.roundoffPivot")
+{
+    // A power-of-two scale keeps every entry exactly representable and
+    // reproduces the same pivot sequence.
+    double s = PowerOfTwo(io.rawInteger(-8, 8));
+    double const q6[6] = { -5, -3, -2, -4, -1, -5 };
+    double const m6[36] =
+    {
+        -1, -2, -2,  0, -3, -3,
+        -2,  0, -3, -1, -2, -3,
+        -3, -3, -2,  0, -2, -2,
+        -2, -3,  0, -1, -2, -2,
+        -3,  0, -2, -2,  0, -3,
+         0, -3, -2, -2, -3, -2
+    };
+    Lcp lcp;
+    lcp.n = 6;
+    lcp.mode = 9;
+    lcp.q.resize(6);
+    lcp.m.resize(36);
+    for (int32_t i = 0; i < 6; ++i) { lcp.q[i] = s * q6[i]; }
+    for (int32_t i = 0; i < 36; ++i) { lcp.m[i] = s * m6[i]; }
+    RecordLcp(io, lcp);
+    int32_t maxIterations = io.integer(0, 40);
     RunLcp(io, lcp, maxIterations);
 }
 

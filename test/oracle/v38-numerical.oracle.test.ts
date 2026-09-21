@@ -157,6 +157,20 @@ describe('oracle: v38-numerical', () => {
         for (let i = 0; i < r.numEigenvalues; ++i) { io.outReal(r.eigenvalues[i]); }
     }, { exact: true });
 
+    // Two exact reproductions of the preserved non-convergence defect
+    // (issue #476): FrancisQRStep has no exceptional shift.
+    family.case('UnsymmetricEigenvalues.solve.nonConvergence', (io) => {
+        io.integer();
+        const maxIterations = io.integer();
+        const m = io.reals(9);
+        const sortType = io.integer();
+        const solver = new UnsymmetricEigenvalues(3, maxIterations);
+        io.outInt(solver.solve(m, sortType));
+        const r = solver.getEigenvalues();
+        io.outInt(r.numEigenvalues);
+        for (let i = 0; i < r.numEigenvalues; ++i) { io.outReal(r.eigenvalues[i]); }
+    }, { exact: true });
+
     // ------------------------------------------------------ BandedMatrix.h
 
     // The replay of RecordBanded: the shape, then the diagonal, the lower
@@ -238,6 +252,19 @@ describe('oracle: v38-numerical', () => {
         io.outBool(success);
         if (success) { io.outReals(inverse); }
         outBanded(io, matrix);
+    }, { exact: true });
+
+    // Upstream defect found by this oracle: ComputeInverse eliminates without
+    // pivoting and only rejects an exactly zero pivot, so a matrix with a
+    // vanishing leading principal minor gets a wrong inverse and a 'true'
+    // return. The port preserves that, so the two sides agree bit for bit;
+    // see oracle/reports/v38-numerical.md.
+    family.case('BandedMatrix.computeInverse.zeroLeadingMinor', (io) => {
+        const matrix = banded(io);
+        const rowMajor = io.boolean();
+        const inverse = new Array<number>(36).fill(0);
+        io.outBool(matrix.computeInverse(inverse, rowMajor));
+        io.outReals(inverse);
     }, { exact: true });
 
     family.case('BandedMatrix.invalidShape', (io) => {
@@ -448,6 +475,16 @@ describe('oracle: v38-numerical', () => {
     }, { exact: true });
 
     family.case('LCPSolver.solve.maxIterations', (io) => {
+        const problem = lcp(io);
+        const maxIterations = io.integer();
+        runLcp(io, problem, maxIterations);
+    }, { exact: true });
+
+    // Upstream defect found by this oracle: a round-off-sized pivot accepted
+    // by the ratio test turns a provably infeasible LCP into a reported
+    // solution. The port preserves it, so the two sides agree bit for bit;
+    // see oracle/reports/v38-numerical.md.
+    family.case('LCPSolver.solve.roundoffPivot', (io) => {
         const problem = lcp(io);
         const maxIterations = io.integer();
         runLcp(io, problem, maxIterations);
