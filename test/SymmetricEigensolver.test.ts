@@ -748,3 +748,35 @@ describe('SymmetricEigensolver verification', () => {
         }, 100);
     });
 });
+
+describe('SymmetricEigensolver, preserved upstream behavior', () => {
+    // Found by the C++ oracle of group 39 (oracle/reports/v39-numerical.md).
+    // When Solve exhausts its iteration budget it returns without calling
+    // ComputePermutation, so mPermutation keeps the zeros the constructor
+    // gave it. GetEigenvalues then takes its "sorting was requested" path
+    // (mPermutation[0] >= 0) and reports mDiagonal[0] for every index, and
+    // GetEigenvectors' cycle walk
+    //   while ((next = mPermutation[current]) !== start) { current = next; }
+    // starts at i = 1 and never leaves index 0: it loops forever. The MSVC
+    // build of upstream and this port were both measured to hang on the
+    // input below, so the behavior is preserved and getEigenvectors is NOT
+    // called here. The test pins the state that leads to the hang.
+    it('upstream (preserved): a non-converged solve leaves the permutation '
+        + 'in a state that makes getEigenvectors loop forever', () => {
+        const solver = new SymmetricEigensolver(2, 1);
+        const iterations = solver.solve([1, 1, 1, 2], 1);
+        expect(iterations).toBe(SymmetricEigensolver.noConvergence);
+
+        // The permutation was never computed, so it is the identity's
+        // degenerate stand-in (all zeros): every eigenvalue is reported as
+        // the first diagonal entry.
+        const eigenvalues = solver.getEigenvalues();
+        expect(eigenvalues[0]).toBe(eigenvalues[1]);
+        expect(solver.getEigenvalue(0)).toBe(eigenvalues[0]);
+        expect(solver.getEigenvalue(1)).toBe(eigenvalues[0]);
+
+        // getEigenvector (singular) is safe; it indexes the permutation
+        // without walking its cycles.
+        expect(solver.getEigenvector(1).length).toBe(2);
+    });
+});
