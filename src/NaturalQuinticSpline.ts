@@ -34,7 +34,7 @@ import { logAssert } from './Logger.js';
 import { Matrix } from './Matrix.js';
 import { inverse4x4 } from './Matrix4x4.js';
 import { ParametricCurve } from './ParametricCurve.js';
-import { Vector, add, mul, sub } from './Vector.js';
+import { Vector, add, div, mul, sub } from './Vector.js';
 
 // A quintic polynomial segment: the six Vector coefficients of
 // p(u) = c[0] + u*(c[1] + u*(c[2] + u*(c[3] + u*(c[4] + u*c[5])))) for u in
@@ -195,33 +195,37 @@ export class NaturalQuinticSpline extends ParametricCurve {
         jet[0] = add(poly[0], mul(u, add(poly[1], mul(u, add(poly[2],
             mul(u, add(poly[3], mul(u, add(poly[4], mul(u, poly[5]))))))))));
         if (order >= 1) {
-            // Compute first derivative.
+            // Compute first derivative. Upstream divides the vector with
+            // 'operator/(Vector, Real)', which multiplies by the reciprocal of
+            // the scalar and yields the ZERO vector when the scalar is zero
+            // (Vector.h); div() has exactly those semantics, which for a
+            // nonzero denominator is the same as multiplying by 1/denom.
             let denom = this.mDelta[key];
-            jet[1] = mul(add(poly[1], mul(u, add(mul(2, poly[2]),
+            jet[1] = div(add(poly[1], mul(u, add(mul(2, poly[2]),
                 mul(u, add(mul(3, poly[3]), mul(u, add(mul(4, poly[4]),
-                    mul(u, mul(5, poly[5]))))))))), 1 / denom);
+                    mul(u, mul(5, poly[5]))))))))), denom);
             if (order >= 2) {
                 // Compute second derivative.
                 denom *= this.mDelta[key];
-                jet[2] = mul(add(mul(2, poly[2]), mul(u, add(mul(6, poly[3]),
+                jet[2] = div(add(mul(2, poly[2]), mul(u, add(mul(6, poly[3]),
                     mul(u, add(mul(12, poly[4]), mul(u, mul(20, poly[5]))))))),
-                    1 / denom);
+                    denom);
                 if (order >= 3) {
                     // Compute third derivative.
                     denom *= this.mDelta[key];
-                    jet[3] = mul(add(mul(6, poly[3]), mul(u,
+                    jet[3] = div(add(mul(6, poly[3]), mul(u,
                         add(mul(24, poly[4]), mul(u, mul(60, poly[5]))))),
-                        1 / denom);
+                        denom);
                     if (order >= 4) {
                         // Compute fourth derivative.
                         denom *= this.mDelta[key];
-                        jet[4] = mul(add(mul(24, poly[4]),
-                            mul(u, mul(120, poly[5]))), 1 / denom);
+                        jet[4] = div(add(mul(24, poly[4]),
+                            mul(u, mul(120, poly[5]))), denom);
 
                         if (order >= 5) {
                             // Compute fifth derivative.
                             denom *= this.mDelta[key];
-                            jet[5] = mul(mul(120, poly[5]), 1 / denom);
+                            jet[5] = div(mul(120, poly[5]), denom);
 
                             for (let i = 6; i <= order; ++i) {
                                 // Derivatives of order 6 and higher are zero.
