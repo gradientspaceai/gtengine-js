@@ -423,7 +423,23 @@ describe('IntrLine3Cone3 verification', () => {
         return true;
     }
 
+    // Upstream (and the port, bit for bit) recomputes the line parameters of
+    // a clamped segment from the heights, t = (h - Dot(D,P-V)) / Dot(D,U),
+    // which is exact for the rational types the query was designed for and
+    // loses epsilon * |Dot(D,P-V)| / |Dot(D,U)| in floating point. For a line
+    // nearly perpendicular to the cone axis that is far above rounding
+    // (gtengine-js #521): D.U = -9.6e-14 moved both ends of a segment of
+    // length 2.7e-4 by 5.5e-7 (fast-check seed 1286648015). An exactly
+    // perpendicular line takes the branch that keeps the roots and is sound.
+    function heightRoundTripIllConditioned(cone: Cone, L: Line): boolean {
+        const DdU = Math.abs(dot(cone.ray.direction, L.direction));
+        const DdPmV = Math.abs(dot(cone.ray.direction,
+            sub(L.origin, cone.ray.origin)));
+        return DdU !== 0 && Number.EPSILON * DdPmV > 1e-10 * DdU;
+    }
+
     function nearVertexKnifeEdge(cone: Cone, L: Line): boolean {
+        if (heightRoundTripIllConditioned(cone, L)) { return true; }
         return relVertexDistance(cone, L) < 1e-6 && !containsVertex(cone, L);
     }
 
