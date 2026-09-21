@@ -350,10 +350,15 @@ export class NaturalQuinticSpline extends ParametricCurve {
 
         poly[0] = f0[numPolynomials - 1].clone();
         poly[1] = mul(f1[numPolynomials - 1], this.mDelta[numPolynomials - 1]);
+        // Upstream writes 'invR(r,0)*B[j0] + invR(r,1)*B[j1] + invR(r,2)*B[j2]
+        // + invR(r,3)*B[j3]', which accumulates strictly left to right. A
+        // pairwise grouping ((a+b)+(c+d)) differs in the last bits whenever
+        // B[j2] and B[j3] are both nonzero, that is, for every closed and
+        // clamped spline.
         for (let r = 0; r < 4; ++r) {
-            poly[r + 2] = add(add(mul(invR.get(r, 0), B[j0]),
-                mul(invR.get(r, 1), B[j1])),
-                add(mul(invR.get(r, 2), B[j2]), mul(invR.get(r, 3), B[j3])));
+            poly[r + 2] = add(add(add(mul(invR.get(r, 0), B[j0]),
+                mul(invR.get(r, 1), B[j1])), mul(invR.get(r, 2), B[j2])),
+                mul(invR.get(r, 3), B[j3]));
         }
 
         for (let i1 = numPolynomials - 2, i0 = i1 + 1; i1 >= 0; i0 = i1--) {
