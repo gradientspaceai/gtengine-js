@@ -735,3 +735,79 @@ describe('LDLTDecomposition verification', () => {
         });
     });
 });
+
+describe('BlockLDLTDecomposition, preserved upstream behavior', () => {
+    // Found by the C++ oracle of group 39 (oracle/reports/v39-numerical.md).
+    // The scalar LDLTDecomposition rejects a singular matrix, because its
+    // pivot test is the exact 'D(j,j) == 0'. The block version instead asks
+    // Inverse(Djj, &invertible), which is the full-pivoting Gaussian
+    // elimination of GaussianElimination.h; for a block of size 3 or more the
+    // elimination has already divided by earlier pivots, so the pivot of an
+    // exactly singular block is a round-off residue rather than zero, the
+    // test passes, and Factor returns true with a factorization that does not
+    // reproduce A. Upstream's MSVC build and this port agree bit for bit on
+    // the record below, so the behavior is preserved rather than fixed: there
+    // is no exact condition separating "this pivot is the round-off residue
+    // of an exact zero" from "this pivot is legitimately small", and A here
+    // violates the documented positive-definite precondition anyway.
+    it('upstream (preserved): factor reports success for a singular '
+        + 'diagonal block of size 3', () => {
+        const values = [
+            4, 0, 4, -4, -4, 2,
+            0, 1, -1, 1, 0, -1,
+            4, -1, 5, -5, -4, 3,
+            -4, 1, -5, 9, 2, -1,
+            -4, 0, -4, 2, 7, -3,
+            2, -1, 3, -1, -3, 9
+        ];
+        const A = Matrix.fromArray(6, 6, values);
+
+        // A is positive semidefinite and exactly singular: it is L0 * L0^T
+        // for a lower-triangular integer L0 with a zero diagonal entry.
+        const scalar = new LDLTDecomposition(6);
+        expect(scalar.factor(A).success).toBe(false);
+
+        const decomposer = new BlockLDLTDecomposition(3, 2);
+        const blocks = decomposer.convertMatrixToBlock(A);
+        const { success, L, D } = decomposer.factor(blocks);
+        expect(success).toBe(true);
+
+        // L * D * L^T is nowhere near A: the (0,0) entry alone is off by
+        // more than half of max|A|.
+        const assembled = (flat: Matrix[]): Matrix => {
+            const M = new Matrix(6, 6);
+            for (let br = 0; br < 2; ++br) {
+                for (let bc = 0; bc < 2; ++bc) {
+                    for (let i = 0; i < 3; ++i) {
+                        for (let j = 0; j < 3; ++j) {
+                            M.set(br * 3 + i, bc * 3 + j, flat[bc + 2 * br].get(i, j));
+                        }
+                    }
+                }
+            }
+            return M;
+        };
+        const LL = assembled(L);
+        const DD = assembled(D);
+        let worst = 0;
+        for (let r = 0; r < 6; ++r) {
+            for (let c = 0; c <= r; ++c) {
+                let s = 0;
+                for (let a = 0; a < 6; ++a) {
+                    for (let b = 0; b < 6; ++b) {
+                        s += LL.get(r, a) * DD.get(a, b) * LL.get(c, b);
+                    }
+                }
+                worst = Math.max(worst, Math.abs(s - A.get(r, c)) / 9);
+            }
+        }
+        expect(worst).toBeGreaterThan(0.5);
+
+        // And the "solution" it reports is meaningless.
+        const rhs = Vector.fromArray([-1, 0, 1, -1, 0, 1]);
+        const solved = decomposer.solve(blocks, decomposer.convertVectorToBlock(rhs));
+        expect(solved.success).toBe(true);
+        const x = decomposer.convertBlockToVector(solved.X);
+        expect(Math.abs(x.get(0))).toBeGreaterThan(1e15);
+    });
+});

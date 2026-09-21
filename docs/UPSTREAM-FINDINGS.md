@@ -71,14 +71,14 @@ Nothing here has been reported upstream before; this document is the report.
 
 ## Counts
 
-- **498 distinct findings** across **160** tracked issues (one issue
+- **500 distinct findings** across **162** tracked issues (one issue
   frequently holds several findings in related files).
-- By severity: **245 result-corrupting**, **14 wrong but
+- By severity: **246 result-corrupting**, **15 wrong but
   recoverable**, **166 minor**, **73 documentation**.
-- By port status: **258 fixed or corrected in the port** (of which 156 are code
+- By port status: **259 fixed or corrected in the port** (of which 157 are code
   fixes with regression tests, 22 are added guards or asserts where upstream has
   undefined behaviour, 64 are comment corrections, 11 are dead-code removals and
-  5 are documented deliberate deviations), **231 preserved deliberately**, and
+  5 are documented deliberate deviations), **232 preserved deliberately**, and
   **9 not ported** (the `GTE_USE_VEC_MAT` branches, dead code that cannot
   compile, and two arbitrary-precision paths).
 - **288 distinct upstream headers** are implicated.
@@ -424,6 +424,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `LCPSolver.h` | Lemke pivot | a subnormal pivot turns a provably infeasible problem into `HAS_NONTRIVIAL_SOLUTION` with infinite `z` | RC | preserved | [#476](https://github.com/gradientspaceai/gtengine-js/issues/476) |
 | `LCPSolver.h` | Lemke pivot | a round-off-sized pivot (-1.1e-16, the residue of an exact zero) passes the ratio test on small-integer data and a provably infeasible problem returns `HAS_NONTRIVIAL_SOLUTION` with residual 41 to 81 | RC | preserved | [#514](https://github.com/gradientspaceai/gtengine-js/issues/514) |
 | `LDLTDecomposition.h` | `BlockLDLTDecomposition::Convert` | asserts `GetSize() == NumBlocks` where block vectors have `BlockSize` components | WR | fixed | [#209](https://github.com/gradientspaceai/gtengine-js/issues/209) |
+| `LDLTDecomposition.h` | `BlockLDLTDecomposition::Factor` | tests the block pivot with `Inverse(Djj, &invertible)` instead of an exact zero test: an exactly singular block of size >= 3 leaves a round-off pivot, `Factor` returns `true` and `Solve` returns 9e15 | RC | preserved | [#518](https://github.com/gradientspaceai/gtengine-js/issues/518) |
 | `LDLTDecomposition.h` | documentation | claims positive-definite input and positive `D`; `Factor` fails only on an exactly zero pivot | doc | preserved | [#209](https://github.com/gradientspaceai/gtengine-js/issues/209) |
 | `LevenbergMarquardtMinimizer.h` | `DoIteration` | forms `mNegJTF` from `F` at the previous rejected candidate while `J` is at `pCurrent` | RC | fixed | [#261](https://github.com/gradientspaceai/gtengine-js/issues/261) |
 | `LevenbergMarquardtMinimizer.h` | Gauss-Newton fallback | uses the maximally inflated lambda and never divides it back down; comment and code disagree | minor | preserved | [#261](https://github.com/gradientspaceai/gtengine-js/issues/261) |
@@ -562,6 +563,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `SurfaceExtractorTetrahedra.h` | `GetGradient` (~L296) | the odd-parity branch condition `dx + dy + dz >= 0` is unconditionally true; the plane is at 2 | RC | fixed | [#132](https://github.com/gradientspaceai/gtengine-js/issues/132) |
 | `SWInterval.h` | outward rounding | `std::nextafter(value, +-max)` pulls an infinite bound back to `+-MAX_VALUE`, destroying enclosure | RC | preserved | [#50](https://github.com/gradientspaceai/gtengine-js/issues/50), [#367](https://github.com/gradientspaceai/gtengine-js/issues/367) |
 | `SymmetricEigensolver.h` | `ComputePermutation` | `std::sort` is unstable, so for tied eigenvalues the order, and which eigenvector `GetEigenvector(i)` returns, is unspecified (it happens to be stable for n <= 32 with MSVC, which uses insertion sort there) | minor | fixed | [#478](https://github.com/gradientspaceai/gtengine-js/issues/478) |
+| `SymmetricEigensolver.h` | `Solve`, accessors | a non-converged `Solve` skips `ComputePermutation`: `GetEigenvalues` reports the first diagonal entry N times and `GetEigenvectors` loops forever | WR | fixed | [#517](https://github.com/gradientspaceai/gtengine-js/issues/517) |
 | `SymmetricEigensolver.h` | `Tridiagonalize` | stores the reflection parameter for a degenerate Householder step, corrupting `Q` | RC | fixed | [#80](https://github.com/gradientspaceai/gtengine-js/issues/80) |
 | `SymmetricEigensolver3x3.h` | `GetCosSin` | lacks the `maxAbsComp` rescaling its 2x2 sibling documents; underflows for extreme matrix scales | RC | fixed | [#379](https://github.com/gradientspaceai/gtengine-js/issues/379) |
 | `TanEstimate.h` | `TanEstimateRR` comment | claims `r` in `[-pi, pi]`; `remainder(x, pi)` gives `[-pi/2, pi/2]`, leaving two branches dead | doc | preserved | [#57](https://github.com/gradientspaceai/gtengine-js/issues/57) |
@@ -1164,6 +1166,17 @@ symmetric indefinite matrices factor fine with negative `D` entries. The
 run-time `CholeskyDecomposition` comments say "Ensure that N > 0 at run time"
 but there is no check (the LDLT class has one).
 
+
+**`BlockLDLTDecomposition::Factor` reports success for a singular diagonal block of
+size >= 3 (result-corrupting).** The scalar class tests `Djj == 0` exactly; the block
+class tests `Inverse(Djj, &invertible)`, a full-pivoting elimination that has already
+divided, so the last pivot of an exactly singular block is a round-off residue and
+`invertible` is true. For a 6x6 positive semidefinite `L0 L0^T` with one zero
+diagonal, `LDLTDecomposition(6)` returns `false` while `BlockLDLTDecomposition(3,2)`
+returns `true`, `L D L^T` differs from `A` by 0.556 of `max|A|` and `Solve` reports
+9.0e15. Found by the C++ oracle of group 39 (57 deep-run records; the scalar class
+rejects all of them). Preserved, as #375 and #513: no exact condition separates a
+round-off residue from a legitimately small pivot. Issue [#518](https://github.com/gradientspaceai/gtengine-js/issues/518).
 Issues [#209](https://github.com/gradientspaceai/gtengine-js/issues/209), [#478](https://github.com/gradientspaceai/gtengine-js/issues/478).
 
 ### `CLODPolyline.h`
@@ -4077,6 +4090,16 @@ coefficients `ApprQuadratic2` returns for rank-deficient data platform-dependent
 With MSVC the sort is an insertion sort (stable) for at most 32 elements, which is
 why the C++ oracle of group 3 agrees bit for bit with the port on matrices up to
 10x10; that is an implementation accident. Port: `Array.prototype.sort`, stable.
+
+**7. `SymmetricEigensolver::GetEigenvectors` loops forever after a non-converged
+`Solve`.** `Solve` returns `0xFFFFFFFF` without calling `ComputePermutation`, so on a
+fresh object `mPermutation` is all zeros: every accessor takes the "sorting was
+requested" branch, `GetEigenvalues` reports `mDiagonal[0]` N times and the cycle walk
+`while ((next = mPermutation[current]) != start)` never leaves index 0. Reproduction:
+`SymmetricEigensolver<double>(2, 1)` on `{1,1,1,2}` (the MSVC build was killed after
+8 s). On a reused object a stale permutation is applied instead. Port: the failed
+path sets the unsorted flag, so the accessors terminate and report the partially
+reduced state. Issue [#517](https://github.com/gradientspaceai/gtengine-js/issues/517).
 
 Issues [#42](https://github.com/gradientspaceai/gtengine-js/issues/42), [#80](https://github.com/gradientspaceai/gtengine-js/issues/80), [#379](https://github.com/gradientspaceai/gtengine-js/issues/379), [#476](https://github.com/gradientspaceai/gtengine-js/issues/476), [#478](https://github.com/gradientspaceai/gtengine-js/issues/478).
 

@@ -9,7 +9,7 @@ upstream GTE code compiled with MSVC; the port replays the same inputs. See
 - compiler MSVC 194435215 x64 /O2 /fp:precise
 - records-per-case 20
 
-**935 cases, 17000 records, 145231 floating-point outputs compared; 99.54% bit-identical to the C++ build. 814 cases are bit-identical on every output. 85 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
+**981 cases, 17760 records, 159348 floating-point outputs compared; 99.58% bit-identical to the C++ build. 852 cases are bit-identical on every output. 93 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
 
 Discrete outputs (booleans, counts, indices) always compare exactly and are not counted
 in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |port|, |C++|)`.
@@ -35,6 +35,7 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | v34-intersection | 66 | 1140 | 7423 | 99.93% | 56 | 2.78e-15 | `IntrAreaEllipse2Ellipse2.compute` |
 | v35-intersection | 56 | 960 | 6847 | 100.00% | 48 | 0 |  |
 | v38-numerical | 39 | 720 | 8243 | 99.90% | 35 | 1.85e-16 | `Integration.libmIntegrand` |
+| v39-numerical | 46 | 760 | 14117 | 100.00% | 38 | 0 |  |
 | v40-numerical | 22 | 420 | 1643 | 100.00% | 21 | 0 |  |
 
 ## Deliberate deviations from the C++ build
@@ -129,4 +130,12 @@ every record.
 | v38-numerical | `SymmetricEigensolver3x3.solve.outOfBandScale` | 20 of 20 | issue #379: GetCosSin lacks the maxAbsComp rescaling |
 | v38-numerical | `UnsymmetricEigenvalues.solve.trailingBlock` | 20 of 20 | issue #42: the packing loop drops A(N-1,N-1) |
 | v38-numerical | `FPInterval.directedRounding` | 20 of 20 | the port emulates the directed rounding that upstream takes from std::fesetround; see the PORT DEVIATION note in src/FPInterval.ts |
+| v39-numerical | `Minimize1.getMinimum.deviation` | 17 of 20 | issue #298 (Minimize1 bracket collapse) |
+| v39-numerical | `Minimize1.getMinimum.endpointGuessDeviation` | 20 of 20 | issue #298 (degenerate initial bracket) |
+| v39-numerical | `MinimizeN.getMinimum.deviation` | 20 of 20 | issue #146 (Powell direction-set update) |
+| v39-numerical | `MinimizeN.getMinimum.reuseDeviation` | 20 of 20 | issue #146 (mDConjIndex is never reset) |
+| v39-numerical | `SymmetricEigensolver.solve.decoupledDeviation` | 20 of 20 | issue #80 (degenerate Householder step) |
+| v39-numerical | `SymmetricEigensolver.solve.nonConvergence` | 19 of 20 | issue #517: GetEigenvalues/GetEigenvectors after a non-converged Solve |
+| v39-numerical | `BlockCholeskyDecomposition.runtimeStrideDeviation` | 20 of 20 | issue #209 (in-block stride of the run-time class) |
+| v39-numerical | `BlockLDLTDecomposition.convertBlockToVector.deviation` | 20 of 20 | issue #209 (Convert checks NumBlocks, not BlockSize) |
 | v40-numerical | `LevenbergMarquardtMinimizer.minimize.staleResidual.deviation` | 11 of 20 | issue #261: LevenbergMarquardtMinimizer::DoIteration builds -J^T*F from the residual at the previously rejected candidate |
