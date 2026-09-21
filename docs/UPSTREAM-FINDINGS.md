@@ -71,14 +71,14 @@ Nothing here has been reported upstream before; this document is the report.
 
 ## Counts
 
-- **496 distinct findings** across **158** tracked issues (one issue
+- **498 distinct findings** across **160** tracked issues (one issue
   frequently holds several findings in related files).
-- By severity: **243 result-corrupting**, **14 wrong but
+- By severity: **245 result-corrupting**, **14 wrong but
   recoverable**, **166 minor**, **73 documentation**.
 - By port status: **258 fixed or corrected in the port** (of which 156 are code
   fixes with regression tests, 22 are added guards or asserts where upstream has
   undefined behaviour, 64 are comment corrections, 11 are dead-code removals and
-  5 are documented deliberate deviations), **229 preserved deliberately**, and
+  5 are documented deliberate deviations), **231 preserved deliberately**, and
   **9 not ported** (the `GTE_USE_VEC_MAT` branches, dead code that cannot
   compile, and two arbitrary-precision paths).
 - **288 distinct upstream headers** are implicated.
@@ -154,6 +154,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `Arc2.h` | `Contains(P, epsilon)` | a negative epsilon cannot behave "as if zero"; the function returns false for every point | minor | preserved | [#155](https://github.com/gradientspaceai/gtengine-js/issues/155) |
 | `Array4.h` | `SetPointers` comment | "else 'other' is an empty Array3." copy-pasted from `Array3.h` | doc | corrected | [#363](https://github.com/gradientspaceai/gtengine-js/issues/363) |
 | `ASinEstimate.h` | `C_ASIN_EST_MAX_ERROR` | disagrees with `C_ACOS_EST_MAX_ERROR` in trailing digits although provably the same quantity | minor | preserved | [#57](https://github.com/gradientspaceai/gtengine-js/issues/57) |
+| `BandedMatrix.h` | `ComputeInverse` | no pivoting and only a `diag == 0` rejection: a vanishing leading principal minor leaves a round-off pivot, and a wrong inverse (4e-2 relative, or of an exactly singular matrix) is returned with `true` | RC | preserved | [#513](https://github.com/gradientspaceai/gtengine-js/issues/513) |
 | `BasisFunction.h` | `GetIndex` | the `t <= tmin` and `t >= tmax` shortcuts ignore knot multiplicity; all-zero basis at a degenerate endpoint | RC | preserved | [#415](https://github.com/gradientspaceai/gtengine-js/issues/415) |
 | `BasisFunction.h` | `GetValue` | doc promises zeros outside `[minIndex, maxIndex]`; `Evaluate` leaves stale nonzero values | doc | preserved | [#415](https://github.com/gradientspaceai/gtengine-js/issues/415) |
 | `BasisFunction.h` | `Create` | validates interior multiplicities against `d+1` where the class doc requires `d`; no total-multiplicity check | minor | preserved | [#415](https://github.com/gradientspaceai/gtengine-js/issues/415) |
@@ -421,6 +422,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `IsPlanarGraph.h` | `InvalidSegmentIntersection` | the collinear branch parameterises by the first segment, so a zero-length first segment collapses to "no overlap" | RC | preserved | [#472](https://github.com/gradientspaceai/gtengine-js/issues/472) |
 | `LCPSolver.h` | `Solve` | constructing the dynamic solver with `n <= 0` leaves null members and `Solve` dereferences them | RC | fixed | [#76](https://github.com/gradientspaceai/gtengine-js/issues/76) |
 | `LCPSolver.h` | Lemke pivot | a subnormal pivot turns a provably infeasible problem into `HAS_NONTRIVIAL_SOLUTION` with infinite `z` | RC | preserved | [#476](https://github.com/gradientspaceai/gtengine-js/issues/476) |
+| `LCPSolver.h` | Lemke pivot | a round-off-sized pivot (-1.1e-16, the residue of an exact zero) passes the ratio test on small-integer data and a provably infeasible problem returns `HAS_NONTRIVIAL_SOLUTION` with residual 41 to 81 | RC | preserved | [#514](https://github.com/gradientspaceai/gtengine-js/issues/514) |
 | `LDLTDecomposition.h` | `BlockLDLTDecomposition::Convert` | asserts `GetSize() == NumBlocks` where block vectors have `BlockSize` components | WR | fixed | [#209](https://github.com/gradientspaceai/gtengine-js/issues/209) |
 | `LDLTDecomposition.h` | documentation | claims positive-definite input and positive `D`; `Factor` fails only on an exactly zero pivot | doc | preserved | [#209](https://github.com/gradientspaceai/gtengine-js/issues/209) |
 | `LevenbergMarquardtMinimizer.h` | `DoIteration` | forms `mNegJTF` from `F` at the previous rejected candidate while `J` is at `pCurrent` | RC | fixed | [#261](https://github.com/gradientspaceai/gtengine-js/issues/261) |
@@ -925,6 +927,35 @@ A group of documentation and estimate-table findings, all preserved (issues
 
 Every other published max-error bound in the estimate group holds when
 re-measured on a dense grid.
+
+### `BandedMatrix.h`
+
+**`ComputeInverse` returns a wrong inverse with a `true` return when a leading
+principal minor vanishes (result-corrupting).** The routine eliminates without
+pivoting and rejects a matrix only on `diag == 0`. After earlier divisions the
+entries are no longer integers, so an exactly zero pivot becomes a round-off
+residue, the test passes, the multiplier is about 1e16 and the result is garbage.
+For the 6x6 matrix with bands 2/4
+
+```
+ 1   0   3  -3   3   0
+ 4   2  -2  -1  -1   3
+ 0  -4   0  -2  -2   3
+ 0   2   0   1   4  -2
+ 0   0   4  -3   2  -3
+ 0   0   0  -2   4  -2
+```
+
+(determinant -656, fourth leading minor 0) the reported first row of the inverse is
+wrong in the second digit against the exact `(-31, 18, 33, 48, 129/4, -159/8)/41`,
+while `GaussianElimination` with full pivoting is right to 1e-12; an exactly singular
+5x5 also returns `true`. Found by the C++ oracle of group 38 against an exact
+rational inverse (2 of 1605 integer records). Port: preserved, as for #375: there
+is no exact condition separating a round-off residue from a legitimately small
+pivot, and pivoting would change every result and destroy the band structure.
+Pinned by a test and by the oracle case `BandedMatrix.computeInverse.zeroLeadingMinor`.
+
+Issue [#513](https://github.com/gradientspaceai/gtengine-js/issues/513).
 
 ### `BasisFunction.h`
 
@@ -1841,6 +1872,18 @@ classification upstream already uses for unusable input.
 **5. A subnormal pivot turns an infeasible problem into a "solution".**
 With `M <= 0`, `q < 0` (provably infeasible) a subnormal pivot overflows and
 yields `HAS_NONTRIVIAL_SOLUTION` with infinite `z`. Preserved.
+
+**5b. The same happens with ordinary magnitudes (issue
+[#514](https://github.com/gradientspaceai/gtengine-js/issues/514)).** For
+`q = (-5,-3,-2,-4,-1,-5)` and an all-integer `M <= 0` (6x6, entries 0 to -3) the
+seventh pivot is `-1.1102230246251565e-16`, the round-off residue of an exactly
+zero entry; it passes the ratio test, the dictionary residual jumps to 5.4e16, and
+the solver returns `HAS_NONTRIVIAL_SOLUTION` with `|w - q - Mz|` between 41 and 81.
+The header comment anticipates the round-off pivot and hopes for a failure to
+converge instead. Found by the C++ oracle of group 38 checking `w = q + Mz`
+(1 of 2000 infeasible records at `n = 6`). Preserved: a pivot-magnitude guard would
+be a tolerance with no principled threshold and would change every pivot sequence.
+Pinned by a test and by the oracle case `LCPSolver.solve.roundoffPivot`.
 
 **6-10 (minor).** Exact `==` in the minimum-distance assertion of the angle
 sweep; a silent `MAX_VALUE` result on LCP failure; a stale "not unit length"

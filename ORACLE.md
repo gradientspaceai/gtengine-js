@@ -304,6 +304,16 @@ against it once, on both sides, and check that generated inputs satisfy the
 conventions the rest of the library uses (right-handed frames, unit
 directions, ordered intervals) unless the case is about violating them.
 
+An upstream header that switches the rounding mode (`FPInterval.h`,
+`std::fesetround`) needs `#pragma fenv_access (on)` in the case file: under
+`/fp:precise` alone MSVC merges the two evaluations that straddle the mode
+switch and every interval comes back degenerate. Regenerate with and without
+the pragma to show that only the rounding-sensitive cases change (v38). The
+reference check itself can be the inaccurate side: forming `A^T A` to measure
+an eigenvalue residual floors it at sqrt(epsilon); use a one-sided method or
+exact rational arithmetic over BigInt for lattice inputs, which is how v38
+found two upstream defects (#513, #514) on which both sides agreed.
+
 Never loosen a tolerance or narrow a generator to make a disagreement
 disappear without knowing which of these it is.
 

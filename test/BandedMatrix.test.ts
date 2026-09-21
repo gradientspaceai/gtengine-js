@@ -666,4 +666,57 @@ describe('BandedMatrix verification', () => {
                 expect(m.choleskyFactor()).toBe(false);
             });
         });
+
+    // Found by the C++ oracle of verify group 38 (2 of 1605 integer records
+    // of oracle/cpp/cases/v38-numerical.cpp's BandedMatrix.computeInverse).
+    // Preserved deliberately: upstream's ComputeInverse eliminates WITHOUT
+    // pivoting and rejects a matrix only when the pivot is exactly zero.
+    // There is no exact condition separating "the pivot is a round-off
+    // residue of an exact zero" from "the pivot is legitimately small", so
+    // replacing the test with a tolerance would turn correct results into
+    // "not invertible"; the same judgment is recorded for
+    // GaussianElimination's denormal pivots (issue #375).
+    it('upstream (preserved): computeInverse returns a wrong inverse with a '
+        + 'true return when a leading principal minor vanishes', () => {
+            // Lower bandwidth 2, upper bandwidth 4. The determinant is -656,
+            // so the matrix is invertible, but the fourth leading principal
+            // minor is exactly 0, so the unpivoted elimination divides by a
+            // round-off residue.
+            const dense = [
+                1, 0, 3, -3, 3, 0,
+                4, 2, -2, -1, -1, 3,
+                0, -4, 0, -2, -2, 3,
+                0, 2, 0, 1, 4, -2,
+                0, 0, 4, -3, 2, -3,
+                0, 0, 0, -2, 4, -2];
+            const A = new BandedMatrix(6, 2, 4);
+            for (let r = 0; r < 6; ++r) {
+                for (let c = 0; c < 6; ++c) { A.set(r, c, dense[c + 6 * r]); }
+            }
+            expect(densify(A)).toEqual(dense);
+
+            const inverse = new Array<number>(36).fill(0);
+            expect(A.computeInverse(inverse)).toBe(true);
+
+            // The exact inverse has denominator 41; the first row is
+            // (-31, 18, 33, 48, 129/4, -159/8) / 41.
+            const exactRow0 = [-31 / 41, 18 / 41, 33 / 41, 48 / 41,
+                129 / (4 * 41), -159 / (8 * 41)];
+            let worst = 0;
+            for (let c = 0; c < 6; ++c) {
+                worst = Math.max(worst, Math.abs(inverse[c] - exactRow0[c]));
+            }
+            // The reported inverse is wrong in the second digit.
+            expect(worst).toBeGreaterThan(1e-3);
+            expect(worst).toBeLessThan(1e-1);
+
+            // Dense Gaussian elimination with full pivoting gets it right, so
+            // the loss is the missing pivoting, not the conditioning.
+            const reference = new GaussianElimination()
+                .compute(6, dense, { wantInverse: true });
+            expect(reference.invertible).toBe(true);
+            for (let c = 0; c < 6; ++c) {
+                expectClose(reference.inverseM![c], exactRow0[c], 1e-12);
+            }
+        });
 });
