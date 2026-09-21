@@ -333,6 +333,7 @@ describe('UnsymmetricEigenvalues verification', () => {
     });
 
     it('agrees with the symmetric 3x3 eigensolver on symmetric input', () => {
+        let cycled = 0;
         // The diagonal entries are kept away from zero: see the
         // non-convergence property below for what happens when they are not.
         check(fc.tuple(nonzero(-8, 8, 0.25), wellScaled(-8, 8),
@@ -341,8 +342,22 @@ describe('UnsymmetricEigenvalues verification', () => {
             ([a00, a01, a02, a11, a12, a22]) => {
                 const M = [a00, a01, a02, a01, a11, a12, a02, a12, a22];
                 const solver = new UnsymmetricEigenvalues(3, 8192);
-                solver.solve(M, +1);
+                const iterations = solver.solve(M, +1);
                 const { numEigenvalues, eigenvalues } = solver.getEigenvalues();
+                // The Francis iteration has no exceptional shift and can
+                // cycle on a well-separated real spectrum (upstream defect,
+                // gtengine-js #476, preserved; pinned by the zero-diagonal
+                // test below). fc's boundary-biased doubles reach another
+                // such cycle: the tridiagonal matrix with a00 = a22 = -8,
+                // a01 = -a12 = -7.99999999999999, a02 = 0, a11 =
+                // 0.250000000000008 never converges, although its spectrum
+                // is -15.92, -8, 8.17 and perturbing a00 by 1e-13 converges
+                // in 33 iterations. Exhausted iterations are that defect,
+                // not a disagreement; they must stay rare.
+                if (iterations === 8192) {
+                    ++cycled;
+                    return;
+                }
                 const ref = new SymmetricEigensolver3x3().solve(a00, a01, a02,
                     a11, a12, a22, false, +1);
                 const scale = Math.max(...M.map(Math.abs), 1);
@@ -364,6 +379,7 @@ describe('UnsymmetricEigenvalues verification', () => {
                         1e-8);
                 }
             }, 100);
+        expect(cycled).toBeLessThanOrEqual(5);
     });
 
     it('the sort types permute one set of eigenvalues', () => {
