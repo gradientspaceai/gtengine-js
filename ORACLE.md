@@ -304,6 +304,14 @@ against it once, on both sides, and check that generated inputs satisfy the
 conventions the rest of the library uses (right-handed frames, unit
 directions, ordered intervals) unless the case is about violating them.
 
+When an algorithm is only reachable through a libm-bound concrete class
+(`RiemannianGeodesic` through `EllipsoidGeodesic`, whose metric is `sin`/`cos`
+and whose `Refine` takes an argmin over sampled lengths), give the abstract
+base an arithmetic-only subclass in the case file and mirror it in the replay
+(v18: a polynomial graph surface): the whole algorithm, branches included, is
+then compared bit for bit, and the libm-bound class keeps a few tolerance
+cases whose control flow is pinned.
+
 An upstream header that switches the rounding mode (`FPInterval.h`,
 `std::fesetround`) needs `#pragma fenv_access (on)` in the case file: under
 `/fp:precise` alone MSVC merges the two evaluations that straddle the mode

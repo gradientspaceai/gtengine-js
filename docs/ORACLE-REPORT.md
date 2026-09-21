@@ -9,7 +9,7 @@ upstream GTE code compiled with MSVC; the port replays the same inputs. See
 - compiler MSVC 194435215 x64 /O2 /fp:precise
 - records-per-case 20
 
-**889 cases, 16120 records, 138850 floating-point outputs compared; 99.53% bit-identical to the C++ build. 775 cases are bit-identical on every output. 83 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
+**935 cases, 17000 records, 145231 floating-point outputs compared; 99.54% bit-identical to the C++ build. 814 cases are bit-identical on every output. 85 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
 
 Discrete outputs (booleans, counts, indices) always compare exactly and are not counted
 in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |port|, |C++|)`.
@@ -23,6 +23,7 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | v04-approximation | 36 | 660 | 6632 | 94.99% | 24 | 4.61e-13 | `ApprTorus3.gaussNewton.initialGuess` |
 | v14-containment | 70 | 1280 | 4492 | 100.00% | 64 | 0 |  |
 | v17-curves | 51 | 1000 | 17627 | 100.00% | 50 | 0 |  |
+| v18-curves | 24 | 460 | 4738 | 99.70% | 18 | 8.35e-14 | `EllipsoidGeodesic.refine.separated` |
 | v19-distance | 43 | 780 | 6976 | 100.00% | 39 | 0 |  |
 | v20-distance | 28 | 440 | 3585 | 98.74% | 21 | 1.33e-15 | `DistLine3Circle3.compute` |
 | v21-distance | 38 | 680 | 5295 | 99.45% | 32 | 8.36e-16 | `DistRay3Circle3.compute` |
@@ -34,6 +35,7 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | v34-intersection | 66 | 1140 | 7423 | 99.93% | 56 | 2.78e-15 | `IntrAreaEllipse2Ellipse2.compute` |
 | v35-intersection | 56 | 960 | 6847 | 100.00% | 48 | 0 |  |
 | v38-numerical | 39 | 720 | 8243 | 99.90% | 35 | 1.85e-16 | `Integration.libmIntegrand` |
+| v40-numerical | 22 | 420 | 1643 | 100.00% | 21 | 0 |  |
 
 ## Deliberate deviations from the C++ build
 
@@ -62,6 +64,7 @@ every record.
 | v14-containment | `ContPointInPolyhedron3.contains.convex12QuadDeviation` | 7 of 20 | docs/UPSTREAM-FINDINGS.md ContPointInPolyhedron3.h, issue #343 |
 | v14-containment | `ContPointInPolyhedron3.contains.simple1QuadDeviation` | 8 of 20 | docs/UPSTREAM-FINDINGS.md ContPointInPolyhedron3.h, issue #343 |
 | v17-curves | `TCBSplineCurve.isConstructed` | 20 of 20 | issue #182: TCBSplineCurve never sets mConstructed |
+| v18-curves | `NaturalSplineCurve.closed.wrapRow.deviation` | 20 of 20 | issue #295: NaturalSplineCurve::CreateClosed writes the wrap-around row with three plain assignments whose columns coincide for numPoints 2 and 3 |
 | v19-distance | `DistRaySegment.compute.3d.deviation` | 20 of 20 | UPSTREAM-FINDINGS DistRaySegment.h, issue #126 |
 | v19-distance | `DistSegmentSegment.computeRobust.3d.deviation` | 9 of 20 | UPSTREAM-FINDINGS DistSegmentSegment.h, issue #418 |
 | v19-distance | `DistLine2Triangle2.compute.deviation` | 20 of 20 | UPSTREAM-FINDINGS DistLine2Triangle2.h, issue #441 |
@@ -126,3 +129,4 @@ every record.
 | v38-numerical | `SymmetricEigensolver3x3.solve.outOfBandScale` | 20 of 20 | issue #379: GetCosSin lacks the maxAbsComp rescaling |
 | v38-numerical | `UnsymmetricEigenvalues.solve.trailingBlock` | 20 of 20 | issue #42: the packing loop drops A(N-1,N-1) |
 | v38-numerical | `FPInterval.directedRounding` | 20 of 20 | the port emulates the directed rounding that upstream takes from std::fesetround; see the PORT DEVIATION note in src/FPInterval.ts |
+| v40-numerical | `LevenbergMarquardtMinimizer.minimize.staleResidual.deviation` | 11 of 20 | issue #261: LevenbergMarquardtMinimizer::DoIteration builds -J^T*F from the residual at the previously rejected candidate |
