@@ -1781,7 +1781,10 @@ ORACLE_CASE("SymmetricEigensolver.solve.nonConvergence")
 ORACLE_CASE("SymmetricEigensolver.solve.invalidSize")
 {
     int32_t size = io.integer(0, 2);
-    int32_t maxIterations = io.integer(0, 4);
+    // A valid size gets a zero budget, so the solver is inactive on every
+    // record; a valid size with a small budget can fail to converge, which
+    // is the deviation case above (issue #517), not this one.
+    int32_t maxIterations = (size >= 2 ? io.integer(0, 0) : io.integer(0, 4));
     int32_t index = io.integer(0, 1);
     std::vector<double> A(static_cast<size_t>(size) * static_cast<size_t>(size), 0.0);
     for (auto& value : A) { value = io.lattice(-3, 3); }

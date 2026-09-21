@@ -1,7 +1,9 @@
 # Group 39 (numerical) — C++ oracle report
 
-Family `v39-numerical`, 46 cases: 39 compared bit for bit (`exact: true`),
-0 with a tolerance, 7 declared deviations. The deep run
+Family `v39-numerical`, 46 cases: 38 compared bit for bit (`exact: true`),
+0 with a tolerance, 8 declared deviations (the eighth, the non-converged
+`SymmetricEigensolver` accessors of issue #517, was added when the group was
+landed; the output count below predates it). The deep run
 (`npm run oracle:deep -- 2000 v39-numerical`, 92 000 records, 5.0 s wall)
 passes; outside the deviation cases it compares 1 466 537 floating-point
 outputs and **every single one is bit-identical to the MSVC build**.
@@ -247,17 +249,16 @@ reachable from any non-converged `Solve`: the oracle case
 finds one on the first attempt for 2000 records out of 2000, over sizes 3 to
 6 and all nine matrix families, with budgets of 1 to 3 iterations.
 
-*Port: preserved*, because the port already behaves identically and a fix
-would have to invent a return value upstream does not define. A one-line fix
-is available if the project wants it — set `mPermutation[0] = -1` before the
-iteration loop, so a failed `Solve` leaves the accessors on their "no
-sorting" path — but it changes an output on a path where upstream currently
-produces none. Pinned by `test/SymmetricEigensolver.test.ts`, "upstream
-(preserved): a non-converged solve leaves the permutation in a state that
-makes getEigenvectors loop forever", which asserts the state that leads to
-the hang without entering the loop, and by the oracle case
-`SymmetricEigensolver.solve.nonConvergence`, which reproduces the
-non-convergence and the degenerate `GetEigenvalues` result on 2000 records.
+*Port: fixed when the group was landed* (issue [#517](https://github.com/gradientspaceai/gtengine-js/issues/517)). A hang has an
+exact defective condition, the solve did not converge, so on that path the
+port sets the "sorting was not requested" flag (`mPermutation[0] = -1`): the
+accessors return the unsorted, partially reduced state and terminate, and a
+stale permutation of an earlier solve is not reused. Converged solves are
+untouched. Regression tests in `test/SymmetricEigensolver.test.ts`; the oracle
+case `SymmetricEigensolver.solve.nonConvergence` is therefore a `deviation`
+case (upstream reports the first diagonal entry N times), and
+`SymmetricEigensolver.solve.invalidSize` gives a valid size a zero budget so
+that it never reaches the non-converged path.
 
 **2. `BlockLDLTDecomposition::Factor` reports success for a singular
 diagonal block, and returns a factorization that is nowhere near `A`

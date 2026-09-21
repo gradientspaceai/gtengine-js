@@ -179,6 +179,19 @@ export class SymmetricEigensolver {
                 // Process the lower-right-most unreduced tridiagonal block.
                 this.doQRImplicitShift(imin, imax);
             }
+            // Port fix for an upstream defect (gtengine-js #517). Upstream
+            // returns here without calling ComputePermutation, so
+            // mPermutation keeps whatever it held: the constructor's zeros
+            // on a fresh object, for which GetEigenvalues reports the first
+            // diagonal entry N times and GetEigenvectors' cycle walk
+            //   while ((next = mPermutation[current]) != start)
+            // never leaves index 0 and loops forever (measured on the MSVC
+            // build), or a stale permutation from an earlier solve. The
+            // defective condition is exact, so the port sets the "sorting
+            // was not requested" flag: the accessors then return the
+            // unsorted, partially reduced state and terminate. Converged
+            // solves are untouched.
+            this.mPermutation[0] = -1;
             return SymmetricEigensolver.noConvergence;
         }
         else {

@@ -496,8 +496,11 @@ family.case('SymmetricEigensolver.solve.decoupledDeviation',
     (io) => { runSymmetricEigensolver(io); },
     { exact: true, deviation: 'issue #80 (degenerate Householder step)' });
 
-// GetEigenvectors is deliberately not called: after a Solve that did not
-// converge it loops forever, on both sides. See the group report.
+// Deliberate deviation (gtengine-js #517). After a Solve that did not
+// converge upstream never computes the permutation: GetEigenvalues reports
+// the first diagonal entry N times and GetEigenvectors loops forever, which
+// is why the C++ side calls only the safe accessors. The port flags the
+// state as unsorted, so its eigenvalues are the partially reduced diagonal.
 family.case('SymmetricEigensolver.solve.nonConvergence', (io) => {
     const size = io.integer();
     const A = io.reals(size * size);
@@ -512,7 +515,7 @@ family.case('SymmetricEigensolver.solve.nonConvergence', (io) => {
     io.outReals(solver.getEigenvalues());
     io.outReals(solver.getEigenvector(index));
     io.outReal(solver.getEigenvalue(index));
-}, { exact: true });
+}, { deviation: 'issue #517: GetEigenvalues/GetEigenvectors after a non-converged Solve' });
 
 family.case('SymmetricEigensolver.solve.invalidSize', (io) => {
     const size = io.integer();

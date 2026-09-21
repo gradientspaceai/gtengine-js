@@ -749,34 +749,53 @@ describe('SymmetricEigensolver verification', () => {
     });
 });
 
-describe('SymmetricEigensolver, preserved upstream behavior', () => {
+describe('SymmetricEigensolver, non-converged solve (gtengine-js #517)', () => {
     // Found by the C++ oracle of group 39 (oracle/reports/v39-numerical.md).
-    // When Solve exhausts its iteration budget it returns without calling
-    // ComputePermutation, so mPermutation keeps the zeros the constructor
-    // gave it. GetEigenvalues then takes its "sorting was requested" path
-    // (mPermutation[0] >= 0) and reports mDiagonal[0] for every index, and
+    // When upstream's Solve exhausts its iteration budget it returns without
+    // calling ComputePermutation, so mPermutation keeps the zeros the
+    // constructor gave it. GetEigenvalues then takes its "sorting was
+    // requested" path and reports mDiagonal[0] for every index, and
     // GetEigenvectors' cycle walk
     //   while ((next = mPermutation[current]) !== start) { current = next; }
-    // starts at i = 1 and never leaves index 0: it loops forever. The MSVC
-    // build of upstream and this port were both measured to hang on the
-    // input below, so the behavior is preserved and getEigenvectors is NOT
-    // called here. The test pins the state that leads to the hang.
-    it('upstream (preserved): a non-converged solve leaves the permutation '
-        + 'in a state that makes getEigenvectors loop forever', () => {
+    // starts at i = 1 and never leaves index 0: it loops forever (the MSVC
+    // build was measured to hang on the input below). The port flags the
+    // state as unsorted instead, so every accessor terminates and reports
+    // the partially reduced state.
+    it('every accessor terminates and reports the unsorted state', () => {
         const solver = new SymmetricEigensolver(2, 1);
         const iterations = solver.solve([1, 1, 1, 2], 1);
         expect(iterations).toBe(SymmetricEigensolver.noConvergence);
 
-        // The permutation was never computed, so it is the identity's
-        // degenerate stand-in (all zeros): every eigenvalue is reported as
-        // the first diagonal entry.
+        // Upstream reports (0.381966, 0.381966): the first diagonal entry
+        // twice. The partially reduced diagonal has two distinct entries
+        // whose sum is the trace.
         const eigenvalues = solver.getEigenvalues();
-        expect(eigenvalues[0]).toBe(eigenvalues[1]);
+        expect(eigenvalues.length).toBe(2);
+        expect(eigenvalues[0]).not.toBe(eigenvalues[1]);
+        expect(eigenvalues[0] + eigenvalues[1]).toBeCloseTo(3, 12);
         expect(solver.getEigenvalue(0)).toBe(eigenvalues[0]);
-        expect(solver.getEigenvalue(1)).toBe(eigenvalues[0]);
+        expect(solver.getEigenvalue(1)).toBe(eigenvalues[1]);
 
-        // getEigenvector (singular) is safe; it indexes the permutation
-        // without walking its cycles.
+        // This call hangs upstream.
+        const vectors = solver.getEigenvectors();
+        expect(vectors.length).toBe(4);
+        for (const value of vectors) {
+            expect(Number.isFinite(value)).toBe(true);
+        }
         expect(solver.getEigenvector(1).length).toBe(2);
+    });
+
+    it('a stale permutation of an earlier converged solve is not reused', () => {
+        const solver = new SymmetricEigensolver(3, 32);
+        expect(solver.solve([3, 0, 0, 0, 1, 0, 0, 0, 2], -1))
+            .not.toBe(SymmetricEigensolver.noConvergence);
+        const starved = new SymmetricEigensolver(3, 1);
+        starved.solve([3, 0, 0, 0, 1, 0, 0, 0, 2], -1);
+        const A = [4, 1, 2, 1, 3, 1, 2, 1, 5];
+        expect(starved.solve(A, -1)).toBe(SymmetricEigensolver.noConvergence);
+        const fresh = new SymmetricEigensolver(3, 1);
+        fresh.solve(A, -1);
+        expect(starved.getEigenvalues()).toEqual(fresh.getEigenvalues());
+        expect(starved.getEigenvectors()).toEqual(fresh.getEigenvectors());
     });
 });
