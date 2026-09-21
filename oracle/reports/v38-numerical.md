@@ -72,10 +72,12 @@ around every arithmetic operation. Measured on this toolchain (MSVC 19.44,
 x64, `/O2`):
 
 * with plain `/fp:precise` the compiler common-subexpression-eliminates the
-  two evaluations of `u + v` that straddle the `fesetround` calls, so both
-  endpoints come back as the round-to-nearest value and **upstream's intervals
-  are degenerate**: `Add`, `Sub`, `Mul`, `Div` and `Reciprocal` all return
-  `[x, x]`;
+  two evaluations of `u + v` that straddle the `fesetround` calls, so only one
+  instruction survives and both endpoints get its single result — whichever
+  mode happened to be live when it executed. **Upstream's intervals are then
+  degenerate**: measured on `u = -6.074533268407986`, `v = 1.2958349208689224`,
+  all of `Add`, `Sub`, `Mul`, `Div`, their four-argument forms and
+  `Reciprocal` return `[x, x]`;
 * `#pragma fenv_access (on)`, which `/fp:precise` accepts, restores the
   intended behaviour for all of them except one: `1.0/3.0` becomes
   `[3fd5555555555555, 3fd5555555555556]`.

@@ -11,9 +11,9 @@
 // FENV_ACCESS. FPInterval.h switches the hardware rounding mode with
 // std::fesetround around every arithmetic operation. Measured on this
 // toolchain (MSVC 19.44, x64, /O2): with plain /fp:precise the compiler
-// common-subexpression-eliminates the two evaluations of "u / v" that
-// straddle the fesetround calls, so both endpoints come back as the
-// round-to-nearest value and upstream's intervals are degenerate. With
+// common-subexpression-eliminates the two evaluations that straddle the
+// fesetround calls, so only one instruction survives, both endpoints get its
+// single result and every upstream interval is degenerate. With
 // "#pragma fenv_access (on)" -- which /fp:precise accepts -- the two
 // evaluations are kept and the rounding mode takes effect (1.0/3.0 yields
 // 3fd5555555555555 and 3fd5555555555556). The pragma is therefore enabled
