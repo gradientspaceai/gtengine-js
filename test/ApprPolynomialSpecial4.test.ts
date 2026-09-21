@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ApprPolynomialSpecial4 } from '../src/ApprPolynomialSpecial4.js';
 import { ApprQuery } from '../src/ApprQuery.js';
+import { SymmetricEigensolver } from '../src/SymmetricEigensolver.js';
 import { check, expectClose, fc, finite } from './helpers/arbitraries.js';
 
 const grid = [-1, -0.5, 0, 0.5, 1];
@@ -190,6 +191,30 @@ describe('ApprPolynomialSpecial4 verification', () => {
                     * Math.pow(yp, yd[i]) * Math.pow(zp, zd[i]);
             const model = (xp: number, yp: number, zp: number): number =>
                 c.reduce((u, v, i) => u + v * basisAt(i, xp, yp, zp), 0);
+
+            // The coefficients solve the normal equations M c = b. The solve
+            // is backward stable, so the residual asserted below is of order
+            // epsilon * cond(M) relative to b: a monomial basis on count =
+            // n + 3 samples reaches cond(M) ~ 1e9, where the 1e-8 bound no
+            // longer holds (seen once as 1.26e-7 against 5.2e-8). Such draws
+            // say nothing about the fit, so they are skipped.
+            const n = xd.length;
+            if (n >= 2) {
+                const M = new Array<number>(n * n).fill(0);
+                for (const [x, y, z] of observations) {
+                    const b = xd.map((_, i) => basisAt(i, mapTo(x, xlo, xhi),
+                        mapTo(y, ylo, yhi), mapTo(z, zlo, zhi)));
+                    for (let r = 0; r < n; ++r) {
+                        for (let k = 0; k < n; ++k) {
+                            M[r * n + k] += b[r] * b[k];
+                        }
+                    }
+                }
+                const es = new SymmetricEigensolver(n, 1024);
+                es.solve(M, +1);
+                const evals = es.getEigenvalues();
+                if (!(evals[0] > 1e-6 * evals[n - 1])) { return; }
+            }
 
             for (let i = 0; i < xd.length; ++i) {
                 let residual = 0, scale = 0;
