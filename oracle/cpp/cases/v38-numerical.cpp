@@ -840,3 +840,1042 @@ ORACLE_CASE("UnsymmetricEigenvalues.solve.cycling")
     uint32_t numIterations = solver.Solve(m.data(), sortType);
     OutUnsymmetric(io, 3, numIterations, solver);
 }
+
+// =======================================================================
+// BandedMatrix.h
+// =======================================================================
+
+namespace
+{
+    // A banded matrix of the given shape. Modes: 0 uniform entries,
+    // 1 lattice entries, 2 symmetric positive definite built as B*B^T from a
+    // lower-banded lattice B (so CholeskyFactor succeeds), 3 symmetric on a
+    // lattice but not definite, 4 a symmetric lattice matrix with a zero
+    // diagonal entry (the CholeskyFactor and ComputeInverse failure
+    // returns). Only the stored band entries are drawn; the layout is
+    // diagonal first, then each lower band, then each upper band, which is
+    // what RecordBanded writes.
+    struct Banded
+    {
+        int32_t size = 0, numLBands = 0, numUBands = 0, mode = 0;
+        std::vector<double> d;
+        std::vector<std::vector<double>> l, u;
+    };
+
+    void ResizeBanded(Banded& b)
+    {
+        b.d.assign(static_cast<size_t>(b.size), 0.0);
+        b.l.clear();
+        b.u.clear();
+        for (int32_t k = 0; k < b.numLBands; ++k)
+        {
+            b.l.emplace_back(static_cast<size_t>(b.size - 1 - k), 0.0);
+        }
+        for (int32_t k = 0; k < b.numUBands; ++k)
+        {
+            b.u.emplace_back(static_cast<size_t>(b.size - 1 - k), 0.0);
+        }
+    }
+
+    Banded DrawBandedRaw(oracle::Ctx& io, int32_t mode, int32_t minSize = 2,
+        int32_t maxSize = 6)
+    {
+        Banded b;
+        b.mode = mode;
+        b.size = io.rawInteger(minSize, maxSize);
+        int32_t bands = io.rawInteger(0, b.size - 1);
+        b.numLBands = bands;
+        b.numUBands = bands;
+        if (mode == 0 || mode == 1)
+        {
+            // The general (possibly non-symmetric) shape: draw the band
+            // counts independently.
+            b.numLBands = io.rawInteger(0, b.size - 1);
+            b.numUBands = io.rawInteger(0, b.size - 1);
+        }
+        ResizeBanded(b);
+
+        if (mode == 0 || mode == 1)
+        {
+            bool lattice = (mode == 1);
+            for (auto& e : b.d) { e = lattice ? io.rawInteger(-4, 4) : io.raw(-5.0, 5.0); }
+            for (auto& band : b.l)
+            {
+                for (auto& e : band) { e = lattice ? io.rawInteger(-4, 4) : io.raw(-5.0, 5.0); }
+            }
+            for (auto& band : b.u)
+            {
+                for (auto& e : band) { e = lattice ? io.rawInteger(-4, 4) : io.raw(-5.0, 5.0); }
+            }
+        }
+        else if (mode == 2)
+        {
+            // A = B*B^T with B lower triangular and banded with 'bands'
+            // subdiagonals, so A is symmetric positive definite and banded
+            // with the same band count. The diagonal of B is nonzero on a
+            // lattice, so A is exactly representable.
+            int32_t const n = b.size;
+            std::vector<std::vector<double>> B(static_cast<size_t>(n),
+                std::vector<double>(static_cast<size_t>(n), 0.0));
+            for (int32_t r = 0; r < n; ++r)
+            {
+                B[r][r] = io.rawInteger(1, 4);
+                for (int32_t c = std::max(0, r - bands); c < r; ++c)
+                {
+                    B[r][c] = io.rawInteger(-3, 3);
+                }
+            }
+            auto entry = [&B, n](int32_t r, int32_t c)
+            {
+                double sum = 0.0;
+                for (int32_t k = 0; k < n; ++k) { sum += B[r][k] * B[c][k]; }
+                return sum;
+            };
+            for (int32_t r = 0; r < n; ++r) { b.d[r] = entry(r, r); }
+            for (int32_t k = 0; k < bands; ++k)
+            {
+                for (int32_t r = 0; r + k + 1 < n; ++r)
+                {
+                    double value = entry(r + k + 1, r);
+                    b.l[k][r] = value;
+                    b.u[k][r] = value;
+                }
+            }
+        }
+        else
+        {
+            // Symmetric on a lattice, indefinite. Mode 4 zeroes one diagonal
+            // entry so that the pivot tests fail.
+            for (auto& e : b.d) { e = io.rawInteger(-4, 4); }
+            for (int32_t k = 0; k < bands; ++k)
+            {
+                for (size_t r = 0; r < b.l[k].size(); ++r)
+                {
+                    double value = io.rawInteger(-3, 3);
+                    b.l[k][r] = value;
+                    b.u[k][r] = value;
+                }
+            }
+            if (mode == 4)
+            {
+                b.d[io.rawInteger(0, b.size - 1)] = 0.0;
+            }
+        }
+        return b;
+    }
+
+    // Records the shape (size, numLBands, numUBands, mode) and then every
+    // stored entry: the diagonal, the lower bands, the upper bands.
+    void RecordBanded(oracle::Ctx& io, Banded const& b)
+    {
+        io.given(static_cast<double>(b.size));
+        io.given(static_cast<double>(b.numLBands));
+        io.given(static_cast<double>(b.numUBands));
+        io.given(static_cast<double>(b.mode));
+        for (double e : b.d) { io.given(e); }
+        for (auto const& band : b.l)
+        {
+            for (double e : band) { io.given(e); }
+        }
+        for (auto const& band : b.u)
+        {
+            for (double e : band) { io.given(e); }
+        }
+    }
+
+    BandedMatrix<double> MakeBanded(Banded const& b)
+    {
+        BandedMatrix<double> matrix(b.size, b.numLBands, b.numUBands);
+        matrix.GetDBand() = b.d;
+        for (int32_t k = 0; k < b.numLBands; ++k) { matrix.GetLBands()[k] = b.l[k]; }
+        for (int32_t k = 0; k < b.numUBands; ++k) { matrix.GetUBands()[k] = b.u[k]; }
+        return matrix;
+    }
+
+    // Every stored entry of the matrix, in the order RecordBanded uses.
+    void OutBanded(oracle::Ctx& io, BandedMatrix<double> const& matrix)
+    {
+        for (double e : matrix.GetDBand()) { io.outReal(e); }
+        for (auto const& band : matrix.GetLBands())
+        {
+            for (double e : band) { io.outReal(e); }
+        }
+        for (auto const& band : matrix.GetUBands())
+        {
+            for (double e : band) { io.outReal(e); }
+        }
+    }
+}
+
+// The element accessors, including the in-range indices outside the stored
+// bands and the out-of-range indices, both of which upstream services from
+// its mZero scratch member. Writes through that reference are discarded.
+ORACLE_CASE("BandedMatrix.accessor")
+{
+    int32_t mode = io.rawInteger(0, 1);
+    Banded b = DrawBandedRaw(io, mode);
+    RecordBanded(io, b);
+    BandedMatrix<double> matrix = MakeBanded(b);
+    io.outInt(matrix.GetSize());
+
+    // Read every entry of the full square, plus the four out-of-range
+    // probes.
+    for (int32_t r = -1; r <= b.size; ++r)
+    {
+        for (int32_t c = -1; c <= b.size; ++c)
+        {
+            io.outReal(matrix(r, c));
+        }
+    }
+
+    // Write a distinctive value at every index and read the whole matrix
+    // back: entries outside the bands must be unchanged.
+    for (int32_t r = -1; r <= b.size; ++r)
+    {
+        for (int32_t c = -1; c <= b.size; ++c)
+        {
+            matrix(r, c) = static_cast<double>(1 + r * (b.size + 2) + c);
+        }
+    }
+    OutBanded(io, matrix);
+}
+
+// The Cholesky factorization. Mode 2 is positive definite and succeeds;
+// modes 3 and 4 exercise the 'diagonal <= 0' failure return, and the
+// non-symmetric modes 0 and 1 reach it too. The factored matrix is emitted
+// whatever the return value, because upstream leaves the partial
+// factorization in place.
+ORACLE_CASE("BandedMatrix.choleskyFactor")
+{
+    int32_t mode = io.rawInteger(0, 4);
+    Banded b = DrawBandedRaw(io, mode);
+    RecordBanded(io, b);
+    BandedMatrix<double> matrix = MakeBanded(b);
+    bool success = matrix.CholeskyFactor();
+    io.outBool(success);
+    OutBanded(io, matrix);
+}
+
+// SolveSystem with a vector right-hand side. Note that upstream's
+// vector-valued SolveLower/SolveUpper divide by the pivot while the
+// matrix-valued ones multiply by its reciprocal, so the two overloads are
+// different computations and both are covered.
+ORACLE_CASE("BandedMatrix.solveSystem.vector")
+{
+    int32_t mode = io.rawInteger(0, 4);
+    Banded b = DrawBandedRaw(io, mode);
+    RecordBanded(io, b);
+    std::vector<double> rhs(static_cast<size_t>(b.size), 0.0);
+    for (auto& e : rhs) { e = io.real(-6.0, 6.0); }
+    BandedMatrix<double> matrix = MakeBanded(b);
+    bool success = matrix.SolveSystem(rhs.data());
+    io.outBool(success);
+    for (double e : rhs) { io.outReal(e); }
+    OutBanded(io, matrix);
+}
+
+// SolveSystem with a matrix right-hand side, in both storage orders.
+ORACLE_CASE("BandedMatrix.solveSystem.matrix")
+{
+    int32_t mode = io.rawInteger(0, 4);
+    Banded b = DrawBandedRaw(io, mode);
+    RecordBanded(io, b);
+    int32_t numBColumns = io.integer(1, 3);
+    bool rowMajor = io.boolean();
+    std::vector<double> rhs(static_cast<size_t>(b.size) * numBColumns, 0.0);
+    for (auto& e : rhs) { e = io.real(-6.0, 6.0); }
+    BandedMatrix<double> matrix = MakeBanded(b);
+    bool success = rowMajor
+        ? matrix.SolveSystem<true>(rhs.data(), numBColumns)
+        : matrix.SolveSystem<false>(rhs.data(), numBColumns);
+    io.outBool(success);
+    for (double e : rhs) { io.outReal(e); }
+    OutBanded(io, matrix);
+}
+
+// ComputeInverse, in both storage orders, including the 'diag == 0' failure
+// return. Upstream leaves 'inverse' in a partially reduced state when it
+// fails, and the caller is told not to use it, so only the success flag is
+// emitted on that path.
+ORACLE_CASE("BandedMatrix.computeInverse")
+{
+    int32_t mode = io.rawInteger(0, 4);
+    Banded b = DrawBandedRaw(io, mode);
+    RecordBanded(io, b);
+    bool rowMajor = io.boolean();
+    std::vector<double> inverse(static_cast<size_t>(b.size) * b.size, 0.0);
+    BandedMatrix<double> matrix = MakeBanded(b);
+    bool success = rowMajor
+        ? matrix.ComputeInverse<true>(inverse.data())
+        : matrix.ComputeInverse<false>(inverse.data());
+    io.outBool(success);
+    if (success)
+    {
+        for (double e : inverse) { io.outReal(e); }
+    }
+    // ComputeInverse works on a copy, so the matrix itself is unchanged.
+    OutBanded(io, matrix);
+}
+
+// The constructor rejects size <= 0 and band counts outside [0, size) by
+// collapsing the matrix to size 0; every accessor then reports zero.
+ORACLE_CASE("BandedMatrix.invalidShape")
+{
+    int32_t size = io.integer(-1, 3);
+    int32_t numLBands = io.integer(-1, 4);
+    int32_t numUBands = io.integer(-1, 4);
+    BandedMatrix<double> matrix(size, numLBands, numUBands);
+    io.outInt(matrix.GetSize());
+    io.outInt(static_cast<int32_t>(matrix.GetDBand().size()));
+    io.outInt(static_cast<int32_t>(matrix.GetLBands().size()));
+    io.outInt(static_cast<int32_t>(matrix.GetUBands().size()));
+    io.outBool(matrix.CholeskyFactor());
+    for (int32_t r = 0; r < 3; ++r)
+    {
+        for (int32_t c = 0; c < 3; ++c) { io.outReal(matrix(r, c)); }
+    }
+}
+
+// =======================================================================
+// GaussianElimination.h
+// =======================================================================
+
+namespace
+{
+    // An NxN matrix in the row-major order that GTE_USE_ROW_MAJOR selects
+    // (the port's default and the only order covered here). Modes:
+    // 0 uniform, 1 small lattice, 2 a permutation matrix, 3 exactly singular
+    // (a repeated row), 4 nearly singular (a row perturbed by 2^-40),
+    // 5 diagonal with mixed magnitudes, 6 the zero matrix, 7 a row of zeros.
+    std::vector<double> DrawSquareRaw(oracle::Ctx& io, int32_t n, int32_t mode)
+    {
+        std::vector<double> m(static_cast<size_t>(n) * n, 0.0);
+        auto at = [&m, n](int32_t r, int32_t c) -> double& { return m[c + n * r]; };
+        if (mode == 0)
+        {
+            for (auto& e : m) { e = io.raw(-5.0, 5.0); }
+        }
+        else if (mode == 1 || mode == 3 || mode == 4)
+        {
+            for (auto& e : m) { e = io.rawInteger(-4, 4); }
+            if (mode != 1 && n >= 2)
+            {
+                int32_t source = io.rawInteger(0, n - 1);
+                int32_t target = (source + 1 + io.rawInteger(0, n - 2)) % n;
+                double perturbation = (mode == 4 ? PowerOfTwo(-40) : 0.0);
+                for (int32_t c = 0; c < n; ++c)
+                {
+                    at(target, c) = at(source, c) + (c == 0 ? perturbation : 0.0);
+                }
+            }
+        }
+        else if (mode == 2)
+        {
+            std::vector<int32_t> permutation(static_cast<size_t>(n));
+            for (int32_t i = 0; i < n; ++i) { permutation[i] = i; }
+            for (int32_t i = n - 1; i > 0; --i)
+            {
+                std::swap(permutation[i], permutation[io.rawInteger(0, i)]);
+            }
+            for (int32_t r = 0; r < n; ++r) { at(r, permutation[r]) = 1.0; }
+        }
+        else if (mode == 5)
+        {
+            for (int32_t r = 0; r < n; ++r)
+            {
+                at(r, r) = PowerOfTwo(io.rawInteger(-60, 60)) * io.rawInteger(1, 4);
+            }
+        }
+        else if (mode == 7)
+        {
+            for (auto& e : m) { e = io.rawInteger(-4, 4); }
+            int32_t zeroRow = io.rawInteger(0, n - 1);
+            for (int32_t c = 0; c < n; ++c) { at(zeroRow, c) = 0.0; }
+        }
+        // mode 6 leaves the zero matrix.
+        return m;
+    }
+}
+
+// The full operator(): the inverse, the determinant, the vector solve and
+// the matrix solve in one call, which is the widest path through the
+// routine. Singular inputs take the 'maxValue == zero' early return, which
+// zero-fills every output.
+ORACLE_CASE("GaussianElimination.compute")
+{
+    int32_t n = io.rawInteger(1, 5);
+    int32_t mode = io.rawInteger(0, 7);
+    std::vector<double> m = DrawSquareRaw(io, n, mode);
+    io.given(static_cast<double>(n));
+    io.given(static_cast<double>(mode));
+    for (double e : m) { io.given(e); }
+    int32_t numCols = io.integer(1, 3);
+    std::vector<double> b(static_cast<size_t>(n), 0.0);
+    for (auto& e : b) { e = io.real(-6.0, 6.0); }
+    std::vector<double> c(static_cast<size_t>(n) * numCols, 0.0);
+    for (auto& e : c) { e = io.real(-6.0, 6.0); }
+
+    std::vector<double> inverse(static_cast<size_t>(n) * n, 0.0);
+    std::vector<double> x(static_cast<size_t>(n), 0.0);
+    std::vector<double> y(static_cast<size_t>(n) * numCols, 0.0);
+    double determinant = 0.0;
+    GaussianElimination<double> solver;
+    bool invertible = solver(n, m.data(), inverse.data(), determinant,
+        b.data(), x.data(), c.data(), numCols, y.data());
+    io.outBool(invertible);
+    io.outReal(determinant);
+    for (double e : inverse) { io.outReal(e); }
+    for (double e : x) { io.outReal(e); }
+    for (double e : y) { io.outReal(e); }
+}
+
+// The narrower calls: no inverse wanted (upstream then eliminates in a local
+// scratch buffer and skips the final un-permutation of the rows), and only
+// one of the two right-hand sides supplied.
+ORACLE_CASE("GaussianElimination.compute.partial")
+{
+    int32_t n = io.rawInteger(1, 5);
+    int32_t mode = io.rawInteger(0, 7);
+    std::vector<double> m = DrawSquareRaw(io, n, mode);
+    io.given(static_cast<double>(n));
+    io.given(static_cast<double>(mode));
+    for (double e : m) { io.given(e); }
+    // selector: 0 determinant only, 1 vector solve, 2 matrix solve,
+    // 3 inverse and determinant only.
+    int32_t selector = io.integer(0, 3);
+    int32_t numCols = io.integer(1, 3);
+    std::vector<double> b(static_cast<size_t>(n), 0.0);
+    for (auto& e : b) { e = io.real(-6.0, 6.0); }
+    std::vector<double> c(static_cast<size_t>(n) * numCols, 0.0);
+    for (auto& e : c) { e = io.real(-6.0, 6.0); }
+
+    std::vector<double> inverse(static_cast<size_t>(n) * n, 0.0);
+    std::vector<double> x(static_cast<size_t>(n), 0.0);
+    std::vector<double> y(static_cast<size_t>(n) * numCols, 0.0);
+    double determinant = 0.0;
+    GaussianElimination<double> solver;
+    bool invertible = false;
+    if (selector == 0)
+    {
+        invertible = solver(n, m.data(), nullptr, determinant,
+            nullptr, nullptr, nullptr, 0, nullptr);
+    }
+    else if (selector == 1)
+    {
+        invertible = solver(n, m.data(), nullptr, determinant,
+            b.data(), x.data(), nullptr, 0, nullptr);
+    }
+    else if (selector == 2)
+    {
+        invertible = solver(n, m.data(), nullptr, determinant,
+            nullptr, nullptr, c.data(), numCols, y.data());
+    }
+    else
+    {
+        invertible = solver(n, m.data(), inverse.data(), determinant,
+            nullptr, nullptr, nullptr, 0, nullptr);
+    }
+    io.outBool(invertible);
+    io.outReal(determinant);
+    if (selector == 3)
+    {
+        for (double e : inverse) { io.outReal(e); }
+    }
+    if (selector == 1)
+    {
+        for (double e : x) { io.outReal(e); }
+    }
+    if (selector == 2)
+    {
+        for (double e : y) { io.outReal(e); }
+    }
+}
+
+// Preserved upstream defect (gtengine-js issue #375). A matrix whose entries
+// are all of subnormal magnitude passes the pivot test (the largest entry is
+// nonzero), but 1 / pivot overflows to infinity and the row operations
+// produce infinity * 0 = NaN, so the call reports invertible = true with NaN
+// entries. The port preserves this deliberately, so the two sides are
+// compared bit for bit; the discrete 'invertible' output keeps the record
+// from being vacuous when every real output is NaN.
+ORACLE_CASE("GaussianElimination.compute.subnormal")
+{
+    int32_t n = io.rawInteger(2, 4);
+    std::vector<double> m(static_cast<size_t>(n) * n, 0.0);
+    for (auto& e : m)
+    {
+        e = PowerOfTwo(-1070) * io.rawInteger(-8, 8);
+    }
+    io.given(static_cast<double>(n));
+    for (double e : m) { io.given(e); }
+    std::vector<double> inverse(static_cast<size_t>(n) * n, 0.0);
+    double determinant = 0.0;
+    GaussianElimination<double> solver;
+    bool invertible = solver(n, m.data(), inverse.data(), determinant,
+        nullptr, nullptr, nullptr, 0, nullptr);
+    io.outBool(invertible);
+    io.outReal(determinant);
+    for (double e : inverse) { io.outReal(e); }
+}
+
+// The LogError precondition. Upstream rejects numRows <= 0, a B without an
+// X, a C without a Y and a C with numCols < 1; the port replaces the pointer
+// pairs with optional inputs, so only the two conditions it can express are
+// covered here: numRows <= 0 and a C with numCols < 1. Upstream throws and
+// the port must throw on the same records.
+ORACLE_CASE("GaussianElimination.compute.invalidInput")
+{
+    int32_t which = io.integer(0, 1);
+    int32_t n = io.integer(-1, 3);
+    std::vector<double> m(static_cast<size_t>(std::max(n, 1)) * std::max(n, 1), 0.0);
+    for (auto& e : m) { e = io.real(-4.0, 4.0); }
+    std::vector<double> c(static_cast<size_t>(std::max(n, 1)), 0.0);
+    for (auto& e : c) { e = io.real(-4.0, 4.0); }
+    std::vector<double> y(c.size(), 0.0);
+    double determinant = 0.0;
+    GaussianElimination<double> solver;
+    bool invertible = false;
+    if (which == 0)
+    {
+        // numRows <= 0 when n <= 0; otherwise a legitimate call.
+        invertible = solver(n, m.data(), nullptr, determinant,
+            nullptr, nullptr, nullptr, 0, nullptr);
+    }
+    else
+    {
+        // C with numCols < 1.
+        invertible = solver(n, m.data(), nullptr, determinant,
+            nullptr, nullptr, c.data(), 0, y.data());
+    }
+    io.outBool(invertible);
+    io.outReal(determinant);
+}
+
+// =======================================================================
+// Integration.h
+// =======================================================================
+
+namespace
+{
+    // The integrands are written identically on both sides so that the
+    // comparison is of the quadrature rule, not of the integrand. Kind 0 is
+    // a polynomial in Horner form, kind 1 is a rational function whose
+    // denominator is bounded away from zero, and kind 2 is the only libm
+    // integrand in the group (std::exp), used by its own case.
+    struct Integrand
+    {
+        int32_t kind = 0;
+        int32_t degree = 0;
+        std::vector<double> coefficient;
+    };
+
+    Integrand DrawIntegrand(oracle::Ctx& io, int32_t kind)
+    {
+        Integrand f;
+        f.kind = kind;
+        f.degree = io.integer(0, 5);
+        f.coefficient.resize(static_cast<size_t>(f.degree) + 1);
+        for (auto& e : f.coefficient) { e = io.real(-3.0, 3.0); }
+        return f;
+    }
+
+    double Evaluate(Integrand const& f, double t)
+    {
+        double result = f.coefficient[f.degree];
+        for (int32_t i = f.degree - 1; i >= 0; --i)
+        {
+            result = result * t + f.coefficient[i];
+        }
+        if (f.kind == 1)
+        {
+            result = result / (t * t + 1.0);
+        }
+        else if (f.kind == 2)
+        {
+            result = std::exp(-t * t) * result;
+        }
+        return result;
+    }
+}
+
+ORACLE_CASE("Integration.trapezoidRule")
+{
+    int32_t numSamples = io.integer(2, 24);
+    double a = io.real(-3.0, 3.0);
+    double b = io.real(-3.0, 3.0);
+    int32_t kind = io.integer(0, 1);
+    Integrand f = DrawIntegrand(io, kind);
+    auto integrand = [&f](double t) { return Evaluate(f, t); };
+    io.outReal(Integration<double>::TrapezoidRule(numSamples, a, b, integrand));
+}
+
+ORACLE_CASE("Integration.romberg")
+{
+    int32_t order = io.integer(1, 10);
+    double a = io.real(-3.0, 3.0);
+    double b = io.real(-3.0, 3.0);
+    int32_t kind = io.integer(0, 1);
+    Integrand f = DrawIntegrand(io, kind);
+    auto integrand = [&f](double t) { return Evaluate(f, t); };
+    io.outReal(Integration<double>::Romberg(order, a, b, integrand));
+}
+
+// ComputeQuadratureInfo builds the Legendre polynomial of the requested
+// degree and finds its roots with RootsPolynomial::Find, which is bisection
+// on + - * / alone, then solves for the coefficients with the subset-product
+// recursion. All of it is exact arithmetic.
+ORACLE_CASE("Integration.computeQuadratureInfo")
+{
+    int32_t degree = io.integer(2, 9);
+    std::vector<double> roots, coefficients;
+    Integration<double>::ComputeQuadratureInfo(degree, roots, coefficients);
+    io.outInt(static_cast<int32_t>(roots.size()));
+    for (double e : roots) { io.outReal(e); }
+    io.outInt(static_cast<int32_t>(coefficients.size()));
+    for (double e : coefficients) { io.outReal(e); }
+}
+
+ORACLE_CASE("Integration.gaussianQuadrature")
+{
+    int32_t degree = io.integer(2, 9);
+    double a = io.real(-3.0, 3.0);
+    double b = io.real(-3.0, 3.0);
+    int32_t kind = io.integer(0, 1);
+    Integrand f = DrawIntegrand(io, kind);
+    std::vector<double> roots, coefficients;
+    Integration<double>::ComputeQuadratureInfo(degree, roots, coefficients);
+    auto integrand = [&f](double t) { return Evaluate(f, t); };
+    io.outReal(Integration<double>::GaussianQuadrature(roots, coefficients,
+        a, b, integrand));
+    io.outInt(static_cast<int32_t>(roots.size()));
+    for (double e : roots) { io.outReal(e); }
+    for (double e : coefficients) { io.outReal(e); }
+}
+
+// The one case with a libm integrand: std::exp is accurate to within an ulp
+// in both runtimes but is not required to be correctly rounded, so the
+// quadrature sums differ in the last bits. Compared with a tolerance.
+ORACLE_CASE("Integration.libmIntegrand")
+{
+    int32_t order = io.integer(1, 8);
+    int32_t numSamples = io.integer(2, 24);
+    double a = io.real(-2.0, 2.0);
+    double b = io.real(-2.0, 2.0);
+    Integrand f = DrawIntegrand(io, 2);
+    auto integrand = [&f](double t) { return Evaluate(f, t); };
+    io.outReal(Integration<double>::TrapezoidRule(numSamples, a, b, integrand));
+    io.outReal(Integration<double>::Romberg(order, a, b, integrand));
+}
+
+// =======================================================================
+// LCPSolver.h
+// =======================================================================
+
+namespace
+{
+    // The LCP w = q + M*z. Modes: 0 uniform M and q, 1 lattice M and q,
+    // 2 M positive definite (M = A*A^T + I on a lattice, so a solution
+    // always exists), 3 M = 0, 4 M with only nonpositive entries and q < 0
+    // (provably infeasible: w = q + M*z < 0 for every z >= 0), 5 q >= 0 (the
+    // trivial solution), 6 a lattice M with a zero row.
+    struct Lcp
+    {
+        int32_t n = 0, mode = 0;
+        std::vector<double> q, m;
+    };
+
+    Lcp DrawLcpRaw(oracle::Ctx& io, int32_t mode, int32_t minN = 1, int32_t maxN = 6)
+    {
+        Lcp lcp;
+        lcp.mode = mode;
+        lcp.n = io.rawInteger(minN, maxN);
+        int32_t const n = lcp.n;
+        lcp.q.assign(static_cast<size_t>(n), 0.0);
+        lcp.m.assign(static_cast<size_t>(n) * n, 0.0);
+        auto at = [&lcp, n](int32_t r, int32_t c) -> double& { return lcp.m[c + n * r]; };
+
+        if (mode == 0)
+        {
+            for (auto& e : lcp.m) { e = io.raw(-4.0, 4.0); }
+            for (auto& e : lcp.q) { e = io.raw(-4.0, 4.0); }
+        }
+        else if (mode == 1 || mode == 6)
+        {
+            for (auto& e : lcp.m) { e = io.rawInteger(-3, 3); }
+            for (auto& e : lcp.q) { e = io.rawInteger(-4, 4); }
+            if (mode == 6)
+            {
+                int32_t zeroRow = io.rawInteger(0, n - 1);
+                for (int32_t c = 0; c < n; ++c) { at(zeroRow, c) = 0.0; }
+            }
+        }
+        else if (mode == 2)
+        {
+            std::vector<double> a(static_cast<size_t>(n) * n, 0.0);
+            for (auto& e : a) { e = io.rawInteger(-2, 2); }
+            for (int32_t r = 0; r < n; ++r)
+            {
+                for (int32_t c = 0; c < n; ++c)
+                {
+                    double sum = 0.0;
+                    for (int32_t k = 0; k < n; ++k)
+                    {
+                        sum += a[k + n * r] * a[k + n * c];
+                    }
+                    at(r, c) = sum + (r == c ? 1.0 : 0.0);
+                }
+            }
+            for (auto& e : lcp.q) { e = io.rawInteger(-5, 5); }
+        }
+        else if (mode == 3)
+        {
+            for (auto& e : lcp.q) { e = io.rawInteger(-4, 4); }
+        }
+        else if (mode == 4)
+        {
+            for (auto& e : lcp.m) { e = -static_cast<double>(io.rawInteger(0, 3)); }
+            for (auto& e : lcp.q) { e = -static_cast<double>(io.rawInteger(1, 5)); }
+        }
+        else
+        {
+            for (auto& e : lcp.m) { e = io.rawInteger(-3, 3); }
+            for (auto& e : lcp.q) { e = io.rawInteger(0, 5); }
+        }
+        return lcp;
+    }
+
+    void RecordLcp(oracle::Ctx& io, Lcp const& lcp)
+    {
+        io.given(static_cast<double>(lcp.n));
+        io.given(static_cast<double>(lcp.mode));
+        for (double e : lcp.q) { io.given(e); }
+        for (double e : lcp.m) { io.given(e); }
+    }
+
+    void RunLcp(oracle::Ctx& io, Lcp const& lcp, int32_t maxIterations)
+    {
+        LCPSolver<double> solver(lcp.n);
+        if (maxIterations != 0) { solver.SetMaxIterations(maxIterations); }
+        io.outInt(solver.GetMaxIterations());
+        std::vector<double> w(static_cast<size_t>(lcp.n), 0.0);
+        std::vector<double> z(static_cast<size_t>(lcp.n), 0.0);
+        LCPSolverShared<double>::Result result{};
+        bool success = solver.Solve(lcp.q, lcp.m, w, z, &result);
+        io.outBool(success);
+        io.outInt(static_cast<int32_t>(result));
+        io.outInt(solver.GetNumIterations());
+        for (double e : w) { io.outReal(e); }
+        for (double e : z) { io.outReal(e); }
+    }
+}
+
+// Lemke's method over the whole generator: solvable, infeasible, trivially
+// solvable and degenerate inputs. Every step is + - * / and the pivot choice
+// is a lexicographic comparison of the perturbation polynomials, so the
+// pivoting sequence, the iteration count and the solution are bit-identical.
+ORACLE_CASE("LCPSolver.solve")
+{
+    int32_t mode = io.rawInteger(0, 6);
+    Lcp lcp = DrawLcpRaw(io, mode);
+    RecordLcp(io, lcp);
+    // 0 keeps the default n*n budget; the others are explicit budgets, and
+    // a negative one restores the default through SetMaxIterations.
+    int32_t maxIterations = io.integer(-2, 40);
+    RunLcp(io, lcp, maxIterations);
+}
+
+// M positive definite: the LCP always has a solution, so the solver must
+// report HAS_TRIVIAL_SOLUTION or HAS_NONTRIVIAL_SOLUTION.
+ORACLE_CASE("LCPSolver.solve.positiveDefinite")
+{
+    Lcp lcp = DrawLcpRaw(io, 2);
+    RecordLcp(io, lcp);
+    RunLcp(io, lcp, 0);
+}
+
+// q >= 0 takes the trivial-solution early return before any pivoting.
+ORACLE_CASE("LCPSolver.solve.trivial")
+{
+    Lcp lcp = DrawLcpRaw(io, 5);
+    RecordLcp(io, lcp);
+    RunLcp(io, lcp, 0);
+}
+
+// M <= 0 entrywise with q < 0 is infeasible: w = q + M*z is negative for
+// every z >= 0, so the driving variable can never leave the dictionary and
+// the solver returns NO_SOLUTION. The magnitudes are ordinary, which keeps
+// the case clear of the subnormal-pivot defect of issue #476.
+ORACLE_CASE("LCPSolver.solve.noSolution")
+{
+    Lcp lcp = DrawLcpRaw(io, 4);
+    RecordLcp(io, lcp);
+    RunLcp(io, lcp, 0);
+}
+
+// A budget of one or two iterations forces FAILED_TO_CONVERGE on inputs that
+// would otherwise need more pivots.
+ORACLE_CASE("LCPSolver.solve.maxIterations")
+{
+    int32_t mode = io.rawInteger(0, 2);
+    Lcp lcp = DrawLcpRaw(io, mode, 3, 6);
+    RecordLcp(io, lcp);
+    int32_t maxIterations = io.integer(1, 2);
+    RunLcp(io, lcp, maxIterations);
+}
+
+// The INVALID_INPUT return of the dynamic solver: a q or an M with fewer
+// elements than the dimension demands. (The other INVALID_INPUT the port
+// reports, construction with n <= 0, cannot be compared: upstream leaves its
+// member pointers null and Solve dereferences them, which is an access
+// violation rather than a catchable exception.)
+ORACLE_CASE("LCPSolver.solve.invalidInput")
+{
+    int32_t n = io.integer(1, 4);
+    int32_t shortfall = io.integer(1, 2);
+    bool shortenQ = io.boolean();
+    size_t qSize = static_cast<size_t>(shortenQ ? std::max(0, n - shortfall) : n);
+    size_t mSize = static_cast<size_t>(shortenQ ? n * n
+        : std::max(0, n * n - shortfall));
+    std::vector<double> q(qSize, 0.0), m(mSize, 0.0);
+    for (auto& e : q) { e = io.real(-4.0, 4.0); }
+    for (auto& e : m) { e = io.real(-4.0, 4.0); }
+    LCPSolver<double> solver(n);
+    std::vector<double> w(static_cast<size_t>(n), 0.0);
+    std::vector<double> z(static_cast<size_t>(n), 0.0);
+    LCPSolverShared<double>::Result result{};
+    bool success = solver.Solve(q, m, w, z, &result);
+    io.outBool(success);
+    io.outInt(static_cast<int32_t>(result));
+    for (double e : w) { io.outReal(e); }
+    for (double e : z) { io.outReal(e); }
+}
+
+// =======================================================================
+// FPInterval.h
+// =======================================================================
+//
+// Upstream computes each endpoint under std::fesetround(FE_DOWNWARD) or
+// FE_UPWARD. JavaScript has no rounding-mode control, so the port emulates
+// directed rounding: it computes the round-to-nearest value, proves
+// exactness with TwoSum/TwoProduct where it can, and otherwise steps one
+// representable value outward. That is always an enclosure but is up to one
+// ulp wider than upstream whenever round-to-nearest happened to round the
+// right way.
+//
+// The exact cases below therefore use dyadic operands on which every
+// operation is exactly representable: both sides then produce the same
+// endpoints bit for bit, which is what tests the branch structure and the
+// port's exactness proofs. The wider behaviour is the subject of the
+// declared deviation case at the end.
+
+namespace
+{
+    using Interval = FPInterval<double>;
+
+    // m * 2^-k with |m| <= 64 and k <= 4: every sum, difference and product
+    // of two such values is exactly representable as a double.
+    double DrawDyadic(oracle::Ctx& io)
+    {
+        int32_t m = io.rawInteger(-64, 64);
+        int32_t k = io.rawInteger(0, 4);
+        return static_cast<double>(m) * PowerOfTwo(-k);
+    }
+
+    // +-2^k with |k| <= 8, or exactly zero: division by such a value is
+    // exact for a dyadic numerator.
+    double DrawPowerOfTwoOrZero(oracle::Ctx& io, int32_t signClass)
+    {
+        if (signClass == 0) { return 0.0; }
+        double magnitude = PowerOfTwo(io.rawInteger(-8, 8));
+        return signClass > 0 ? magnitude : -magnitude;
+    }
+
+    // An interval whose sign class is 0 (0 <= e0 <= e1), 1 (e0 <= e1 <= 0)
+    // or 2 (e0 < 0 < e1). Ordered endpoints are the documented invariant.
+    std::array<double, 2> DrawIntervalRaw(oracle::Ctx& io, int32_t signClass)
+    {
+        double x = std::fabs(DrawDyadic(io));
+        double y = std::fabs(DrawDyadic(io));
+        double lo = std::min(x, y);
+        double hi = std::max(x, y);
+        if (signClass == 0) { return { lo, hi }; }
+        if (signClass == 1) { return { -hi, -lo }; }
+        return { -hi - 1.0, lo + 1.0 };
+    }
+
+    // The same three sign classes with power-of-two endpoints, plus the two
+    // one-sided classes with a zero endpoint that the division operators
+    // single out: 3 is [0, +2^k] and 4 is [-2^k, 0].
+    std::array<double, 2> DrawDivisorRaw(oracle::Ctx& io, int32_t signClass)
+    {
+        double x = PowerOfTwo(io.rawInteger(-8, 8));
+        double y = PowerOfTwo(io.rawInteger(-8, 8));
+        double lo = std::min(x, y);
+        double hi = std::max(x, y);
+        if (signClass == 0) { return { lo, hi }; }
+        if (signClass == 1) { return { -hi, -lo }; }
+        if (signClass == 2) { return { -hi, hi }; }
+        if (signClass == 3) { return { 0.0, hi }; }
+        return { -hi, 0.0 };
+    }
+
+    void OutInterval(oracle::Ctx& io, Interval const& w)
+    {
+        io.outReal(w[0]);
+        io.outReal(w[1]);
+    }
+}
+
+// The leaf-node operations Add/Sub/Mul/Div(u, v) on two raw variables,
+// including Div's division-by-zero return of the whole real line.
+ORACLE_CASE("FPInterval.leaf")
+{
+    double u = DrawDyadic(io);
+    io.given(u);
+    int32_t divisorClass = io.integer(-1, 1);
+    double v = DrawPowerOfTwoOrZero(io, divisorClass);
+    io.given(v);
+    OutInterval(io, Interval::Add(u, v));
+    OutInterval(io, Interval::Sub(u, v));
+    OutInterval(io, Interval::Mul(u, v));
+    OutInterval(io, Interval::Div(u, v));
+}
+
+// The interior-node helpers: the four-argument Add/Sub/Mul, Mul2,
+// Reciprocal, ReciprocalDown, ReciprocalUp and Reals. ReciprocalDown and
+// ReciprocalUp deliberately produce an infinite endpoint, which is exactly
+// where the port must not reuse the nextafter-based widening of SWInterval.
+ORACLE_CASE("FPInterval.internal")
+{
+    int32_t uClass = io.integer(0, 2);
+    std::array<double, 2> u = DrawIntervalRaw(io, uClass);
+    io.given(u[0]);
+    io.given(u[1]);
+    // Classes 3 and 4 have a zero endpoint, so Div, Reciprocal,
+    // ReciprocalDown and ReciprocalUp evaluate 1/+-0 and produce infinite
+    // endpoints. Those are exact results, not rounded ones, in every
+    // rounding mode.
+    int32_t vClass = io.integer(0, 4);
+    std::array<double, 2> v = DrawDivisorRaw(io, vClass);
+    io.given(v[0]);
+    io.given(v[1]);
+
+    OutInterval(io, Interval::Add(u[0], u[1], v[0], v[1]));
+    OutInterval(io, Interval::Sub(u[0], u[1], v[0], v[1]));
+    OutInterval(io, Interval::Mul(u[0], u[1], v[0], v[1]));
+    OutInterval(io, Interval::Mul2(u[0], u[1], v[0], v[1]));
+    OutInterval(io, Interval::Div(u[0], u[1], v[0], v[1]));
+    OutInterval(io, Interval::Reciprocal(v[0], v[1]));
+    OutInterval(io, Interval::ReciprocalDown(v[1]));
+    OutInterval(io, Interval::ReciprocalUp(v[0]));
+    OutInterval(io, Interval::Reals());
+    Interval fromEndpoints(v);
+    OutInterval(io, fromEndpoints);
+    Interval degenerate(u[0]);
+    OutInterval(io, degenerate);
+    Interval defaultConstructed{};
+    OutInterval(io, defaultConstructed);
+}
+
+// The free operators. The nine sign-class combinations of operator*(u, v)
+// and the five of operator/(u, v) are all reached, and the scalar overloads
+// are covered on both sides of the operand.
+ORACLE_CASE("FPInterval.operators")
+{
+    int32_t uClass = io.integer(0, 2);
+    std::array<double, 2> uRaw = DrawIntervalRaw(io, uClass);
+    io.given(uRaw[0]);
+    io.given(uRaw[1]);
+    int32_t vClass = io.integer(0, 2);
+    std::array<double, 2> vRaw = DrawIntervalRaw(io, vClass);
+    io.given(vRaw[0]);
+    io.given(vRaw[1]);
+    int32_t divisorClass = io.integer(0, 4);
+    std::array<double, 2> dRaw = DrawDivisorRaw(io, divisorClass);
+    io.given(dRaw[0]);
+    io.given(dRaw[1]);
+    int32_t scalarClass = io.integer(-1, 1);
+    double scalar = DrawPowerOfTwoOrZero(io, scalarClass);
+    io.given(scalar);
+
+    Interval u(uRaw);
+    Interval v(vRaw);
+    Interval d(dRaw);
+
+    OutInterval(io, +u);
+    OutInterval(io, -u);
+    OutInterval(io, u + v);
+    OutInterval(io, u + scalar);
+    OutInterval(io, scalar + u);
+    OutInterval(io, u - v);
+    OutInterval(io, u - scalar);
+    OutInterval(io, scalar - u);
+    OutInterval(io, u * v);
+    OutInterval(io, u * scalar);
+    OutInterval(io, scalar * u);
+    OutInterval(io, u / d);
+    OutInterval(io, u / scalar);
+    OutInterval(io, scalar / d);
+}
+
+// ProductLowerBound and ProductUpperBound. The header requires the caller to
+// have selected the rounding mode, which is what the fesetround calls below
+// do. Both functions return the wrong bound when u and v both straddle zero
+// (gtengine-js issue #75); the port preserves that deliberately, so the two
+// sides are compared bit for bit and that branch is exercised on purpose.
+ORACLE_CASE("FPInterval.productBounds")
+{
+    int32_t uClass = io.integer(0, 2);
+    std::array<double, 2> u = DrawIntervalRaw(io, uClass);
+    io.given(u[0]);
+    io.given(u[1]);
+    int32_t vClass = io.integer(0, 2);
+    std::array<double, 2> v = DrawIntervalRaw(io, vClass);
+    io.given(v[0]);
+    io.given(v[1]);
+
+    auto saveMode = std::fegetround();
+    std::fesetround(FE_DOWNWARD);
+    double lower = Interval::ProductLowerBound(u, v);
+    std::fesetround(FE_UPWARD);
+    double upper = Interval::ProductUpperBound(u, v);
+    std::fesetround(saveMode);
+    io.outReal(lower);
+    io.outReal(upper);
+}
+
+// Deviation: the port emulates directed rounding, upstream has it in
+// hardware. On operands where the operation is not exactly representable the
+// port widens by one ulp in both directions, while upstream keeps the
+// round-to-nearest value on whichever side it rounded toward. The port's
+// interval therefore contains upstream's, and the endpoints differ by at
+// most one ulp; see the PORT DEVIATION note at the top of src/FPInterval.ts.
+// The operands are ordinary reals, so almost every operation is inexact.
+ORACLE_CASE("FPInterval.directedRounding")
+{
+    double u0 = io.raw(-8.0, 8.0);
+    double u1 = u0 + io.raw(0.0, 8.0);
+    io.given(u0);
+    io.given(u1);
+    double v0 = io.raw(0.25, 8.0);
+    double v1 = v0 + io.raw(0.0, 8.0);
+    io.given(v0);
+    io.given(v1);
+    Interval u(u0, u1);
+    Interval v(v0, v1);
+    OutInterval(io, Interval::Add(u0, v0));
+    OutInterval(io, Interval::Sub(u0, v0));
+    OutInterval(io, Interval::Mul(u0, v0));
+    OutInterval(io, Interval::Div(u0, v0));
+    OutInterval(io, u + v);
+    OutInterval(io, u - v);
+    OutInterval(io, u * v);
+    OutInterval(io, u / v);
+    OutInterval(io, Interval::Reciprocal(v0, v1));
+    // 1/+0 is +infinity in every rounding mode; the port's emulated
+    // round-down steps that to MAX_VALUE, which is still a valid lower
+    // bound but not upstream's endpoint.
+    OutInterval(io, Interval::Reciprocal(-v1, 0.0));
+    OutInterval(io, Interval::ReciprocalDown(0.0));
+    OutInterval(io, Interval::ReciprocalUp(0.0));
+}

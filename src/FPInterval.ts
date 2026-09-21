@@ -72,6 +72,20 @@ import { stdMax, stdMin } from './Functions.js';
 // endpoint is widened. The enclosure is therefore conservative in every case;
 // the exactness tests only ever make the result tighter, never wrong.
 //
+// One more detail of the rounding mode has to be emulated explicitly: under
+// round toward negative infinity an exactly zero sum or difference is -0
+// rather than +0 (IEEE 754-2019 6.3), so the lower endpoint of [1,1] - [1,1]
+// is -0 in the C++ build. See signedZeroDown below.
+//
+// The exactness tests also have to separate an infinity that IS the exact
+// result -- 1/0, x*infinity, infinity+x -- from an overflow of finite
+// operands. The former is produced without rounding, so every rounding mode
+// returns it and the port must not widen it; the latter is a rounded result
+// whose FE_DOWNWARD value really is MAX_VALUE, which is what roundDown
+// gives. FPInterval produces infinite endpoints routinely through
+// reciprocalDown, reciprocalUp and reals, so this distinction is reached on
+// ordinary inputs.
+//
 // Other port notes:
 // - Only the 'double' instantiation is ported (the port maps C++ floating
 //   point to IEEE binary64); the 'float' instantiation is not provided.
@@ -186,7 +200,14 @@ export class FPInterval {
     // zero, that is, when s is exactly a + b.
     private static sumIsExact(a: number, b: number, s: number): boolean {
         if (!Number.isFinite(s)) {
-            return false;
+            // A non-finite result is the exact result whenever an operand is
+            // already non-finite (infinity plus a finite value, or the NaN of
+            // infinity minus infinity): IEEE produces it without rounding, so
+            // directed rounding leaves it alone and the port must not widen
+            // it. Only an OVERFLOW of two finite operands is a rounded
+            // result, and there the widening is what reproduces the
+            // FE_DOWNWARD bound of MAX_VALUE.
+            return !Number.isFinite(a) || !Number.isFinite(b);
         }
         const bb = s - a;
         const err = (a - (s - bb)) + (b - bb);
@@ -199,7 +220,11 @@ export class FPInterval {
     // proven to be exactly representable.
     private static productIsExact(a: number, b: number, p: number): boolean {
         if (!Number.isFinite(p)) {
-            return false;
+            // As in sumIsExact: an infinite operand gives the exact infinite
+            // product (or the NaN of zero times infinity), which no rounding
+            // mode perturbs. An overflow of two finite operands is rounded
+            // and is widened below.
+            return !Number.isFinite(a) || !Number.isFinite(b);
         }
         if (a === 0 || b === 0) {
             // The product is exactly a signed zero.
@@ -227,21 +252,45 @@ export class FPInterval {
     // and must itself be exact.
     private static quotientIsExact(a: number, b: number, q: number): boolean {
         if (!Number.isFinite(q)) {
-            return false;
+            // Division by zero and a non-finite operand produce the exact
+            // result (an infinity, or a NaN for 0/0 and infinity/infinity)
+            // in every rounding mode. Only an overflow of a finite quotient
+            // is rounded, and that one is widened; upstream's FE_DOWNWARD
+            // returns MAX_VALUE there, which is what roundDown produces.
+            return !Number.isFinite(a) || !Number.isFinite(b) || b === 0;
         }
         if (a === 0) {
-            // b is nonzero at every call site, so q is a signed zero and the
-            // quotient is exact.
+            // q is a signed zero, which is exact. (Division by zero has
+            // already been answered above.)
             return true;
         }
         const p = q * b;
         return p === a && FPInterval.productIsExact(q, b, p);
     }
 
+    // Round toward negative infinity gives -0 for an exactly zero sum or
+    // difference, where round to nearest gives +0. IEEE 754-2019 6.3: "when
+    // the sum of two operands with opposite signs (or the difference of two
+    // operands with like signs) is exactly zero, the sign of that sum (or
+    // difference) shall be +0 [...]; however, under roundTowardNegative the
+    // sign shall be -0". The only exception is the sum of two +0 operands,
+    // whose sign is +0 in every mode. Verified against the MSVC build: with
+    // FE_DOWNWARD, 1 - 1, (+0) + (-0), (+0) - (+0) and (-0) - (-0) all give
+    // -0, while (+0) + (+0) gives +0. Multiplication and division are not
+    // affected, because the sign of an exact zero product or quotient is the
+    // exclusive-or of the operand signs in every rounding mode.
+    private static signedZeroDown(a: number, b: number, s: number): number {
+        if (s !== 0) {
+            return s;
+        }
+        return (Object.is(a, 0) && Object.is(b, 0)) ? 0 : -0;
+    }
+
     // The eight directed primitives used by every operation below.
     private static addDown(a: number, b: number): number {
         const s = a + b;
-        return FPInterval.sumIsExact(a, b, s) ? s : FPInterval.roundDown(s);
+        return FPInterval.sumIsExact(a, b, s)
+            ? FPInterval.signedZeroDown(a, b, s) : FPInterval.roundDown(s);
     }
 
     private static addUp(a: number, b: number): number {
@@ -251,7 +300,8 @@ export class FPInterval {
 
     private static subDown(a: number, b: number): number {
         const d = a - b;
-        return FPInterval.sumIsExact(a, -b, d) ? d : FPInterval.roundDown(d);
+        return FPInterval.sumIsExact(a, -b, d)
+            ? FPInterval.signedZeroDown(a, -b, d) : FPInterval.roundDown(d);
     }
 
     private static subUp(a: number, b: number): number {

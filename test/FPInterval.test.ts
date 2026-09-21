@@ -169,7 +169,9 @@ describe('FPInterval leaf-node operations', () => {
     it('produces degenerate intervals for exact sums and differences', () => {
         expect(FPInterval.add(0.5, 0.25).getEndpoints()).toEqual([0.75, 0.75]);
         expect(FPInterval.sub(1, 0.25).getEndpoints()).toEqual([0.75, 0.75]);
-        expect(FPInterval.add(1, -1).getEndpoints()).toEqual([0, 0]);
+        // The lower endpoint is -0: round toward negative infinity signs an
+        // exactly zero sum that way, and the MSVC build does the same.
+        expect(FPInterval.add(1, -1).getEndpoints()).toEqual([-0, 0]);
         expect(FPInterval.add(3, 4).getEndpoints()).toEqual([7, 7]);
     });
 
@@ -276,7 +278,9 @@ describe('FPInterval arithmetic on intervals', () => {
         expect(u.add(v).getEndpoints()).toEqual([1.25, 2.5]);
         expect(u.sub(v).getEndpoints()).toEqual([0.5, 1.75]);
         expect(u.add(1).getEndpoints()).toEqual([2, 3]);
-        expect(u.sub(1).getEndpoints()).toEqual([0, 1]);
+        // -0 again: the lower endpoint 1 - 1 cancels exactly and is rounded
+        // toward negative infinity.
+        expect(u.sub(1).getEndpoints()).toEqual([-0, 1]);
         expect(FPInterval.scalarSub(4, u).getEndpoints()).toEqual([2, 3]);
     });
 
@@ -765,4 +769,78 @@ describe('FPInterval verification', () => {
             expect(new FPInterval(-4, 1).mul(new FPInterval(-4, 1))
                 .getEndpoints()).toEqual([-4, 16]);
         });
+
+    // Regression for the C++ oracle of verify group 38. Upstream computes the
+    // lower endpoint under std::fesetround(FE_DOWNWARD), where an exactly
+    // zero sum or difference is -0, not +0 (IEEE 754-2019 6.3). The MSVC
+    // build confirms it: with FE_DOWNWARD, 1 - 1, (+0) + (-0), (+0) - (+0)
+    // and (-0) - (-0) all give -0, while (+0) + (+0) gives +0. The emulated
+    // rounding of this port has to reproduce that, because round to nearest
+    // would give +0 everywhere.
+    describe('emulated round-toward-negative signs an exact zero', () => {
+        it('gives -0 for a cancelling sum or difference', () => {
+            expect(Object.is(FPInterval.add(1, -1).get(0), -0)).toBe(true);
+            expect(Object.is(FPInterval.add(1, -1).get(1), 0)).toBe(true);
+            expect(Object.is(FPInterval.sub(1, 1).get(0), -0)).toBe(true);
+            expect(Object.is(FPInterval.sub(1, 1).get(1), 0)).toBe(true);
+            // The interior-node forms too: [1,2] - [1,2] is [1-2, 2-1] and
+            // [1,1] - [1,1] is [0,0] with a -0 lower endpoint.
+            const w = new FPInterval(1, 1).sub(new FPInterval(1, 1));
+            expect(Object.is(w.get(0), -0)).toBe(true);
+            expect(Object.is(w.get(1), 0)).toBe(true);
+            // The port must not widen a zero that it proved exact: the
+            // endpoint is numerically zero, not the next value below.
+            expect(w.get(0) === 0).toBe(true);
+        });
+
+        it('keeps +0 only for the sum of two positive zeros', () => {
+            expect(Object.is(FPInterval.add(0, 0).get(0), 0)).toBe(true);
+            expect(Object.is(FPInterval.add(0, -0).get(0), -0)).toBe(true);
+            expect(Object.is(FPInterval.add(-0, -0).get(0), -0)).toBe(true);
+            expect(Object.is(FPInterval.sub(0, 0).get(0), -0)).toBe(true);
+            expect(Object.is(FPInterval.sub(0, -0).get(0), 0)).toBe(true);
+            expect(Object.is(FPInterval.sub(-0, -0).get(0), -0)).toBe(true);
+        });
+
+        it('does not widen an infinity that is the exact result', () => {
+            // 1 / +-0 is +-infinity exactly, in every rounding mode, so both
+            // endpoints of the reciprocal of an interval with a zero endpoint
+            // are infinite, as they are in the C++ build.
+            expect(FPInterval.reciprocal(0, 4).getEndpoints()).toEqual([0.25, Infinity]);
+            expect(FPInterval.reciprocal(-4, 0).getEndpoints())
+                .toEqual([Infinity, -0.25]);
+            expect(FPInterval.reciprocalDown(0).getEndpoints())
+                .toEqual([Infinity, Infinity]);
+            expect(FPInterval.reciprocalUp(0).getEndpoints())
+                .toEqual([-Infinity, Infinity]);
+            // An infinite operand likewise passes straight through.
+            expect(FPInterval.mul(Infinity, Infinity, 2, 3).getEndpoints())
+                .toEqual([Infinity, Infinity]);
+            expect(FPInterval.add(-Infinity, Infinity, 1, 1).getEndpoints())
+                .toEqual([-Infinity, Infinity]);
+            expect(new FPInterval(1, 2).mul(FPInterval.reciprocalDown(4))
+                .getEndpoints()).toEqual([0.25, Infinity]);
+        });
+
+        it('still widens an overflow of finite operands', () => {
+            // Round to nearest overflows to +infinity, but the exact value is
+            // finite, so the lower bound has to come back as MAX_VALUE. That
+            // is exactly what FE_DOWNWARD returns in the C++ build.
+            const max = Number.MAX_VALUE;
+            expect(FPInterval.add(max, max).getEndpoints())
+                .toEqual([max, Infinity]);
+            expect(FPInterval.mul(max, 2).getEndpoints()).toEqual([max, Infinity]);
+            expect(FPInterval.div(max, 0.5).getEndpoints()).toEqual([max, Infinity]);
+        });
+
+        it('leaves products and quotients to the exclusive-or sign rule', () => {
+            // The rounding mode does not affect the sign of an exact zero
+            // product or quotient, so these stay as round to nearest has them.
+            expect(Object.is(FPInterval.mul(0, 3).get(0), 0)).toBe(true);
+            expect(Object.is(FPInterval.mul(-0, 3).get(0), -0)).toBe(true);
+            expect(Object.is(FPInterval.mul(0, -0).get(0), -0)).toBe(true);
+            expect(Object.is(FPInterval.div(-0, 3).get(0), -0)).toBe(true);
+            expect(Object.is(FPInterval.div(0, 3).get(0), 0)).toBe(true);
+        });
+    });
 });
