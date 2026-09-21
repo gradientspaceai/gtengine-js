@@ -395,7 +395,27 @@ describe('MarchingCubes verification', () => {
                 expect(counts.nonManifold).toBe(0);
                 const euler = vertices.length - counts.undirected.size + triangles.length;
                 expect(euler % 2).toBe(0);
-                expect(euler).toBeGreaterThan(0);
+                // The level surface is the union of two balls of radii
+                // sqrt(r^2 - 1/3). When the balls are within a cell diagonal
+                // of external tangency the neck between them is thinner
+                // than a cell and the table may join them through two
+                // separate bridges, which is a closed oriented surface of
+                // genus 1 (Euler characteristic 0): legitimate marching-cubes
+                // topology, seen for centres (6.6,5.7,6.5), (5.6,4.6,3) and
+                // radii 1.7, 2.3. Away from tangency the topology is that of
+                // the exact union: two spheres or one.
+                const effA = Math.sqrt(radiusA * radiusA - 1 / 3);
+                const effB = Math.sqrt(radiusB * radiusB - 1 / 3);
+                const gap = Math.hypot(ax - bx, ay - by, az - bz) - (effA + effB);
+                const cellDiagonal = Math.sqrt(3);
+                if (gap > cellDiagonal) {
+                    expect(euler).toBe(4);
+                } else if (gap < -cellDiagonal) {
+                    expect(euler).toBe(2);
+                } else {
+                    expect(euler).toBeGreaterThanOrEqual(0);
+                    expect(euler).toBeLessThanOrEqual(4);
+                }
                 expect(signedVolume(vertices, triangles)).toBeLessThan(0);
             }, 40);
     });
