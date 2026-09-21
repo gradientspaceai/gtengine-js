@@ -9,7 +9,7 @@ upstream GTE code compiled with MSVC; the port replays the same inputs. See
 - compiler MSVC 194435215 x64 /O2 /fp:precise
 - records-per-case 20
 
-**850 cases, 15400 records, 130607 floating-point outputs compared; 99.51% bit-identical to the C++ build. 740 cases are bit-identical on every output. 80 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
+**889 cases, 16120 records, 138850 floating-point outputs compared; 99.53% bit-identical to the C++ build. 775 cases are bit-identical on every output. 83 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
 
 Discrete outputs (booleans, counts, indices) always compare exactly and are not counted
 in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |port|, |C++|)`.
@@ -33,6 +33,7 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | v33-intersection | 68 | 1180 | 3703 | 100.00% | 59 | 0 |  |
 | v34-intersection | 66 | 1140 | 7423 | 99.93% | 56 | 2.78e-15 | `IntrAreaEllipse2Ellipse2.compute` |
 | v35-intersection | 56 | 960 | 6847 | 100.00% | 48 | 0 |  |
+| v38-numerical | 39 | 720 | 8243 | 99.90% | 35 | 1.85e-16 | `Integration.libmIntegrand` |
 
 ## Deliberate deviations from the C++ build
 
@@ -122,3 +123,6 @@ every record.
 | v35-intersection | `IntrRay3Cone3.find.throughVertexDeviation` | 20 of 20 | UPSTREAM-FINDINGS IntrLine3Cone3.h through-vertex analysis; issues #304, #465 |
 | v35-intersection | `IntrSegment3Cone3.find.throughVertexDeviation` | 20 of 20 | UPSTREAM-FINDINGS IntrLine3Cone3.h through-vertex analysis; issues #304, #465 |
 | v35-intersection | `IntrOrientedBox3Cone3.test.staleAdjacencyDeviation` | 20 of 20 | UPSTREAM-FINDINGS IntrAlignedBox3Cone3.h BoxFullyInConeSlab stale adjacency; issue #301 |
+| v38-numerical | `SymmetricEigensolver3x3.solve.outOfBandScale` | 20 of 20 | issue #379: GetCosSin lacks the maxAbsComp rescaling |
+| v38-numerical | `UnsymmetricEigenvalues.solve.trailingBlock` | 20 of 20 | issue #42: the packing loop drops A(N-1,N-1) |
+| v38-numerical | `FPInterval.directedRounding` | 20 of 20 | the port emulates the directed rounding that upstream takes from std::fesetround; see the PORT DEVIATION note in src/FPInterval.ts |
