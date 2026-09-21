@@ -71,14 +71,14 @@ Nothing here has been reported upstream before; this document is the report.
 
 ## Counts
 
-- **500 distinct findings** across **162** tracked issues (one issue
+- **501 distinct findings** across **163** tracked issues (one issue
   frequently holds several findings in related files).
-- By severity: **246 result-corrupting**, **15 wrong but
+- By severity: **247 result-corrupting**, **15 wrong but
   recoverable**, **166 minor**, **73 documentation**.
 - By port status: **259 fixed or corrected in the port** (of which 157 are code
   fixes with regression tests, 22 are added guards or asserts where upstream has
   undefined behaviour, 64 are comment corrections, 11 are dead-code removals and
-  5 are documented deliberate deviations), **232 preserved deliberately**, and
+  5 are documented deliberate deviations), **233 preserved deliberately**, and
   **9 not ported** (the `GTE_USE_VEC_MAT` branches, dead code that cannot
   compile, and two arbitrary-precision paths).
 - **288 distinct upstream headers** are implicated.
@@ -376,6 +376,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `IntrLine3Cone3.h` | `CaseC2NotZeroDiscrZero` | the vertex test uses only the U-component of `(P - V) + t*U = 0` | RC | fixed | [#304](https://github.com/gradientspaceai/gtengine-js/issues/304) |
 | `IntrLine3Cone3.h` | `CaseC2NotZeroDiscrZero` | the vertex branch is gated on an exact floating-point equality that essentially never holds | RC | fixed | [#465](https://github.com/gradientspaceai/gtengine-js/issues/465) |
 | `IntrLine3Cone3.h` | `CaseC2NotZeroDiscrPos` Block 3 | assumes `c2 > 0`; a through-vertex line has `discr` as a cancelling difference and is misclassified | RC | fixed | [#465](https://github.com/gradientspaceai/gtengine-js/issues/465) |
+| `IntrLine3Cone3.h` | `SetSegmentClamp`, `SetRayClamp` | line parameters are recovered from the heights, `(h - Dot(D,P-V)) / Dot(D,U)`: exact for rational types, but in floating point both ends of the segment move by `epsilon*|Dot(D,P-V)|/|Dot(D,U)|` for a line nearly perpendicular to the axis (5.5e-7 on a segment of length 2.7e-4) | RC | preserved | [#521](https://github.com/gradientspaceai/gtengine-js/issues/521) |
 | `IntrLine3Cone3.h` | `Result::Convert` | the member templates cannot compile (`QFNumber` has no conversion to `Real`) | minor | n/a | [#304](https://github.com/gradientspaceai/gtengine-js/issues/304) |
 | `IntrLine3Cone3.h` | `isRayNegative` doc | contradicts itself | doc | corrected | [#465](https://github.com/gradientspaceai/gtengine-js/issues/465) |
 | `IntrLine3Cylinder3.h` | `operator()` | no infinite-cylinder branch at all; assumes a unit direction | minor | preserved | [#197](https://github.com/gradientspaceai/gtengine-js/issues/197), [#200](https://github.com/gradientspaceai/gtengine-js/issues/200) |
@@ -2941,6 +2942,19 @@ there are no significant digits there.
 `isRayNegative` documentation contradicts itself, and `SetRayNegative` carries a
 `-1 // +infinity` comment.
 
+
+**The clamped segment is recovered from heights (result-corrupting near
+perpendicularity).** `SetSegmentClamp` intersects `[h0, h1]`,
+`h_i = t_i*Dot(D,U) + Dot(D,P-V)`, with the height range and returns
+`(overlap_i - Dot(D,P-V)) / Dot(D,U)`. The round trip is exact for the rational
+types the query was designed for; in floating point it costs
+`epsilon*|Dot(D,P-V)|/|Dot(D,U)|`, which approaches the segment length as the line
+becomes perpendicular to the axis (an exactly perpendicular line takes another
+branch and is sound). With `Dot(D,U) = -9.6e-14` both ends of a segment of length
+2.7e-4 moved by 5.5e-7 and the first point left the cone. An unclamped endpoint is
+`h_i` itself, so `t_i` could be used directly. Inherited by `IntrRay3Cone3.h` and
+`IntrSegment3Cone3.h`. Port: preserved for now, bit-identical to upstream (oracle
+families v34, v35); a fix needs `deviation` cases in both. Issue [#521](https://github.com/gradientspaceai/gtengine-js/issues/521).
 Issues [#304](https://github.com/gradientspaceai/gtengine-js/issues/304), [#465](https://github.com/gradientspaceai/gtengine-js/issues/465).
 
 ### `IntrLine3Rectangle3.h`, `IntrSegment3Rectangle3.h`
