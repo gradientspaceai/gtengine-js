@@ -528,4 +528,55 @@ describe('LCPSolver verification', () => {
             expect(out.z).toEqual(new Array<number>(n).fill(0));
         }, 100);
     });
+
+    // Found by the C++ oracle of verify group 38 (once in 2000 records of
+    // oracle/cpp/cases/v38-numerical.cpp's LCPSolver.solve.noSolution, whose
+    // generator is the same shape as the property above but reaches n = 6).
+    // Preserved deliberately: this is the round-off failure the header's own
+    // comment anticipates -- "it is possible that theoretically
+    // mAugmented[r][driving] is zero but rounding errors cause it to be
+    // slightly negative" -- and it is the ordinary-magnitude version of the
+    // subnormal-pivot failure recorded as issue #476. The MSVC build of
+    // upstream produces exactly these numbers.
+    it('upstream (preserved): a round-off-sized pivot turns a provably '
+        + 'infeasible LCP into a reported solution', () => {
+            // q < 0 and M <= 0 entrywise, so w = q + M*z <= q < 0 for every
+            // z >= 0: the LCP has no solution.
+            const q = [-5, -3, -2, -4, -1, -5];
+            const M = [
+                -1, -2, -2, 0, -3, -3,
+                -2, 0, -3, -1, -2, -3,
+                -3, -3, -2, 0, -2, -2,
+                -2, -3, 0, -1, -2, -2,
+                -3, 0, -2, -2, 0, -3,
+                0, -3, -2, -2, -3, -2];
+            const solver = new LCPSolver(6);
+            const out = solver.solve(q, M);
+
+            // At iteration 6 the ratio test accepts a pivot of about -1.1e-16
+            // (a round-off residue of an exactly zero tableau entry), the
+            // reciprocal is about 1e16 and the dictionary loses every digit.
+            expect(out.result).toBe(LCPSolverResult.HAS_NONTRIVIAL_SOLUTION);
+            expect(out.success).toBe(true);
+            expect(solver.getNumIterations()).toBe(19);
+            expect(out.w).toEqual([0, 0, 0, 0, 0, 2]);
+            expect(out.z[0]).toBe(16);
+            expect(out.z[5]).toBe(0);
+
+            // The reported pair is not a solution: w != q + M*z by about 80.
+            let worst = 0;
+            for (let i = 0; i < 6; ++i) {
+                let sum = q[i];
+                for (let k = 0; k < 6; ++k) { sum += M[k + 6 * i] * out.z[k]; }
+                worst = Math.max(worst, Math.abs(sum - out.w[i]));
+            }
+            expect(worst).toBeGreaterThan(40);
+
+            // A larger iteration budget does not help: the damage is done by
+            // the pivot, not by the budget.
+            const solver2 = new LCPSolver(6);
+            solver2.setMaxIterations(4096);
+            expect(solver2.solve(q, M).result)
+                .toBe(LCPSolverResult.HAS_NONTRIVIAL_SOLUTION);
+        });
 });

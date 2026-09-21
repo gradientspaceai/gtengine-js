@@ -11,7 +11,7 @@ import { BandedMatrix } from '../../src/BandedMatrix.js';
 import { FPInterval } from '../../src/FPInterval.js';
 import { GaussianElimination } from '../../src/GaussianElimination.js';
 import { Integration } from '../../src/Integration.js';
-import { LCPSolver, LCPSolverResult } from '../../src/LCPSolver.js';
+import { LCPSolver } from '../../src/LCPSolver.js';
 import { SymmetricEigensolver2x2 } from '../../src/SymmetricEigensolver2x2.js';
 import {
     NISymmetricEigensolver3x3, SortEigenstuff, SymmetricEigensolver3x3,
