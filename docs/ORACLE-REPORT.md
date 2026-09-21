@@ -9,7 +9,7 @@ upstream GTE code compiled with MSVC; the port replays the same inputs. See
 - compiler MSVC 194435215 x64 /O2 /fp:precise
 - records-per-case 20
 
-**799 cases, 14400 records, 112980 floating-point outputs compared; 99.43% bit-identical to the C++ build. 690 cases are bit-identical on every output. 79 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
+**850 cases, 15400 records, 130607 floating-point outputs compared; 99.51% bit-identical to the C++ build. 740 cases are bit-identical on every output. 80 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
 
 Discrete outputs (booleans, counts, indices) always compare exactly and are not counted
 in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |port|, |C++|)`.
@@ -22,6 +22,7 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | v03-approximation | 75 | 1400 | 10644 | 100.00% | 70 | 0 |  |
 | v04-approximation | 36 | 660 | 6632 | 94.99% | 24 | 4.61e-13 | `ApprTorus3.gaussNewton.initialGuess` |
 | v14-containment | 70 | 1280 | 4492 | 100.00% | 64 | 0 |  |
+| v17-curves | 51 | 1000 | 17627 | 100.00% | 50 | 0 |  |
 | v19-distance | 43 | 780 | 6976 | 100.00% | 39 | 0 |  |
 | v20-distance | 28 | 440 | 3585 | 98.74% | 21 | 1.33e-15 | `DistLine3Circle3.compute` |
 | v21-distance | 38 | 680 | 5295 | 99.45% | 32 | 8.36e-16 | `DistRay3Circle3.compute` |
@@ -59,6 +60,7 @@ every record.
 | v14-containment | `ContPointInPolyhedron3.contains.convex0QuadDeviation` | 8 of 20 | docs/UPSTREAM-FINDINGS.md ContPointInPolyhedron3.h, issue #343 |
 | v14-containment | `ContPointInPolyhedron3.contains.convex12QuadDeviation` | 7 of 20 | docs/UPSTREAM-FINDINGS.md ContPointInPolyhedron3.h, issue #343 |
 | v14-containment | `ContPointInPolyhedron3.contains.simple1QuadDeviation` | 8 of 20 | docs/UPSTREAM-FINDINGS.md ContPointInPolyhedron3.h, issue #343 |
+| v17-curves | `TCBSplineCurve.isConstructed` | 20 of 20 | issue #182: TCBSplineCurve never sets mConstructed |
 | v19-distance | `DistRaySegment.compute.3d.deviation` | 20 of 20 | UPSTREAM-FINDINGS DistRaySegment.h, issue #126 |
 | v19-distance | `DistSegmentSegment.computeRobust.3d.deviation` | 9 of 20 | UPSTREAM-FINDINGS DistSegmentSegment.h, issue #418 |
 | v19-distance | `DistLine2Triangle2.compute.deviation` | 20 of 20 | UPSTREAM-FINDINGS DistLine2Triangle2.h, issue #441 |

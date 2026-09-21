@@ -222,7 +222,12 @@ Every disagreement gets a root cause. In order of likelihood:
    first differs in the last bits on nearly every record (three of the 19
    headers of v20). Its regression test runs the port beside both groupings,
    requires bit-identity with upstream's order and requires the groupings to
-   differ somewhere. A second class is C++ overload resolution: a call
+   differ somewhere. The same holds for any sum of four terms:
+   `a + b + c + d` is `((a + b) + c) + d`, never the pairwise
+   `(a + b) + (c + d)` (v17, `NaturalQuinticSpline` back substitution,
+   2.3e-13 after the recursion; invisible for free splines, whose third term
+   is exactly zero, so cover every construction mode).
+   A second class is C++ overload resolution: a call
    written `Inverse(A, &invertible)` resolves to the closed-form overload of
    `Matrix2x2.h` / `Matrix3x3.h` when those headers are visible at the point
    of instantiation and to the Gaussian-elimination template of `Matrix.h`

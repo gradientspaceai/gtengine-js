@@ -38,7 +38,7 @@ import { logAssert } from './Logger.js';
 import { Matrix } from './Matrix.js';
 import { inverse3x3 } from './Matrix3x3.js';
 import { ParametricCurve } from './ParametricCurve.js';
-import { Vector, add, mul, sub } from './Vector.js';
+import { Vector, add, div, mul, sub } from './Vector.js';
 
 // A cubic polynomial segment: the four Vector coefficients of
 // p(u) = c[0] + u*(c[1] + u*(c[2] + u*c[3])) for u in [0,1].
@@ -171,20 +171,24 @@ export class NaturalCubicSpline extends ParametricCurve {
         jet[0] = add(poly[0],
             mul(u, add(poly[1], mul(u, add(poly[2], mul(u, poly[3]))))));
         if (order >= 1) {
-            // Compute first derivative.
+            // Compute first derivative. Upstream divides the vector with
+            // 'operator/(Vector, Real)', which multiplies by the reciprocal of
+            // the scalar and yields the ZERO vector when the scalar is zero
+            // (Vector.h); div() has exactly those semantics, which for a
+            // nonzero denominator is the same as multiplying by 1/denom.
             let denom = this.mDelta[key];
-            jet[1] = mul(add(poly[1],
+            jet[1] = div(add(poly[1],
                 mul(u, add(mul(2, poly[2]), mul(u, mul(3, poly[3]))))),
-                1 / denom);
+                denom);
             if (order >= 2) {
                 // Compute second derivative.
                 denom *= this.mDelta[key];
-                jet[2] = mul(add(mul(2, poly[2]), mul(u, mul(6, poly[3]))),
-                    1 / denom);
+                jet[2] = div(add(mul(2, poly[2]), mul(u, mul(6, poly[3]))),
+                    denom);
                 if (order >= 3) {
                     // Compute third derivative.
                     denom *= this.mDelta[key];
-                    jet[3] = mul(mul(6, poly[3]), 1 / denom);
+                    jet[3] = div(mul(6, poly[3]), denom);
 
                     for (let i = 4; i <= order; ++i) {
                         // Derivatives of order 4 and higher are zero.
