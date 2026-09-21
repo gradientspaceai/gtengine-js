@@ -367,6 +367,32 @@ describe('ApprParallelLines2 verification', () => {
             });
     });
 
+    it('keeps the minimizer of nearly vertical lines (root just above 1)', () => {
+        // Found by the property above (fast-check seed 724191519). The
+        // lines are 0.8 degrees from vertical, so the minimizing root is
+        // sigma^2 = 0.999997; the bisected root comes back as 1.00000018.
+        // A strict 'sigmaSqr <= 1' filter rejected it, no other candidate
+        // beat the initial guess, and the fit returned V = (1,0) with an
+        // error of 44.06 where the minimum is 0.0159.
+        const angle = 1.5844655507398293, r = 0.5000000000000001;
+        const ss = [-2.2, -1.2514122620464274, -0.3826842045680394,
+            1.2154521180004672, 3.1754572293459105, 4.00732464756431,
+            4.943077598860343, 6.591912857455383];
+        const noise = new Array<number>(18).fill(0);
+        noise[10] = -0.3763738632202123;
+        noise[15] = 0.3999999702675254;
+        const points = twoLines(angle, Vector.fromArray([0, 0]), r, ss)
+            .map((p, i) => Vector.fromArray([p.get(0) + noise[i % 18],
+                p.get(1) + noise[(i + 7) % 18]]));
+
+        const result = new ApprParallelLines2().fit(points, 1024);
+        const best = resultError(points, result.center, result.direction,
+            result.radius);
+        expect(best).toBeLessThan(0.017);
+        expect(result.direction.get(1)).toBeGreaterThan(0.9999);
+        expectClose(dot(result.direction, result.direction), 1, 1e-3, 1e-3);
+    });
+
     it('does not modify the input samples', () => {
         check(configArb, ([angle, c, r, ss]) => {
             const points = twoLines(angle, c, r, ss);

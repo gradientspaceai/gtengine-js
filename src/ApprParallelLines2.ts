@@ -38,6 +38,9 @@ export interface ApprParallelLines2Result {
     radius: number;
 }
 
+// Roots sigma^2 of h are accepted up to this much above 1. See fit().
+const rootTolerance = 1e-4;
+
 // The port of C++ 'Polynomial1<Real>::operator[]' reads on an index that can
 // exceed the polynomial degree. Upstream's arithmetic operators eliminate
 // leading zero coefficients, so the extraction loops below can index past
@@ -183,7 +186,19 @@ export class ApprParallelLines2 {
                 // which case it displaces the true minimum and yields a
                 // non-unit direction and a NaN radius. See the upstream bug
                 // notes for this file.
-                if (sigmaSqr > 0 && sigmaSqr <= 1) {
+                //
+                // The bound is 1 + rootTolerance, not 1. RootsPolynomial
+                // bisects to a fixed budget and its roots carry an error of
+                // order 1e-6, so the minimizer of a nearly vertical pair of
+                // lines, whose root is just below 1, can come back just above
+                // it: for the samples of the regression test the root is
+                // reported as 1.00000018, a strict bound rejected it, no
+                // other candidate remained and the fit returned the initial
+                // guess (1,0) with an error of 44 where the minimum is 0.016.
+                // gamma comes from the formula, as upstream computes it, so
+                // such a root gives a direction of length 1 to the same
+                // accuracy as every other root.
+                if (sigmaSqr > 0 && sigmaSqr <= 1 + rootTolerance) {
                     const sigma = Math.sqrt(sigmaSqr);
                     const gamma = -freduced0.evaluate(sigmaSqr)
                         / (sigma * freduced1.evaluate(sigmaSqr));
@@ -202,8 +217,9 @@ export class ApprParallelLines2 {
                 maxIterations);
             for (const sigmaSqr of roots) {
                 // See the comment on the same test above: a root with
-                // sigmaSqr > 1 cannot come from a unit-length direction.
-                if (sigmaSqr > 0 && sigmaSqr <= 1) {
+                // sigmaSqr > 1 cannot come from a unit-length direction,
+                // up to the accuracy of the root finder.
+                if (sigmaSqr > 0 && sigmaSqr <= 1 + rootTolerance) {
                     const sigma = Math.sqrt(sigmaSqr);
 
                     // When f1 is identically zero, F(sigma,gamma) = f0(sigma)
@@ -213,7 +229,7 @@ export class ApprParallelLines2 {
                     // 'gamma = sqrt(sigma)', which does not satisfy the
                     // constraint; the port uses the constraint. See the
                     // upstream bug notes for this file.
-                    let gamma = Math.sqrt(1 - sigmaSqr);
+                    let gamma = Math.sqrt(Math.max(1 - sigmaSqr, 0));
                     ApprParallelLines2.updateParameters(data, sigma, sigmaSqr,
                         gamma, minimum);
 

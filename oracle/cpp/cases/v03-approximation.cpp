@@ -2026,7 +2026,9 @@ ORACLE_CASE("ApprPolynomialSpecial4.constructor.sizeAssert")
 // docs/UPSTREAM-FINDINGS.md):
 //   1. ComputeF writes a30[1] = -3 instead of -3*Z12 (result-corrupting).
 //   2. Fit accepts roots with sigma^2 > 1, which cannot come from a unit
-//      direction (gamma^2 = 1 - sigma^2 < 0).
+//      direction (gamma^2 = 1 - sigma^2 < 0). The port accepts a root up to 1e-4
+//      above 1, the accuracy of the bisected roots; a strict bound loses the
+//      minimizer of nearly vertical lines.
 //   3. The f1 == 0 branch uses gamma = sqrt(sigma) instead of
 //      sqrt(1 - sigma^2).
 //   4. Fit reads Polynomial1::operator[] past the end of its coefficient
@@ -2226,7 +2228,7 @@ namespace parallel
             for (int32_t i = 0; i < numRoots; ++i)
             {
                 double sigmaSqr = roots[i];
-                if (sigmaSqr > 0.0 && sigmaSqr <= 1.0)
+                if (sigmaSqr > 0.0 && sigmaSqr <= 1.0 + 1e-4)
                 {
                     double sigma = std::sqrt(sigmaSqr);
                     double gamma = -freduced0(sigmaSqr) / (sigma * freduced1(sigmaSqr));
@@ -2246,10 +2248,10 @@ namespace parallel
             for (int32_t i = 0; i < numRoots; ++i)
             {
                 double sigmaSqr = roots[i];
-                if (sigmaSqr > 0.0 && sigmaSqr <= 1.0)
+                if (sigmaSqr > 0.0 && sigmaSqr <= 1.0 + 1e-4)
                 {
                     double sigma = std::sqrt(sigmaSqr);
-                    double gamma = std::sqrt(1.0 - sigmaSqr);
+                    double gamma = std::sqrt(std::max(1.0 - sigmaSqr, 0.0));
                     UpdateParameters(data, sigma, sigmaSqr, gamma,
                         minSigma, minGamma, minK, minRSqr, minError);
                     gamma = -gamma;
