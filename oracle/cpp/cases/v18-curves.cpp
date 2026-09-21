@@ -517,6 +517,38 @@ ORACLE_CASE("RiemannianGeodesic.poly.computeGeodesic")
     io.outReal(manifold.ComputeTotalCurvature(quantity, geodesic));
 }
 
+// refineCallback and the three progress accessors. Subdivide installs a no-op
+// callback for the Refine it performs itself and restores the caller's
+// afterwards, so the recorded trace has one entry per Refine of the
+// refinement loop and none from the subdivision pass.
+ORACLE_CASE("RiemannianGeodesic.poly.refineCallback")
+{
+    int mode = io.index() % 2;
+    std::vector<GVector<double>> path = PolyPath(io, mode, 2);
+    int subdivisions = io.integer(1, 2);
+    int refinements = io.integer(0, 2);
+    int searchSamples = io.integer(1, 2);
+    PolySurfaceGeodesic manifold(2);
+    manifold.subdivisions = subdivisions;
+    manifold.refinements = refinements;
+    manifold.searchSamples = searchSamples;
+    std::vector<int32_t> trace;
+    manifold.refineCallback = [&manifold, &trace]()
+    {
+        trace.push_back(manifold.GetSubdivisionStep());
+        trace.push_back(manifold.GetRefinementStep());
+        trace.push_back(manifold.GetCurrentQuantity());
+    };
+    int32_t quantity = 0;
+    std::vector<GVector<double>> geodesic;
+    manifold.ComputeGeodesic(path[0], path[1], quantity, geodesic);
+    io.outInt(static_cast<int32_t>(trace.size()));
+    for (size_t i = 0; i < trace.size(); ++i) { io.outInt(trace[i]); }
+    io.outInt(manifold.GetSubdivisionStep());
+    io.outInt(manifold.GetRefinementStep());
+    io.outInt(manifold.GetCurrentQuantity());
+}
+
 // Throw parity for LogAssert(dimension >= 2).
 ORACLE_CASE("RiemannianGeodesic.construct.invalidDimension")
 {

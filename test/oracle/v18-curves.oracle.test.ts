@@ -292,6 +292,33 @@ describe('oracle: v18-curves', () => {
         io.outRealExact(manifold.computeTotalCurvature(r.quantity, r.path));
     }, { exact: true, timeout: 600000 });
 
+    // refineCallback and the three progress accessors. subdivide installs a
+    // no-op callback for the refine it performs itself, so the trace holds one
+    // entry per refine of the refinement loop and none from the subdivision
+    // pass.
+    family.case('RiemannianGeodesic.poly.refineCallback', (io) => {
+        const path = gpath(io, 2);
+        const subdivisions = io.integer();
+        const refinements = io.integer();
+        const searchSamples = io.integer();
+        const manifold = new PolySurfaceGeodesic(2);
+        manifold.subdivisions = subdivisions;
+        manifold.refinements = refinements;
+        manifold.searchSamples = searchSamples;
+        const trace: number[] = [];
+        manifold.refineCallback = () => {
+            trace.push(manifold.getSubdivisionStep());
+            trace.push(manifold.getRefinementStep());
+            trace.push(manifold.getCurrentQuantity());
+        };
+        manifold.computeGeodesic(path[0], path[1]);
+        io.outInt(trace.length);
+        for (const value of trace) { io.outInt(value); }
+        io.outInt(manifold.getSubdivisionStep());
+        io.outInt(manifold.getRefinementStep());
+        io.outInt(manifold.getCurrentQuantity());
+    }, { exact: true, timeout: 600000 });
+
     family.case('RiemannianGeodesic.construct.invalidDimension', (io) => {
         const dimension = io.integer();
         const manifold = new PolySurfaceGeodesic(dimension);
@@ -376,7 +403,14 @@ describe('oracle: v18-curves', () => {
         const r = eg.refine(end0, mid, end1);
         io.outBool(r.changed);
         io.outVec(r.mid);
-    }, { timeout: 600000 });
+        // The gradient is a centered difference of two nearly equal segment
+        // lengths multiplied by mDerivativeFactor = 0.5/1e-4 = 5000, so a
+        // 1-ulp libm difference in a length becomes about 5e-12 relative in
+        // the gradient before the search scales it by tRay. Measured maximum
+        // over a 2000-record deep run: 3.57e-13. The tolerance is still three
+        // orders of magnitude below the distance between two search samples,
+        // so a flipped argument of the minimum would still fail the case.
+    }, { tol: 1e-10, timeout: 600000 });
 
     family.finish();
 });
