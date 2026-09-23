@@ -253,6 +253,11 @@ Every disagreement gets a root cause. In order of likelihood:
    disagrees on ordinary inputs, the fix is too broad. Narrow it in `src/`
    (guard on the exact defective condition and evaluate upstream's expression
    everywhere else) instead of declaring the whole case a deviation. A
+   The fix must also be confined in *what it replaces*: v08's `MinimumVolumeBox3`
+   fix replaced upstream's support index unconditionally with a hill-climb
+   result, and a vertex with an equal double projection but a different exact
+   projection changed the rational box on ordinary inputs; evaluate upstream's
+   expression first and replace it only when the defect actually occurs. A
    `deviation` case only shows that some inputs deviate, never that the rest
    agree, so the main case stays broad. (First instance: v19,
    `DistLine2Triangle2`.) A *conditioning* fix (loss of significance that
@@ -326,6 +331,14 @@ what is exact there, the root count and multiplicities from the rational
 classifier. Prove that a port's changed bracketing interval is confined by
 bisecting both intervals on the C++ side over tens of thousands of draws and
 showing identical results wherever upstream's interval is sound.
+
+An algorithm whose winner among tied candidates is decided by a
+`std::unordered_map` iteration order (v08, `MinimumVolumeBox3`) has no
+comparable box for a point cloud; compare the order-independent outputs
+(dimension, flags, the volume with a measured tolerance), give the fixed-mesh
+path an exact case, and record the dependence as a finding. An upstream body
+that overflows the default stack runs on one reused worker thread with a large
+stack, not one thread per record.
 
 An upstream header that switches the rounding mode (`FPInterval.h`,
 `std::fesetround`) needs `#pragma fenv_access (on)` in the case file: under

@@ -71,14 +71,14 @@ Nothing here has been reported upstream before; this document is the report.
 
 ## Counts
 
-- **509 distinct findings** across **166** tracked issues (one issue
+- **511 distinct findings** across **167** tracked issues (one issue
   frequently holds several findings in related files).
 - By severity: **248 result-corrupting**, **15 wrong but
-  recoverable**, **173 minor**, **73 documentation**.
+  recoverable**, **175 minor**, **73 documentation**.
 - By port status: **259 fixed or corrected in the port** (of which 157 are code
   fixes with regression tests, 22 are added guards or asserts where upstream has
   undefined behaviour, 64 are comment corrections, 11 are dead-code removals and
-  5 are documented deliberate deviations), **240 preserved deliberately**, and
+  5 are documented deliberate deviations), **242 preserved deliberately**, and
   **10 not ported** (the `GTE_USE_VEC_MAT` branches, dead code that cannot
   compile, and two arbitrary-precision paths).
 - **288 distinct upstream headers** are implicated.
@@ -321,6 +321,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `IncrementalDelaunay2.h` | `RetriangulateBoundaryRemovalPolygon` | the `numPolygon == 2` branch tests a condition that can never hold | minor | fixed | [#290](https://github.com/gradientspaceai/gtengine-js/issues/290) |
 | `IncrementalDelaunay2.h` | comments | claim `GetNumVertices`/`GetVertices` exclude the supervertices; they do not | doc | corrected | [#290](https://github.com/gradientspaceai/gtengine-js/issues/290) |
 | `IncrementalDelaunay2.h` | `DoEarClipping` | skips `RPPolygon::Remove` on its early exit, leaving `GetNumActive()` one too large | minor | preserved | [#290](https://github.com/gradientspaceai/gtengine-js/issues/290) |
+| `InscribedFixedAspectRectInQuad.h` | includes | uses `GTE_C_TWO_PI` / `GTE_C_INV_HALF_PI` without including `Constants.h`; the header does not compile on its own | minor | n/a | [#395](https://github.com/gradientspaceai/gtengine-js/issues/395) |
 | `InscribedFixedAspectRectInQuad.h` | `Execute` | three edge normals in one quadrant share a case index and the `alpha` assertion fires on a solvable quad | WR | preserved | [#395](https://github.com/gradientspaceai/gtengine-js/issues/395) |
 | `InscribedFixedAspectRectInQuad.h` | `Execute` | a degenerate feasible interval gives "Unexpected interval intersection type" | WR | preserved | [#395](https://github.com/gradientspaceai/gtengine-js/issues/395) |
 | `InscribedFixedAspectRectInQuad.h` | comment | `quad[(i + 1) % 3]` for a quadrilateral | doc | corrected | [#101](https://github.com/gradientspaceai/gtengine-js/issues/101) |
@@ -465,6 +466,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `MinimumSpanningTree.h` | `ExtractMinimumSpanningTree` | an empty edge list writes `records[0]` on a zero-length vector | RC | fixed | [#74](https://github.com/gradientspaceai/gtengine-js/issues/74) |
 | `MinimumSpanningTree.h` | header comment | describes a spanning tree with one sentinel; a disconnected graph gives a forest | doc | corrected | [#74](https://github.com/gradientspaceai/gtengine-js/issues/74) |
 | `MinimumSpanningTree.h` | back edges | filtered by remapped index before `ConvertToOriginalIndices`, so the reported pairs are unordered in caller labels | doc | preserved | [#472](https://github.com/gradientspaceai/gtengine-js/issues/472) |
+| `MinimumVolumeBox3FloatingPoint.h`, `MinimumVolumeBox3Rational.h` | `ExtractMeshTopology`, `ProcessEdgePair` | the candidate enumeration order is a `std::unordered_map` iteration order and the edge-pair processing is not symmetric, so the box (and the reported minimum volume on ties) is not reproducible: rotating the triangle list changes the rational box on 653 of 2000 meshes | minor | preserved | [#530](https://github.com/gradientspaceai/gtengine-js/issues/530) |
 | `MinimumVolumeBox3FloatingPoint.h` | `ComputeConvexHull`, dimension 2 | the Newell-normal loop drops the wrap-around term; a triangular hull gives an exactly zero normal | RC | fixed | [#352](https://github.com/gradientspaceai/gtengine-js/issues/352) |
 | `MinimumVolumeBox3FloatingPoint.h` | `ComputeVolume` | assumes a hull-edge vertex realises the `axis[0]`/`axis[1]` minima; false in floating point | RC | fixed | [#405](https://github.com/gradientspaceai/gtengine-js/issues/405) |
 | `MinimumVolumeBox3FloatingPoint.h` | `GetExtreme` | the strict-improvement hill climb stalls on a floating-point plateau; degenerate non-containing box | RC | fixed | [#426](https://github.com/gradientspaceai/gtengine-js/issues/426) |
@@ -2432,6 +2434,10 @@ type". Reproduced with a quad whose optimum width is about 0.6565.
 The header comment also writes `quad[(i + 1) % 3]` for a quadrilateral (should be
 `% 4`).
 
+
+**The header does not compile on its own** (minor): it uses `GTE_C_TWO_PI` and
+`GTE_C_INV_HALF_PI` without including `Constants.h` (`C2065` when included first).
+Found by the C++ oracle of group 8, which includes `Constants.h` before it.
 Issues [#395](https://github.com/gradientspaceai/gtengine-js/issues/395), [#101](https://github.com/gradientspaceai/gtengine-js/issues/101). Port: preserved.
 
 ### `IntpAkimaUniform2.h`, `IntpAkimaUniform3.h`
@@ -3631,6 +3637,17 @@ stale comments in five level-curve processors (0x09's `smax = 0` should read 1;
 rational file. All 79 level-curve processors and both 81-entry dispatch tables
 were compared mechanically between the two files with zero semantic differences.
 
+
+**The result depends on a `std::unordered_map` iteration order (issue
+[#530](https://github.com/gradientspaceai/gtengine-js/issues/530), minor).** `ExtractMeshTopology` numbers edges and triangles by
+iterating `ETManifoldMesh`'s hash maps, `mEdgeIndices` lists every pair in that
+numbering, and `ProcessEdgePair` is not symmetric in its two edges, so the winning
+candidate among ties, and hence the box, depends on the standard library. Measured
+by running upstream twice on the same mesh with rotated triangles: the rational
+pipeline reports a different box on 653 of 2000 meshes, volumes move by up to 0.8 %
+(floating point) and several percent (rational). Found by the C++ oracle of group 8.
+Port: preserved; the oracle compares a fixed-mesh box exactly and a point-cloud
+box by dimension, flags and a loosely toleranced volume.
 Issues [#352](https://github.com/gradientspaceai/gtengine-js/issues/352), [#355](https://github.com/gradientspaceai/gtengine-js/issues/355), [#405](https://github.com/gradientspaceai/gtengine-js/issues/405), [#426](https://github.com/gradientspaceai/gtengine-js/issues/426).
 
 ### `NaturalSplineCurve.h`, `ParametricCurve.h`, `PolynomialCurve.h`, `TCBSplineCurve.h`, `SampleCircularArc.h`, `ReparameterizeByArclength.h`, `NURBSCircle.h`
