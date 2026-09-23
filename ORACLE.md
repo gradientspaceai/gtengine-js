@@ -312,6 +312,16 @@ base an arithmetic-only subclass in the case file and mirror it in the replay
 then compared bit for bit, and the libm-bound class keeps a few tolerance
 cases whose control flow is pinned.
 
+A closed-form solver whose root values are libm-bound (cubic and quartic
+formulas: `pow`, `atan2`, `cos`) is split by conditioning, not tolerated
+wholesale (v45): the main case rejects records whose cancellation factor
+`max|term| / |root|` exceeds a threshold chosen with the tolerance
+(1e6 with 1e-9), and a companion case inverts the predicate and compares only
+what is exact there, the root count and multiplicities from the rational
+classifier. Prove that a port's changed bracketing interval is confined by
+bisecting both intervals on the C++ side over tens of thousands of draws and
+showing identical results wherever upstream's interval is sound.
+
 An upstream header that switches the rounding mode (`FPInterval.h`,
 `std::fesetround`) needs `#pragma fenv_access (on)` in the case file: under
 `/fp:precise` alone MSVC merges the two evaluations that straddle the mode

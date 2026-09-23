@@ -71,14 +71,14 @@ Nothing here has been reported upstream before; this document is the report.
 
 ## Counts
 
-- **501 distinct findings** across **163** tracked issues (one issue
+- **503 distinct findings** across **165** tracked issues (one issue
   frequently holds several findings in related files).
-- By severity: **247 result-corrupting**, **15 wrong but
-  recoverable**, **166 minor**, **73 documentation**.
+- By severity: **248 result-corrupting**, **15 wrong but
+  recoverable**, **167 minor**, **73 documentation**.
 - By port status: **259 fixed or corrected in the port** (of which 157 are code
   fixes with regression tests, 22 are added guards or asserts where upstream has
   undefined behaviour, 64 are comment corrections, 11 are dead-code removals and
-  5 are documented deliberate deviations), **233 preserved deliberately**, and
+  5 are documented deliberate deviations), **235 preserved deliberately**, and
   **9 not ported** (the `GTE_USE_VEC_MAT` branches, dead code that cannot
   compile, and two arbitrary-precision paths).
 - **288 distinct upstream headers** are implicated.
@@ -528,10 +528,12 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `RootsBisection2.h` | inner bisector | with `maxIterations == 1` returns 2 without writing its outputs, so members keep a previous call's values | RC | deviates | [#84](https://github.com/gradientspaceai/gtengine-js/issues/84) |
 | `RootsBisection2.h` | `XFunction` | `mNoGuaranteeForRootBound = ...` assigns instead of accumulating, erasing earlier y-failures | minor | preserved | [#152](https://github.com/gradientspaceai/gtengine-js/issues/152) |
 | `RootsBisection2.h` | `operator()` | the y-outputs hold the last `XFunction` call's values and need not match the returned x-root | RC | preserved | [#152](https://github.com/gradientspaceai/gtengine-js/issues/152) |
+| `RootsCubic.h`, `RootsQuartic.h` | `Solve`, inverse depression shift | the exact-rational shift by `m2/3` is applied to a double-precision depressed root, so a root much smaller than the shift loses all significance (wrong sign, residual 1.03 of the coefficient scale) while the count and multiplicities stay right | RC | preserved | [#523](https://github.com/gradientspaceai/gtengine-js/issues/523) |
 | `RootsCubic.h` | `signDelta < 0` branch | bisects over `[-b, b]` with `b = max(1, abs(d0), abs(d1))`, which is not a valid root bound | RC | fixed | [#340](https://github.com/gradientspaceai/gtengine-js/issues/340) |
 | `RootsCubic.h` | closed form, comment | the `sin(theta/3) <= 0` reorder is unreachable; the second Samuelson subinterval is mislabelled | minor | corrected | [#340](https://github.com/gradientspaceai/gtengine-js/issues/340) |
 | `RootsGeneralPolynomial.h` | `operator()` | the rational polynomial is allocated at the untrimmed size, so the solver runs on a zero-padded, non-monic polynomial | minor | fixed | [#319](https://github.com/gradientspaceai/gtengine-js/issues/319) |
 | `RootsGeneralPolynomial.h` | `Bisect` | dead stores `tPMax`/`tPMin = tPAtRoot` | minor | dropped | [#319](https://github.com/gradientspaceai/gtengine-js/issues/319) |
+| `RootsPolynomial.h` | `SolveDepressedQuartic`, `delta == 0` | with `Rational = double` the divisor `9*c1^2 - 2*c2*a1` can round to zero, and the infinite / NaN roots are inserted as keys of `std::map<Real,int>`: undefined behaviour (MSVC drops the NaNs and reports one root) | minor | preserved | [#524](https://github.com/gradientspaceai/gtengine-js/issues/524) |
 | `RootsQuartic.h` | four-real-root classification | `signDelta > 0 && rD2 > 0` is only half the criterion; two complex pairs are reported as four real roots | RC | fixed | [#340](https://github.com/gradientspaceai/gtengine-js/issues/340) |
 | `RootsQuartic.h` | square-root extraction | a shared two-element array is reused and index 1 is read unconditionally, returning a stale root | RC | fixed | [#340](https://github.com/gradientspaceai/gtengine-js/issues/340) |
 | `RotatingCalipers.h` | `CreatePolygon` | collinearity is tested against the immediately preceding edge, so a duplicate point discards the next real corner | RC | fixed | [#286](https://github.com/gradientspaceai/gtengine-js/issues/286) |
@@ -3941,6 +3943,27 @@ roots both ways (`-x(x+1)^2` loses its double root; `(1, -2/3, 1/9)` gains a
 spurious double root at 3). This is the conditioning `IntrEllipse2Ellipse2`
 inherits.
 
+
+**The inverse depression shift loses all significance for a root much smaller than
+`m2/3` (issue [#523](https://github.com/gradientspaceai/gtengine-js/issues/523), result-corrupting).** `Solve` shifts the roots by
+`rM2Div3` in exact rational arithmetic, but the depressed root it shifts is a
+double-precision bisection estimate, so the difference of two nearly equal
+quantities is below the estimate's resolution. For
+`g = (2.99663e-25, -496.239, 6.90187e-15, -9.34159e-6)` upstream returns
+`-1.947e-26` where the root is `+6.039e-28`: wrong sign, residual 1.03 of the
+coefficient scale. The count and multiplicities stay correct. Same shape in
+`RootsQuartic` (`m3/4`) and the closed forms. Found by the C++ oracle of group 45
+(about 3 % of records of two generator modes). Port: preserved, bit-identical; a
+conditioning limitation without an exact separator.
+
+**`RootsPolynomial<double>` inserts NaN keys into `std::map` (issue
+[#524](https://github.com/gradientspaceai/gtengine-js/issues/524), minor).** In `SolveDepressedQuartic`'s `delta == 0` branch the
+divisor `9*c1^2 - 2*c2*a1` is a difference of nearly equal products and can round
+to exactly zero (`p = (0, 0, 0, -2.0852, -5.8011)`), making `root0` infinite and
+`root1`, `root2` NaN; `std::less<double>` is not a strict weak ordering on NaN, so
+the inserts are undefined behaviour (MSVC drops them and reports one root of
+multiplicity 2; the port's ordered-array map keeps three). Found by the C++
+oracle of group 44; the generator rejects non-finite root maps. Port: preserved.
 Issues [#340](https://github.com/gradientspaceai/gtengine-js/issues/340), [#319](https://github.com/gradientspaceai/gtengine-js/issues/319), [#488](https://github.com/gradientspaceai/gtengine-js/issues/488).
 
 ### `Rotation.h`, `RotationEstimate.h`, `Projection.h`

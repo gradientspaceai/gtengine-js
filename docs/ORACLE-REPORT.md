@@ -9,7 +9,7 @@ upstream GTE code compiled with MSVC; the port replays the same inputs. See
 - compiler MSVC 194435215 x64 /O2 /fp:precise
 - records-per-case 20
 
-**981 cases, 17760 records, 159348 floating-point outputs compared; 99.58% bit-identical to the C++ build. 852 cases are bit-identical on every output. 93 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
+**1049 cases, 18980 records, 163967 floating-point outputs compared; 99.59% bit-identical to the C++ build. 906 cases are bit-identical on every output. 100 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
 
 Discrete outputs (booleans, counts, indices) always compare exactly and are not counted
 in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |port|, |C++|)`.
@@ -37,6 +37,8 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | v38-numerical | 39 | 720 | 8243 | 99.90% | 35 | 1.85e-16 | `Integration.libmIntegrand` |
 | v39-numerical | 46 | 760 | 14117 | 100.00% | 38 | 0 |  |
 | v40-numerical | 22 | 420 | 1643 | 100.00% | 21 | 0 |  |
+| v44-roots | 40 | 720 | 3754 | 100.00% | 36 | 0 |  |
+| v45-roots | 28 | 500 | 865 | 98.03% | 18 | 5.00e-16 | `RootsQuartic.computeDepressedRoots.closedForm` |
 
 ## Deliberate deviations from the C++ build
 
@@ -139,3 +141,10 @@ every record.
 | v39-numerical | `BlockCholeskyDecomposition.runtimeStrideDeviation` | 20 of 20 | issue #209 (in-block stride of the run-time class) |
 | v39-numerical | `BlockLDLTDecomposition.convertBlockToVector.deviation` | 20 of 20 | issue #209 (Convert checks NumBlocks, not BlockSize) |
 | v40-numerical | `LevenbergMarquardtMinimizer.minimize.staleResidual.deviation` | 11 of 20 | issue #261: LevenbergMarquardtMinimizer::DoIteration builds -J^T*F from the residual at the previously rejected candidate |
+| v44-roots | `PolynomialCurve.deviation.constructed` | 20 of 20 | issue #319, PolynomialCurve mConstructed |
+| v44-roots | `RootsBisection1.deviation.maxIterationsOne` | 10 of 20 | issue #84, RootsBisection1 maxIterations == 1 |
+| v44-roots | `RootsBisection2.deviation.staleOutputs` | 20 of 20 | issues #84 and #152, RootsBisection2 stale outputs |
+| v44-roots | `RootsGeneralPolynomial.deviation.zeroPadding` | 9 of 20 | issue #340, RootsGeneralPolynomial zero padding |
+| v45-roots | `RootsCubic.solveDepressed.deviation.bisectionBound` | 20 of 20 | issue #340, RootsCubic.h item 1 |
+| v45-roots | `RootsQuartic.solveDepressed.deviation.complexPairs` | 20 of 20 | issue #340, RootsQuartic.h item 2 |
+| v45-roots | `RootsQuartic.solveDepressed.deviation.staleSqrt` | 3 of 20 | issue #340, RootsQuartic.h item 3 |
