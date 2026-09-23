@@ -64,6 +64,30 @@ None. Every arithmetic-only case agreed bit for bit with the MSVC build on the
 first replay, including the oriented-box fits (covariance plus
 `SymmetricEigensolver3x3`), the tree partitions and the mesh channels.
 
+### Sensitivity
+
+Each suspect accumulation order and division form was recomputed in the
+plausible alternative shape from the recorded inputs of the 2 000-record deep
+run and compared bit for bit with the C++ output. The counts below are the
+records (or primitives) on which a port that had chosen the alternative would
+have been caught.
+
+| computation | alternative the port did not take | caught on |
+| --- | --- | --- |
+| `Tetrahedron3::ComputeCentroid`, `(((v0+v1)+v2)+v3) * 0.25` | pairwise `((v0+v1)+(v2+v3)) * 0.25` | 287 / 2 000 records (14 %; the lattice third of the generator is exact, so it cannot discriminate) |
+| the same | `sum / 4` instead of `sum * 0.25` | 0 / 2 000 — `0.25` is a power of two, so these are one computation and the cases provably cannot discriminate them |
+| `Polygon2::ComputeVertexAverage`, `average /= n` (a multiply by `1/n`) | per-component `sum[k] / n` | 503 / 1 598 valid records (32 %) |
+| `BVTreeOfTriangles::Create` centroid, `((v0+v1)+v2) / 3` | `(v0+(v1+v2)) / 3` | 98 / 7 071 triangles (1.4 %) |
+| the same | per-component `sum[k] / 3` instead of `sum * (1/3)` | 2 668 / 7 071 triangles (38 %) |
+| `RectangleMesh::InitializePositions`, `((C + w0*a0) + w1*a1)` | `C + (w0*a0 + w1*a1)` | 1 375 / 2 000 records (69 %) |
+| `Hyperellipsoid::GetM`, `axis[d] / extent[d]` (a multiply by the reciprocal) | per-component `axis[d][k] / extent[d]` | 1 040 / 2 000 records (52 %) |
+| the same, outer products accumulated in `d` order | accumulated in reverse `d` order | 878 / 2 000 records (44 %) |
+
+`BVTreeOfSegments::Create`'s centroid `half * (v0 + v1)` and
+`AlignedBoxBV::GetSplittingAxis`'s `half * (box.max + box.min)` have no
+discriminable alternative: a two-term sum has no grouping freedom and `0.5`
+is exact, so `* 0.5` and `/ 2` are the same computation.
+
 ## Deliberate deviations demonstrated
 
 | case | issue | what upstream does |
