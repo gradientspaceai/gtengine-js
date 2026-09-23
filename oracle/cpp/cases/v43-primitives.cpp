@@ -123,6 +123,198 @@ namespace
     }
 }
 
+// Hyperellipsoid::FromCoefficients factors M with SymmetricEigensolver<Real>,
+// whose Tridiagonalize has the degenerate-Householder defect of issue #80:
+// when a step is degenerate (the subcolumn below the subdiagonal is already
+// zero, so 'length == 0' and the reflection actually applied is the
+// identity), upstream still stores the reflection parameter 2/Dot(v,v) == 2
+// and GetEigenvectors rebuilds H = I - 2*e*e^T instead of the identity, which
+// flips the sign of one row of Q. The eigenvalues are unaffected. The port
+// stores 0 for a degenerate step (see src/SymmetricEigensolver.ts).
+//
+// EigenDecouples replicates upstream's Tridiagonalize verbatim and reports
+// whether any step is degenerate; that is an exact characterization of the
+// inputs on which the two implementations differ. The N = 3 main cases reject
+// those inputs, the .decoupledDeviation case keeps only them. N = 2 is
+// unaffected: Tridiagonalize's loop runs 'mSize - 2' times, so it is empty.
+namespace
+{
+    // A verbatim copy of SymmetricEigensolver<double>::Tridiagonalize that
+    // returns true as soon as a degenerate Householder step occurs. 'matrix'
+    // is a copy, since the routine overwrites it.
+    bool EigenDecouples(std::vector<double> matrix, int32_t size)
+    {
+        std::vector<double> v(static_cast<size_t>(size), 0.0);
+        std::vector<double> p(static_cast<size_t>(size), 0.0);
+        std::vector<double> w(static_cast<size_t>(size), 0.0);
+        int32_t r, c;
+        for (int32_t i = 0, ip1 = 1; i < size - 2; ++i, ++ip1)
+        {
+            double length = 0.0;
+            for (r = 0; r < ip1; ++r) { v[r] = 0.0; }
+            for (r = ip1; r < size; ++r)
+            {
+                double vr = matrix[r + static_cast<size_t>(size) * i];
+                v[r] = vr;
+                length += vr * vr;
+            }
+            double vdv = 1.0;
+            length = std::sqrt(length);
+            if (length > 0.0)
+            {
+                double v1 = v[ip1];
+                double sgn = (v1 >= 0.0 ? 1.0 : -1.0);
+                double invDenom = 1.0 / (v1 + sgn * length);
+                v[ip1] = 1.0;
+                for (r = ip1 + 1; r < size; ++r)
+                {
+                    v[r] *= invDenom;
+                    vdv += v[r] * v[r];
+                }
+            }
+            else
+            {
+                return true;
+            }
+
+            double invvdv = 1.0 / vdv;
+            double twoinvvdv = invvdv * 2.0;
+            double pdvtvdv = 0.0;
+            for (r = i; r < size; ++r)
+            {
+                p[r] = 0.0;
+                for (c = i; c < r; ++c)
+                {
+                    p[r] += matrix[r + static_cast<size_t>(size) * c] * v[c];
+                }
+                for (/**/; c < size; ++c)
+                {
+                    p[r] += matrix[c + static_cast<size_t>(size) * r] * v[c];
+                }
+                p[r] *= twoinvvdv;
+                pdvtvdv += p[r] * v[r];
+            }
+            pdvtvdv *= invvdv;
+            for (r = i; r < size; ++r) { w[r] = p[r] - pdvtvdv * v[r]; }
+            for (r = i; r < size; ++r)
+            {
+                double vr = v[r];
+                double wr = w[r];
+                double offset = vr * wr * 2.0;
+                matrix[r + static_cast<size_t>(size) * r] -= offset;
+                for (c = r + 1; c < size; ++c)
+                {
+                    offset = vr * w[c] + wr * v[c];
+                    matrix[c + static_cast<size_t>(size) * r] -= offset;
+                }
+            }
+            matrix[i + static_cast<size_t>(size) * ip1] = twoinvvdv;
+            for (r = ip1 + 1; r < size; ++r)
+            {
+                matrix[i + static_cast<size_t>(size) * r] = v[r];
+            }
+        }
+        return false;
+    }
+
+    // The prefix of Hyperellipsoid<3>::FromCoefficients(A, B, C): it builds
+    // the M that is handed to SymmetricEigensolver::Solve and asks whether
+    // the tridiagonalization of that M decouples. A rejected (A, B, C) --
+    // singular A or a zero right side -- never reaches the solver.
+    bool DecouplesABC3(Matrix<3, 3, double> const& A, Vector3<double> const& B,
+        double C)
+    {
+        bool invertible{};
+        Matrix<3, 3, double> invA = Inverse(A, &invertible);
+        if (!invertible) { return false; }
+        Vector3<double> K = ((double)-0.5) * (invA * B);
+        double rightSide = (double)-0.5 * Dot(K, B) - C;
+        if (rightSide == 0.0) { return false; }
+        Matrix<3, 3, double> M = ((double)1 / rightSide) * A;
+        std::vector<double> m(9);
+        for (int32_t r = 0; r < 3; ++r)
+        {
+            for (int32_t c = 0; c < 3; ++c) { m[3 * r + c] = M(r, c); }
+        }
+        return EigenDecouples(m, 3);
+    }
+
+    // The same question for the packed-coefficient overload, which first runs
+    // the private Convert(coeff, A, B, C). The conversion is replicated here.
+    bool DecouplesCoeff3(std::array<double, 10> const& coeff)
+    {
+        Matrix<3, 3, double> A{};
+        Vector3<double> B{};
+        size_t i = 0;
+        double C = coeff[i++];
+        for (int32_t j = 0; j < 3; ++j, ++i) { B[j] = coeff[i]; }
+        i = 4;
+        for (int32_t r = 0; r < 3; ++r)
+        {
+            for (int32_t c = 0; c < r; ++c) { A(r, c) = A(c, r); }
+            A(r, r) = coeff[i];
+            ++i;
+            for (int32_t c = r + 1; c < 3; ++c, ++i)
+            {
+                A(r, c) = coeff[i] * 0.5;
+            }
+        }
+        return DecouplesABC3(A, B, C);
+    }
+
+    struct Ellipsoid3Draw
+    {
+        Vector3<double> center;
+        std::array<Vector3<double>, 3> axis;
+        Vector3<double> extent;
+    };
+
+    // Unrecorded draws with the same population as
+    // MakeFrame3 + MakeExtent<3>, for the rejection loops.
+    Ellipsoid3Draw RawEllipsoid3(oracle::Ctx& io, bool forceAxisAligned)
+    {
+        Ellipsoid3Draw d{};
+        for (int32_t i = 0; i < 3; ++i) { d.center[i] = io.raw(-4.0, 4.0); }
+        if (forceAxisAligned || io.rawInteger(0, 3) == 0)
+        {
+            int32_t p = io.rawInteger(0, 2);
+            double s = (io.rawInteger(0, 1) == 0 ? 1.0 : -1.0);
+            d.axis[0].MakeUnit(p);
+            d.axis[0] = s * d.axis[0];
+            d.axis[1].MakeUnit((p + 1) % 3);
+            d.axis[2] = Cross(d.axis[0], d.axis[1]);
+        }
+        else
+        {
+            double len = 0.0;
+            do
+            {
+                for (int32_t i = 0; i < 3; ++i) { d.axis[0][i] = io.raw(-1.0, 1.0); }
+                len = Length(d.axis[0]);
+            }
+            while (len < 0.25 || len > 1.0);
+            Normalize(d.axis[0]);
+            ComputeOrthogonalComplement(1, d.axis.data());
+        }
+        bool lattice = (io.rawInteger(0, 3) == 0);
+        for (int32_t i = 0; i < 3; ++i)
+        {
+            d.extent[i] = (lattice
+                ? static_cast<double>(io.rawInteger(1, 4)) : io.raw(0.25, 4.0));
+        }
+        return d;
+    }
+
+    void RecordEllipsoid3(oracle::Ctx& io, Ellipsoid3Draw const& d)
+    {
+        io.givenVec(d.center);
+        io.givenVec(d.axis[0]);
+        io.givenVec(d.axis[1]);
+        io.givenVec(d.axis[2]);
+        io.givenVec(d.extent);
+    }
+}
+
 // ---------------------------------------------------------------- Hyperellipsoid
 
 ORACLE_CASE("Hyperellipsoid.getM.2d")
@@ -212,10 +404,20 @@ ORACLE_CASE("Hyperellipsoid.fromCoefficients.2d")
 
 ORACLE_CASE("Hyperellipsoid.fromCoefficients.3d")
 {
-    auto center = io.vec<3>(-4.0, 4.0);
-    auto axis = MakeFrame3(io);
-    auto extent = MakeExtent<3>(io);
-    Ellipsoid3<double> E(center, axis, extent);
+    // Rejection sampling: keep only the ellipsoids whose M does not decouple
+    // the tridiagonalization (issue #80 above). The loop is capped and
+    // redraws every quantity the test depends on.
+    Ellipsoid3Draw d = RawEllipsoid3(io, false);
+    for (int32_t attempt = 0; attempt < 64; ++attempt)
+    {
+        Ellipsoid3<double> probe(d.center, d.axis, d.extent);
+        std::array<double, 10> probeCoeff{};
+        probe.ToCoefficients(probeCoeff);
+        if (!DecouplesCoeff3(probeCoeff)) { break; }
+        d = RawEllipsoid3(io, false);
+    }
+    RecordEllipsoid3(io, d);
+    Ellipsoid3<double> E(d.center, d.axis, d.extent);
     std::array<double, 10> coeff{};
     E.ToCoefficients(coeff);
     Ellipsoid3<double> F{};
@@ -262,22 +464,69 @@ ORACLE_CASE("Hyperellipsoid.fromCoefficientsABC.2d")
 
 ORACLE_CASE("Hyperellipsoid.fromCoefficientsABC.3d")
 {
-    // See the 2d case: 'definite' reaches the accepting path.
+    // See the 2d case: 'definite' reaches the accepting path. The decoupling
+    // inputs (issue #80) belong to the deviation case below; a01 is drawn
+    // unrecorded, the decoupling draws are replaced, and the accepted value
+    // is recorded last.
     bool definite = io.boolean();
     double a00 = (definite ? io.lattice(3, 5) : io.lattice(-3, 3));
-    double a01 = (definite ? io.lattice(-1, 1) : io.lattice(-3, 3));
     double a02 = (definite ? io.lattice(-1, 1) : io.lattice(-3, 3));
     double a11 = (definite ? io.lattice(3, 5) : io.lattice(-3, 3));
     double a12 = (definite ? io.lattice(-1, 1) : io.lattice(-3, 3));
     double a22 = (definite ? io.lattice(3, 5) : io.lattice(-3, 3));
     auto B = io.latticeVec<3>(-3, 3);
     double C = (definite ? io.lattice(-4, -1) : io.lattice(-3, 3));
+    double a01 = static_cast<double>(definite
+        ? io.rawInteger(-1, 1) : io.rawInteger(-3, 3));
     Matrix<3, 3, double> A{};
     A(0, 0) = a00; A(0, 1) = a01; A(0, 2) = a02;
     A(1, 0) = a01; A(1, 1) = a11; A(1, 2) = a12;
     A(2, 0) = a02; A(2, 1) = a12; A(2, 2) = a22;
+    for (int32_t attempt = 0; attempt < 8 && DecouplesABC3(A, B, C); ++attempt)
+    {
+        a01 = static_cast<double>(attempt + 1);
+        A(0, 1) = a01;
+        A(1, 0) = a01;
+    }
+    io.given(a01);
     Ellipsoid3<double> F{};
     bool valid = F.FromCoefficients(A, B, C);
+    io.outBool(valid);
+    if (valid)
+    {
+        io.outVec(F.center);
+        io.outVec(F.axis[0]);
+        io.outVec(F.axis[1]);
+        io.outVec(F.axis[2]);
+        io.outVec(F.extent);
+    }
+}
+
+// Deliberate port deviation, issue #80. An axis-aligned ellipsoid gives a
+// diagonal M, so SymmetricEigensolver<double>::Tridiagonalize's single
+// Householder step for N = 3 is degenerate. Upstream stores the reflection
+// parameter 2 for a reflection that was the identity, GetEigenvectors
+// rebuilds H = I - 2*e1*e1^T, and one row of the eigenvector matrix comes
+// back with the wrong sign; the returned axes are then not the axes of the
+// ellipsoid the coefficients describe. The port stores 0 for a degenerate
+// step.
+ORACLE_CASE("Hyperellipsoid.fromCoefficients.decoupledDeviation.3d")
+{
+    Ellipsoid3Draw d = RawEllipsoid3(io, true);
+    for (int32_t attempt = 0; attempt < 64; ++attempt)
+    {
+        Ellipsoid3<double> probe(d.center, d.axis, d.extent);
+        std::array<double, 10> probeCoeff{};
+        probe.ToCoefficients(probeCoeff);
+        if (DecouplesCoeff3(probeCoeff)) { break; }
+        d = RawEllipsoid3(io, true);
+    }
+    RecordEllipsoid3(io, d);
+    Ellipsoid3<double> E(d.center, d.axis, d.extent);
+    std::array<double, 10> coeff{};
+    E.ToCoefficients(coeff);
+    Ellipsoid3<double> F{};
+    bool valid = F.FromCoefficients(coeff);
     io.outBool(valid);
     if (valid)
     {
