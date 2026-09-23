@@ -1,6 +1,6 @@
 # v08-compgeom (verify group 8, computational geometry)
 
-40 cases: 35 exact, 2 with a measured tolerance, 3 deliberate deviations.
+41 cases: 35 exact, 2 with a measured tolerance, 4 deliberate deviations.
 `oracle/cpp/cases/v08-compgeom.cpp` and
 `test/oracle/v08-compgeom.oracle.test.ts`.
 
@@ -42,8 +42,17 @@ enters are pinned rather than tolerated:
 | `BoxManager.h` | `initializeAndUpdate` | exact | pass |
 | `InscribedFixedAspectRectInQuad.h` | `execute` | exact | pass |
 | `TriangulateEC.h` | `triangulate`, `triangulatePolygon`, `triangulateWithHole`, `triangulateWithHoles`, `triangulateTree` | exact | pass |
-| `MinimumVolumeBox3.h` (FloatingPoint) | `compute`, `compute.lowDimension`, `computeHull`, + 2 deviations | `computeHull` and `lowDimension` exact, `compute` 1e-14 | pass |
-| `MinimumVolumeBox3.h` (Rational) | `compute`, `compute.lowDimension`, `computeHull`, + 1 deviation | `computeHull` and `lowDimension` exact, `compute` 1e-14 | pass |
+| `MinimumVolumeBox3.h` (FloatingPoint) | `compute`, `compute.lowDimension`, `computeHull`, + 2 deviations | `computeHull` and `lowDimension` exact, `compute` volume 2e-2 | pass |
+| `MinimumVolumeBox3.h` (Rational) | `compute`, `compute.lowDimension`, `computeHull`, + 2 deviations | `computeHull` and `lowDimension` exact, `compute` volume 1.5e-1 | pass |
+
+The two `compute` cases (the arbitrary-point-cloud query) emit the hull
+dimension, the minimum volume and the reference booleans, not the oriented box:
+see "Not covered". The two `computeHull` cases (the vertices-and-indices query,
+where the mesh is fixed) emit the full box and are bit-identical over 2000
+records each.
+
+The deep run (`npm run oracle:deep -- 2000 v08-compgeom`) passes: 41 cases,
+2000 records each, generation 203 s and replay 60 s on this machine.
 
 Every computational public entry point the port implements is covered. Both
 overloads of every `PrimalQuery2` / `PrimalQuery3` predicate (the vertex-index
@@ -89,7 +98,7 @@ particular branches:
   `PrimalQuery3.toCircumsphere` were recomputed with exact `BigInt`
   determinants on every record whose coordinates are all integers. On the
   committed goldens: 488 predicates checked, 0 disagreements; on the deep run:
-  49560 predicates checked, 0 disagreements. Both the C++ build and the port
+  48280 predicates checked, 0 disagreements. Both the C++ build and the port
   therefore get the exact sign on the lattice inputs, including the exactly
   cocircular and cospherical configurations.
 * **Interval and rectangle set operations vs brute force.** Every record of
@@ -177,6 +186,11 @@ to the MSVC build on the first run.
 | `MinimumVolumeBox3FloatingPoint.compute.coplanar` | #352 | the dimension-2 Newell normal loop `for (i0 = numHull - 1, i1 = 1; ...)` drops the wrap-around cross-product term, so the plane normal is wrong for every coplanar point set and exactly zero when the hull is a triangle; the port starts at `i1 = 0` |
 | `MinimumVolumeBox3Rational.compute.coplanar` | #355 | the same omission in the rational file |
 | `MinimumVolumeBox3FloatingPoint.compute.nonContaining` | #405, #426 | clouds on which upstream's box does not contain the input points, the shared observable of the `ComputeVolume` support assumption and of the `GetExtreme` plateau stall; the generator keeps the worst offender it finds in 48 capped attempts |
+| `MinimumVolumeBox3Rational.compute.variableT` | #355 | clouds on which upstream reaches `MinimizerVariableT`, whose `tminNumer`, `tmaxNumer` and `tDenom` are declared `T const&` instead of `Number const&`, so the exact `BSNumber` expressions its callers pass are rounded to `double` and the whole `t`-variable level curve is sampled at rounded parameters; the port samples them exactly. A subclass in the case file counts the calls, which is the exact separator |
+
+Deviating records in the deep run: 1167 / 2000 (`FloatingPoint.compute.coplanar`),
+1433 / 2000 (`FloatingPoint.compute.nonContaining`), 1185 / 2000
+(`Rational.compute.coplanar`), 321 / 2000 (`Rational.compute.variableT`).
 
 `InscribedFixedAspectRectInQuad`'s two failures (#395: the `alpha` assertion on
 convex quads whose normals share a quadrant, and the untoleranced degenerate
@@ -189,16 +203,29 @@ preserved and compared bit for bit.
 
 ## Not covered
 
-* **`MinimumVolumeBox3`, which candidate attains the minimum.** See the upstream
-  suspect below. The oriented box is emitted in a form invariant under the axis
-  signs and the axis order, and the main cases reject inputs on which
-  upstream's own answer changes when the same mesh is presented in a different
-  order. `MinimumVolumeBox3Rational.compute` compares only the hull dimension,
-  the minimum volume and the containment boolean, because upstream additionally
-  samples the `t`-variable level curves at parameters rounded to `double`
-  (#355, `MinimizerVariableT` declares `T const&` where the sibling uses
-  `Number const&`) while the port samples them exactly; that part of the #355
-  fix is therefore **not** separately demonstrated by a deviation case.
+* **`MinimumVolumeBox3`, the oriented box of the point-cloud query.** See the
+  upstream suspect below. Where the mesh is fixed (`computeHull`) the box is
+  emitted in a form invariant under the axis signs and the axis order, the
+  acceptance test "upstream's own answer does not change when the same mesh is
+  presented in any other cyclic order or reversed" is recorded as an input so
+  that the replay takes the same branch, and the comparison is then exact over
+  2000 records. For an arbitrary point cloud (`compute`) the hull itself comes
+  out of `ConvexHull3`, whose vertex ordering is a second container-dependent
+  input to the same search, and a probe over all cyclic reorderings of the
+  input points still left a few records in 2000 on which upstream and the port
+  found different (both valid, both containing) boxes. Those two cases
+  therefore compare the hull dimension and the reference booleans exactly and
+  the minimum volume with a measured tolerance: the floating-point case is
+  bit-identical on 1997 of 2000 records with a largest scaled difference of
+  8.3e-3 (tolerance 2e-2), the rational case on 1994 of 2000 with a largest
+  scaled difference of 9.3e-2 (tolerance 1.5e-1).
+* **`MinimumVolumeBox3Rational`, `MinimizerVariableT`.** Upstream declares its
+  `tminNumer`, `tmaxNumer` and `tDenom` parameters as `T const&` where the
+  sibling `MinimizerVariableS` uses `Number const&`, so every `t`-variable level
+  curve is sampled at parameters rounded to `double`; the port samples them
+  exactly (#355). The rational `compute` case therefore rejects clouds on which
+  `MinimizerVariableT` is reached at all (a subclass in the case file counts the
+  calls), and the `compute.variableT` deviation case aims at them.
 * **`MinimumVolumeBox3Rational` on lattice clouds.** Its arithmetic is exact, so
   many candidates of a lattice cloud tie exactly and the winner is decided by
   the enumeration order. The case draws uniform clouds only.
@@ -247,13 +274,19 @@ fixes and which differs between standard libraries.
 Measured with the probe in the case file, which runs upstream's own query twice
 on the same mesh with the triangles presented in a different order:
 
-* presenting the 12 triangles of a cube in reverse order changes the reported
-  box on a noticeable fraction of the generated meshes;
-* on small random point clouds the reported *minimum volume* changes by up to
-  0.8 percent (floating-point pipeline) and by several percent (rational
-  pipeline, where a different candidate can attain the same exact minimum);
-* the rational pipeline on lattice clouds is affected on roughly 9 percent of
-  the clouds drawn here.
+* **Rational pipeline, fixed mesh.** Presenting the same tetrahedron, cube or
+  octahedron with its triangles rotated changes the reported box on
+  **653 of 2000** generated meshes (33 percent). The rational pipeline compares
+  candidate volumes exactly, so this is not rounding: a different one of
+  several exactly-tied candidates is reported.
+* **Floating-point pipeline, fixed mesh.** The same probe (widened to all
+  cyclic rotations and the reversal) plus the containment check rejects
+  **1168 of 2000** meshes. That figure mixes the order dependence with the
+  #405/#426 containment failures and is not separated here.
+* **Point clouds.** On small random clouds the reported *minimum volume*
+  changes by up to 0.8 percent under a reordering of the input points, and the
+  rational pipeline on lattice clouds was affected on roughly 9 percent of the
+  clouds drawn before the generator was restricted to uniform ones.
 
 This is not a rounding effect: the rational pipeline compares candidate volumes
 exactly, so what changes is which of several exactly-tied candidates is

@@ -2847,6 +2847,31 @@ namespace
     using MVB3FP = MinimumVolumeBox3<double, int32_t, MVB3FloatingPoint>;
     using MVB3R = MinimumVolumeBox3<double, int32_t, MVB3Rational>;
 
+    // Upstream's MinimizerVariableT declares its three parameters as
+    // "T const&" where the sibling MinimizerVariableS correctly uses
+    // "Number const&" (finding #355). Every caller passes BSNumber
+    // expressions, so each one is silently rounded to double and the whole
+    // t-variable level curve is sampled at rounded parameters; the port
+    // samples them exactly. This subclass changes nothing but records whether
+    // the defective routine was reached, which is the exact separator between
+    // the inputs on which upstream's rational pipeline is exact and the ones
+    // on which it is not.
+    class MVB3RProbe : public MVB3R
+    {
+    public:
+        MVB3RProbe() : MVB3R(0), variableTCalls(0) {}
+
+        std::size_t variableTCalls;
+
+    protected:
+        void MinimizerVariableT(double const& tminNumer, double const& tmaxNumer,
+            double const& tDenom, Candidate& c, Candidate& mvc) override
+        {
+            ++variableTCalls;
+            MVB3R::MinimizerVariableT(tminNumer, tmaxNumer, tDenom, c, mvc);
+        }
+    };
+
     void MVB3FPQuery(std::vector<Vector3<double>> const& vertices,
         std::vector<int32_t> const& indices, int32_t lgMaxSample,
         OrientedBox3<double>& box, double& volume)
@@ -3293,11 +3318,25 @@ ORACLE_CASE("MinimumVolumeBox3Rational.compute")
     int32_t lgMaxSample = io.integer(2, 2);
     int32_t n = io.integer(5, 7);
 
+    // Accept only clouds on which upstream's rational pipeline is exact,
+    // i.e. on which the defective MinimizerVariableT is never reached, AND on
+    // which the answer does not change with the input order.
     std::vector<Vector3<double>> best{};
-    for (int32_t attempt = 0; attempt < 4 && best.empty(); ++attempt)
+    for (int32_t attempt = 0; attempt < 6 && best.empty(); ++attempt)
     {
         std::vector<Vector3<double>> points = DrawCloud(io, mode, n);
-        if (RationalCloudOrderStable(points, lgMaxSample))
+        OrientedBox3<double> probeBox{};
+        double probeVolume = 0.0;
+        MVB3RProbe probe{};
+        try
+        {
+            probe(points, static_cast<std::size_t>(lgMaxSample), probeBox, probeVolume);
+        }
+        catch (std::exception const&)
+        {
+            continue;
+        }
+        if (probe.variableTCalls == 0 && RationalCloudOrderStable(points, lgMaxSample))
         {
             best = points;
         }
@@ -3429,6 +3468,65 @@ ORACLE_CASE("MinimumVolumeBox3Rational.computeHull")
         OutBox(io, 3, box, volume);
         io.outBool(contains);
     }
+    });
+}
+
+ORACLE_CASE("MinimumVolumeBox3Rational.compute.variableT")
+{
+    RunWithBigStack([&io]() {
+    // Deviation: clouds on which upstream reaches MinimizerVariableT, whose
+    // tminNumer, tmaxNumer and tDenom parameters are declared "T const&"
+    // instead of "Number const&", so the exact BSNumber expressions the
+    // callers pass are rounded to double and the whole t-variable level curve
+    // is sampled at rounded parameters (finding #355). The port samples them
+    // exactly, so a different candidate can win and the reported minimum
+    // volume differs. The loop is capped and falls back to the cloud with the
+    // most calls seen.
+    int32_t lgMaxSample = io.integer(2, 2);
+    int32_t n = io.integer(5, 7);
+
+    std::vector<Vector3<double>> best{};
+    std::size_t bestCalls = 0;
+    for (int32_t attempt = 0; attempt < 12; ++attempt)
+    {
+        std::vector<Vector3<double>> points = DrawCloud(io, 2, n);
+        OrientedBox3<double> probeBox{};
+        double probeVolume = 0.0;
+        MVB3RProbe probe{};
+        std::size_t dimension = 0;
+        try
+        {
+            dimension = probe(points, static_cast<std::size_t>(lgMaxSample),
+                probeBox, probeVolume);
+        }
+        catch (std::exception const&)
+        {
+            continue;
+        }
+        if (dimension == 3 && probe.variableTCalls > bestCalls)
+        {
+            bestCalls = probe.variableTCalls;
+            best = points;
+        }
+        if (bestCalls > 0)
+        {
+            break;
+        }
+    }
+    if (best.empty())
+    {
+        best = { Vector3<double>{ 0.0, 0.0, 0.0 }, Vector3<double>{ 4.0, 0.0, 0.0 },
+            Vector3<double>{ 0.0, 3.0, 0.0 }, Vector3<double>{ 0.0, 0.0, 2.0 },
+            Vector3<double>{ 1.0, 1.0, 1.0 } };
+    }
+    GiveCloud(io, best);
+
+    OrientedBox3<double> box{};
+    double volume = 0.0;
+    MVB3R query(0);
+    std::size_t dimension = query(best, static_cast<std::size_t>(lgMaxSample), box, volume);
+    io.outInt(static_cast<int32_t>(dimension));
+    io.outReal(volume);
     });
 }
 
