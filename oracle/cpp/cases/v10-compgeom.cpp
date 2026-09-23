@@ -823,3 +823,242 @@ ORACLE_CASE("MinimumVolumeSphere3.compute.empty")
     bool ok = q(0, static_cast<Vector3<double> const*>(nullptr), sphere);
     io.outBool(ok);
 }
+
+// ---- ExtremalQuery3BSP ---------------------------------------------------
+
+namespace
+{
+    struct BasePolytope
+    {
+        std::vector<Vector3<double>> vertices;
+        std::vector<int32_t> indices;
+    };
+
+    // Three strictly convex simplicial polytopes. Strict convexity matters:
+    // when two triangles of a face are coplanar their face normals are equal
+    // and the arc normal Cross(N0, N1) is the zero vector, after which every
+    // isign(Dot(D, 0)) is zero and the BSP degenerates (a box triangulated
+    // with two triangles per face answers even unique-argmax directions
+    // wrongly, on both sides and differently). Such polytopes are outside
+    // the algorithm's precondition and are not generated.
+    BasePolytope const& BasePolytopeOf(int32_t which)
+    {
+        static std::array<BasePolytope, 3> const gBases
+        { {
+            // Regular tetrahedron on the lattice.
+            {
+                { { 1.0, 1.0, 1.0 }, { 1.0, -1.0, -1.0 },
+                  { -1.0, 1.0, -1.0 }, { -1.0, -1.0, 1.0 } },
+                { 0, 1, 2,  0, 2, 3,  0, 3, 1,  1, 3, 2 }
+            },
+            // Octahedron.
+            {
+                { { 1.0, 0.0, 0.0 }, { -1.0, 0.0, 0.0 }, { 0.0, 1.0, 0.0 },
+                  { 0.0, -1.0, 0.0 }, { 0.0, 0.0, 1.0 }, { 0.0, 0.0, -1.0 } },
+                { 0, 2, 4,  2, 1, 4,  1, 3, 4,  3, 0, 4,
+                  2, 0, 5,  1, 2, 5,  3, 1, 5,  0, 3, 5 }
+            },
+            // Triangular bipyramid (five vertices, six faces).
+            {
+                { { 0.0, 0.0, 3.0 }, { 0.0, 0.0, -2.0 }, { 2.0, 0.0, 0.0 },
+                  { -1.0, 2.0, 0.0 }, { -1.0, -2.0, 0.0 } },
+                { 0, 2, 3,  0, 3, 4,  0, 4, 2,  1, 3, 2,  1, 4, 3,  1, 2, 4 }
+            }
+        } };
+        return gBases[static_cast<size_t>(which)];
+    }
+
+    // Exact sign of Dot(D, P) - Dot(D, Q).
+    int32_t ExactDotCompare(Vector3<double> const& D, Vector3<double> const& P,
+        Vector3<double> const& Q)
+    {
+        Exact s(0.0);
+        for (int32_t j = 0; j < 3; ++j)
+        {
+            s = s + Exact(D[j]) * (Exact(P[j]) - Exact(Q[j]));
+        }
+        return s.GetSign();
+    }
+
+    // The brute-force extreme vertex: the unique argmax of Dot(D, V) over the
+    // polytope vertices, or -1 when the maximum is attained more than once.
+    // Ties are decided by the leaf region the direction falls into, which is
+    // BSP tree shape, so they are not comparable and are rejected.
+    int32_t UniqueArgMax(std::vector<Vector3<double>> const& verts,
+        Vector3<double> const& D)
+    {
+        int32_t best = 0;
+        bool tied = false;
+        for (size_t i = 1; i < verts.size(); ++i)
+        {
+            int32_t s = ExactDotCompare(D, verts[i], verts[static_cast<size_t>(best)]);
+            if (s > 0)
+            {
+                best = static_cast<int32_t>(i);
+                tied = false;
+            }
+            else if (s == 0)
+            {
+                tied = true;
+            }
+        }
+        return tied ? -1 : best;
+    }
+
+    // A direction is comparable when
+    //  (a) the extreme vertex is unique for both D and -D (a tie is decided
+    //      by the leaf region the direction lands in, which is tree shape),
+    //      and
+    //  (b) upstream's BSP answers both with that unique vertex.
+    // Condition (b) excludes the directions on which the preserved
+    // construction defect of issue #290 fires. It is not confined to the
+    // icosahedra of the original measurement: a sheared octahedron (the
+    // octahedron below under an integer linear map) answers about 2% of
+    // random directions with a vertex that is not extreme. The port's BSP,
+    // built from the same arcs in a different order, is right on those
+    // directions, so nothing can be compared there. See the group report.
+    bool SoundDirection(ExtremalQuery3BSP<double>& query,
+        std::vector<Vector3<double>> const& verts, Vector3<double> const& D)
+    {
+        if (D[0] == 0.0 && D[1] == 0.0 && D[2] == 0.0)
+        {
+            return false;
+        }
+        Vector3<double> negD{ -D[0], -D[1], -D[2] };
+        int32_t pos = UniqueArgMax(verts, D);
+        int32_t neg = UniqueArgMax(verts, negD);
+        if (pos < 0 || neg < 0)
+        {
+            return false;
+        }
+        int32_t bspPos = -1, bspNeg = -1;
+        query.GetExtremeVertices(D, bspPos, bspNeg);
+        return bspPos == pos && bspNeg == neg;
+    }
+
+    // Apply an integer linear map with positive determinant, which preserves
+    // convexity, the face lattice and the counterclockwise orientation while
+    // producing a new set of face normals.
+    void TransformPolytope(oracle::Ctx& io, BasePolytope const& base,
+        std::vector<Vector3<double>>& verts)
+    {
+        std::array<std::array<double, 3>, 3> M{};
+        double det = 0.0;
+        for (int32_t attempt = 0; attempt < 32 && det <= 0.0; ++attempt)
+        {
+            for (int32_t r = 0; r < 3; ++r)
+            {
+                for (int32_t c = 0; c < 3; ++c)
+                {
+                    M[static_cast<size_t>(r)][static_cast<size_t>(c)] =
+                        static_cast<double>(io.rawInteger(r == c ? 1 : -1,
+                            r == c ? 2 : 1));
+                }
+            }
+            det = M[0][0] * (M[1][1] * M[2][2] - M[1][2] * M[2][1])
+                - M[0][1] * (M[1][0] * M[2][2] - M[1][2] * M[2][0])
+                + M[0][2] * (M[1][0] * M[2][1] - M[1][1] * M[2][0]);
+        }
+        if (det <= 0.0)
+        {
+            M = { { { 1.0, 0.0, 0.0 }, { 0.0, 1.0, 0.0 }, { 0.0, 0.0, 1.0 } } };
+        }
+
+        verts.resize(base.vertices.size());
+        for (size_t i = 0; i < base.vertices.size(); ++i)
+        {
+            for (int32_t r = 0; r < 3; ++r)
+            {
+                verts[i][r] =
+                    M[static_cast<size_t>(r)][0] * base.vertices[i][0]
+                    + M[static_cast<size_t>(r)][1] * base.vertices[i][1]
+                    + M[static_cast<size_t>(r)][2] * base.vertices[i][2];
+            }
+        }
+    }
+}
+
+// GetExtremeVertices, plus GetFaceNormals() of the ExtremalQuery3 base (pure
+// UnitCross arithmetic, compared bit for bit).
+//
+// NOT compared: GetNumNodes() and GetTreeDepth(). The BSP tree is built from
+// VETManifoldMesh's std::unordered_map / std::unordered_set<Triangle*>
+// containers, whose iteration order MSVC decides from pointer hashes, while
+// the port reads them through sorted accessors. The two trees are different
+// partitions of the same Gauss map: measured on the octahedron above,
+// upstream builds 12 nodes and the port 15.
+//
+// Directions whose extreme vertex is not unique are rejected for the same
+// reason: a tie is resolved by which leaf region the direction lands in.
+ORACLE_CASE("ExtremalQuery3BSP.getExtremeVertices")
+{
+    int32_t which = io.integer(0, 2);
+    BasePolytope const& base = BasePolytopeOf(which);
+    std::vector<Vector3<double>> verts{};
+    TransformPolytope(io, base, verts);
+    for (auto const& v : verts)
+    {
+        io.givenVec<3>(v);
+    }
+
+    auto pool = std::make_shared<std::vector<Vector3<double>>>(verts);
+    std::vector<int32_t> indices = base.indices;
+    Polyhedron3<double> polytope(pool, static_cast<int32_t>(indices.size()),
+        indices.data(), true);
+    ExtremalQuery3BSP<double> query(polytope);
+
+    auto const& normals = query.GetFaceNormals();
+    io.outInt(normals.size());
+    for (auto const& n : normals)
+    {
+        io.outVec(n);
+    }
+
+    int32_t const numDirections = 6;
+    for (int32_t k = 0; k < numDirections; ++k)
+    {
+        Vector3<double> D{ 0.0, 0.0, 0.0 };
+        bool accepted = false;
+        for (int32_t attempt = 0; attempt < 64 && !accepted; ++attempt)
+        {
+            if (k % 2 == 0)
+            {
+                for (int32_t j = 0; j < 3; ++j)
+                {
+                    D[j] = static_cast<double>(io.rawInteger(-4, 4));
+                }
+            }
+            else
+            {
+                for (int32_t j = 0; j < 3; ++j)
+                {
+                    D[j] = io.raw(-1.0, 1.0);
+                }
+            }
+            accepted = SoundDirection(query, verts, D);
+        }
+        if (!accepted)
+        {
+            // Walk a fixed list of small lattice directions for a sound one.
+            for (int32_t a = -1; a <= 1 && !accepted; ++a)
+            {
+                for (int32_t b = -1; b <= 1 && !accepted; ++b)
+                {
+                    for (int32_t c = -1; c <= 1 && !accepted; ++c)
+                    {
+                        D = { static_cast<double>(3 * a + 1),
+                            static_cast<double>(5 * b + 2),
+                            static_cast<double>(7 * c + 4) };
+                        accepted = SoundDirection(query, verts, D);
+                    }
+                }
+            }
+        }
+        io.givenVec<3>(D);
+
+        int32_t posVertex = -1, negVertex = -1;
+        query.GetExtremeVertices(D, posVertex, negVertex);
+        io.outInt(posVertex);
+        io.outInt(negVertex);
+    }
+}
