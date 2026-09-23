@@ -940,3 +940,582 @@ ORACLE_CASE("Delaunay3Mesh.constructorThrows")
     io.outBool(built);
     io.outInt(mesh.GetNumTetrahedra());
 }
+
+// ---- MinimumAreaBox2 -----------------------------------------------------
+
+namespace
+{
+    // The port instantiates the exact-rational path only, because upstream's
+    // own header says a correct output is guaranteed only for an exact
+    // ComputeType that supports division and names BSRational<UIntegerAP32>.
+    using MAB2 = MinimumAreaBox2<double, ExactQ>;
+
+    int32_t HullDimension2(std::vector<Vector2<double>> const& pts)
+    {
+        ConvexHull2<double> ch2{};
+        ch2(pts);
+        return ch2.GetDimension();
+    }
+
+    void EmitBox2(oracle::Ctx& io, OrientedBox2<double> const& box)
+    {
+        io.outVec(box.center);
+        io.outVec(box.axis[0]);
+        io.outVec(box.axis[1]);
+        io.outVec(box.extent);
+    }
+
+    // mode 0-3: the shared 2D generators (uniform, lattice, cocircular
+    //           lattice, dense lattice)
+    // mode 4:   one lattice point repeated n times (hull dimension 0)
+    // mode 5:   an axis-aligned square or a 45-degree-rotated square with
+    //           extra lattice points mixed in. Every edge of a square gives
+    //           a bounding box of the same area, so the minimum is attained
+    //           four times and the tie decides the answer. Both sides break
+    //           the tie the same way: ComputeBoxForEdgeOrderN seeds minBox
+    //           with SmallestBox(n-1, 0) and replaces it only on a strict
+    //           'box.area < minBox.area', so the first edge of the rotation
+    //           wins; ComputeBoxForEdgeOrderNSqr does the same over the
+    //           edges in index order.
+    void RawBoxPoints2(oracle::Ctx& io, int32_t mode, size_t n,
+        std::vector<Vector2<double>>& pts)
+    {
+        if (mode < 4)
+        {
+            RawPoints2(io, mode, n, pts);
+            return;
+        }
+
+        pts.resize(n);
+        double bx = static_cast<double>(io.rawInteger(-3, 3));
+        double by = static_cast<double>(io.rawInteger(-3, 3));
+        if (mode == 4)
+        {
+            for (size_t i = 0; i < n; ++i)
+            {
+                pts[i] = { bx, by };
+            }
+            return;
+        }
+
+        double s = static_cast<double>(io.rawInteger(1, 3));
+        bool rotated = (io.rawInteger(0, 1) != 0);
+        std::array<Vector2<double>, 4> corner{};
+        if (rotated)
+        {
+            corner[0] = { bx + s, by };
+            corner[1] = { bx, by + s };
+            corner[2] = { bx - s, by };
+            corner[3] = { bx, by - s };
+        }
+        else
+        {
+            corner[0] = { bx, by };
+            corner[1] = { bx + s, by };
+            corner[2] = { bx + s, by + s };
+            corner[3] = { bx, by + s };
+        }
+        for (size_t i = 0; i < n; ++i)
+        {
+            if (i < 4)
+            {
+                pts[i] = corner[i % 4];
+            }
+            else
+            {
+                // Extra points on the square's boundary or inside it, which
+                // exercise RemoveCollinearPoints and the support updates.
+                int32_t k = io.rawInteger(0, 3);
+                double u = 0.5 * static_cast<double>(io.rawInteger(0, 2));
+                pts[i][0] = corner[k][0] + u * (corner[(k + 1) % 4][0] - corner[k][0]);
+                pts[i][1] = corner[k][1] + u * (corner[(k + 1) % 4][1] - corner[k][1]);
+            }
+        }
+    }
+
+    // Draw a point set whose exact convex-hull dimension is 0 or 2. Hull
+    // dimension 1 is excluded from the main cases because upstream's
+    // dimension-1 branch reports wrong extreme indices (#328), which the port
+    // fixes; see MinimumAreaBox2.deviation.dimension1Extremes.
+    std::vector<Vector2<double>> BoxPoints2(oracle::Ctx& io, int32_t mode, size_t n)
+    {
+        std::vector<Vector2<double>> pts{};
+        for (int32_t attempt = 0; attempt < 64; ++attempt)
+        {
+            RawBoxPoints2(io, mode, n, pts);
+            if (HullDimension2(pts) != 1)
+            {
+                break;
+            }
+            pts.clear();
+        }
+        if (pts.empty())
+        {
+            Fallback2(n, pts);
+        }
+        for (size_t i = 0; i < n; ++i)
+        {
+            io.givenVec<2>(pts[i]);
+        }
+        return pts;
+    }
+}
+
+// MinimumAreaBox2 overloads 1 and 2 (the arbitrary-point path), with both
+// values of useRotatingCalipers so that ComputeBoxForEdgeOrderN and
+// ComputeBoxForEdgeOrderNSqr are both covered. The functor is fresh for every
+// record, so upstream's stale-state defect (#328) cannot fire here; it has
+// its own deviation case. RemoveCollinearPoints is a no-op on this path
+// because ConvexHull2 removes duplicates and guarantees no three consecutive
+// collinear hull points, so the port's #286-pattern fix is inert and the two
+// implementations are the same computation.
+ORACLE_CASE("MinimumAreaBox2.compute")
+{
+    int32_t mode = io.index() % 6;
+    bool useRotatingCalipers = io.boolean();
+    int32_t n = io.integer(1, 10);
+    auto pts = BoxPoints2(io, mode, static_cast<size_t>(n));
+
+    MAB2 mab{};
+    OrientedBox2<double> box = mab(pts, useRotatingCalipers);
+    EmitBox2(io, box);
+    io.outReal(mab.GetArea());
+    auto const& support = mab.GetSupportIndices();
+    for (size_t i = 0; i < 4; ++i)
+    {
+        io.outInt(support[i]);
+    }
+    auto const& hull = mab.GetHull();
+    io.outInt(hull.size());
+    for (auto h : hull)
+    {
+        io.outInt(h);
+    }
+    io.outInt(mab.GetNumPoints());
+    io.outBool(mab.GetPoints() != nullptr);
+}
+
+// The hull-dimension-1 branch of overloads 1 and 2. Everything but the
+// extreme indices agrees: upstream seeds tmin = tmax = 0 with imin = imax = 0
+// and the port seeds them from point 0, but the line origin is one of the
+// input points and therefore attains t = 0 exactly, so both compute the same
+// tmin and tmax. mHull is not emitted here; it is the subject of
+// MinimumAreaBox2.deviation.dimension1Extremes.
+ORACLE_CASE("MinimumAreaBox2.compute.dimension1")
+{
+    bool useRotatingCalipers = io.boolean();
+    int32_t n = io.integer(2, 8);
+    std::vector<Vector2<double>> pts(static_cast<size_t>(n));
+    bool accepted = false;
+    for (int32_t attempt = 0; attempt < 32 && !accepted; ++attempt)
+    {
+        double bx = static_cast<double>(io.rawInteger(-3, 3));
+        double by = static_cast<double>(io.rawInteger(-3, 3));
+        int32_t dx = 0, dy = 0;
+        for (int32_t k = 0; k < 32 && dx == 0 && dy == 0; ++k)
+        {
+            dx = io.rawInteger(-2, 2);
+            dy = io.rawInteger(-2, 2);
+        }
+        if (dx == 0 && dy == 0)
+        {
+            dx = 1;
+            dy = 2;
+        }
+        for (size_t i = 0; i < pts.size(); ++i)
+        {
+            double k = static_cast<double>(io.rawInteger(-3, 3));
+            pts[i][0] = bx + k * static_cast<double>(dx);
+            pts[i][1] = by + k * static_cast<double>(dy);
+        }
+        accepted = (HullDimension2(pts) == 1);
+    }
+    if (!accepted)
+    {
+        for (size_t i = 0; i < pts.size(); ++i)
+        {
+            pts[i][0] = static_cast<double>(i);
+            pts[i][1] = 2.0 * static_cast<double>(i);
+        }
+    }
+    for (size_t i = 0; i < pts.size(); ++i)
+    {
+        io.givenVec<2>(pts[i]);
+    }
+
+    MAB2 mab{};
+    OrientedBox2<double> box = mab(pts, useRotatingCalipers);
+    EmitBox2(io, box);
+    io.outReal(mab.GetArea());
+    auto const& support = mab.GetSupportIndices();
+    for (size_t i = 0; i < 4; ++i)
+    {
+        io.outInt(support[i]);
+    }
+    io.outInt(mab.GetHull().size());
+    io.outInt(mab.GetNumPoints());
+}
+
+namespace
+{
+    // Record an integer that was not produced by io.integer().
+    void GivenInt(oracle::Ctx& io, int32_t v)
+    {
+        io.given(static_cast<double>(v));
+    }
+
+    // Build a counterclockwise, nondegenerate convex polygon as the convex
+    // hull of a lattice point set. ConvexHull2 orders the hull
+    // counterclockwise and guarantees no three consecutive collinear hull
+    // points, which is exactly overload 3's precondition.
+    bool RawConvexPolygon(oracle::Ctx& io, size_t n,
+        std::vector<Vector2<double>>& base, std::vector<int32_t>& hull)
+    {
+        RawPoints2(io, 1, n, base);
+        ConvexHull2<double> ch2{};
+        ch2(base);
+        if (ch2.GetDimension() != 2)
+        {
+            return false;
+        }
+        hull = ch2.GetHull();
+        return hull.size() >= 3;
+    }
+}
+
+// MinimumAreaBox2 overload 3, the caller-supplied convex polygon. The four
+// submodes are: the points themselves are the polygon (indices == nullptr);
+// the polygon is an index subset of the points; the polygon carries exactly
+// collinear vertices (every hull vertex doubled and every edge midpoint
+// inserted, all integer valued) so that RemoveCollinearPoints actually
+// removes something; and the two early-return guards (numPoints < 3 and
+// numIndices < 3).
+//
+// The polygon never has duplicate vertices, so the port's #286-pattern fix of
+// RemoveCollinearPoints is inert and the two implementations are the same
+// computation; the fix is demonstrated by
+// MinimumAreaBox2.deviation.removeCollinear. GetNumPoints() and GetPoints()
+// are not emitted here; they are the subject of
+// MinimumAreaBox2.deviation.polygonPoints (#402).
+ORACLE_CASE("MinimumAreaBox2.computeConvexPolygon")
+{
+    int32_t submode = io.index() % 4;
+    bool useRotatingCalipers = io.boolean();
+
+    std::vector<Vector2<double>> points{};
+    std::vector<int32_t> indices{};
+
+    if (submode == 3)
+    {
+        bool byCount = (io.rawInteger(0, 1) != 0);
+        int32_t n = (byCount ? io.rawInteger(1, 2) : io.rawInteger(3, 5));
+        points.resize(static_cast<size_t>(n));
+        for (size_t i = 0; i < points.size(); ++i)
+        {
+            points[i][0] = static_cast<double>(io.rawInteger(-3, 3));
+            points[i][1] = static_cast<double>(io.rawInteger(-3, 3));
+        }
+        if (!byCount)
+        {
+            int32_t numIndices = io.rawInteger(1, 2);
+            indices.resize(static_cast<size_t>(numIndices));
+            for (size_t i = 0; i < indices.size(); ++i)
+            {
+                indices[i] = io.rawInteger(0, n - 1);
+            }
+        }
+    }
+    else
+    {
+        std::vector<Vector2<double>> base{};
+        std::vector<int32_t> hull{};
+        bool accepted = false;
+        for (int32_t attempt = 0; attempt < 64 && !accepted; ++attempt)
+        {
+            base.clear();
+            hull.clear();
+            size_t n = static_cast<size_t>(io.rawInteger(3, 9));
+            accepted = RawConvexPolygon(io, n, base, hull);
+        }
+        if (!accepted)
+        {
+            base = { { 0.0, 0.0 }, { 3.0, 0.0 }, { 3.0, 2.0 }, { 0.0, 2.0 } };
+            hull = { 0, 1, 2, 3 };
+        }
+
+        if (submode == 0)
+        {
+            points.resize(hull.size());
+            for (size_t i = 0; i < hull.size(); ++i)
+            {
+                points[i] = base[static_cast<size_t>(hull[i])];
+            }
+        }
+        else if (submode == 1)
+        {
+            points = base;
+            indices = hull;
+        }
+        else
+        {
+            points.resize(2 * hull.size());
+            for (size_t i = 0; i < hull.size(); ++i)
+            {
+                size_t j = (i + 1) % hull.size();
+                Vector2<double> const& p = base[static_cast<size_t>(hull[i])];
+                Vector2<double> const& q = base[static_cast<size_t>(hull[j])];
+                points[2 * i] = { 2.0 * p[0], 2.0 * p[1] };
+                points[2 * i + 1] = { p[0] + q[0], p[1] + q[1] };
+            }
+        }
+    }
+
+    GivenInt(io, static_cast<int32_t>(points.size()));
+    for (size_t i = 0; i < points.size(); ++i)
+    {
+        io.givenVec<2>(points[i]);
+    }
+    GivenInt(io, static_cast<int32_t>(indices.size()));
+    for (size_t i = 0; i < indices.size(); ++i)
+    {
+        GivenInt(io, indices[i]);
+    }
+
+    MAB2 mab{};
+    OrientedBox2<double> box = (indices.empty()
+        ? mab(static_cast<int32_t>(points.size()), points.data(), 0, nullptr,
+            useRotatingCalipers)
+        : mab(static_cast<int32_t>(points.size()), points.data(),
+            static_cast<int32_t>(indices.size()), indices.data(),
+            useRotatingCalipers));
+    EmitBox2(io, box);
+    io.outReal(mab.GetArea());
+    auto const& support = mab.GetSupportIndices();
+    for (size_t i = 0; i < 4; ++i)
+    {
+        io.outInt(support[i]);
+    }
+    auto const& hull = mab.GetHull();
+    io.outInt(hull.size());
+    for (auto h : hull)
+    {
+        io.outInt(h);
+    }
+}
+
+namespace
+{
+    // The generator shared by the dimension-1 cases: exactly collinear
+    // lattice points whose hull dimension really is 1.
+    std::vector<Vector2<double>> Collinear2(oracle::Ctx& io, size_t n)
+    {
+        std::vector<Vector2<double>> pts(n);
+        bool accepted = false;
+        for (int32_t attempt = 0; attempt < 32 && !accepted; ++attempt)
+        {
+            double bx = static_cast<double>(io.rawInteger(-3, 3));
+            double by = static_cast<double>(io.rawInteger(-3, 3));
+            int32_t dx = 0, dy = 0;
+            for (int32_t k = 0; k < 32 && dx == 0 && dy == 0; ++k)
+            {
+                dx = io.rawInteger(-2, 2);
+                dy = io.rawInteger(-2, 2);
+            }
+            if (dx == 0 && dy == 0)
+            {
+                dx = 1;
+                dy = 2;
+            }
+            for (size_t i = 0; i < pts.size(); ++i)
+            {
+                double k = static_cast<double>(io.rawInteger(-3, 3));
+                pts[i][0] = bx + k * static_cast<double>(dx);
+                pts[i][1] = by + k * static_cast<double>(dy);
+            }
+            accepted = (HullDimension2(pts) == 1);
+        }
+        if (!accepted)
+        {
+            for (size_t i = 0; i < pts.size(); ++i)
+            {
+                pts[i][0] = static_cast<double>(i);
+                pts[i][1] = 2.0 * static_cast<double>(i);
+            }
+        }
+        return pts;
+    }
+}
+
+// DELIBERATE DEVIATION (#328). On the hull-dimension-1 path, upstream starts
+// the t-extremes at tmin = tmax = 0 with imin = imax = 0 "because we know
+// that 'origin' is an input vertex". The line origin is points[hull[0]], not
+// points[0], so the reported extreme indices are wrong unless hull[0] == 0:
+// GetHull() then names an interior point as an extreme. The port seeds both
+// extremes from point 0, which gives the same tmin and tmax (the origin is
+// still an input point, so t = 0 is attained) and the correct indices.
+ORACLE_CASE("MinimumAreaBox2.deviation.dimension1Extremes")
+{
+    bool useRotatingCalipers = io.boolean();
+    int32_t n = io.integer(3, 8);
+    auto pts = Collinear2(io, static_cast<size_t>(n));
+    for (size_t i = 0; i < pts.size(); ++i)
+    {
+        io.givenVec<2>(pts[i]);
+    }
+
+    MAB2 mab{};
+    OrientedBox2<double> box = mab(pts, useRotatingCalipers);
+    io.outReal(box.extent[0]);
+    auto const& hull = mab.GetHull();
+    io.outInt(hull.size());
+    for (auto h : hull)
+    {
+        io.outInt(h);
+    }
+}
+
+// DELIBERATE DEVIATION (#328). The degenerate branches of overloads 1 and 2
+// return before assigning mArea and mSupportIndices, so a reused functor
+// reports the previous data set's area and support indices for a data set
+// whose box is a point. The port resets both on every query. The first query
+// is a nondegenerate lattice set and the second is a single repeated point,
+// whose hull dimension is 0 on both sides.
+ORACLE_CASE("MinimumAreaBox2.deviation.staleState")
+{
+    bool useRotatingCalipers = io.boolean();
+    int32_t n = io.integer(4, 9);
+    std::vector<Vector2<double>> first{};
+    for (int32_t attempt = 0; attempt < 64; ++attempt)
+    {
+        RawPoints2(io, 1, static_cast<size_t>(n), first);
+        if (HullDimension2(first) == 2)
+        {
+            break;
+        }
+        first.clear();
+    }
+    if (first.empty())
+    {
+        Fallback2(static_cast<size_t>(n), first);
+    }
+    for (size_t i = 0; i < first.size(); ++i)
+    {
+        io.givenVec<2>(first[i]);
+    }
+    double px = io.lattice(-3, 3);
+    double py = io.lattice(-3, 3);
+    std::vector<Vector2<double>> second(2, Vector2<double>{ px, py });
+
+    MAB2 mab{};
+    OrientedBox2<double> box0 = mab(first, useRotatingCalipers);
+    io.outReal(box0.extent[0]);
+    OrientedBox2<double> box1 = mab(second, useRotatingCalipers);
+    EmitBox2(io, box1);
+    io.outReal(mab.GetArea());
+    auto const& support = mab.GetSupportIndices();
+    for (size_t i = 0; i < 4; ++i)
+    {
+        io.outInt(support[i]);
+    }
+}
+
+// DELIBERATE DEVIATION (#402). Overloads 1 and 2 begin with
+// 'mNumPoints = numPoints; mPoints = points;'; overload 3 only clears mHull,
+// so after a caller-supplied polygon GetPoints() is null on a fresh functor
+// (or the previous data set's pointer on a reused one) while GetHull() and
+// GetSupportIndices() refer to the polygon just processed, and the documented
+// mPoints[hull[...]] lookup dereferences null. The port assigns both.
+ORACLE_CASE("MinimumAreaBox2.deviation.polygonPoints")
+{
+    bool useRotatingCalipers = io.boolean();
+    std::vector<Vector2<double>> base{};
+    std::vector<int32_t> hull{};
+    bool accepted = false;
+    for (int32_t attempt = 0; attempt < 64 && !accepted; ++attempt)
+    {
+        base.clear();
+        hull.clear();
+        size_t n = static_cast<size_t>(io.rawInteger(3, 9));
+        accepted = RawConvexPolygon(io, n, base, hull);
+    }
+    if (!accepted)
+    {
+        base = { { 0.0, 0.0 }, { 3.0, 0.0 }, { 3.0, 2.0 }, { 0.0, 2.0 } };
+        hull = { 0, 1, 2, 3 };
+    }
+    std::vector<Vector2<double>> polygon(hull.size());
+    for (size_t i = 0; i < hull.size(); ++i)
+    {
+        polygon[i] = base[static_cast<size_t>(hull[i])];
+    }
+    GivenInt(io, static_cast<int32_t>(polygon.size()));
+    for (size_t i = 0; i < polygon.size(); ++i)
+    {
+        io.givenVec<2>(polygon[i]);
+    }
+
+    MAB2 mab{};
+    OrientedBox2<double> box = mab(static_cast<int32_t>(polygon.size()),
+        polygon.data(), 0, nullptr, useRotatingCalipers);
+    io.outReal(box.extent[0]);
+    io.outInt(mab.GetNumPoints());
+    io.outBool(mab.GetPoints() != nullptr);
+}
+
+// DELIBERATE DEVIATION (#286 pattern, recorded for MinimumAreaBox2 under
+// #328). RemoveCollinearPoints tests collinearity against the immediately
+// preceding edge of the input array, which is the zero-length edge of a
+// duplicated polygon vertex; DotPerp is then zero and the genuine corner is
+// discarded along with its duplicate. The port compares against the most
+// recent nonzero edge, which is identical whenever the polygon has no
+// duplicates. The generator duplicates one vertex of a convex polygon with at
+// least 4 corners, so upstream's reduced polygon still has at least 3
+// vertices and the comparison is box against box rather than throw against
+// garbage.
+ORACLE_CASE("MinimumAreaBox2.deviation.removeCollinear")
+{
+    bool useRotatingCalipers = io.boolean();
+    std::vector<Vector2<double>> base{};
+    std::vector<int32_t> hull{};
+    bool accepted = false;
+    for (int32_t attempt = 0; attempt < 64 && !accepted; ++attempt)
+    {
+        base.clear();
+        hull.clear();
+        size_t n = static_cast<size_t>(io.rawInteger(4, 9));
+        accepted = RawConvexPolygon(io, n, base, hull) && hull.size() >= 4;
+    }
+    if (!accepted)
+    {
+        base = { { 0.0, 0.0 }, { 3.0, 0.0 }, { 3.0, 2.0 }, { 0.0, 2.0 } };
+        hull = { 0, 1, 2, 3 };
+    }
+    int32_t d = io.rawInteger(0, static_cast<int32_t>(hull.size()) - 1);
+
+    std::vector<Vector2<double>> polygon{};
+    for (size_t i = 0; i < hull.size(); ++i)
+    {
+        Vector2<double> const& p = base[static_cast<size_t>(hull[i])];
+        if (static_cast<int32_t>(i) == d)
+        {
+            polygon.push_back(p);
+        }
+        polygon.push_back(p);
+    }
+    GivenInt(io, static_cast<int32_t>(polygon.size()));
+    for (size_t i = 0; i < polygon.size(); ++i)
+    {
+        io.givenVec<2>(polygon[i]);
+    }
+
+    MAB2 mab{};
+    OrientedBox2<double> box = mab(static_cast<int32_t>(polygon.size()),
+        polygon.data(), 0, nullptr, useRotatingCalipers);
+    EmitBox2(io, box);
+    io.outReal(mab.GetArea());
+    auto const& support = mab.GetSupportIndices();
+    for (size_t i = 0; i < 4; ++i)
+    {
+        io.outInt(support[i]);
+    }
+}

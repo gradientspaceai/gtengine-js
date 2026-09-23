@@ -311,5 +311,133 @@ describe('oracle: v11-compgeom', () => {
         io.outInt(mesh.getNumTetrahedra());
     }, { exact: true });
 
+    // ---- MinimumAreaBox2 -------------------------------------------------
+
+    family.case('MinimumAreaBox2.compute', (io) => {
+        const useRotatingCalipers = io.boolean();
+        const n = io.integer();
+        const pts = points(io, n, 2);
+        const mab = new MinimumAreaBox2();
+        emitBox(io, mab.compute(pts, useRotatingCalipers));
+        io.outReal(mab.getArea());
+        const support = mab.getSupportIndices();
+        for (let i = 0; i < 4; ++i) {
+            io.outInt(support[i]);
+        }
+        const hull = mab.getHull();
+        io.outInt(hull.length);
+        for (const h of hull) {
+            io.outInt(h);
+        }
+        io.outInt(mab.getNumPoints());
+        io.outBool(mab.getPoints().length > 0);
+    }, { exact: true });
+
+    // Everything but mHull agrees on the hull-dimension-1 path; mHull is the
+    // subject of MinimumAreaBox2.deviation.dimension1Extremes.
+    family.case('MinimumAreaBox2.compute.dimension1', (io) => {
+        const useRotatingCalipers = io.boolean();
+        const n = io.integer();
+        const pts = points(io, n, 2);
+        const mab = new MinimumAreaBox2();
+        emitBox(io, mab.compute(pts, useRotatingCalipers));
+        io.outReal(mab.getArea());
+        const support = mab.getSupportIndices();
+        for (let i = 0; i < 4; ++i) {
+            io.outInt(support[i]);
+        }
+        io.outInt(mab.getHull().length);
+        io.outInt(mab.getNumPoints());
+    }, { exact: true });
+
+    // Overload 3: the caller supplies a counterclockwise convex polygon,
+    // either directly or as an index subset. getNumPoints() / getPoints() are
+    // not emitted here; they are the subject of the #402 deviation case.
+    family.case('MinimumAreaBox2.computeConvexPolygon', (io) => {
+        const useRotatingCalipers = io.boolean();
+        const numPoints = io.integer();
+        const pts = points(io, numPoints, 2);
+        const numIndices = io.integer();
+        const indices: number[] = [];
+        for (let i = 0; i < numIndices; ++i) {
+            indices.push(io.integer());
+        }
+        const mab = new MinimumAreaBox2();
+        emitBox(io, mab.computeConvexPolygon(pts, indices, useRotatingCalipers));
+        io.outReal(mab.getArea());
+        const support = mab.getSupportIndices();
+        for (let i = 0; i < 4; ++i) {
+            io.outInt(support[i]);
+        }
+        const hull = mab.getHull();
+        io.outInt(hull.length);
+        for (const h of hull) {
+            io.outInt(h);
+        }
+    }, { exact: true });
+
+    // The port seeds the dimension-1 t-extremes from point 0 instead of from
+    // the line origin's index 0, so getHull() names the real extremes.
+    family.case('MinimumAreaBox2.deviation.dimension1Extremes', (io) => {
+        const useRotatingCalipers = io.boolean();
+        const n = io.integer();
+        const pts = points(io, n, 2);
+        const mab = new MinimumAreaBox2();
+        const box = mab.compute(pts, useRotatingCalipers);
+        io.outReal(box.extent.get(0));
+        const hull = mab.getHull();
+        io.outInt(hull.length);
+        for (const h of hull) {
+            io.outInt(h);
+        }
+    }, { exact: true, deviation: '#328 (dimension-1 extreme indices)' });
+
+    // The port resets the area and the support indices on every query;
+    // upstream's degenerate branches return the previous query's values.
+    family.case('MinimumAreaBox2.deviation.staleState', (io) => {
+        const useRotatingCalipers = io.boolean();
+        const n = io.integer();
+        const first = points(io, n, 2);
+        const px = io.real();
+        const py = io.real();
+        const second = [Vector.fromArray([px, py]), Vector.fromArray([px, py])];
+        const mab = new MinimumAreaBox2();
+        io.outReal(mab.compute(first, useRotatingCalipers).extent.get(0));
+        emitBox(io, mab.compute(second, useRotatingCalipers));
+        io.outReal(mab.getArea());
+        const support = mab.getSupportIndices();
+        for (let i = 0; i < 4; ++i) {
+            io.outInt(support[i]);
+        }
+    }, { exact: true, deviation: '#328 (stale area and support indices)' });
+
+    // The port assigns mNumPoints/mPoints on the convex-polygon overload too.
+    family.case('MinimumAreaBox2.deviation.polygonPoints', (io) => {
+        const useRotatingCalipers = io.boolean();
+        const numPoints = io.integer();
+        const polygon = points(io, numPoints, 2);
+        const mab = new MinimumAreaBox2();
+        const box = mab.computeConvexPolygon(polygon, [], useRotatingCalipers);
+        io.outReal(box.extent.get(0));
+        io.outInt(mab.getNumPoints());
+        io.outBool(mab.getPoints().length > 0);
+    }, { exact: true, deviation: '#402 (convex-polygon overload never assigns mPoints)' });
+
+    // The port's removeCollinearPoints compares against the most recent
+    // nonzero edge, so a duplicated polygon vertex does not take the next
+    // genuine corner with it.
+    family.case('MinimumAreaBox2.deviation.removeCollinear', (io) => {
+        const useRotatingCalipers = io.boolean();
+        const numPoints = io.integer();
+        const polygon = points(io, numPoints, 2);
+        const mab = new MinimumAreaBox2();
+        emitBox(io, mab.computeConvexPolygon(polygon, [], useRotatingCalipers));
+        io.outReal(mab.getArea());
+        const support = mab.getSupportIndices();
+        for (let i = 0; i < 4; ++i) {
+            io.outInt(support[i]);
+        }
+    }, { exact: true, deviation: '#286 (duplicate point drops the next corner)' });
+
     family.finish();
 });
