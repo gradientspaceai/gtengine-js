@@ -1062,3 +1062,464 @@ ORACLE_CASE("ExtremalQuery3BSP.getExtremeVertices")
         io.outInt(negVertex);
     }
 }
+
+// ---- IncrementalDelaunay2 ------------------------------------------------
+
+namespace
+{
+    using ID2 = IncrementalDelaunay2<double>;
+    size_t const gInvalid = ID2::invalid;
+
+    // size_t(-1) does not survive a double, and the port uses -1 for the
+    // same sentinel, so the invalid index is emitted as -1.
+    double AsIndex(size_t v)
+    {
+        return v == gInvalid ? -1.0 : static_cast<double>(v);
+    }
+
+    // The triangle numbering of GetTriangles()/GetAdjacencies() follows the
+    // iteration order of VETManifoldMesh's std::unordered_map, which MSVC
+    // decides from the TriangleKey hash while the port reads a sorted list.
+    // The triangle *set* and each triangle's stored vertex rotation are
+    // order independent (VETManifoldMesh::Insert keeps the rotation the
+    // caller passed and each triangle is inserted once), so the features are
+    // emitted sorted by their stored vertex tuple with the adjacency indices
+    // remapped through the same permutation. This is exactly what the v09
+    // cases do for Delaunay2/Delaunay3.
+    void EmitTriangles(oracle::Ctx& io, ID2& del)
+    {
+        auto const& tris = del.GetTriangles();
+        auto const& adjs = del.GetAdjacencies();
+        size_t const count = tris.size();
+        std::vector<size_t> order(count);
+        std::iota(order.begin(), order.end(), size_t(0));
+        std::sort(order.begin(), order.end(), [&tris](size_t a, size_t b)
+        {
+            return tris[a] < tris[b];
+        });
+        std::vector<size_t> rank(count);
+        for (size_t r = 0; r < count; ++r)
+        {
+            rank[order[r]] = r;
+        }
+
+        io.outInt(count);
+        for (size_t r = 0; r < count; ++r)
+        {
+            size_t t = order[r];
+            for (size_t j = 0; j < 3; ++j)
+            {
+                io.outInt(tris[t][j]);
+            }
+            for (size_t j = 0; j < 3; ++j)
+            {
+                size_t a = adjs[t][j];
+                io.outReal(a == gInvalid ? -1.0 : static_cast<double>(rank[a]));
+            }
+        }
+    }
+
+    void EmitHull(oracle::Ctx& io, ID2& del)
+    {
+        std::vector<size_t> hull{};
+        del.GetHull(hull);
+        io.outInt(hull.size());
+        for (auto v : hull)
+        {
+            io.outInt(v);
+        }
+    }
+
+    // Points strictly inside [-5,5]^2, which is strictly inside every domain
+    // rectangle this family draws.
+    //   mode 0: uniform doubles
+    //   mode 1: lattice [-5,5]
+    //   mode 2: cocircular lattice points of the circle of radius 5 about a
+    //           lattice center, plus the center itself
+    //   mode 3: dense lattice [-2,2]; duplicate insertions are common
+    Vector2<double> RawInsidePoint(oracle::Ctx& io, int32_t mode)
+    {
+        Vector2<double> p{ 0.0, 0.0 };
+        if (mode == 0)
+        {
+            p[0] = io.raw(-5.0, 5.0);
+            p[1] = io.raw(-5.0, 5.0);
+        }
+        else if (mode == 1)
+        {
+            p[0] = static_cast<double>(io.rawInteger(-5, 5));
+            p[1] = static_cast<double>(io.rawInteger(-5, 5));
+        }
+        else if (mode == 2)
+        {
+            int32_t k = io.rawInteger(0, 12);
+            if (k < 12)
+            {
+                p[0] = static_cast<double>(gCircle25[k][0]);
+                p[1] = static_cast<double>(gCircle25[k][1]);
+            }
+        }
+        else
+        {
+            p[0] = static_cast<double>(io.rawInteger(-2, 2));
+            p[1] = static_cast<double>(io.rawInteger(-2, 2));
+        }
+        return p;
+    }
+
+    // Draw and record the domain rectangle. Every generated point lies in
+    // [-5,5]^2, hence strictly inside.
+    std::array<double, 4> DomainRectangle(oracle::Ctx& io)
+    {
+        double xMin = io.lattice(-10, -6);
+        double yMin = io.lattice(-10, -6);
+        double xMax = io.lattice(6, 10);
+        double yMax = io.lattice(6, 10);
+        return { xMin, yMin, xMax, yMax };
+    }
+}
+
+// Insert: the return index (an existing vertex index for a repeated
+// position), then the whole triangulation state - GetNumVertices,
+// GetNumTriangles, GetTriangles, GetAdjacencies and GetHull.
+ORACLE_CASE("IncrementalDelaunay2.insert")
+{
+    int32_t mode = io.index() % 4;
+    auto rect = DomainRectangle(io);
+    int32_t n = io.integer(1, 8);
+    ID2 del(rect[0], rect[1], rect[2], rect[3]);
+    for (int32_t i = 0; i < n; ++i)
+    {
+        Vector2<double> p = RawInsidePoint(io, mode);
+        io.givenVec<2>(p);
+        size_t index = del.Insert(p);
+        io.outReal(AsIndex(index));
+    }
+    io.outInt(del.GetNumVertices());
+    io.outInt(del.GetNumTriangles());
+    EmitTriangles(io, del);
+    EmitHull(io, del);
+}
+
+// Insert, then Remove: positions that are vertices, positions that are not,
+// and positions of the enclosing rectangle are all exercised. The return
+// value of Remove is the vertex index, or invalid when the position is not a
+// vertex of the triangulation.
+ORACLE_CASE("IncrementalDelaunay2.remove")
+{
+    int32_t mode = io.index() % 4;
+    auto rect = DomainRectangle(io);
+    int32_t n = io.integer(3, 8);
+    int32_t numRemove = io.integer(1, 4);
+    ID2 del(rect[0], rect[1], rect[2], rect[3]);
+    std::vector<Vector2<double>> inserted{};
+    for (int32_t i = 0; i < n; ++i)
+    {
+        Vector2<double> p = RawInsidePoint(io, mode);
+        io.givenVec<2>(p);
+        del.Insert(p);
+        inserted.push_back(p);
+    }
+    for (int32_t k = 0; k < numRemove; ++k)
+    {
+        // Two thirds of the removals hit an inserted position, one third is
+        // a fresh draw that is usually not a vertex.
+        Vector2<double> p{ 0.0, 0.0 };
+        if (io.rawInteger(0, 2) != 0)
+        {
+            size_t j = static_cast<size_t>(io.rawInteger(0, n - 1));
+            p = inserted[j];
+        }
+        else
+        {
+            p = RawInsidePoint(io, mode);
+        }
+        io.givenVec<2>(p);
+        size_t index = del.Remove(p);
+        io.outReal(AsIndex(index));
+    }
+    io.outInt(del.GetNumVertices());
+    io.outInt(del.GetNumTriangles());
+    EmitTriangles(io, del);
+    EmitHull(io, del);
+}
+
+// GetContainingTriangle, GetTriangle, GetAdjacent and GetTriangulation.
+//
+// The SearchInfo path and finalTriangle index are NOT emitted: they are
+// triangle indices in hash-table numbering and the walk starts at triangle 0
+// of that numbering, so both the path and, for a query point outside the
+// hull, the exit edge depend on the order. What is emitted is the outcome
+// (the stored vertex triple of the containing triangle, or -1), which is
+// order independent as long as the containing triangle is unique. Query
+// points are accepted only when they are strictly inside exactly one
+// triangle (a point on a shared edge stops the walk at whichever of the two
+// triangles it reaches first) or strictly outside every triangle.
+ORACLE_CASE("IncrementalDelaunay2.getContainingTriangle")
+{
+    int32_t mode = io.index() % 4;
+    auto rect = DomainRectangle(io);
+    int32_t n = io.integer(1, 8);
+    ID2 del(rect[0], rect[1], rect[2], rect[3]);
+    for (int32_t i = 0; i < n; ++i)
+    {
+        Vector2<double> p = RawInsidePoint(io, mode);
+        io.givenVec<2>(p);
+        del.Insert(p);
+    }
+
+    auto const& tris = del.GetTriangles();
+    auto const& verts = del.GetVertices();
+
+    // GetTriangulation: all vertices and all triangles of the graph, the
+    // supervertex triangles included. The triangle keys are sorted tuples
+    // (TriangleKey<true> orders its indices) and the container is a hash map,
+    // so the list is sorted lexicographically on both sides.
+    std::vector<Vector2<double>> tvertices{};
+    std::vector<std::array<size_t, 3>> ttriangles{};
+    del.GetTriangulation(tvertices, ttriangles);
+    io.outInt(tvertices.size());
+    for (auto const& v : tvertices)
+    {
+        io.outVec(v);
+    }
+    std::sort(ttriangles.begin(), ttriangles.end());
+    io.outInt(ttriangles.size());
+    for (auto const& t : ttriangles)
+    {
+        io.outInt(t[0]);
+        io.outInt(t[1]);
+        io.outInt(t[2]);
+    }
+
+    int32_t const numQueries = 4;
+    for (int32_t k = 0; k < numQueries; ++k)
+    {
+        Vector2<double> q{ 0.0, 0.0 };
+        bool accepted = false;
+        for (int32_t attempt = 0; attempt < 32 && !accepted; ++attempt)
+        {
+            q[0] = io.raw(-7.0, 7.0);
+            q[1] = io.raw(-7.0, 7.0);
+            int32_t inside = 0;
+            for (auto const& t : tris)
+            {
+                int32_t s0 = ExactOrient2(verts[t[0]], verts[t[1]], q);
+                int32_t s1 = ExactOrient2(verts[t[1]], verts[t[2]], q);
+                int32_t s2 = ExactOrient2(verts[t[2]], verts[t[0]], q);
+                if (s0 > 0 && s1 > 0 && s2 > 0)
+                {
+                    ++inside;
+                }
+                else if (s0 >= 0 && s1 >= 0 && s2 >= 0)
+                {
+                    // On the boundary of a triangle: the walk can stop at
+                    // either side of a shared edge.
+                    inside = 2;
+                    break;
+                }
+            }
+            accepted = (inside <= 1);
+        }
+        io.givenVec<2>(q);
+
+        ID2::SearchInfo info{};
+        size_t t = del.GetContainingTriangle(q, info);
+        // The index itself is hash-table numbering; only whether a
+        // containing triangle was found, and which triangle it is, are
+        // order independent.
+        io.outBool(t != gInvalid);
+        if (t != gInvalid)
+        {
+            std::array<size_t, 3> triangle{};
+            bool valid = del.GetTriangle(t, triangle);
+            io.outBool(valid);
+            io.outInt(triangle[0]);
+            io.outInt(triangle[1]);
+            io.outInt(triangle[2]);
+        }
+    }
+
+    // Out-of-range accessors return false.
+    std::array<size_t, 3> triangle{}, adjacent{};
+    bool validTriangle = del.GetTriangle(tris.size(), triangle);
+    io.outBool(validTriangle);
+    bool validAdjacent = del.GetAdjacent(tris.size(), adjacent);
+    io.outBool(validAdjacent);
+}
+
+// FinalizeTriangulation removes the four rectangle vertices; the remaining
+// Delaunay triangles are those of the inserted points alone. Insert and
+// Remove then return 'invalid' and a second FinalizeTriangulation returns
+// false. The inserted points must not be collinear, otherwise there are no
+// Delaunay triangles left and GetHull is the undefined-behaviour path of
+// issue #290 (the .deviation case below).
+ORACLE_CASE("IncrementalDelaunay2.finalizeTriangulation")
+{
+    int32_t mode = io.index() % 4;
+    auto rect = DomainRectangle(io);
+    int32_t n = io.integer(3, 8);
+    std::vector<Vector2<double>> pts{};
+    bool accepted = false;
+    for (int32_t attempt = 0; attempt < 32 && !accepted; ++attempt)
+    {
+        pts.clear();
+        for (int32_t i = 0; i < n; ++i)
+        {
+            pts.push_back(RawInsidePoint(io, mode));
+        }
+        // Accept only when three of the points are not collinear, which is
+        // what makes the finalized triangulation nonempty.
+        for (size_t i = 0; i < pts.size() && !accepted; ++i)
+        {
+            for (size_t j = i + 1; j < pts.size() && !accepted; ++j)
+            {
+                for (size_t k = j + 1; k < pts.size() && !accepted; ++k)
+                {
+                    accepted = ExactOrient2(pts[i], pts[j], pts[k]) != 0;
+                }
+            }
+        }
+    }
+    if (!accepted)
+    {
+        pts.clear();
+        for (int32_t i = 0; i < n; ++i)
+        {
+            double t = static_cast<double>(i) - 2.0;
+            pts.push_back(Vector2<double>{ t, t * t });
+        }
+    }
+
+    ID2 del(rect[0], rect[1], rect[2], rect[3]);
+    for (int32_t i = 0; i < n; ++i)
+    {
+        io.givenVec<2>(pts[static_cast<size_t>(i)]);
+        del.Insert(pts[static_cast<size_t>(i)]);
+    }
+
+    bool finalized = del.FinalizeTriangulation();
+    io.outBool(finalized);
+    io.outInt(del.GetNumVertices());
+    io.outInt(del.GetNumTriangles());
+    EmitTriangles(io, del);
+    EmitHull(io, del);
+
+    bool again = del.FinalizeTriangulation();
+    io.outBool(again);
+    size_t insertAfter = del.Insert(pts[0]);
+    io.outReal(AsIndex(insertAfter));
+    size_t removeAfter = del.Remove(pts[0]);
+    io.outReal(AsIndex(removeAfter));
+}
+
+// Deliberate port fix of issue #290: GetHull walks the edge map with an
+// unbounded while (vNext != vStart) loop that writes into hull[], which was
+// sized to the number of edges. For a finalized triangulation whose input
+// points are collinear there are no Delaunay triangles at all, yet the
+// triangles sharing a supervertex still contribute edges, and those edges
+// form a path ending in a 2-cycle rather than a closed polygon. Upstream
+// then loops forever and writes past the end of the vector - undefined
+// behaviour that cannot be executed inside the generator.
+//
+// The case therefore runs a VERBATIM COPY of upstream's edge collection
+// (GetGraph() exposes everything it reads) followed by upstream's walk with
+// a step cap, and emits the number of edges and the prefix of hull[] that
+// upstream would write before it runs off the end. The port's getHull()
+// detects the open walk and throws, so every record of this case is a
+// disagreement: that is the demonstration of the fix.
+ORACLE_CASE("IncrementalDelaunay2.getHull.deviation.collinear")
+{
+    auto rect = DomainRectangle(io);
+    int32_t n = io.integer(2, 6);
+
+    // A lattice line through a lattice point, with lattice multiples of a
+    // lattice direction: every inserted point is exactly collinear.
+    int32_t bx = 0, by = 0, dx = 0, dy = 0;
+    for (int32_t attempt = 0; attempt < 32 && dx == 0 && dy == 0; ++attempt)
+    {
+        bx = io.rawInteger(-2, 2);
+        by = io.rawInteger(-2, 2);
+        dx = io.rawInteger(-2, 2);
+        dy = io.rawInteger(-2, 2);
+    }
+    if (dx == 0 && dy == 0)
+    {
+        dx = 1;
+        dy = 2;
+    }
+
+    ID2 del(rect[0], rect[1], rect[2], rect[3]);
+    for (int32_t i = 0; i < n; ++i)
+    {
+        double k = static_cast<double>(io.rawInteger(-2, 2));
+        Vector2<double> p{ static_cast<double>(bx) + k * static_cast<double>(dx),
+            static_cast<double>(by) + k * static_cast<double>(dy) };
+        io.givenVec<2>(p);
+        del.Insert(p);
+    }
+    bool finalized = del.FinalizeTriangulation();
+    io.outBool(finalized);
+    io.outInt(del.GetNumTriangles());
+
+    // Verbatim copy of GetHull's edge collection.
+    std::map<size_t, size_t> edges{};
+    auto const& vmap = del.GetGraph().GetVertices();
+    for (int32_t v = 0; v < 3; ++v)
+    {
+        auto vIter = vmap.find(v);
+        if (vIter == vmap.end())
+        {
+            continue;
+        }
+        for (auto const& adj : vIter->second->TAdjacent)
+        {
+            for (size_t i0 = 1, i1 = 2, i2 = 0; i2 < 3; i0 = i1, i1 = i2, ++i2)
+            {
+                if (adj->V[i0] == v)
+                {
+                    if (adj->V[i1] >= 3 && adj->V[i2] >= 3)
+                    {
+                        edges.insert(std::make_pair(
+                            static_cast<size_t>(adj->V[i2]),
+                            static_cast<size_t>(adj->V[i1])));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    if (edges.empty())
+    {
+        // Upstream dereferences edges.begin() on an empty map, which is
+        // undefined behaviour and cannot be executed. The port returns an
+        // empty hull, and so does this record: those records agree and the
+        // defect is only described in the group report.
+        io.outInt(0);
+        return;
+    }
+
+    // Upstream's walk, with a step cap in place of the unbounded loop. The
+    // LogAssert below is upstream's own; the cap replaces the out-of-bounds
+    // write that follows when the edges do not form a closed cycle through
+    // the smallest key, and the emitted prefix is what upstream writes
+    // before it overruns hull[].
+    auto eIter = edges.begin();
+    size_t vStart = eIter->first;
+    size_t vNext = eIter->second;
+    std::vector<size_t> hull{ vStart };
+    size_t const cap = edges.size() + 4;
+    while (vNext != vStart && hull.size() < cap)
+    {
+        hull.push_back(vNext);
+        auto it = edges.find(vNext);
+        LogAssert(it != edges.end(), "Expecting to find a hull edge.");
+        vNext = it->second;
+    }
+    io.outInt(hull.size());
+    for (auto v : hull)
+    {
+        io.outInt(v);
+    }
+}

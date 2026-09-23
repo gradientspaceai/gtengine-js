@@ -2,6 +2,8 @@
 // order. The C++ file documents what is comparable for each header.
 import { describe } from 'vitest';
 import { ExtremalQuery3BSP } from '../../src/ExtremalQuery3BSP.js';
+import { IncrementalDelaunay2, IncrementalDelaunay2SearchInfo }
+    from '../../src/IncrementalDelaunay2.js';
 import { MinimumAreaCircle2 } from '../../src/MinimumAreaCircle2.js';
 import { MinimumVolumeSphere3 } from '../../src/MinimumVolumeSphere3.js';
 import { Polyhedron3 } from '../../src/Polyhedron3.js';
@@ -160,6 +162,152 @@ describe('oracle: v10-compgeom', () => {
             io.outInt(r.negativeDirection);
         }
     }, { exact: true });
+
+    // ---- IncrementalDelaunay2 --------------------------------------------
+
+    // The triangle numbering is hash-table order upstream and sorted order
+    // in the port, so the features are sorted by their stored vertex tuple
+    // and the adjacency indices are remapped through the same permutation.
+    function emitTriangles(io: OracleIO, del: IncrementalDelaunay2): void {
+        const tris = del.getTriangles();
+        const adjs = del.getAdjacencies();
+        const order = tris.map((_, i) => i);
+        order.sort((a, b) => {
+            for (let j = 0; j < 3; ++j) {
+                if (tris[a][j] !== tris[b][j]) { return tris[a][j] - tris[b][j]; }
+            }
+            return 0;
+        });
+        const rank = new Array<number>(order.length);
+        order.forEach((t, r) => { rank[t] = r; });
+
+        io.outInt(tris.length);
+        for (const t of order) {
+            for (let j = 0; j < 3; ++j) { io.outInt(tris[t][j]); }
+            for (let j = 0; j < 3; ++j) {
+                const a = adjs[t][j];
+                io.outReal(a < 0 ? -1 : rank[a]);
+            }
+        }
+    }
+
+    function emitHull(io: OracleIO, del: IncrementalDelaunay2): void {
+        const hull = del.getHull();
+        io.outInt(hull.length);
+        for (const v of hull) { io.outInt(v); }
+    }
+
+    function makeDelaunay(io: OracleIO): IncrementalDelaunay2 {
+        const xMin = io.real();
+        const yMin = io.real();
+        const xMax = io.real();
+        const yMax = io.real();
+        return new IncrementalDelaunay2(xMin, yMin, xMax, yMax);
+    }
+
+    family.case('IncrementalDelaunay2.insert', (io) => {
+        const del = makeDelaunay(io);
+        const n = io.integer();
+        for (let i = 0; i < n; ++i) {
+            io.outReal(del.insert(io.vec(2)));
+        }
+        io.outInt(del.getNumVertices());
+        io.outInt(del.getNumTriangles());
+        emitTriangles(io, del);
+        emitHull(io, del);
+    }, { exact: true });
+
+    family.case('IncrementalDelaunay2.remove', (io) => {
+        const del = makeDelaunay(io);
+        const n = io.integer();
+        const numRemove = io.integer();
+        for (let i = 0; i < n; ++i) {
+            del.insert(io.vec(2));
+        }
+        for (let k = 0; k < numRemove; ++k) {
+            io.outReal(del.remove(io.vec(2)));
+        }
+        io.outInt(del.getNumVertices());
+        io.outInt(del.getNumTriangles());
+        emitTriangles(io, del);
+        emitHull(io, del);
+    }, { exact: true });
+
+    family.case('IncrementalDelaunay2.getContainingTriangle', (io) => {
+        const del = makeDelaunay(io);
+        const n = io.integer();
+        for (let i = 0; i < n; ++i) {
+            del.insert(io.vec(2));
+        }
+
+        const { vertices, triangles } = del.getTriangulation();
+        io.outInt(vertices.length);
+        for (const v of vertices) { io.outVec(v); }
+        const sorted = triangles.slice().sort((a, b) => {
+            for (let j = 0; j < 3; ++j) {
+                if (a[j] !== b[j]) { return a[j] - b[j]; }
+            }
+            return 0;
+        });
+        io.outInt(sorted.length);
+        for (const t of sorted) {
+            io.outInt(t[0]);
+            io.outInt(t[1]);
+            io.outInt(t[2]);
+        }
+
+        for (let k = 0; k < 4; ++k) {
+            const q = io.vec(2);
+            const info = new IncrementalDelaunay2SearchInfo();
+            const t = del.getContainingTriangle(q, info);
+            io.outBool(t >= 0);
+            if (t >= 0) {
+                const triangle = del.getTriangle(t);
+                io.outBool(triangle !== null);
+                io.outInt((triangle as number[])[0]);
+                io.outInt((triangle as number[])[1]);
+                io.outInt((triangle as number[])[2]);
+            }
+        }
+
+        io.outBool(del.getTriangle(del.getNumTriangles()) !== null);
+        io.outBool(del.getAdjacent(del.getNumTriangles()) !== null);
+    }, { exact: true });
+
+    family.case('IncrementalDelaunay2.finalizeTriangulation', (io) => {
+        const del = makeDelaunay(io);
+        const n = io.integer();
+        const points: Vector[] = [];
+        for (let i = 0; i < n; ++i) {
+            const p = io.vec(2);
+            points.push(p);
+            del.insert(p);
+        }
+        io.outBool(del.finalizeTriangulation());
+        io.outInt(del.getNumVertices());
+        io.outInt(del.getNumTriangles());
+        emitTriangles(io, del);
+        emitHull(io, del);
+        io.outBool(del.finalizeTriangulation());
+        io.outReal(del.insert(points[0]));
+        io.outReal(del.remove(points[0]));
+    }, { exact: true });
+
+    // The port's bounded hull walk throws where upstream's unbounded walk
+    // runs off the end of hull[] (issue #290). The C++ side runs a verbatim
+    // copy of upstream's walk with a step cap and emits the prefix upstream
+    // would write, so every record whose edges do not form a closed cycle is
+    // a disagreement.
+    family.case('IncrementalDelaunay2.getHull.deviation.collinear', (io) => {
+        const del = makeDelaunay(io);
+        const n = io.integer();
+        for (let i = 0; i < n; ++i) {
+            del.insert(io.vec(2));
+        }
+        io.outBool(del.finalizeTriangulation());
+        io.outInt(del.getNumTriangles());
+        emitHull(io, del);
+    }, { deviation: '#290 (GetHull walks an open edge path out of bounds)' });
 
     family.finish();
 });
