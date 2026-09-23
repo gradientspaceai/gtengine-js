@@ -1224,7 +1224,11 @@ describe('oracle: v08-compgeom', () => {
 
         const query = new MinimumVolumeBox3FloatingPoint(0);
         const r = query.compute(points, lgMaxSample);
-        outBox(io, r.dimension, r.box, r.volume);
+
+        // Only the hull dimension, the minimum volume and the reference
+        // checks are comparable; see the C++ case comment.
+        io.outInt(r.dimension);
+        io.outReal(r.volume);
 
         const scale = pointScale(points);
         io.outBool(containmentViolation(r.box, points) <= 1e-9 * scale);
@@ -1304,8 +1308,11 @@ describe('oracle: v08-compgeom', () => {
 
         const query = new MinimumVolumeBox3Rational(0);
         const r = query.compute(points, lgMaxSample);
-        outBox(io, r.dimension, r.box, r.volume);
 
+        // Only the hull dimension, the minimum volume and containment are
+        // comparable; see the C++ case comment.
+        io.outInt(r.dimension);
+        io.outReal(r.volume);
         const scale = pointScale(points);
         io.outBool(containmentViolation(r.box, points) <= 1e-9 * scale);
         // Tolerance 1e-14, measured maximum scaled error 6.3e-16 (one record

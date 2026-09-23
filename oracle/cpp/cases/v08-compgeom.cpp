@@ -85,40 +85,61 @@ namespace
     // cases run on a thread with a large stack reservation. Nothing else
     // changes: the callable runs to completion and its exception, if any, is
     // rethrown on the calling thread so the harness records the throw.
+    // A single worker thread with a large stack, created once and reused for
+    // every call. Creating one thread per record exhausts the user-mode
+    // address space: a 1 GiB stack reservation multiplied by the thousands
+    // of records of a deep run crashes the generator partway through.
     struct BigStackCall
     {
         std::function<void()> fn;
         std::exception_ptr error;
     };
 
-    DWORD WINAPI BigStackThunk(LPVOID parameter)
+    BigStackCall gBigStackCall{};
+    HANDLE gBigStackThread = nullptr;
+    HANDLE gBigStackRequest = nullptr;
+    HANDLE gBigStackDone = nullptr;
+
+    DWORD WINAPI BigStackWorker(LPVOID)
     {
-        BigStackCall* call = static_cast<BigStackCall*>(parameter);
-        try
+        for (;;)
         {
-            call->fn();
+            WaitForSingleObject(gBigStackRequest, INFINITE);
+            try
+            {
+                gBigStackCall.fn();
+            }
+            catch (...)
+            {
+                gBigStackCall.error = std::current_exception();
+            }
+            SetEvent(gBigStackDone);
         }
-        catch (...)
-        {
-            call->error = std::current_exception();
-        }
-        return 0;
     }
 
     void RunWithBigStack(std::function<void()> fn)
     {
-        BigStackCall call{ std::move(fn), nullptr };
-        HANDLE thread = CreateThread(nullptr, 1024ull * 1024ull * 1024ull,
-            BigStackThunk, &call, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
-        if (thread == nullptr)
+        if (gBigStackThread == nullptr)
         {
-            throw std::runtime_error("CreateThread failed");
+            gBigStackRequest = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+            gBigStackDone = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+            gBigStackThread = CreateThread(nullptr, 512ull * 1024ull * 1024ull,
+                BigStackWorker, nullptr, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+            if (gBigStackThread == nullptr)
+            {
+                throw std::runtime_error("CreateThread failed");
+            }
         }
-        WaitForSingleObject(thread, INFINITE);
-        CloseHandle(thread);
-        if (call.error)
+
+        gBigStackCall.fn = std::move(fn);
+        gBigStackCall.error = nullptr;
+        SetEvent(gBigStackRequest);
+        WaitForSingleObject(gBigStackDone, INFINITE);
+        if (gBigStackCall.error)
         {
-            std::rethrow_exception(call.error);
+            std::exception_ptr error = gBigStackCall.error;
+            gBigStackCall.error = nullptr;
+            std::rethrow_exception(error);
         }
     }
 }
@@ -2840,27 +2861,54 @@ namespace
     bool HullOrderStable(std::vector<Vector3<double>> const& vertices,
         std::vector<int32_t> const& indices, int32_t lgMaxSample)
     {
-        OrientedBox3<double> box0{}, box1{};
-        double volume0 = 0.0, volume1 = 0.0;
-        std::vector<int32_t> reversed{};
         size_t const numTriangles = indices.size() / 3;
+        std::vector<std::vector<int32_t>> orders{};
+        orders.push_back(indices);
+        std::vector<int32_t> reversed{};
         for (size_t t = numTriangles; t > 0; --t)
         {
             reversed.push_back(indices[3 * (t - 1) + 0]);
             reversed.push_back(indices[3 * (t - 1) + 1]);
             reversed.push_back(indices[3 * (t - 1) + 2]);
         }
-        try
+        orders.push_back(reversed);
+        for (size_t shift = 1; shift < numTriangles; ++shift)
         {
-            MVB3FPQuery(vertices, indices, lgMaxSample, box0, volume0);
-            MVB3FPQuery(vertices, reversed, lgMaxSample, box1, volume1);
+            std::vector<int32_t> rotated{};
+            for (size_t t = 0; t < numTriangles; ++t)
+            {
+                size_t u = (t + shift) % numTriangles;
+                rotated.push_back(indices[3 * u + 0]);
+                rotated.push_back(indices[3 * u + 1]);
+                rotated.push_back(indices[3 * u + 2]);
+            }
+            orders.push_back(rotated);
         }
-        catch (std::exception const&)
+
+        std::array<double, 13> reference{};
+        for (size_t k = 0; k < orders.size(); ++k)
         {
-            return false;
+            OrientedBox3<double> box{};
+            double volume = 0.0;
+            try
+            {
+                MVB3FPQuery(vertices, orders[k], lgMaxSample, box, volume);
+            }
+            catch (std::exception const&)
+            {
+                return false;
+            }
+            std::array<double, 13> invariants = BoxInvariants(box, volume);
+            if (k == 0)
+            {
+                reference = invariants;
+            }
+            else if (!InvariantsAgree(reference, invariants, 0.0))
+            {
+                return false;
+            }
         }
-        return InvariantsAgree(BoxInvariants(box0, volume0),
-            BoxInvariants(box1, volume1), 0.0);
+        return true;
     }
 
     // The same probe for the arbitrary-point query: run it on the points as
@@ -2982,7 +3030,16 @@ ORACLE_CASE("MinimumVolumeBox3FloatingPoint.compute")
     double volume = 0.0;
     MVB3FP query(0);
     std::size_t dimension = query(best, static_cast<std::size_t>(lgMaxSample), box, volume);
-    OutBox(io, dimension, box, volume);
+
+    // Only the hull dimension, the minimum volume and the reference checks
+    // are compared. WHICH candidate attains the minimum depends on the
+    // std::unordered_map enumeration order of the mesh edges and triangles
+    // (see the section comment), and for a point cloud the hull itself is
+    // produced by ConvexHull3, whose vertex ordering is a second
+    // container-dependent input to the same search. The sibling computeHull
+    // case, which fixes the mesh, compares the full box bit for bit.
+    io.outInt(static_cast<int32_t>(dimension));
+    io.outReal(volume);
 
     // Reference check: the box contains every input point and its volume is
     // the product of twice the extents.
@@ -3226,12 +3283,18 @@ namespace
 ORACLE_CASE("MinimumVolumeBox3Rational.compute")
 {
     RunWithBigStack([&io]() {
-    int32_t mode = io.integer(0, 2);
+    // Uniform clouds only. The rational pipeline compares candidate volumes
+    // EXACTLY, so on a lattice cloud many candidates tie exactly and which
+    // one wins is decided by the std::unordered_map enumeration order; on a
+    // uniform cloud an exact tie has probability zero and the minimizing
+    // candidate is unique. Lattice clouds are not comparable here and are
+    // reported under "Not covered".
+    int32_t mode = io.integer(2, 2);
     int32_t lgMaxSample = io.integer(2, 2);
     int32_t n = io.integer(5, 7);
 
     std::vector<Vector3<double>> best{};
-    for (int32_t attempt = 0; attempt < 8 && best.empty(); ++attempt)
+    for (int32_t attempt = 0; attempt < 4 && best.empty(); ++attempt)
     {
         std::vector<Vector3<double>> points = DrawCloud(io, mode, n);
         if (RationalCloudOrderStable(points, lgMaxSample))
@@ -3251,8 +3314,17 @@ ORACLE_CASE("MinimumVolumeBox3Rational.compute")
     double volume = 0.0;
     MVB3R query(0);
     std::size_t dimension = query(best, static_cast<std::size_t>(lgMaxSample), box, volume);
-    OutBox(io, dimension, box, volume);
 
+    // Only the hull dimension, the minimum volume and the containment of the
+    // input points are compared here. WHICH candidate attains the minimum is
+    // not comparable: it depends on the std::unordered_map enumeration order
+    // (see the section comment) and, additionally, upstream's
+    // MinimizerVariableT declares its parameters as T rather than Number, so
+    // every t-variable level curve is sampled at parameters rounded to
+    // double while the port samples them exactly (finding #355). The
+    // sibling computeHull case compares the full box on a fixed mesh.
+    io.outInt(static_cast<int32_t>(dimension));
+    io.outReal(volume);
     double scale = PointScale(best);
     io.outBool(ContainmentViolation(box, best) <= 1e-9 * scale);
     });
@@ -3321,22 +3393,34 @@ ORACLE_CASE("MinimumVolumeBox3Rational.computeHull")
     MVB3R query(0);
     query(vertices, indices, static_cast<std::size_t>(lgMaxSample), box, volume);
 
-    OrientedBox3<double> boxReversed{};
-    double volumeReversed = 0.0;
-    std::vector<int32_t> reversed{};
-    for (size_t t = indices.size() / 3; t > 0; --t)
+    size_t const numTriangles = indices.size() / 3;
+    bool stable = true;
+    std::vector<size_t> shifts{ 1, numTriangles / 2, numTriangles - 1 };
+    for (size_t si = 0; si < shifts.size() && stable; ++si)
     {
-        reversed.push_back(indices[3 * (t - 1) + 0]);
-        reversed.push_back(indices[3 * (t - 1) + 1]);
-        reversed.push_back(indices[3 * (t - 1) + 2]);
+        size_t shift = shifts[si];
+        if (shift == 0)
+        {
+            continue;
+        }
+        std::vector<int32_t> rotated{};
+        for (size_t t = 0; t < numTriangles; ++t)
+        {
+            size_t u = (t + shift) % numTriangles;
+            rotated.push_back(indices[3 * u + 0]);
+            rotated.push_back(indices[3 * u + 1]);
+            rotated.push_back(indices[3 * u + 2]);
+        }
+        OrientedBox3<double> boxOther{};
+        double volumeOther = 0.0;
+        MVB3R queryOther(0);
+        queryOther(vertices, rotated, static_cast<std::size_t>(lgMaxSample),
+            boxOther, volumeOther);
+        stable = InvariantsAgree(BoxInvariants(box, volume),
+            BoxInvariants(boxOther, volumeOther), 0.0);
     }
-    MVB3R queryReversed(0);
-    queryReversed(vertices, reversed, static_cast<std::size_t>(lgMaxSample),
-        boxReversed, volumeReversed);
 
     double scale = PointScale(vertices);
-    bool stable = InvariantsAgree(BoxInvariants(box, volume),
-        BoxInvariants(boxReversed, volumeReversed), 0.0);
     bool contains = (ContainmentViolation(box, vertices) <= 1e-9 * scale);
     int32_t usable = ((stable && contains) ? 1 : 0);
     io.integer(usable, usable);
