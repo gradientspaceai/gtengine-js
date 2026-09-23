@@ -48,6 +48,13 @@
 #include <Mathematics/ExtremalQuery3PRJ.h>
 #include <Mathematics/NearestNeighborQuery.h>
 #include <Mathematics/BoxManager.h>
+// InscribedFixedAspectRectInQuad.h uses GTE_C_TWO_PI and GTE_C_INV_HALF_PI
+// but does not include Constants.h, so it does not compile on its own. The
+// include below is the workaround; the missing include is reported as an
+// upstream suspect in oracle/reports/v08-compgeom.md.
+#include <Mathematics/Constants.h>
+#include <Mathematics/InscribedFixedAspectRectInQuad.h>
+#include <Mathematics/TriangulateEC.h>
 
 #include <algorithm>
 #include <array>
@@ -2056,4 +2063,454 @@ ORACLE_CASE("BoxManager.initializeAndUpdate")
     // incrementally maintained set.
     manager.Initialize();
     OutOverlap(io, manager, boxes);
+}
+
+namespace
+{
+    // ---- InscribedFixedAspectRectInQuad ---------------------------------
+    //
+    // Execute uses std::atan2 only to compute the quadrant index
+    // j = floor((2/pi) * angle) of each inner edge normal; the angle itself
+    // never reaches the result. The generator therefore requires every
+    // normal to have both components nonzero, i.e. no edge of the quad is
+    // axis parallel. With lattice coordinates bounded by 6 the smallest
+    // possible angle to a quadrant boundary is atan(1/12) = 0.083 radians,
+    // twelve orders of magnitude above an ulp of atan2, so j is decided by
+    // the geometry. Everything after that is arithmetic.
+    //
+    // Upstream asserts that the line of constraints 0 and 2 is not parallel
+    // to constraints 1 and 3, which is false for legitimate convex quads
+    // (finding #395 (a)), and its untoleranced interval test can report a
+    // degenerate feasible interval empty (finding #395 (b)). The port
+    // preserves both, so such quads are kept in the generator and compared
+    // for throw parity.
+
+    bool QuadIsConvexCCW(std::array<Vector2<double>, 4> const& quad)
+    {
+        for (int32_t i = 0; i < 4; ++i)
+        {
+            Vector2<double> e0 = quad[(i + 1) % 4] - quad[i];
+            Vector2<double> e1 = quad[(i + 2) % 4] - quad[(i + 1) % 4];
+            if (e0[0] * e1[1] - e0[1] * e1[0] <= 0.0)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool QuadHasNoAxisParallelEdge(std::array<Vector2<double>, 4> const& quad)
+    {
+        for (int32_t i = 0; i < 4; ++i)
+        {
+            Vector2<double> e = quad[(i + 1) % 4] - quad[i];
+            if (e[0] == 0.0 || e[1] == 0.0)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+}
+
+ORACLE_CASE("InscribedFixedAspectRectInQuad.execute")
+{
+    int32_t mode = io.integer(0, 1);
+    std::array<Vector2<double>, 4> quad{};
+    bool accepted = false;
+    for (int32_t attempt = 0; attempt < 128 && !accepted; ++attempt)
+    {
+        for (int32_t i = 0; i < 4; ++i)
+        {
+            if (mode == 0)
+            {
+                quad[static_cast<size_t>(i)] =
+                    Vector2<double>{ static_cast<double>(io.rawInteger(-6, 6)),
+                        static_cast<double>(io.rawInteger(-6, 6)) };
+            }
+            else
+            {
+                quad[static_cast<size_t>(i)] =
+                    Vector2<double>{ io.raw(-6.0, 6.0), io.raw(-6.0, 6.0) };
+            }
+        }
+        accepted = QuadIsConvexCCW(quad) && QuadHasNoAxisParallelEdge(quad);
+    }
+    if (!accepted)
+    {
+        // A convex counterclockwise quad with no axis-parallel edge.
+        quad = { Vector2<double>{ 3.0, 1.0 }, Vector2<double>{ 1.0, 4.0 },
+            Vector2<double>{ -3.0, 1.0 }, Vector2<double>{ -1.0, -4.0 } };
+    }
+    for (int32_t i = 0; i < 4; ++i)
+    {
+        io.givenVec(quad[static_cast<size_t>(i)]);
+    }
+
+    double aspectRatio = 1.0;
+    if (mode == 0)
+    {
+        double numerator = static_cast<double>(io.rawInteger(1, 4));
+        double denominator = static_cast<double>(io.rawInteger(1, 4));
+        aspectRatio = io.given(numerator / denominator);
+    }
+    else
+    {
+        aspectRatio = io.real(0.25, 4.0);
+    }
+
+    Vector2<double> rectOrigin{ 0.0, 0.0 };
+    double rectWidth = 0.0, rectHeight = 0.0;
+    bool isUnique = InscribedFixedAspectRectInQuad<double>::Execute(quad, aspectRatio,
+        rectOrigin, rectWidth, rectHeight);
+    io.outBool(isUnique);
+    io.outVec(rectOrigin);
+    io.outReal(rectWidth);
+    io.outReal(rectHeight);
+
+    // Reference check: the rectangle must lie inside the quad (each of its
+    // four corners on the inner side of each of the four edges) and have the
+    // requested aspect ratio.
+    bool referenceOk = (rectWidth >= 0.0);
+    std::array<Vector2<double>, 4> rect =
+    {
+        rectOrigin,
+        Vector2<double>{ rectOrigin[0] + rectWidth, rectOrigin[1] },
+        Vector2<double>{ rectOrigin[0] + rectWidth, rectOrigin[1] + rectHeight },
+        Vector2<double>{ rectOrigin[0], rectOrigin[1] + rectHeight }
+    };
+    double scale = 0.0;
+    for (int32_t i = 0; i < 4; ++i)
+    {
+        scale = std::max(scale, std::fabs(quad[static_cast<size_t>(i)][0]));
+        scale = std::max(scale, std::fabs(quad[static_cast<size_t>(i)][1]));
+    }
+    for (int32_t i = 0; i < 4; ++i)
+    {
+        Vector2<double> e = quad[static_cast<size_t>((i + 1) % 4)] - quad[static_cast<size_t>(i)];
+        for (int32_t k = 0; k < 4; ++k)
+        {
+            Vector2<double> d = rect[static_cast<size_t>(k)] - quad[static_cast<size_t>(i)];
+            referenceOk = referenceOk && (e[0] * d[1] - e[1] * d[0] >= -1e-9 * scale * scale);
+        }
+    }
+    io.outBool(referenceOk);
+}
+
+namespace
+{
+    // ---- TriangulateEC ---------------------------------------------------
+    //
+    // Upstream is TriangulateEC<InputType, ComputeType>; the port is
+    // number-only, so the C++ side is instantiated as
+    // TriangulateEC<double, double>. The triangle list is produced by a
+    // deterministic ear-clipping order with no container whose order C++
+    // leaves unspecified, so it is compared in the order the algorithm
+    // produced it, triple by triple.
+    //
+    // The outer polygon of the hole cases is always the 12 lattice
+    // directions of the circle of radius 5 scaled by 2 or 3, so every outer
+    // vertex is at distance 10 or 15 from the origin and every outer edge is
+    // at distance at least 10*cos(15 degrees) = 9.66 from it. Holes are built
+    // inside the disk of radius 6 about a centre of length at most 4, hence
+    // strictly inside the outer polygon, and the two holes of the
+    // multiple-hole case, centred at (-4,0) and (4,0) with vertex offsets of
+    // at most 2, are disjoint.
+
+    int32_t const smallDirs[8][2] =
+    {
+        { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 },
+        { -1, 0 }, { -1, -1 }, { 0, -1 }, { 1, -1 }
+    };
+
+    std::vector<Vector2<double>> MakeOuterPolygon(oracle::Ctx& io)
+    {
+        std::vector<Vector2<double>> P{};
+        for (int32_t k = 0; k < 12; ++k)
+        {
+            double scale = static_cast<double>(io.rawInteger(2, 3));
+            P.push_back(Vector2<double>{
+                scale * static_cast<double>(circle5[k][0]),
+                scale * static_cast<double>(circle5[k][1]) });
+        }
+        return P;
+    }
+
+    // A counterclockwise star polygon of 3 to 8 vertices about 'centre'.
+    std::vector<Vector2<double>> MakeSmallStar(oracle::Ctx& io, double cx, double cy)
+    {
+        int32_t numVertices = io.rawInteger(3, 8);
+        int32_t start = io.rawInteger(0, 7);
+        std::vector<Vector2<double>> ccw{};
+        for (int32_t k = 0; k < numVertices; ++k)
+        {
+            int32_t d = (start + (k * 8) / numVertices) % 8;
+            double scale = static_cast<double>(io.rawInteger(1, 2));
+            ccw.push_back(Vector2<double>{
+                cx + scale * static_cast<double>(smallDirs[d][0]),
+                cy + scale * static_cast<double>(smallDirs[d][1]) });
+        }
+        return ccw;
+    }
+
+    // The clockwise version, for a hole.
+    std::vector<Vector2<double>> MakeHolePolygon(oracle::Ctx& io, double cx, double cy)
+    {
+        std::vector<Vector2<double>> ccw = MakeSmallStar(io, cx, cy);
+        std::reverse(ccw.begin(), ccw.end());
+        return ccw;
+    }
+
+    double ShoelaceArea(std::vector<Vector2<double>> const& points,
+        std::vector<int32_t> const& polygon)
+    {
+        double twiceArea = 0.0;
+        size_t const m = polygon.size();
+        for (size_t i = 0; i < m; ++i)
+        {
+            Vector2<double> const& a = points[static_cast<size_t>(polygon[i])];
+            Vector2<double> const& b = points[static_cast<size_t>(polygon[(i + 1) % m])];
+            twiceArea += a[0] * b[1] - b[0] * a[1];
+        }
+        return twiceArea;
+    }
+
+    // The triangles must be counterclockwise (or degenerate) and their total
+    // signed area must equal the signed area of the region. With lattice
+    // coordinates every shoelace term is an exact integer, so the comparison
+    // is exact.
+    bool TriangulationIsValid(std::vector<Vector2<double>> const& points,
+        std::vector<std::array<int32_t, 3>> const& triangles, double expectedTwiceArea)
+    {
+        double twiceArea = 0.0;
+        for (auto const& t : triangles)
+        {
+            Vector2<double> const& a = points[static_cast<size_t>(t[0])];
+            Vector2<double> const& b = points[static_cast<size_t>(t[1])];
+            Vector2<double> const& c = points[static_cast<size_t>(t[2])];
+            double d = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+            if (d < 0.0)
+            {
+                return false;
+            }
+            twiceArea += d;
+        }
+        return twiceArea == expectedTwiceArea;
+    }
+
+    void GivePoints(oracle::Ctx& io, std::vector<Vector2<double>> const& points)
+    {
+        int32_t n = static_cast<int32_t>(points.size());
+        io.integer(n, n);
+        for (auto const& p : points)
+        {
+            io.givenVec(p);
+        }
+    }
+
+    void GivePolygon(oracle::Ctx& io, std::vector<int32_t> const& polygon)
+    {
+        int32_t n = static_cast<int32_t>(polygon.size());
+        io.integer(n, n);
+        for (int32_t i : polygon)
+        {
+            io.integer(i, i);
+        }
+    }
+
+    void OutTriangles(oracle::Ctx& io,
+        std::vector<std::array<int32_t, 3>> const& triangles)
+    {
+        io.outInt(static_cast<int32_t>(triangles.size()));
+        for (auto const& t : triangles)
+        {
+            io.outInt(t[0]);
+            io.outInt(t[1]);
+            io.outInt(t[2]);
+        }
+    }
+}
+
+ORACLE_CASE("TriangulateEC.triangulate")
+{
+    // The whole point array is one simple counterclockwise polygon. Mode 0
+    // puts long collinear runs on the boundary of an axis-aligned rectangle,
+    // mode 1 is a star-shaped lattice polygon and mode 2 a star-shaped
+    // uniform one.
+    int32_t mode = io.integer(0, 2);
+    std::vector<Vector2<double>> points = MakeSimplePolygon(io, mode);
+    GivePoints(io, points);
+
+    TriangulateEC<double, double> triangulator(points);
+    triangulator();
+    OutTriangles(io, triangulator.GetTriangles());
+
+    std::vector<int32_t> polygon(points.size());
+    for (size_t i = 0; i < points.size(); ++i)
+    {
+        polygon[i] = static_cast<int32_t>(i);
+    }
+    bool referenceOk = (triangulator.GetTriangles().size() == points.size() - 2)
+        && TriangulationIsValid(points, triangulator.GetTriangles(),
+            ShoelaceArea(points, polygon));
+    io.outBool(referenceOk);
+}
+
+ORACLE_CASE("TriangulateEC.triangulatePolygon")
+{
+    // The point pool holds unused points as well; the polygon is given by an
+    // index list into the pool, in counterclockwise order.
+    int32_t mode = io.integer(0, 2);
+    std::vector<Vector2<double>> polygonPoints = MakeSimplePolygon(io, mode);
+    int32_t numExtra = io.rawInteger(1, 4);
+    std::vector<Vector2<double>> points{};
+    std::vector<int32_t> polygon{};
+    for (int32_t k = 0; k < numExtra; ++k)
+    {
+        points.push_back(Vector2<double>{
+            static_cast<double>(io.rawInteger(-9, 9)),
+            static_cast<double>(io.rawInteger(-9, 9)) });
+    }
+    for (auto const& p : polygonPoints)
+    {
+        polygon.push_back(static_cast<int32_t>(points.size()));
+        points.push_back(p);
+    }
+    GivePoints(io, points);
+    GivePolygon(io, polygon);
+
+    TriangulateEC<double, double> triangulator(points);
+    triangulator(polygon);
+    OutTriangles(io, triangulator.GetTriangles());
+
+    bool referenceOk = (triangulator.GetTriangles().size() == polygon.size() - 2)
+        && TriangulationIsValid(points, triangulator.GetTriangles(),
+            ShoelaceArea(points, polygon));
+    io.outBool(referenceOk);
+}
+
+ORACLE_CASE("TriangulateEC.triangulateWithHole")
+{
+    std::vector<Vector2<double>> outerPoints = MakeOuterPolygon(io);
+    double cx = static_cast<double>(io.rawInteger(-4, 4));
+    double cy = static_cast<double>(io.rawInteger(-4, 4));
+    std::vector<Vector2<double>> innerPoints = MakeHolePolygon(io, cx, cy);
+
+    std::vector<Vector2<double>> points{};
+    std::vector<int32_t> outer{}, inner{};
+    for (auto const& p : outerPoints)
+    {
+        outer.push_back(static_cast<int32_t>(points.size()));
+        points.push_back(p);
+    }
+    for (auto const& p : innerPoints)
+    {
+        inner.push_back(static_cast<int32_t>(points.size()));
+        points.push_back(p);
+    }
+    GivePoints(io, points);
+    GivePolygon(io, outer);
+    GivePolygon(io, inner);
+
+    TriangulateEC<double, double> triangulator(points);
+    triangulator(outer, inner);
+    OutTriangles(io, triangulator.GetTriangles());
+
+    double expected = ShoelaceArea(points, outer) + ShoelaceArea(points, inner);
+    io.outBool(TriangulationIsValid(points, triangulator.GetTriangles(), expected));
+}
+
+ORACLE_CASE("TriangulateEC.triangulateWithHoles")
+{
+    std::vector<Vector2<double>> outerPoints = MakeOuterPolygon(io);
+    std::vector<Vector2<double>> hole0 = MakeHolePolygon(io, -4.0, 0.0);
+    std::vector<Vector2<double>> hole1 = MakeHolePolygon(io, 4.0, 0.0);
+
+    std::vector<Vector2<double>> points{};
+    std::vector<int32_t> outer{};
+    std::vector<std::vector<int32_t>> inners(2);
+    for (auto const& p : outerPoints)
+    {
+        outer.push_back(static_cast<int32_t>(points.size()));
+        points.push_back(p);
+    }
+    for (auto const& p : hole0)
+    {
+        inners[0].push_back(static_cast<int32_t>(points.size()));
+        points.push_back(p);
+    }
+    for (auto const& p : hole1)
+    {
+        inners[1].push_back(static_cast<int32_t>(points.size()));
+        points.push_back(p);
+    }
+    GivePoints(io, points);
+    GivePolygon(io, outer);
+    GivePolygon(io, inners[0]);
+    GivePolygon(io, inners[1]);
+
+    TriangulateEC<double, double> triangulator(points);
+    triangulator(outer, inners);
+    OutTriangles(io, triangulator.GetTriangles());
+
+    double expected = ShoelaceArea(points, outer)
+        + ShoelaceArea(points, inners[0]) + ShoelaceArea(points, inners[1]);
+    io.outBool(TriangulationIsValid(points, triangulator.GetTriangles(), expected));
+}
+
+ORACLE_CASE("TriangulateEC.triangulateTree")
+{
+    // A three-level tree: the 12-direction outer polygon, a clockwise hole
+    // about the origin at radius 5, and a counterclockwise polygon inside the
+    // hole at radius at most 2*sqrt(2), which is inside the hole's inradius
+    // of 5*cos(15 degrees) = 4.83.
+    std::vector<Vector2<double>> outerPoints = MakeOuterPolygon(io);
+    std::vector<Vector2<double>> holePoints{};
+    for (int32_t k = 11; k >= 0; --k)
+    {
+        holePoints.push_back(Vector2<double>{
+            static_cast<double>(circle5[k][0]),
+            static_cast<double>(circle5[k][1]) });
+    }
+    std::vector<Vector2<double>> innerOuterPoints = MakeSmallStar(io, 0.0, 0.0);
+
+    std::vector<Vector2<double>> points{};
+    std::vector<int32_t> outer{}, hole{}, innerOuter{};
+    for (auto const& p : outerPoints)
+    {
+        outer.push_back(static_cast<int32_t>(points.size()));
+        points.push_back(p);
+    }
+    for (auto const& p : holePoints)
+    {
+        hole.push_back(static_cast<int32_t>(points.size()));
+        points.push_back(p);
+    }
+    for (auto const& p : innerOuterPoints)
+    {
+        innerOuter.push_back(static_cast<int32_t>(points.size()));
+        points.push_back(p);
+    }
+
+    GivePoints(io, points);
+    GivePolygon(io, outer);
+    GivePolygon(io, hole);
+    GivePolygon(io, innerOuter);
+
+    auto root = std::make_shared<PolygonTree>();
+    root->polygon = outer;
+    auto holeNode = std::make_shared<PolygonTree>();
+    holeNode->polygon = hole;
+    auto innerNode = std::make_shared<PolygonTree>();
+    innerNode->polygon = innerOuter;
+    holeNode->child.push_back(innerNode);
+    root->child.push_back(holeNode);
+
+    TriangulateEC<double, double> triangulator(points);
+    triangulator(root);
+    OutTriangles(io, triangulator.GetTriangles());
+
+    double expected = ShoelaceArea(points, outer) + ShoelaceArea(points, hole)
+        + ShoelaceArea(points, innerOuter);
+    io.outBool(TriangulationIsValid(points, triangulator.GetTriangles(), expected));
 }

@@ -14,8 +14,13 @@ import { ConvexPolyhedron3 } from '../../src/ConvexPolyhedron3.js';
 import { DisjointIntervals } from '../../src/DisjointIntervals.js';
 import { DisjointRectangles } from '../../src/DisjointRectangles.js';
 import { ExtremalQuery3PRJ } from '../../src/ExtremalQuery3PRJ.js';
+import {
+    InscribedFixedAspectRectInQuad
+} from '../../src/InscribedFixedAspectRectInQuad.js';
 import { NearestNeighborQuery, PositionSite } from '../../src/NearestNeighborQuery.js';
+import { PolygonTree } from '../../src/PolygonTree.js';
 import { Polyhedron3 } from '../../src/Polyhedron3.js';
+import { TriangulateEC } from '../../src/TriangulateEC.js';
 import { PrimalQuery2 } from '../../src/PrimalQuery2.js';
 import { PrimalQuery3 } from '../../src/PrimalQuery3.js';
 import { SortPointsOnCircle } from '../../src/SortPointsOnCircle.js';
@@ -374,6 +379,59 @@ function outOverlap(io: OracleIO, manager: BoxManager, boxes: readonly AlignedBo
         }
     }
     io.outBool(same);
+}
+
+// ---- TriangulateEC -----------------------------------------------------
+// Upstream is TriangulateEC<InputType, ComputeType>, instantiated on the
+// C++ side as <double, double> to match this number-only port. Ear clipping
+// produces its triangle list in a deterministic order with no container
+// whose order C++ leaves unspecified, so the lists are compared triple by
+// triple in the order produced.
+
+function readPolygon(io: OracleIO): number[] {
+    const n = io.integer();
+    const polygon: number[] = new Array<number>(n);
+    for (let i = 0; i < n; ++i) {
+        polygon[i] = io.integer();
+    }
+    return polygon;
+}
+
+function shoelaceArea(points: readonly Vector[], polygon: readonly number[]): number {
+    let twiceArea = 0;
+    const m = polygon.length;
+    for (let i = 0; i < m; ++i) {
+        const a = points[polygon[i]];
+        const b = points[polygon[(i + 1) % m]];
+        twiceArea += a.values[0] * b.values[1] - b.values[0] * a.values[1];
+    }
+    return twiceArea;
+}
+
+function triangulationIsValid(points: readonly Vector[],
+    triangles: readonly [number, number, number][], expectedTwiceArea: number): boolean {
+    let twiceArea = 0;
+    for (const t of triangles) {
+        const a = points[t[0]];
+        const b = points[t[1]];
+        const c = points[t[2]];
+        const d = (b.values[0] - a.values[0]) * (c.values[1] - a.values[1])
+            - (b.values[1] - a.values[1]) * (c.values[0] - a.values[0]);
+        if (d < 0) {
+            return false;
+        }
+        twiceArea += d;
+    }
+    return twiceArea === expectedTwiceArea;
+}
+
+function outTriangles(io: OracleIO, triangles: readonly [number, number, number][]): void {
+    io.outInt(triangles.length);
+    for (const t of triangles) {
+        io.outInt(t[0]);
+        io.outInt(t[1]);
+        io.outInt(t[2]);
+    }
 }
 
 function readMesh(io: OracleIO): { vertices: Vector[], indices: number[] } {
@@ -952,6 +1010,139 @@ describe('oracle: v08-compgeom', () => {
 
         manager.initialize();
         outOverlap(io, manager, boxes);
+    }, { exact: true });
+
+    family.case('InscribedFixedAspectRectInQuad.execute', (io) => {
+        // Upstream's std::atan2 call only picks the quadrant index of each
+        // inner edge normal; the generator keeps every normal away from the
+        // quadrant boundaries, so the index is decided by the geometry and
+        // the rest of the solve is arithmetic. Records on which upstream's
+        // alpha assertion or its untoleranced interval test fires (finding
+        // #395) are kept and compared for throw parity: the port preserves
+        // both failures.
+        io.integer();
+        const quad = readPoints(io, 4, 2);
+        const aspectRatio = io.real();
+
+        const r = InscribedFixedAspectRectInQuad.execute(quad, aspectRatio);
+        io.outBool(r.isUnique);
+        io.outVec(r.rectOrigin);
+        io.outReal(r.rectWidth);
+        io.outReal(r.rectHeight);
+
+        let referenceOk = r.rectWidth >= 0;
+        const rect: Vector[] = [
+            r.rectOrigin,
+            Vector.fromArray([r.rectOrigin.values[0] + r.rectWidth, r.rectOrigin.values[1]]),
+            Vector.fromArray([r.rectOrigin.values[0] + r.rectWidth,
+                r.rectOrigin.values[1] + r.rectHeight]),
+            Vector.fromArray([r.rectOrigin.values[0], r.rectOrigin.values[1] + r.rectHeight])
+        ];
+        let scale = 0;
+        for (let i = 0; i < 4; ++i) {
+            scale = Math.max(scale, Math.abs(quad[i].values[0]));
+            scale = Math.max(scale, Math.abs(quad[i].values[1]));
+        }
+        for (let i = 0; i < 4; ++i) {
+            const e = sub(quad[(i + 1) % 4], quad[i]);
+            for (let k = 0; k < 4; ++k) {
+                const d = sub(rect[k], quad[i]);
+                referenceOk = referenceOk
+                    && (e.values[0] * d.values[1] - e.values[1] * d.values[0]
+                        >= -1e-9 * scale * scale);
+            }
+        }
+        io.outBool(referenceOk);
+    }, { exact: true });
+
+    family.case('TriangulateEC.triangulate', (io) => {
+        io.integer();
+        const n = io.integer();
+        const points = readPoints(io, n, 2);
+
+        const triangulator = new TriangulateEC(points);
+        triangulator.triangulate();
+        outTriangles(io, triangulator.getTriangles());
+
+        const polygon: number[] = [];
+        for (let i = 0; i < points.length; ++i) {
+            polygon.push(i);
+        }
+        const referenceOk = triangulator.getTriangles().length === points.length - 2
+            && triangulationIsValid(points, triangulator.getTriangles(),
+                shoelaceArea(points, polygon));
+        io.outBool(referenceOk);
+    }, { exact: true });
+
+    family.case('TriangulateEC.triangulatePolygon', (io) => {
+        io.integer();
+        const n = io.integer();
+        const points = readPoints(io, n, 2);
+        const polygon = readPolygon(io);
+
+        const triangulator = new TriangulateEC(points);
+        triangulator.triangulatePolygon(polygon);
+        outTriangles(io, triangulator.getTriangles());
+
+        const referenceOk = triangulator.getTriangles().length === polygon.length - 2
+            && triangulationIsValid(points, triangulator.getTriangles(),
+                shoelaceArea(points, polygon));
+        io.outBool(referenceOk);
+    }, { exact: true });
+
+    family.case('TriangulateEC.triangulateWithHole', (io) => {
+        const n = io.integer();
+        const points = readPoints(io, n, 2);
+        const outer = readPolygon(io);
+        const inner = readPolygon(io);
+
+        const triangulator = new TriangulateEC(points);
+        triangulator.triangulateWithHole(outer, inner);
+        outTriangles(io, triangulator.getTriangles());
+
+        const expected = shoelaceArea(points, outer) + shoelaceArea(points, inner);
+        io.outBool(triangulationIsValid(points, triangulator.getTriangles(), expected));
+    }, { exact: true });
+
+    family.case('TriangulateEC.triangulateWithHoles', (io) => {
+        const n = io.integer();
+        const points = readPoints(io, n, 2);
+        const outer = readPolygon(io);
+        const inner0 = readPolygon(io);
+        const inner1 = readPolygon(io);
+
+        const triangulator = new TriangulateEC(points);
+        triangulator.triangulateWithHoles(outer, [inner0, inner1]);
+        outTriangles(io, triangulator.getTriangles());
+
+        const expected = shoelaceArea(points, outer) + shoelaceArea(points, inner0)
+            + shoelaceArea(points, inner1);
+        io.outBool(triangulationIsValid(points, triangulator.getTriangles(), expected));
+    }, { exact: true });
+
+    family.case('TriangulateEC.triangulateTree', (io) => {
+        const n = io.integer();
+        const points = readPoints(io, n, 2);
+        const outer = readPolygon(io);
+        const hole = readPolygon(io);
+        const innerOuter = readPolygon(io);
+
+        const root = new PolygonTree();
+        root.polygon = outer;
+        const holeNode = new PolygonTree();
+        holeNode.polygon = hole;
+        const innerNode = new PolygonTree();
+        innerNode.polygon = innerOuter;
+        holeNode.child.push(innerNode);
+        root.child.push(holeNode);
+
+        const triangulator = new TriangulateEC(points);
+        triangulator.triangulateTree(root);
+        outTriangles(io, triangulator.getTriangles());
+
+        const expected = shoelaceArea(points, outer) + shoelaceArea(points, hole)
+            + shoelaceArea(points, innerOuter);
+        io.outBool(triangulationIsValid(points, triangulator.getTriangles(), expected));
     }, { exact: true });
 
     family.finish();
