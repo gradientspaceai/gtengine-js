@@ -7,11 +7,14 @@
 // InscribedFixedAspectRectInQuad's quadrant index) are pinned by the
 // generators, so every case is declared exact.
 import { describe } from 'vitest';
+import { AlignedBox } from '../../src/AlignedBox.js';
+import { BoxManager } from '../../src/BoxManager.js';
 import { ConvexHullSimplePolygon } from '../../src/ConvexHullSimplePolygon.js';
 import { ConvexPolyhedron3 } from '../../src/ConvexPolyhedron3.js';
 import { DisjointIntervals } from '../../src/DisjointIntervals.js';
 import { DisjointRectangles } from '../../src/DisjointRectangles.js';
 import { ExtremalQuery3PRJ } from '../../src/ExtremalQuery3PRJ.js';
+import { NearestNeighborQuery, PositionSite } from '../../src/NearestNeighborQuery.js';
 import { Polyhedron3 } from '../../src/Polyhedron3.js';
 import { PrimalQuery2 } from '../../src/PrimalQuery2.js';
 import { PrimalQuery3 } from '../../src/PrimalQuery3.js';
@@ -270,6 +273,108 @@ function hullIsValid(polygon: readonly Vector[], hull: readonly number[]): boole
 }
 
 // ---- meshes shared by ConvexPolyhedron3 and the extremal queries -------
+
+// ---- NearestNeighborQuery ----------------------------------------------
+// std::nth_element leaves an implementation-defined permutation, so the
+// sorted-point array is never compared. What is compared is the tree shape,
+// the split values and, per leaf, the SORTED list of the original site
+// indices, all of which follow from the partition postconditions because the
+// generator gives every axis pairwise distinct coordinates.
+
+function outTree(io: OracleIO, query: NearestNeighborQuery, n: number): void {
+    io.outInt(query.getMaxLeafSize());
+    io.outInt(query.getMaxLevel());
+    io.outInt(query.getDepth());
+    io.outInt(query.getLargestNodeSize());
+    io.outInt(query.getNumNodes());
+
+    const sortedPoints = query.getSortedPoints();
+    io.outInt(sortedPoints.length);
+
+    for (const node of query.getNodes()) {
+        io.outReal(node.split);
+        io.outInt(node.axis);
+        io.outInt(node.numSites);
+        io.outInt(node.siteOffset);
+        io.outInt(node.left);
+        io.outInt(node.right);
+        if (node.siteOffset !== -1) {
+            const leaf: number[] = [];
+            for (let k = 0; k < node.numSites; ++k) {
+                leaf.push(sortedPoints[node.siteOffset + k].index);
+            }
+            leaf.sort((a, b) => a - b);
+            for (const v of leaf) {
+                io.outInt(v);
+            }
+        }
+    }
+    io.outInt(n);
+}
+
+function readSites(io: OracleIO, n: number): { points: Vector[], sites: PositionSite[] } {
+    const points = readPoints(io, n, 3);
+    return { points, sites: points.map((p) => new PositionSite(p)) };
+}
+
+// ---- BoxManager --------------------------------------------------------
+// The overlap container is a std::set<EdgeKey<false>> upstream; the port's
+// getOverlap() returns its keys sorted lexicographically by (V[0], V[1]),
+// which is the std::set iteration order, so the two lists are directly
+// comparable.
+
+function readBox(io: OracleIO): AlignedBox {
+    const min = new Vector(3);
+    const max = new Vector(3);
+    for (let d = 0; d < 3; ++d) {
+        const a = io.real();
+        const b = io.real();
+        min.values[d] = Math.min(a, b);
+        max.values[d] = Math.max(a, b);
+    }
+    return AlignedBox.fromMinMax(min, max);
+}
+
+function boxesOverlap(b0: AlignedBox, b1: AlignedBox): boolean {
+    for (let d = 0; d < 3; ++d) {
+        if (b0.max.values[d] < b1.min.values[d] || b0.min.values[d] > b1.max.values[d]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function outOverlap(io: OracleIO, manager: BoxManager, boxes: readonly AlignedBox[]): void {
+    const overlap = manager.getOverlap();
+    io.outInt(overlap.length);
+    for (const key of overlap) {
+        io.outInt(key.V[0]);
+        io.outInt(key.V[1]);
+    }
+
+    const expected = new Set<string>();
+    for (let i = 0; i < boxes.length; ++i) {
+        for (let j = i + 1; j < boxes.length; ++j) {
+            if (boxesOverlap(boxes[i], boxes[j])) {
+                expected.add(`${i},${j}`);
+            }
+        }
+    }
+    const reported = new Set<string>();
+    for (const key of overlap) {
+        reported.add(`${key.V[0]},${key.V[1]}`);
+    }
+    let same = reported.size === expected.size;
+    if (same) {
+        for (const k of reported) {
+            if (!expected.has(k)) {
+                same = false;
+                break;
+            }
+        }
+    }
+    io.outBool(same);
+}
 
 function readMesh(io: OracleIO): { vertices: Vector[], indices: number[] } {
     const numVertices = io.integer();
@@ -709,6 +814,144 @@ describe('oracle: v08-compgeom', () => {
             const dNeg = dot(direction, mesh.vertices[r.negativeDirection]);
             io.outBool(dPos === best && dNeg === worst);
         }
+    }, { exact: true });
+
+    family.case('NearestNeighborQuery.build', (io) => {
+        const n = io.integer();
+        const maxLeafSize = io.integer();
+        const maxLevel = io.integer();
+        const { sites } = readSites(io, n);
+        const query = new NearestNeighborQuery(sites, maxLeafSize, maxLevel);
+        outTree(io, query, n);
+    }, { exact: true });
+
+    family.case('NearestNeighborQuery.build.tiedCoordinates', (io) => {
+        const n = io.integer();
+        const maxLeafSize = io.integer();
+        const maxLevel = io.integer();
+        const { sites } = readSites(io, n);
+        const query = new NearestNeighborQuery(sites, maxLeafSize, maxLevel);
+        // Tied split coordinates: std::nth_element's placement of elements
+        // equal to the median is unspecified, so the leaf memberships and
+        // every split value below the root differ between the two builds.
+        // Only what the site counts determine is compared here.
+        io.outInt(query.getDepth());
+        io.outInt(query.getLargestNodeSize());
+        io.outInt(query.getNumNodes());
+        io.outReal(query.getNodes()[0].split);
+
+        for (const node of query.getNodes()) {
+            io.outInt(node.axis);
+            io.outInt(node.numSites);
+            io.outInt(node.siteOffset);
+            io.outInt(node.left);
+            io.outInt(node.right);
+        }
+    }, { exact: true });
+
+    family.case('NearestNeighborQuery.build.maxLevelAssert', (io) => {
+        const n = io.integer();
+        const maxLeafSize = io.integer();
+        const maxLevel = io.integer();
+        const { sites } = readSites(io, n);
+        const query = new NearestNeighborQuery(sites, maxLeafSize, maxLevel);
+        outTree(io, query, n);
+    }, { exact: true });
+
+    family.case('NearestNeighborQuery.findNeighbors.all', (io) => {
+        const n = io.integer();
+        const maxLeafSize = io.integer();
+        const maxLevel = io.integer();
+        const { points, sites } = readSites(io, n);
+        const query = new NearestNeighborQuery(sites, maxLeafSize, maxLevel);
+        outTree(io, query, n);
+
+        for (let q = 0; q < 4; ++q) {
+            const point = io.vec(3);
+            const radius = io.real();
+            const neighbors = query.findNeighbors(point, radius, 12);
+            io.outInt(neighbors.length);
+            for (const k of neighbors) {
+                io.outInt(k);
+            }
+
+            let expected = 0;
+            for (let i = 0; i < n; ++i) {
+                const diff = sub(points[i], point);
+                if (dot(diff, diff) <= radius * radius) {
+                    ++expected;
+                }
+            }
+            io.outBool(neighbors.length === expected);
+        }
+    }, { exact: true });
+
+    family.case('NearestNeighborQuery.findNeighbors.limited', (io) => {
+        const n = io.integer();
+        const maxLeafSize = io.integer();
+        const maxLevel = io.integer();
+        const maxNeighbors = io.integer();
+        const { points, sites } = readSites(io, n);
+        const query = new NearestNeighborQuery(sites, maxLeafSize, maxLevel);
+
+        for (let q = 0; q < 3; ++q) {
+            const usedPoint = io.vec(3);
+            const usedRadius = io.real();
+            const neighbors = query.findNeighbors(usedPoint, usedRadius, maxNeighbors);
+            io.outInt(neighbors.length);
+            for (const k of neighbors) {
+                io.outInt(k);
+            }
+
+            const all: { d2: number, i: number }[] = [];
+            for (let i = 0; i < n; ++i) {
+                const diff = sub(points[i], usedPoint);
+                const d2 = dot(diff, diff);
+                if (d2 <= usedRadius * usedRadius) {
+                    all.push({ d2, i });
+                }
+            }
+            all.sort((a, b) => (a.d2 !== b.d2 ? a.d2 - b.d2 : a.i - b.i));
+            const expected = Math.min(all.length, maxNeighbors);
+            let referenceOk = neighbors.length === expected;
+            if (referenceOk) {
+                const got = neighbors.slice().sort((a, b) => a - b);
+                const want = all.slice(0, expected).map((e) => e.i).sort((a, b) => a - b);
+                referenceOk = got.every((v, i) => v === want[i]);
+            }
+            io.outBool(referenceOk);
+        }
+    }, { exact: true });
+
+    family.case('BoxManager.initializeAndUpdate', (io) => {
+        const n = io.integer();
+        const boxes: AlignedBox[] = [];
+        for (let i = 0; i < n; ++i) {
+            boxes.push(readBox(io));
+        }
+
+        const manager = new BoxManager(boxes);
+        outOverlap(io, manager, boxes);
+
+        const numRounds = io.integer();
+        for (let round = 0; round < numRounds; ++round) {
+            const numMoves = io.integer();
+            for (let m = 0; m < numMoves; ++m) {
+                const index = io.integer();
+                const box = readBox(io);
+                manager.setBox(index, box);
+            }
+            manager.update();
+            outOverlap(io, manager, boxes);
+
+            const probe = io.integer();
+            const got = manager.getBox(probe);
+            io.outVec(got.min);
+            io.outVec(got.max);
+        }
+
+        manager.initialize();
+        outOverlap(io, manager, boxes);
     }, { exact: true });
 
     family.finish();

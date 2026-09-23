@@ -46,6 +46,8 @@
 #include <Mathematics/PrimalQuery2.h>
 #include <Mathematics/PrimalQuery3.h>
 #include <Mathematics/ExtremalQuery3PRJ.h>
+#include <Mathematics/NearestNeighborQuery.h>
+#include <Mathematics/BoxManager.h>
 
 #include <algorithm>
 #include <array>
@@ -1592,4 +1594,466 @@ ORACLE_CASE("ExtremalQuery3PRJ.getExtremeVertices")
         double dNeg = Dot(direction, vertices[static_cast<size_t>(negativeDirection)]);
         io.outBool(dPos == best && dNeg == worst);
     }
+}
+
+namespace
+{
+    // ---- NearestNeighborQuery -------------------------------------------
+    //
+    // std::nth_element only guarantees the partition postconditions, not a
+    // particular permutation, and the port replaces it with its own
+    // quickselect. The permutation is therefore not comparable and is never
+    // emitted; what is emitted is the tree shape, the split values and, for
+    // every leaf, the SORTED list of the original site indices it holds.
+    // Those are all determined by the postconditions as long as the
+    // coordinates along each split axis are pairwise distinct, which the
+    // generator guarantees by drawing a permutation of distinct integers for
+    // each axis.
+
+    using Site3 = PositionSite<3, double>;
+    using NNQuery3 = NearestNeighborQuery<3, double, Site3>;
+
+    // n sites whose coordinates along each axis are pairwise distinct.
+    std::vector<Vector3<double>> MakeDistinctSites(oracle::Ctx& io, int32_t n)
+    {
+        std::vector<Vector3<double>> points(static_cast<size_t>(n));
+        for (int32_t d = 0; d < 3; ++d)
+        {
+            std::vector<int32_t> values(static_cast<size_t>(n));
+            for (int32_t i = 0; i < n; ++i)
+            {
+                values[static_cast<size_t>(i)] = i;
+            }
+            // Fisher-Yates with the oracle's own generator (std::shuffle with
+            // a standard engine would not be reproducible across libraries,
+            // but nothing here is recorded: only the final coordinates are).
+            for (int32_t i = n - 1; i > 0; --i)
+            {
+                int32_t j = io.rawInteger(0, i);
+                std::swap(values[static_cast<size_t>(i)], values[static_cast<size_t>(j)]);
+            }
+            double offset = static_cast<double>(io.rawInteger(-4, 4));
+            for (int32_t i = 0; i < n; ++i)
+            {
+                points[static_cast<size_t>(i)][d] =
+                    offset + static_cast<double>(values[static_cast<size_t>(i)]);
+            }
+        }
+        return points;
+    }
+
+    // n sites drawn on a coarse lattice, so that coordinates repeat along
+    // every axis.
+    std::vector<Vector3<double>> MakeTiedSites(oracle::Ctx& io, int32_t n)
+    {
+        std::vector<Vector3<double>> points(static_cast<size_t>(n));
+        for (int32_t i = 0; i < n; ++i)
+        {
+            for (int32_t d = 0; d < 3; ++d)
+            {
+                points[static_cast<size_t>(i)][d] =
+                    static_cast<double>(io.rawInteger(-2, 2));
+            }
+        }
+        return points;
+    }
+
+    void OutTree(oracle::Ctx& io, NNQuery3 const& query, int32_t n)
+    {
+        io.outInt(query.GetMaxLeafSize());
+        io.outInt(query.GetMaxLevel());
+        io.outInt(query.GetDepth());
+        io.outInt(query.GetLargestNodeSize());
+        io.outInt(query.GetNumNodes());
+
+        auto const& sortedPoints = query.GetSortedPoints();
+        io.outInt(static_cast<int32_t>(sortedPoints.size()));
+
+        for (auto const& node : query.GetNodes())
+        {
+            io.outReal(node.split);
+            io.outInt(node.axis);
+            io.outInt(node.numSites);
+            io.outInt(node.siteOffset);
+            io.outInt(node.left);
+            io.outInt(node.right);
+            if (node.siteOffset != -1)
+            {
+                // Canonicalize: the site indices of a leaf, sorted. The order
+                // inside the leaf is whatever std::nth_element left there and
+                // is not comparable.
+                std::vector<int32_t> leaf{};
+                for (int32_t k = 0; k < node.numSites; ++k)
+                {
+                    leaf.push_back(sortedPoints[static_cast<size_t>(node.siteOffset + k)].second);
+                }
+                std::sort(leaf.begin(), leaf.end());
+                for (int32_t v : leaf)
+                {
+                    io.outInt(v);
+                }
+            }
+        }
+        io.outInt(n);
+    }
+}
+
+ORACLE_CASE("NearestNeighborQuery.build")
+{
+    int32_t n = io.integer(1, 12);
+    int32_t maxLeafSize = io.integer(1, 4);
+    int32_t maxLevel = io.integer(1, 5);
+    std::vector<Vector3<double>> points = MakeDistinctSites(io, n);
+    std::vector<Site3> sites{};
+    for (int32_t i = 0; i < n; ++i)
+    {
+        sites.push_back(Site3(io.givenVec(points[static_cast<size_t>(i)])));
+    }
+
+    NNQuery3 query(sites, maxLeafSize, maxLevel);
+    OutTree(io, query, n);
+}
+
+ORACLE_CASE("NearestNeighborQuery.build.tiedCoordinates")
+{
+    // Coordinates repeat along every axis, so the median value is attained by
+    // several sites and which of them std::nth_element leaves on each side of
+    // the median is unspecified. Measured: emitting the leaf contents makes
+    // 11 of 20 records disagree, and so does the split value of any internal
+    // node below the root, because that node's subrange holds a different
+    // multiset. Only what follows from the site counts alone is emitted here:
+    // the depth, the largest leaf size, the node count, the node ranges and
+    // the root split (an order statistic over the whole array, hence
+    // determined by value). See the report's "Not covered" section.
+    int32_t n = io.integer(4, 12);
+    int32_t maxLeafSize = io.integer(1, 3);
+    int32_t maxLevel = io.integer(1, 5);
+    std::vector<Vector3<double>> points = MakeTiedSites(io, n);
+    std::vector<Site3> sites{};
+    for (int32_t i = 0; i < n; ++i)
+    {
+        sites.push_back(Site3(io.givenVec(points[static_cast<size_t>(i)])));
+    }
+
+    NNQuery3 query(sites, maxLeafSize, maxLevel);
+    io.outInt(query.GetDepth());
+    io.outInt(query.GetLargestNodeSize());
+    io.outInt(query.GetNumNodes());
+    io.outReal(query.GetNodes()[0].split);
+
+    for (auto const& node : query.GetNodes())
+    {
+        io.outInt(node.axis);
+        io.outInt(node.numSites);
+        io.outInt(node.siteOffset);
+        io.outInt(node.left);
+        io.outInt(node.right);
+    }
+}
+
+ORACLE_CASE("NearestNeighborQuery.build.maxLevelAssert")
+{
+    // Throw-parity case: the constructor asserts 0 < maxLevel <= 32. The
+    // sampled values straddle both ends of the valid range.
+    int32_t const levels[6] = { -1, 0, 1, 5, 32, 33 };
+    int32_t n = io.integer(1, 6);
+    int32_t maxLeafSize = io.integer(1, 3);
+    int32_t chosen = levels[io.rawInteger(0, 5)];
+    int32_t maxLevel = io.integer(chosen, chosen);
+    std::vector<Vector3<double>> points = MakeDistinctSites(io, n);
+    std::vector<Site3> sites{};
+    for (int32_t i = 0; i < n; ++i)
+    {
+        sites.push_back(Site3(io.givenVec(points[static_cast<size_t>(i)])));
+    }
+
+    NNQuery3 query(sites, maxLeafSize, maxLevel);
+    OutTree(io, query, n);
+}
+
+ORACLE_CASE("NearestNeighborQuery.findNeighbors.all")
+{
+    // maxNeighbors is at least the number of sites, so every site inside the
+    // radius is retained and the result does not depend on the order in
+    // which the leaves were visited. Distance ties are therefore allowed and
+    // are the point of this case: the heap pops them in decreasing site
+    // index order.
+    int32_t n = io.integer(1, 12);
+    int32_t maxLeafSize = io.integer(1, 4);
+    int32_t maxLevel = io.integer(1, 5);
+    std::vector<Vector3<double>> points = MakeDistinctSites(io, n);
+    std::vector<Site3> sites{};
+    for (int32_t i = 0; i < n; ++i)
+    {
+        sites.push_back(Site3(io.givenVec(points[static_cast<size_t>(i)])));
+    }
+
+    NNQuery3 query(sites, maxLeafSize, maxLevel);
+    OutTree(io, query, n);
+
+    for (int32_t q = 0; q < 4; ++q)
+    {
+        Vector3<double> point = io.latticeVec<3>(-6, 6);
+        double radius = io.lattice(0, 8);
+        std::array<int32_t, 12> neighbors{};
+        int32_t numNeighbors = query.FindNeighbors<12>(point, radius, neighbors);
+        io.outInt(numNeighbors);
+        for (int32_t k = 0; k < numNeighbors; ++k)
+        {
+            io.outInt(neighbors[static_cast<size_t>(k)]);
+        }
+
+        // Reference check: brute force over all sites.
+        int32_t expected = 0;
+        for (int32_t i = 0; i < n; ++i)
+        {
+            Vector3<double> diff = points[static_cast<size_t>(i)] - point;
+            if (Dot(diff, diff) <= radius * radius)
+            {
+                ++expected;
+            }
+        }
+        io.outBool(numNeighbors == expected);
+    }
+}
+
+ORACLE_CASE("NearestNeighborQuery.findNeighbors.limited")
+{
+    // maxNeighbors is smaller than the number of sites. The retained set then
+    // depends on the visiting order whenever two candidates are equidistant
+    // from the query point (upstream replaces only on a strict improvement),
+    // and the visiting order depends on the std::nth_element permutation,
+    // which is not comparable. The generator therefore rejects query points
+    // with equidistant sites; it is capped and falls back to a point with the
+    // fewest ties seen.
+    int32_t n = io.integer(6, 12);
+    int32_t maxLeafSize = io.integer(1, 3);
+    int32_t maxLevel = io.integer(1, 5);
+    int32_t maxNeighbors = io.integer(1, 4);
+    std::vector<Vector3<double>> points = MakeDistinctSites(io, n);
+    std::vector<Site3> sites{};
+    for (int32_t i = 0; i < n; ++i)
+    {
+        sites.push_back(Site3(io.givenVec(points[static_cast<size_t>(i)])));
+    }
+
+    NNQuery3 query(sites, maxLeafSize, maxLevel);
+
+    for (int32_t q = 0; q < 3; ++q)
+    {
+        Vector3<double> point{ 0.0, 0.0, 0.0 };
+        Vector3<double> best{ 0.0, 0.0, 0.0 };
+        int32_t bestTies = -1;
+        double radius = 0.0, bestRadius = 0.0;
+        for (int32_t attempt = 0; attempt < 32; ++attempt)
+        {
+            for (int32_t d = 0; d < 3; ++d)
+            {
+                point[d] = 0.5 * static_cast<double>(io.rawInteger(-12, 12));
+            }
+            radius = static_cast<double>(io.rawInteger(1, 8));
+            std::vector<double> sqr{};
+            for (int32_t i = 0; i < n; ++i)
+            {
+                Vector3<double> diff = points[static_cast<size_t>(i)] - point;
+                double d2 = Dot(diff, diff);
+                if (d2 <= radius * radius)
+                {
+                    sqr.push_back(d2);
+                }
+            }
+            std::sort(sqr.begin(), sqr.end());
+            int32_t ties = 0;
+            for (size_t k = 0; k + 1 < sqr.size(); ++k)
+            {
+                if (sqr[k] == sqr[k + 1])
+                {
+                    ++ties;
+                }
+            }
+            if (bestTies < 0 || ties < bestTies)
+            {
+                bestTies = ties;
+                best = point;
+                bestRadius = radius;
+            }
+            if (ties == 0)
+            {
+                break;
+            }
+        }
+        Vector3<double> usedPoint = io.givenVec(best);
+        double usedRadius = io.given(bestRadius);
+
+        std::array<int32_t, 4> neighbors{};
+        int32_t numNeighbors = 0;
+        if (maxNeighbors == 1)
+        {
+            std::array<int32_t, 1> nb{};
+            numNeighbors = query.FindNeighbors<1>(usedPoint, usedRadius, nb);
+            for (int32_t k = 0; k < numNeighbors; ++k) { neighbors[static_cast<size_t>(k)] = nb[static_cast<size_t>(k)]; }
+        }
+        else if (maxNeighbors == 2)
+        {
+            std::array<int32_t, 2> nb{};
+            numNeighbors = query.FindNeighbors<2>(usedPoint, usedRadius, nb);
+            for (int32_t k = 0; k < numNeighbors; ++k) { neighbors[static_cast<size_t>(k)] = nb[static_cast<size_t>(k)]; }
+        }
+        else if (maxNeighbors == 3)
+        {
+            std::array<int32_t, 3> nb{};
+            numNeighbors = query.FindNeighbors<3>(usedPoint, usedRadius, nb);
+            for (int32_t k = 0; k < numNeighbors; ++k) { neighbors[static_cast<size_t>(k)] = nb[static_cast<size_t>(k)]; }
+        }
+        else
+        {
+            std::array<int32_t, 4> nb{};
+            numNeighbors = query.FindNeighbors<4>(usedPoint, usedRadius, nb);
+            for (int32_t k = 0; k < numNeighbors; ++k) { neighbors[static_cast<size_t>(k)] = nb[static_cast<size_t>(k)]; }
+        }
+
+        io.outInt(numNeighbors);
+        for (int32_t k = 0; k < numNeighbors; ++k)
+        {
+            io.outInt(neighbors[static_cast<size_t>(k)]);
+        }
+
+        // Reference check: the returned indices must be the maxNeighbors
+        // closest sites within the radius, computed by brute force.
+        std::vector<std::pair<double, int32_t>> all{};
+        for (int32_t i = 0; i < n; ++i)
+        {
+            Vector3<double> diff = points[static_cast<size_t>(i)] - usedPoint;
+            double d2 = Dot(diff, diff);
+            if (d2 <= usedRadius * usedRadius)
+            {
+                all.push_back({ d2, i });
+            }
+        }
+        std::sort(all.begin(), all.end());
+        int32_t expected = std::min(static_cast<int32_t>(all.size()), maxNeighbors);
+        bool referenceOk = (numNeighbors == expected);
+        if (referenceOk)
+        {
+            std::vector<int32_t> got(neighbors.begin(), neighbors.begin() + numNeighbors);
+            std::sort(got.begin(), got.end());
+            std::vector<int32_t> want{};
+            for (int32_t k = 0; k < expected; ++k)
+            {
+                want.push_back(all[static_cast<size_t>(k)].second);
+            }
+            std::sort(want.begin(), want.end());
+            referenceOk = (got == want);
+        }
+        io.outBool(referenceOk);
+    }
+}
+
+namespace
+{
+    // ---- BoxManager -----------------------------------------------------
+    //
+    // The overlap container is a std::set<EdgeKey<false>>, so its iteration
+    // order is already the lexicographic order of (V[0], V[1]); the port
+    // sorts its Map values the same way and the case comment in the replay
+    // says so. Initialize sorts the endpoints with std::sort on a comparator
+    // that ties on (value, type); MSVC's std::sort is an insertion sort,
+    // hence stable, for at most 32 elements, and Array.prototype.sort is
+    // stable, so for at most 16 boxes the two builds produce the same
+    // endpoint order. Larger inputs would not be comparable.
+
+    AlignedBox3<double> DrawBox(oracle::Ctx& io)
+    {
+        AlignedBox3<double> box{};
+        for (int32_t d = 0; d < 3; ++d)
+        {
+            double a = io.lattice(-4, 4);
+            double b = io.lattice(-4, 4);
+            box.min[d] = std::min(a, b);
+            box.max[d] = std::max(a, b);
+        }
+        return box;
+    }
+
+    bool BoxesOverlap(AlignedBox3<double> const& b0, AlignedBox3<double> const& b1)
+    {
+        for (int32_t d = 0; d < 3; ++d)
+        {
+            if (b0.max[d] < b1.min[d] || b0.min[d] > b1.max[d])
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    void OutOverlap(oracle::Ctx& io, BoxManager<double> const& manager,
+        std::vector<AlignedBox3<double>> const& boxes)
+    {
+        auto const& overlap = manager.GetOverlap();
+        io.outInt(static_cast<int32_t>(overlap.size()));
+        for (auto const& key : overlap)
+        {
+            io.outInt(key.V[0]);
+            io.outInt(key.V[1]);
+        }
+
+        // Reference check: brute force over all pairs.
+        std::set<std::pair<int32_t, int32_t>> expected{};
+        int32_t const n = static_cast<int32_t>(boxes.size());
+        for (int32_t i = 0; i < n; ++i)
+        {
+            for (int32_t j = i + 1; j < n; ++j)
+            {
+                if (BoxesOverlap(boxes[static_cast<size_t>(i)], boxes[static_cast<size_t>(j)]))
+                {
+                    expected.insert({ i, j });
+                }
+            }
+        }
+        std::set<std::pair<int32_t, int32_t>> reported{};
+        for (auto const& key : overlap)
+        {
+            reported.insert({ key.V[0], key.V[1] });
+        }
+        io.outBool(reported == expected);
+    }
+}
+
+ORACLE_CASE("BoxManager.initializeAndUpdate")
+{
+    int32_t n = io.integer(2, 8);
+    std::vector<AlignedBox3<double>> boxes(static_cast<size_t>(n));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        boxes[static_cast<size_t>(i)] = DrawBox(io);
+    }
+
+    BoxManager<double> manager(boxes);
+    OutOverlap(io, manager, boxes);
+
+    int32_t numRounds = io.integer(1, 3);
+    for (int32_t round = 0; round < numRounds; ++round)
+    {
+        int32_t numMoves = io.integer(1, 3);
+        for (int32_t m = 0; m < numMoves; ++m)
+        {
+            int32_t index = io.integer(0, n - 1);
+            AlignedBox3<double> box = DrawBox(io);
+            manager.SetBox(index, box);
+        }
+        manager.Update();
+        OutOverlap(io, manager, boxes);
+
+        int32_t probe = io.integer(0, n - 1);
+        AlignedBox3<double> got{};
+        manager.GetBox(probe, got);
+        io.outVec(got.min);
+        io.outVec(got.max);
+    }
+
+    // A full re-initialization from the moved boxes must agree with the
+    // incrementally maintained set.
+    manager.Initialize();
+    OutOverlap(io, manager, boxes);
 }
