@@ -3165,3 +3165,204 @@ ORACLE_CASE("MinimumVolumeBox3FloatingPoint.compute.nonContaining")
     io.outBool(ContainmentViolation(box, best) <= 1e-9 * PointScale(best));
     });
 }
+
+
+namespace
+{
+    // The rational pipeline. Its arithmetic is exact, so the minimum over the
+    // sampled candidates is a well-defined number and does not depend on the
+    // enumeration order; WHICH candidate attains it still does, so the same
+    // invariant output form and the same order-stability probe are used. The
+    // rational query is much slower, so lgMaxSample stays at 2, the clouds
+    // stay tiny and the probe uses two alternative orders instead of all of
+    // them.
+    bool RationalCloudOrderStable(std::vector<Vector3<double>> const& points,
+        int32_t lgMaxSample)
+    {
+        std::vector<std::vector<Vector3<double>>> orders{};
+        orders.push_back(points);
+        orders.push_back(std::vector<Vector3<double>>(points.rbegin(), points.rend()));
+        std::vector<Vector3<double>> rotated{};
+        for (std::size_t i = 0; i < points.size(); ++i)
+        {
+            rotated.push_back(points[(i + 1) % points.size()]);
+        }
+        orders.push_back(rotated);
+
+        std::array<double, 13> reference{};
+        for (std::size_t k = 0; k < orders.size(); ++k)
+        {
+            OrientedBox3<double> box{};
+            double volume = 0.0;
+            std::size_t dimension = 0;
+            try
+            {
+                MVB3R query(0);
+                dimension = query(orders[k], static_cast<std::size_t>(lgMaxSample),
+                    box, volume);
+            }
+            catch (std::exception const&)
+            {
+                return false;
+            }
+            if (dimension != 3)
+            {
+                return false;
+            }
+            std::array<double, 13> invariants = BoxInvariants(box, volume);
+            if (k == 0)
+            {
+                reference = invariants;
+            }
+            else if (!InvariantsAgree(reference, invariants, 0.0))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+}
+
+ORACLE_CASE("MinimumVolumeBox3Rational.compute")
+{
+    RunWithBigStack([&io]() {
+    int32_t mode = io.integer(0, 2);
+    int32_t lgMaxSample = io.integer(2, 2);
+    int32_t n = io.integer(5, 7);
+
+    std::vector<Vector3<double>> best{};
+    for (int32_t attempt = 0; attempt < 8 && best.empty(); ++attempt)
+    {
+        std::vector<Vector3<double>> points = DrawCloud(io, mode, n);
+        if (RationalCloudOrderStable(points, lgMaxSample))
+        {
+            best = points;
+        }
+    }
+    if (best.empty())
+    {
+        best = { Vector3<double>{ 0.0, 0.0, 0.0 }, Vector3<double>{ 4.0, 0.0, 0.0 },
+            Vector3<double>{ 0.0, 3.0, 0.0 }, Vector3<double>{ 0.0, 0.0, 2.0 },
+            Vector3<double>{ 1.0, 1.0, 1.0 } };
+    }
+    GiveCloud(io, best);
+
+    OrientedBox3<double> box{};
+    double volume = 0.0;
+    MVB3R query(0);
+    std::size_t dimension = query(best, static_cast<std::size_t>(lgMaxSample), box, volume);
+    OutBox(io, dimension, box, volume);
+
+    double scale = PointScale(best);
+    io.outBool(ContainmentViolation(box, best) <= 1e-9 * scale);
+    });
+}
+
+ORACLE_CASE("MinimumVolumeBox3Rational.compute.lowDimension")
+{
+    RunWithBigStack([&io]() {
+    int32_t dimensionWanted = io.integer(0, 1);
+    int32_t lgMaxSample = io.integer(2, 2);
+    int32_t n = io.integer(4, 6);
+
+    std::vector<Vector3<double>> points{};
+    Vector3<double> origin{ 0.0, 0.0, 0.0 }, dir{ 0.0, 0.0, 0.0 };
+    for (int32_t d = 0; d < 3; ++d)
+    {
+        origin[d] = static_cast<double>(io.rawInteger(-4, 4));
+    }
+    if (dimensionWanted == 0)
+    {
+        for (int32_t i = 0; i < n; ++i)
+        {
+            points.push_back(origin);
+        }
+    }
+    else
+    {
+        do
+        {
+            for (int32_t d = 0; d < 3; ++d)
+            {
+                dir[d] = static_cast<double>(io.rawInteger(-3, 3));
+            }
+        }
+        while (dir[0] == 0.0 && dir[1] == 0.0 && dir[2] == 0.0);
+        for (int32_t i = 0; i < n; ++i)
+        {
+            double t = static_cast<double>(io.rawInteger(-4, 4));
+            points.push_back(origin + t * dir);
+        }
+    }
+    GiveCloud(io, points);
+
+    OrientedBox3<double> box{};
+    double volume = 0.0;
+    MVB3R query(0);
+    std::size_t dimension = query(points, static_cast<std::size_t>(lgMaxSample), box, volume);
+    OutBox(io, dimension, box, volume);
+    });
+}
+
+ORACLE_CASE("MinimumVolumeBox3Rational.computeHull")
+{
+    RunWithBigStack([&io]() {
+    int32_t shape = io.integer(0, 2);
+    int32_t lgMaxSample = io.integer(2, 2);
+    std::vector<Vector3<double>> vertices{};
+    std::vector<int32_t> indices{};
+    MakePolytope(io, shape, vertices, indices);
+    GiveMesh(io, vertices, indices);
+
+    // The order-stability probe, recorded as an input so that the replay
+    // takes the same branch. See the floating-point sibling.
+    OrientedBox3<double> box{};
+    double volume = 0.0;
+    MVB3R query(0);
+    query(vertices, indices, static_cast<std::size_t>(lgMaxSample), box, volume);
+
+    OrientedBox3<double> boxReversed{};
+    double volumeReversed = 0.0;
+    std::vector<int32_t> reversed{};
+    for (size_t t = indices.size() / 3; t > 0; --t)
+    {
+        reversed.push_back(indices[3 * (t - 1) + 0]);
+        reversed.push_back(indices[3 * (t - 1) + 1]);
+        reversed.push_back(indices[3 * (t - 1) + 2]);
+    }
+    MVB3R queryReversed(0);
+    queryReversed(vertices, reversed, static_cast<std::size_t>(lgMaxSample),
+        boxReversed, volumeReversed);
+
+    double scale = PointScale(vertices);
+    bool stable = InvariantsAgree(BoxInvariants(box, volume),
+        BoxInvariants(boxReversed, volumeReversed), 0.0);
+    bool contains = (ContainmentViolation(box, vertices) <= 1e-9 * scale);
+    int32_t usable = ((stable && contains) ? 1 : 0);
+    io.integer(usable, usable);
+    if (usable != 0)
+    {
+        OutBox(io, 3, box, volume);
+        io.outBool(contains);
+    }
+    });
+}
+
+ORACLE_CASE("MinimumVolumeBox3Rational.compute.coplanar")
+{
+    RunWithBigStack([&io]() {
+    // Deviation: the same dimension-2 Newell wrap-around omission as the
+    // floating-point sibling, in the rational file (finding #355).
+    int32_t subMode = io.integer(0, 1);
+    int32_t lgMaxSample = io.integer(2, 2);
+    int32_t n = io.integer(4, 7);
+    std::vector<Vector3<double>> points = DrawCoplanarCloud(io, subMode, n);
+    GiveCloud(io, points);
+
+    OrientedBox3<double> box{};
+    double volume = 0.0;
+    MVB3R query(0);
+    std::size_t dimension = query(points, static_cast<std::size_t>(lgMaxSample), box, volume);
+    OutBox(io, dimension, box, volume);
+    });
+}

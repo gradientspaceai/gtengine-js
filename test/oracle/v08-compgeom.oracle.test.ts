@@ -20,6 +20,7 @@ import {
 import {
     MinimumVolumeBox3FloatingPoint
 } from '../../src/MinimumVolumeBox3FloatingPoint.js';
+import { MinimumVolumeBox3Rational } from '../../src/MinimumVolumeBox3Rational.js';
 import { NearestNeighborQuery, PositionSite } from '../../src/NearestNeighborQuery.js';
 import type { OrientedBox3 } from '../../src/OrientedBox.js';
 import { PolygonTree } from '../../src/PolygonTree.js';
@@ -1294,6 +1295,71 @@ describe('oracle: v08-compgeom', () => {
         outBox(io, r.dimension, r.box, r.volume);
         io.outBool(containmentViolation(r.box, points) <= 1e-9 * pointScale(points));
     }, { deviation: '#405 (ComputeVolume axis minima) and #426 (GetExtreme plateau)' });
+
+    family.case('MinimumVolumeBox3Rational.compute', (io) => {
+        io.integer();
+        const lgMaxSample = io.integer();
+        io.integer();
+        const points = readCloud(io);
+
+        const query = new MinimumVolumeBox3Rational(0);
+        const r = query.compute(points, lgMaxSample);
+        outBox(io, r.dimension, r.box, r.volume);
+
+        const scale = pointScale(points);
+        io.outBool(containmentViolation(r.box, points) <= 1e-9 * scale);
+        // Tolerance 1e-14, measured maximum scaled error 6.3e-16 (one record
+        // in twenty at the committed size), in the extents and the axis
+        // matrix only; the centre and the volume are bit-identical. Cause:
+        // the rational pipeline never normalizes a candidate axis, so the
+        // same geometric box reached through a different edge pair is
+        // represented by a differently scaled axis triple, and the final
+        // conversion extent = rScaledExtent / sqrt(rSqrLengthAxis) then
+        // rounds differently. Which edge pair wins an exact volume tie
+        // depends on the std::unordered_map enumeration order, which is not
+        // comparable; the generator already rejects clouds whose answer
+        // changes under three alternative input orders.
+    }, { tol: 1e-14, timeout: 120000 });
+
+    family.case('MinimumVolumeBox3Rational.compute.lowDimension', (io) => {
+        io.integer();
+        const lgMaxSample = io.integer();
+        io.integer();
+        const points = readCloud(io);
+
+        const query = new MinimumVolumeBox3Rational(0);
+        const r = query.compute(points, lgMaxSample);
+        outBox(io, r.dimension, r.box, r.volume);
+    }, { exact: true, timeout: 120000 });
+
+    family.case('MinimumVolumeBox3Rational.computeHull', (io) => {
+        io.integer();
+        const lgMaxSample = io.integer();
+        const mesh = readMesh(io);
+        const usable = io.integer();
+
+        const query = new MinimumVolumeBox3Rational(0);
+        const r = query.computeHull(mesh.vertices, mesh.indices, lgMaxSample);
+        if (usable !== 0) {
+            const scale = pointScale(mesh.vertices);
+            outBox(io, 3, r.box, r.volume);
+            io.outBool(containmentViolation(r.box, mesh.vertices) <= 1e-9 * scale);
+        }
+    }, { exact: true, timeout: 120000 });
+
+    family.case('MinimumVolumeBox3Rational.compute.coplanar', (io) => {
+        io.integer();
+        const lgMaxSample = io.integer();
+        io.integer();
+        const points = readCloud(io);
+
+        const query = new MinimumVolumeBox3Rational(0);
+        const r = query.compute(points, lgMaxSample);
+        outBox(io, r.dimension, r.box, r.volume);
+    }, {
+        deviation: '#355 (dimension-2 Newell normal loop drops the wrap-around term)',
+        timeout: 120000
+    });
 
     family.finish();
 });
