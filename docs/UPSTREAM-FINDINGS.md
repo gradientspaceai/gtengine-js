@@ -71,15 +71,15 @@ Nothing here has been reported upstream before; this document is the report.
 
 ## Counts
 
-- **503 distinct findings** across **165** tracked issues (one issue
+- **505 distinct findings** across **165** tracked issues (one issue
   frequently holds several findings in related files).
 - By severity: **248 result-corrupting**, **15 wrong but
-  recoverable**, **167 minor**, **73 documentation**.
+  recoverable**, **169 minor**, **73 documentation**.
 - By port status: **259 fixed or corrected in the port** (of which 157 are code
   fixes with regression tests, 22 are added guards or asserts where upstream has
   undefined behaviour, 64 are comment corrections, 11 are dead-code removals and
-  5 are documented deliberate deviations), **235 preserved deliberately**, and
-  **9 not ported** (the `GTE_USE_VEC_MAT` branches, dead code that cannot
+  5 are documented deliberate deviations), **236 preserved deliberately**, and
+  **10 not ported** (the `GTE_USE_VEC_MAT` branches, dead code that cannot
   compile, and two arbitrary-precision paths).
 - **288 distinct upstream headers** are implicated.
 
@@ -151,6 +151,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `ApprTorus3.h` | `operator()` | unguarded `1/b0` and unguarded `SolveCubic` leading coefficient | RC | preserved | [#271](https://github.com/gradientspaceai/gtengine-js/issues/271) |
 | `ApprTorus3.h` | header comment | defines `a2` twice (the third occurrence should be `a0`) | doc | corrected | [#271](https://github.com/gradientspaceai/gtengine-js/issues/271) |
 | `ApprTorus3.h` | `Rational f0..f3` | dead code: the intended exact root classification never happens | minor | preserved | [#271](https://github.com/gradientspaceai/gtengine-js/issues/271) |
+| `Arc2.h`, `Sector2.h` | `Contains` | uses the non-robust `Length`, which overflows to `+inf` for components above ~1.3e154, so a point well inside a huge sector is reported outside | minor | preserved | [#155](https://github.com/gradientspaceai/gtengine-js/issues/155) |
 | `Arc2.h` | `Contains(P, epsilon)` | a negative epsilon cannot behave "as if zero"; the function returns false for every point | minor | preserved | [#155](https://github.com/gradientspaceai/gtengine-js/issues/155) |
 | `Array4.h` | `SetPointers` comment | "else 'other' is an empty Array3." copy-pasted from `Array3.h` | doc | corrected | [#363](https://github.com/gradientspaceai/gtengine-js/issues/363) |
 | `ASinEstimate.h` | `C_ASIN_EST_MAX_ERROR` | disagrees with `C_ACOS_EST_MAX_ERROR` in trailing digits although provably the same quantity | minor | preserved | [#57](https://github.com/gradientspaceai/gtengine-js/issues/57) |
@@ -484,6 +485,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `OBBTreeOfTriangles.h` | `Execute`, `IntersectSegmentTriangle` | leaf boxes are never tested against the linear component; unguarded `Length(Q - P)` division | minor | preserved | [#274](https://github.com/gradientspaceai/gtengine-js/issues/274) |
 | `OrientedBox.h` | class comment | writes box coordinates with only two terms for an N-dimensional class | doc | corrected | [#78](https://github.com/gradientspaceai/gtengine-js/issues/78) |
 | `OrientedBoxTreeOfTriangles.h` | `ComputeLeafBoundingVolume` | the smallest-extent scan's last comparison is `>`, so the largest extent is zeroed and the leaf box collapses | RC | fixed | [#343](https://github.com/gradientspaceai/gtengine-js/issues/343) |
+| `Parallelepiped3.h`, `Parallelogram2.h` | `GetVertices` | not `const`, unlike every other `GetVertices`; the corners of a `const&` need a copy | minor | n/a | [#155](https://github.com/gradientspaceai/gtengine-js/issues/155) |
 | `Parallelepiped3.h`, `Parallelogram2.h` | `GetVertices` comment | documented counterclockwise; the code emits bit-pattern order | doc | corrected | [#155](https://github.com/gradientspaceai/gtengine-js/issues/155) |
 | `Parallelepiped3.h` | handedness assert | `DotCross(...) > 0` accepts a numerically degenerate (repeated-axis) basis | minor | preserved | [#484](https://github.com/gradientspaceai/gtengine-js/issues/484) |
 | `ParametricCurve.h` | `GetTime` (~L213) | integrates across knots as a single Romberg call while `GetLength` splits at knots | RC | preserved | [#113](https://github.com/gradientspaceai/gtengine-js/issues/113) |
@@ -902,6 +904,12 @@ Issue [#271](https://github.com/gradientspaceai/gtengine-js/issues/271). Port: p
 `Contains(P, epsilon)`'s comment promises that a negative epsilon "behaves as if
 a value of zero was passed", but `std::fabs(length - radius) <= epsilon` can
 never hold for `epsilon < 0`, so the function returns false for every point.
+
+`Contains` also uses the non-robust `Length` (as does `Sector2::Contains`), which
+overflows to `+inf` for components above about 1.3e154; `Sector2::Contains` then
+evaluates `inf <= radius` and reports a point well inside as outside (vertex
+`(1.21e307, -0)`, radius `1.31e307`, `P = (2.0e307, -5.6e15)`). Found by the C++
+oracle of group 42; neither function takes a `robust` flag. Port: preserved.
 
 Issue [#155](https://github.com/gradientspaceai/gtengine-js/issues/155). Port: preserved.
 

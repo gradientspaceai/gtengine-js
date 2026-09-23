@@ -332,6 +332,13 @@ an eigenvalue residual floors it at sqrt(epsilon); use a one-sided method or
 exact rational arithmetic over BigInt for lattice inputs, which is how v38
 found two upstream defects (#513, #514) on which both sides agreed.
 
+A group that finds no port defect states its sensitivity: recompute each
+suspect accumulation in the plausible alternative grouping from the recorded
+inputs and count the deep-run records on which it would have differed from
+the C++ output (v42: 500 to 1300 of 2000 for every corner reconstruction),
+and name the computations the cases provably cannot discriminate
+(`(max + min) * 0.5` against `(max + min) / 2`, which are one computation).
+
 Never loosen a tolerance or narrow a generator to make a disagreement
 disappear without knowing which of these it is.
 

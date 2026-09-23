@@ -9,7 +9,7 @@ upstream GTE code compiled with MSVC; the port replays the same inputs. See
 - compiler MSVC 194435215 x64 /O2 /fp:precise
 - records-per-case 20
 
-**1049 cases, 18980 records, 163967 floating-point outputs compared; 99.59% bit-identical to the C++ build. 906 cases are bit-identical on every output. 100 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
+**1097 cases, 19940 records, 174462 floating-point outputs compared; 99.61% bit-identical to the C++ build. 952 cases are bit-identical on every output. 100 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
 
 Discrete outputs (booleans, counts, indices) always compare exactly and are not counted
 in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |port|, |C++|)`.
@@ -37,6 +37,7 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | v38-numerical | 39 | 720 | 8243 | 99.90% | 35 | 1.85e-16 | `Integration.libmIntegrand` |
 | v39-numerical | 46 | 760 | 14117 | 100.00% | 38 | 0 |  |
 | v40-numerical | 22 | 420 | 1643 | 100.00% | 21 | 0 |  |
+| v42-primitives | 48 | 960 | 10495 | 99.92% | 46 | 2.04e-16 | `Torus3.getParameters` |
 | v44-roots | 40 | 720 | 3754 | 100.00% | 36 | 0 |  |
 | v45-roots | 28 | 500 | 865 | 98.03% | 18 | 5.00e-16 | `RootsQuartic.computeDepressedRoots.closedForm` |
 
