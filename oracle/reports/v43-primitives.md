@@ -1,9 +1,9 @@
 # Group 43 (primitives) — differential test against the MSVC build
 
-Family `v43-primitives`, 46 cases: 37 ordinary `exact`, 7 `deviation` (also
+Family `v43-primitives`, 48 cases: 39 ordinary `exact`, 7 `deviation` (also
 `exact`), 2 with the default scaled tolerance. Deep run
-(`npm run oracle:deep -- 2000 v43-primitives`): 92 000 records, 5 550 of them
-C++ throws, **all 47 tests pass**, 5.3 s wall time.
+(`npm run oracle:deep -- 2000 v43-primitives`): 96 000 records, 5 550 of them
+C++ throws, **all 49 tests pass**, 5.1 s wall time.
 
 The case file makes `Matrix2x2.h` and `Matrix3x3.h` visible, so
 `Hyperellipsoid::FromCoefficients`'s `Inverse(A, &invertible)` resolves to the
@@ -15,9 +15,9 @@ port assumes (v34, issue #217 item 4). `Cone.h` and `ContOrientedBox3.h` pull
 
 | header | cases | comparison | deep run |
 | --- | --- | --- | --- |
-| `Hyperellipsoid.h` | `getM.2d/3d` (GetM + GetMInverse), `toCoefficients.2d/3d` (both overloads), `fromCoefficients.2d/3d`, `fromCoefficientsABC.2d/3d`, `compare.2d`, `fromCoefficients.decoupledDeviation.3d` | exact | pass |
+| `Hyperellipsoid.h` | `getM.2d/3d` (GetM + GetMInverse), `toCoefficients.2d/3d` (both overloads), `fromCoefficients.2d/3d`, `fromCoefficientsABC.2d/3d`, `defaultConstruct`, `compare.2d`, `fromCoefficients.decoupledDeviation.3d` | exact | pass |
 | `Hyperplane.h` | `construct.3d` (default, normal+constant, normal+origin), `fromPoints.3d`, `compare.3d`, `fromPoints.deviation.2d/4d` | exact | pass |
-| `Cone.h` | `setAngle`, `heights` (all four cone types, `HeightInRange` / `HeightLessThanMin` / `HeightGreaterThanMax` / `IsFinite` / `IsInfinite`), `heights.throwParity`, `compare`, `createMesh` | `heights`, `heights.throwParity`, `compare` exact; `setAngle` and `createMesh` tolerance (`cos`, `sin`, `tan`) | pass |
+| `Cone.h` | `construct` (all four constructors), `setAngle`, `heights` (all four cone types, `HeightInRange` / `HeightLessThanMin` / `HeightGreaterThanMax` / `IsFinite` / `IsInfinite`), `heights.throwParity`, `compare`, `createMesh` | `construct`, `heights`, `heights.throwParity`, `compare` exact; `setAngle` and `createMesh` tolerance (`cos`, `sin`, `tan`) | pass |
 | `Polygon2.h` | `queries` (5 generator modes), `queries.clockwise` | exact | pass |
 | `Tetrahedron3.h` | `normals` (face, edge, vertex), `computeCentroid`, `getPlanes`, `tables`, `compare`, `defaultConstruct`, `getPlanes.deviation` | exact | pass |
 | `RectangleManager.h` | `initialize`, `update` (two move passes) | exact | pass |
@@ -40,6 +40,24 @@ index, touching rectangles that share endpoint values, and meshes of 2x2 up to
 5x5 samples. Tree heights include the "build the whole tree" sentinel and
 explicit heights 0..4, so the early-stop branch of `BuildTree` is covered.
 
+## Tolerances
+
+Only the two cases whose upstream path calls the C math library carry a
+tolerance; both use the harness default of `1e-12` and both are far inside it
+over the 2 000-record deep run.
+
+| case | libm call | measured max scaled error | bit-identical outputs |
+| --- | --- | --- | --- |
+| `Cone.setAngle` | `std::cos`, `std::sin`, `std::tan` in `SetAngle` | 2.932e-16 | 13 629 / 14 000 |
+| `Cone.createMesh` | the same three, through `GenerateInscribed` / `GenerateCircumscribed` and `tanAngle` | 8.882e-16 | 70 738 / 71 940 |
+
+`Cone.setAngle` emits `angle` itself with `outRealExact`, and `createMesh`
+emits `numExtra` (through the vertex count), the index array and the unique
+vertex count as integers, so a `tan` rounding difference that moved
+`ceil(tNumExtra)`, or a `cos`/`sin` difference that changed which vertices
+`UniqueVerticesSimplices` considers equal, would fail loudly rather than hide
+under the tolerance. Neither happened in 2 000 records.
+
 ## Port defects fixed
 
 None. Every arithmetic-only case agreed bit for bit with the MSVC build on the
@@ -57,6 +75,15 @@ first replay, including the oriented-box fits (covariance plus
 | `RectangleMesh.frame.deviation` | #268 | `InitializeFrame` hardcodes `tangent = (1,0,0)`, `bitangent = (0,1,0)` for every vertex regardless of the rectangle's axes. The port uses the rectangle's own orthonormal axes. The `normal` channel is unaffected and is compared in `RectangleMesh.construct`. |
 | `OrientedBoxTreeOfTriangles.leafExtent.deviation` | #343 | The smallest-extent scan of `ComputeLeafBoundingVolume` ends with `absExtent > minAbsExtent`, so the *largest* extent is zeroed and the leaf box collapses along its longest axis. `ApprGaussian3` returns extents in increasing order, so upstream selects index 2 on essentially every triangle. |
 | `BVTreeOfTriangles.coincident.deviation` | #167 | `Execute` collects hits in a `std::set<Intersection>` ordered by `parameter` alone, so two triangles hit at the same parameter are set-equivalent and all but one are dropped. Two triangles with the same three vertex indices are hit at bit-identical parameters. The port orders by `(parameter, triangleIndex)`. |
+
+Deviating records over the 2 000-record deep run: `#217` 2 000/2 000 (both
+cases), `#80` 2 000/2 000, `#268` (planes) 2 000/2 000, `#268` (mesh frame)
+1 914/2 000, `#343` 1 649/2 000, `#167` 828/2 000. The residues are explained:
+the mesh-frame case agrees when the rectangle's axes happen to be exactly
+`(1,0,0)` and `(0,1,0)` (one of the eight signed permutation frames the
+generator draws); `#343` agrees when `extent[2]` really is the smallest, so
+both sides zero the same index; `#167` agrees when the line misses the
+duplicated triangle, in which case both sides report no hits.
 
 Both defects that leak into an ordinary case are excluded by an exact predicate
 evaluated on upstream's own control flow:
@@ -126,9 +153,7 @@ checker is plain JavaScript and uses no gtengine-js code.
   `RectangleManager::Initialize`'s `std::sort` over `2n` endpoints (the cases
   use at most 8 rectangles, so 16 endpoints).
 * `Cone::CreateMesh` is exercised with `numMinVertices = 3` only, to keep the
-  committed records small. `numExtra` is emitted as an integer, so a `tan`
-  rounding difference that moved `ceil(tNumExtra)` would fail loudly; it never
-  did over 2 000 records.
+  committed records small.
 * `Mesh::Update` / `RectanglePatchMesh::UpdatePositions`, `UpdateNormals` and
   `UpdateFrame` re-run the same `Initialize*` routines the construction cases
   already compare, so they are covered indirectly only.

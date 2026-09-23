@@ -159,6 +159,23 @@ describe('oracle: v43-primitives', () => {
         }
     }, { exact: true, deviation: '#80' });
 
+    family.case('Hyperellipsoid.defaultConstruct', (io) => {
+        const E2 = new Hyperellipsoid(2);
+        const E3 = new Hyperellipsoid(3);
+        const M2 = E2.getM();
+        const M3 = E3.getM();
+        io.outVec(E2.center);
+        io.outVec(E2.axis[0]);
+        io.outVec(E2.axis[1]);
+        io.outVec(E2.extent);
+        io.outMat(M2);
+        io.outVec(E3.center);
+        for (let d = 0; d < 3; ++d) { io.outVec(E3.axis[d]); }
+        io.outVec(E3.extent);
+        io.outMat(M3);
+        io.integer();
+    }, { exact: true });
+
     family.case('Hyperellipsoid.compare.2d', (io) => {
         const E0 = Hyperellipsoid.fromCenterAxisExtent(io.vec(2),
             [io.vec(2), io.vec(2)], io.vec(2));
@@ -243,6 +260,31 @@ describe('oracle: v43-primitives', () => {
         io.outReal(cone.sinAngleSqr);
         io.outReal(cone.invSinAngle);
     });
+
+    family.case('Cone.construct', (io) => {
+        const origin = io.vec(3);
+        const direction = io.vec(3);
+        const angle = io.real();
+        const hMin = io.real();
+        const hMax = io.real();
+        const ray = Ray.fromOriginDirection(origin, direction);
+        const defaultCone = new Cone(3);
+        const infinite = Cone.fromRayAngle(ray, angle);
+        const truncated = Cone.fromRayAngleMinHeight(ray, angle, hMin);
+        const frustum = Cone.fromRayAngleMinMaxHeight(ray, angle, hMin, hMax);
+        io.outVec(defaultCone.ray.origin);
+        io.outVec(defaultCone.ray.direction);
+        io.outReal(defaultCone.getMinHeight());
+        io.outReal(defaultCone.getMaxHeight());
+        for (const cone of [infinite, truncated, frustum]) {
+            io.outVec(cone.ray.origin);
+            io.outVec(cone.ray.direction);
+            io.outReal(cone.angle);
+            io.outReal(cone.getMinHeight());
+            io.outReal(cone.getMaxHeight());
+            io.outBool(cone.isFinite());
+        }
+    }, { exact: true });
 
     family.case('Cone.heights', (io) => {
         const ray = Ray.fromOriginDirection(io.vec(3), io.vec(3));

@@ -538,6 +538,31 @@ ORACLE_CASE("Hyperellipsoid.fromCoefficients.decoupledDeviation.3d")
     }
 }
 
+ORACLE_CASE("Hyperellipsoid.defaultConstruct")
+{
+    // The default constructor (centre zero, axes Unit(d), extents 1) for
+    // N = 2 and N = 3, and the M it produces.
+    Ellipse2<double> E2{};
+    Ellipsoid3<double> E3{};
+    Matrix<2, 2, double> M2{};
+    Matrix<3, 3, double> M3{};
+    E2.GetM(M2);
+    E3.GetM(M3);
+    io.outVec(E2.center);
+    io.outVec(E2.axis[0]);
+    io.outVec(E2.axis[1]);
+    io.outVec(E2.extent);
+    io.outMat(M2);
+    io.outVec(E3.center);
+    io.outVec(E3.axis[0]);
+    io.outVec(E3.axis[1]);
+    io.outVec(E3.axis[2]);
+    io.outVec(E3.extent);
+    io.outMat(M3);
+    // One recorded input so the record is not empty.
+    io.lattice(0, 1);
+}
+
 ORACLE_CASE("Hyperellipsoid.compare.2d")
 {
     // Draws from a tiny set so that ties in the center, the axes and the
@@ -669,6 +694,36 @@ ORACLE_CASE("Cone.setAngle")
     io.outReal(cone.cosAngleSqr);
     io.outReal(cone.sinAngleSqr);
     io.outReal(cone.invSinAngle);
+}
+
+ORACLE_CASE("Cone.construct")
+{
+    // All four constructors, including Cone(ray, angle, minHeight), which is
+    // the only path to MakeInfiniteTruncatedCone through a constructor. The
+    // libm-derived members are not emitted here; Cone.setAngle covers them.
+    auto origin = io.vec<3>(-4.0, 4.0);
+    auto direction = io.unit<3>();
+    double angle = io.real(0.05, 1.5);
+    double hMin = io.lattice(0, 3);
+    double hMax = io.lattice(4, 7);
+    Ray3<double> ray(origin, direction);
+    Cone3<double> defaultCone{};
+    Cone3<double> infinite(ray, angle);
+    Cone3<double> truncated(ray, angle, hMin);
+    Cone3<double> frustum(ray, angle, hMin, hMax);
+    io.outVec(defaultCone.ray.origin);
+    io.outVec(defaultCone.ray.direction);
+    io.outReal(defaultCone.GetMinHeight());
+    io.outReal(defaultCone.GetMaxHeight());
+    for (auto const* cone : { &infinite, &truncated, &frustum })
+    {
+        io.outVec(cone->ray.origin);
+        io.outVec(cone->ray.direction);
+        io.outReal(cone->angle);
+        io.outReal(cone->GetMinHeight());
+        io.outReal(cone->GetMaxHeight());
+        io.outBool(cone->IsFinite());
+    }
 }
 
 ORACLE_CASE("Cone.heights")
