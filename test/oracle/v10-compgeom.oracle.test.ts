@@ -1,8 +1,10 @@
 // Replays oracle/cpp/cases/v10-compgeom.cpp. Keep the two files in the same
 // order. The C++ file documents what is comparable for each header.
 import { describe } from 'vitest';
+import { ExtremalQuery3BSP } from '../../src/ExtremalQuery3BSP.js';
 import { MinimumAreaCircle2 } from '../../src/MinimumAreaCircle2.js';
 import { MinimumVolumeSphere3 } from '../../src/MinimumVolumeSphere3.js';
+import { Polyhedron3 } from '../../src/Polyhedron3.js';
 import { RotatingCalipers } from '../../src/RotatingCalipers.js';
 import { Vector } from '../../src/Vector.js';
 import { OracleFamily, type OracleIO } from './harness.js';
@@ -122,6 +124,41 @@ describe('oracle: v10-compgeom', () => {
         io.vec(3);
         const r = new MinimumVolumeSphere3().compute([]);
         io.outBool(r.success);
+    }, { exact: true });
+
+    // ---- ExtremalQuery3BSP -----------------------------------------------
+
+    // The base polytopes of the C++ case, indexed by the recorded selector.
+    const BASE_INDICES: readonly (readonly number[])[] = [
+        [0, 1, 2, 0, 2, 3, 0, 3, 1, 1, 3, 2],
+        [0, 2, 4, 2, 1, 4, 1, 3, 4, 3, 0, 4,
+            2, 0, 5, 1, 2, 5, 3, 1, 5, 0, 3, 5],
+        [0, 2, 3, 0, 3, 4, 0, 4, 2, 1, 3, 2, 1, 4, 3, 1, 2, 4]
+    ];
+    const BASE_NUM_VERTICES: readonly number[] = [4, 6, 5];
+
+    family.case('ExtremalQuery3BSP.getExtremeVertices', (io) => {
+        const which = io.integer();
+        const vertices: Vector[] = [];
+        for (let i = 0; i < BASE_NUM_VERTICES[which]; ++i) {
+            vertices.push(io.vec(3));
+        }
+        const indices = BASE_INDICES[which].slice();
+        const polytope = new Polyhedron3(vertices, indices.length, indices, true);
+        const query = new ExtremalQuery3BSP(polytope);
+
+        const normals = query.getFaceNormals();
+        io.outInt(normals.length);
+        for (const n of normals) {
+            io.outVec(n);
+        }
+
+        for (let k = 0; k < 6; ++k) {
+            const direction = io.vec(3);
+            const r = query.getExtremeVertices(direction);
+            io.outInt(r.positiveDirection);
+            io.outInt(r.negativeDirection);
+        }
     }, { exact: true });
 
     family.finish();
