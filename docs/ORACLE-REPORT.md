@@ -9,7 +9,7 @@ upstream GTE code compiled with MSVC; the port replays the same inputs. See
 - compiler MSVC 194435215 x64 /O2 /fp:precise
 - records-per-case 20
 
-**1097 cases, 19940 records, 174462 floating-point outputs compared; 99.61% bit-identical to the C++ build. 952 cases are bit-identical on every output. 100 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
+**1145 cases, 20760 records, 201420 floating-point outputs compared; 99.65% bit-identical to the C++ build. 991 cases are bit-identical on every output. 107 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
 
 Discrete outputs (booleans, counts, indices) always compare exactly and are not counted
 in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |port|, |C++|)`.
@@ -38,6 +38,7 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | v39-numerical | 46 | 760 | 14117 | 100.00% | 38 | 0 |  |
 | v40-numerical | 22 | 420 | 1643 | 100.00% | 21 | 0 |  |
 | v42-primitives | 48 | 960 | 10495 | 99.92% | 46 | 2.04e-16 | `Torus3.getParameters` |
+| v43-primitives | 48 | 820 | 26958 | 99.91% | 39 | 4.44e-16 | `Cone.createMesh` |
 | v44-roots | 40 | 720 | 3754 | 100.00% | 36 | 0 |  |
 | v45-roots | 28 | 500 | 865 | 98.03% | 18 | 5.00e-16 | `RootsQuartic.computeDepressedRoots.closedForm` |
 
@@ -142,6 +143,13 @@ every record.
 | v39-numerical | `BlockCholeskyDecomposition.runtimeStrideDeviation` | 20 of 20 | issue #209 (in-block stride of the run-time class) |
 | v39-numerical | `BlockLDLTDecomposition.convertBlockToVector.deviation` | 20 of 20 | issue #209 (Convert checks NumBlocks, not BlockSize) |
 | v40-numerical | `LevenbergMarquardtMinimizer.minimize.staleResidual.deviation` | 11 of 20 | issue #261: LevenbergMarquardtMinimizer::DoIteration builds -J^T*F from the residual at the previously rejected candidate |
+| v43-primitives | `Hyperellipsoid.fromCoefficients.decoupledDeviation.3d` | 20 of 20 | #80 |
+| v43-primitives | `Hyperplane.fromPoints.deviation.2d` | 20 of 20 | #217 |
+| v43-primitives | `Hyperplane.fromPoints.deviation.4d` | 20 of 20 | #217 |
+| v43-primitives | `Tetrahedron3.getPlanes.deviation` | 20 of 20 | #268 |
+| v43-primitives | `RectangleMesh.frame.deviation` | 19 of 20 | #268 |
+| v43-primitives | `OrientedBoxTreeOfTriangles.leafExtent.deviation` | 18 of 20 | #343 |
+| v43-primitives | `BVTreeOfTriangles.coincident.deviation` | 9 of 20 | #167 |
 | v44-roots | `PolynomialCurve.deviation.constructed` | 20 of 20 | issue #319, PolynomialCurve mConstructed |
 | v44-roots | `RootsBisection1.deviation.maxIterationsOne` | 10 of 20 | issue #84, RootsBisection1 maxIterations == 1 |
 | v44-roots | `RootsBisection2.deviation.staleOutputs` | 20 of 20 | issues #84 and #152, RootsBisection2 stale outputs |

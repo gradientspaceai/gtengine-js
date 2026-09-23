@@ -128,6 +128,11 @@ Rules:
    elements, so a small case can agree by accident (v03,
    `SymmetricEigensolver::ComputePermutation` on tied eigenvalues): the
    unspecified order is still a finding for `docs/UPSTREAM-FINDINGS.md`.
+   `std::nth_element` and `std::partition` are the same story: MSVC's
+   `nth_element` leaves a range of at most 32 elements stably sorted (v43,
+   `BVTree::SplitPoints`, issue #527), so tree cases with small node ranges
+   agree with a stable sort by accident; measure the size at which the
+   library's order diverges and say so under "Not covered".
    The harness treats any NaN as equal to any NaN, so a record whose
    outputs are all NaN (a fit over an empty index list) tests nothing; keep
    such inputs out of the generator or give them a case that emits

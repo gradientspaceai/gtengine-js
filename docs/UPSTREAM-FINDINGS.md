@@ -71,14 +71,14 @@ Nothing here has been reported upstream before; this document is the report.
 
 ## Counts
 
-- **505 distinct findings** across **165** tracked issues (one issue
+- **508 distinct findings** across **166** tracked issues (one issue
   frequently holds several findings in related files).
 - By severity: **248 result-corrupting**, **15 wrong but
-  recoverable**, **169 minor**, **73 documentation**.
+  recoverable**, **172 minor**, **73 documentation**.
 - By port status: **259 fixed or corrected in the port** (of which 157 are code
   fixes with regression tests, 22 are added guards or asserts where upstream has
   undefined behaviour, 64 are comment corrections, 11 are dead-code removals and
-  5 are documented deliberate deviations), **236 preserved deliberately**, and
+  5 are documented deliberate deviations), **239 preserved deliberately**, and
   **10 not ported** (the `GTE_USE_VEC_MAT` branches, dead code that cannot
   compile, and two arbitrary-precision paths).
 - **288 distinct upstream headers** are implicated.
@@ -170,6 +170,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `BSRational.h` | two-`BSNumber` constructor | the unconditional exponent adjustment produces an invalid zero encoding | RC | fixed | [#168](https://github.com/gradientspaceai/gtengine-js/issues/168) |
 | `BSRational.h` | string constructor | unconditional `SetSign(sign)` yields an invalid negative zero for `-0.0` | RC | fixed | [#168](https://github.com/gradientspaceai/gtengine-js/issues/168) |
 | `BSRational.h` | string constructor | the `x.` branch is unreachable | minor | dropped | [#168](https://github.com/gradientspaceai/gtengine-js/issues/168) |
+| `BVTree.h` | `SplitPoints` | the tree depends on the unspecified element order of `std::nth_element`; on tied projections even the left/right membership is unspecified (MSVC is stable only for n <= 32) | minor | preserved | [#527](https://github.com/gradientspaceai/gtengine-js/issues/527) |
 | `BVTree.h` | `GetLeafIndices` | a leaf is never tested against its own bounding volume, only its parent's | minor | preserved | [#103](https://github.com/gradientspaceai/gtengine-js/issues/103) |
 | `BVTreeOfTriangles.h` | `Execute`, `Intersection::operator<` | the `std::set` orders by `parameter` only, so coincident hits are silently dropped | RC | fixed | [#167](https://github.com/gradientspaceai/gtengine-js/issues/167) |
 | `BVTreeOfTriangles.h` | `IntersectSegmentTriangle` | reports the centered-form parameter where `BVTree.h` documents `t` in `[0,1]` | minor | preserved | [#387](https://github.com/gradientspaceai/gtengine-js/issues/387) |
@@ -495,6 +496,8 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `PdeFilter.h` | border assignment | `mBorderValue` is written verbatim into offset/scale-transformed buffers | minor | preserved | [#60](https://github.com/gradientspaceai/gtengine-js/issues/60) |
 | `PlanarMesh.h` | first constructor | half-constructs on duplicate triangles (zero vertex count, null pointer, unset query) | RC | preserved | [#256](https://github.com/gradientspaceai/gtengine-js/issues/256) |
 | `PlanarMesh.h` | `find` results, `Contains` | map lookups dereferenced without an `end()` check; `Contains` lacks the range check its siblings have | RC | fixed (assert) | [#256](https://github.com/gradientspaceai/gtengine-js/issues/256) |
+| `Polygon2.h` | `IsSimple`, `IsConvex` | short-circuit on `numIndices == 3` without looking at the vertices: a degenerate triangle is "simple and convex" | minor | preserved | [#268](https://github.com/gradientspaceai/gtengine-js/issues/268) |
+| `RectangleManager.h` | `Initialize` | the sweep's hand-written y-overlap test is not the `TIQuery` predicate `Update` uses (they agree for closed intervals) | minor | preserved | [#268](https://github.com/gradientspaceai/gtengine-js/issues/268) |
 | `Polygon2.h` | constructor | cannot reject an empty vertex pool | minor | fixed (assert) | [#268](https://github.com/gradientspaceai/gtengine-js/issues/268) |
 | `Polyhedron3.h` | class comment | says `numIndices` must be 6 or larger; the constructor requires >= 12 | doc | corrected | [#155](https://github.com/gradientspaceai/gtengine-js/issues/155) |
 | `Polyhedron3.h` | geometric queries | `auto vertexPool = GetVertices();` deep-copies the whole pool on every call | minor | preserved | [#155](https://github.com/gradientspaceai/gtengine-js/issues/155) |
@@ -1149,6 +1152,16 @@ linear component (correct results, wasted work);
 unguarded; `OBBTreeOfSegments` runs an unguarded `Normalize` on a zero-length
 segment, which collapses to a zero frame.
 
+
+**`SplitPoints` depends on the unspecified order of `std::nth_element` (issue
+[#527](https://github.com/gradientspaceai/gtengine-js/issues/527), minor).** The left child gets `info[0 .. medianIndex]` and the
+right child the rest in reverse, both in the order `nth_element` left them; on tied
+projections (duplicates, lattice data) even the membership is unspecified, so two
+conforming standard libraries build different trees with different node boxes.
+An MSVC probe shows the order is stable-sorted for n <= 32 and differs on 97 to
+100 % of inputs above; the C++ oracle of group 43 agrees with the port's stable
+sort only by that accident. `std::stable_sort` on `(projection, index)` would fix
+it. Port: preserved (stable sort; trees with node ranges above 32 may differ).
 Issues [#103](https://github.com/gradientspaceai/gtengine-js/issues/103), [#167](https://github.com/gradientspaceai/gtengine-js/issues/167), [#274](https://github.com/gradientspaceai/gtengine-js/issues/274), [#387](https://github.com/gradientspaceai/gtengine-js/issues/387).
 
 ### `CholeskyDecomposition.h`, `LDLTDecomposition.h`
