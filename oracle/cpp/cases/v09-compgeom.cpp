@@ -789,6 +789,66 @@ ORACLE_CASE("Delaunay2.compute.deviation.numVertices")
     io.outInt(del.GetNumVertices());
 }
 
+// Throw parity for the two accessors that reject a degenerate result:
+// GetHull() calls LogError("The dimension must be 2.") and
+// GetContainingTriangle() calls LogAssert(mDimension == 2, ...). Every record
+// of this case is a throw record; the generator alternates between the two
+// entry points so that both diagnostics are exercised. The inputs are the
+// degenerate sets upstream classifies correctly, so the dimension itself is
+// not in question.
+ORACLE_CASE("Delaunay2.degenerateAccessorsThrow")
+{
+    int32_t mode = (io.index() / 2) % 2;
+    int32_t n = io.integer(1, 8);
+    std::vector<Vector2<double>> pts(static_cast<size_t>(n));
+    bool accepted = false;
+    for (int32_t attempt = 0; attempt < 32 && !accepted; ++attempt)
+    {
+        double bx = static_cast<double>(io.rawInteger(-3, 3));
+        double by = static_cast<double>(io.rawInteger(-3, 3));
+        for (size_t i = 0; i < pts.size(); ++i)
+        {
+            double k = (mode == 0 ? 0.0 : static_cast<double>(io.rawInteger(-3, 3)));
+            pts[i][0] = bx + k;
+            pts[i][1] = by;
+        }
+        IntrinsicsVector2<double> info(n, pts.data(), 0.0);
+        size_t exact = ExactDimension2(pts);
+        accepted = (exact <= 1 && static_cast<size_t>(info.dimension) == exact);
+    }
+    if (!accepted)
+    {
+        for (size_t i = 0; i < pts.size(); ++i)
+        {
+            pts[i] = { 0.0, 0.0 };
+        }
+    }
+    for (size_t i = 0; i < pts.size(); ++i)
+    {
+        io.givenVec<2>(pts[i]);
+    }
+
+    // Nothing is emitted before the throwing call: the harness discards the
+    // outputs of a throw record, so the replay must not produce any either.
+    Delaunay2<double> del{};
+    bool result = del(pts);
+    if (io.index() % 2 == 0)
+    {
+        std::vector<size_t> hull{};
+        bool hullOk = del.GetHull(hull);
+        io.outBool(hullOk);
+    }
+    else
+    {
+        Vector2<double> q{ 0.5, 0.25 };
+        Delaunay2<double>::SearchInfo info{};
+        size_t found = del.GetContainingTriangle(q, info);
+        io.outInt(found == Delaunay2<double>::negOne ? -1 : static_cast<int32_t>(found));
+    }
+    io.outBool(result);
+    io.outInt(del.GetDimension());
+}
+
 // DELIBERATE DEVIATION (#391). Delaunay2<T> constructs IntrinsicsVector2<T>
 // with a hardcoded epsilon of 0 and the intrinsics measure distances against
 // a *normalized* frame, so an exactly collinear set whose direction is not
@@ -1236,6 +1296,64 @@ ORACLE_CASE("Delaunay3.getContainingTetrahedron.defaultStart")
 
     Delaunay3<double>::SearchInfo info{};
     EmitSearch3(io, del, q, info, rank);
+}
+
+// Throw parity for the 3D analogues: GetHull() calls
+// LogError("The dimension must be 3.") and GetContainingTetrahedron() calls
+// LogAssert(mDimension == 3, ...). Every record of this case is a throw
+// record.
+ORACLE_CASE("Delaunay3.degenerateAccessorsThrow")
+{
+    int32_t mode = (io.index() / 2) % 3;
+    int32_t n = io.integer(1, 8);
+    std::vector<Vector3<double>> pts(static_cast<size_t>(n));
+    bool accepted = false;
+    for (int32_t attempt = 0; attempt < 32 && !accepted; ++attempt)
+    {
+        double bx = static_cast<double>(io.rawInteger(-3, 3));
+        double by = static_cast<double>(io.rawInteger(-3, 3));
+        double bz = static_cast<double>(io.rawInteger(-3, 3));
+        for (size_t i = 0; i < pts.size(); ++i)
+        {
+            double k0 = (mode == 0 ? 0.0 : static_cast<double>(io.rawInteger(-3, 3)));
+            double k1 = (mode == 2 ? static_cast<double>(io.rawInteger(-3, 3)) : 0.0);
+            pts[i][0] = bx + k0;
+            pts[i][1] = by + k1;
+            pts[i][2] = bz;
+        }
+        IntrinsicsVector3<double> info(n, pts.data(), 0.0);
+        size_t exact = ExactDimension3(pts);
+        accepted = (exact <= 2 && static_cast<size_t>(info.dimension) == exact);
+    }
+    if (!accepted)
+    {
+        for (size_t i = 0; i < pts.size(); ++i)
+        {
+            pts[i] = { 0.0, 0.0, 0.0 };
+        }
+    }
+    for (size_t i = 0; i < pts.size(); ++i)
+    {
+        io.givenVec<3>(pts[i]);
+    }
+
+    Delaunay3<double> del{};
+    bool result = del(pts);
+    if (io.index() % 2 == 0)
+    {
+        std::vector<size_t> hull{};
+        bool hullOk = del.GetHull(hull);
+        io.outBool(hullOk);
+    }
+    else
+    {
+        Vector3<double> q{ 0.5, 0.25, 0.125 };
+        Delaunay3<double>::SearchInfo info{};
+        size_t found = del.GetContainingTetrahedron(q, info);
+        io.outInt(found == Delaunay3<double>::negOne ? -1 : static_cast<int32_t>(found));
+    }
+    io.outBool(result);
+    io.outInt(del.GetDimension());
 }
 
 // DELIBERATE DEVIATION (#283). Delaunay3<T>::ProcessedVertex hashes AND

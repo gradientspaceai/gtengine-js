@@ -183,6 +183,25 @@ describe('oracle: v09-compgeom', () => {
         io.outInt(del.getNumVertices());
     }, { exact: true, deviation: '#277 (GetNumVertices after degenerate input)' });
 
+    // Throw parity: getHull() and getContainingTriangle() both reject a
+    // dimension other than 2, so every record of this case is a throw record.
+    family.case('Delaunay2.degenerateAccessorsThrow', (io) => {
+        const n = io.integer();
+        const pts = points(io, n, 2);
+        const del = new Delaunay2();
+        const result = del.compute(pts);
+        if (io.index % 2 === 0) {
+            del.getHull();
+            io.outBool(true);
+        } else {
+            const found = del.getContainingTriangle(Vector.fromArray([0.5, 0.25]),
+                new Delaunay2SearchInfo());
+            io.outInt(found);
+        }
+        io.outBool(result);
+        io.outInt(del.getDimension());
+    }, { exact: true });
+
     // The port classifies the intrinsic dimension with its own exact ToLine
     // predicate instead of the intrinsics' epsilon = 0 floating-point test.
     family.case('Delaunay2.compute.deviation.epsilon', (io) => {
@@ -341,6 +360,25 @@ describe('oracle: v09-compgeom', () => {
         const rank = rankOf(order);
         const q = io.vec(3);
         emitSearch3(io, del, q, new Delaunay3SearchInfo(), rank);
+    }, { exact: true });
+
+    // Throw parity: getHull() and getContainingTetrahedron() both reject a
+    // dimension other than 3.
+    family.case('Delaunay3.degenerateAccessorsThrow', (io) => {
+        const n = io.integer();
+        const pts = points(io, n, 3);
+        const del = new Delaunay3();
+        const result = del.compute(pts);
+        if (io.index % 2 === 0) {
+            del.getHull();
+            io.outBool(true);
+        } else {
+            const found = del.getContainingTetrahedron(
+                Vector.fromArray([0.5, 0.25, 0.125]), new Delaunay3SearchInfo());
+            io.outInt(found);
+        }
+        io.outBool(result);
+        io.outInt(del.getDimension());
     }, { exact: true });
 
     // The port's ProcessedVertex hashes and compares the vertex only, so a
