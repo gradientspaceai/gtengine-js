@@ -420,11 +420,14 @@ ORACLE_CASE("Segment.comparisons.3d")
 
 ORACLE_CASE("Triangle.comparisons.2d")
 {
+    // B goes through the std::array constructor and A through the
+    // three-vertex one, so both are covered.
     std::vector<double> a, b;
     ComparePair(io, 6, a, b);
-    Triangle2<double> A{}, B{};
-    for (int32_t k = 0; k < 3; ++k) { A.v[k] = Unpack<2>(a, 2 * k); }
-    for (int32_t k = 0; k < 3; ++k) { B.v[k] = Unpack<2>(b, 2 * k); }
+    Triangle2<double> A(Unpack<2>(a, 0), Unpack<2>(a, 2), Unpack<2>(a, 4));
+    std::array<Vector2<double>, 3> bv{};
+    for (int32_t k = 0; k < 3; ++k) { bv[k] = Unpack<2>(b, 2 * k); }
+    Triangle2<double> B(bv);
     EmitComparisons(io, A, B);
 }
 
@@ -1290,6 +1293,7 @@ ORACLE_CASE("Polyhedron3.queries")
         counterClockwise);
     io.outBool(static_cast<bool>(polyhedron));
     io.outBool(polyhedron.CounterClockwise());
+    io.outInt(polyhedron.GetVertices().size());
     io.outInt(polyhedron.GetUniqueIndices().size());
     for (int32_t index : polyhedron.GetUniqueIndices()) { io.outInt(index); }
     io.outInt(polyhedron.GetIndices().size());

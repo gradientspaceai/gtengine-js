@@ -191,10 +191,14 @@ describe('oracle: v42-primitives', () => {
     }, { exact: true });
 
     family.case('Triangle.comparisons.2d', (io) => {
+        // B goes through the vertex-array constructor and A through the
+        // three-vertex one, so both are covered.
         const [a, b] = comparePair(io, 6);
-        const build = (s: number[]): Triangle => Triangle.fromVertices(
-            unpack(s, 0, 2), unpack(s, 2, 2), unpack(s, 4, 2));
-        emitComparisons(io, build(a), build(b));
+        const triangleA = Triangle.fromVertices(
+            unpack(a, 0, 2), unpack(a, 2, 2), unpack(a, 4, 2));
+        const triangleB = Triangle.fromVertexArray(
+            [unpack(b, 0, 2), unpack(b, 2, 2), unpack(b, 4, 2)]);
+        emitComparisons(io, triangleA, triangleB);
     }, { exact: true });
 
     family.case('Arc2.comparisons', (io) => {
@@ -588,6 +592,7 @@ describe('oracle: v42-primitives', () => {
             counterClockwise);
         io.outBool(polyhedron.isValid());
         io.outBool(polyhedron.counterClockwise());
+        io.outInt(polyhedron.getVertices().length);
         io.outInt(polyhedron.getUniqueIndices().length);
         for (const index of polyhedron.getUniqueIndices()) {
             io.outInt(index);
