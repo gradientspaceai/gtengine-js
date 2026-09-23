@@ -1169,8 +1169,9 @@ ORACLE_CASE("RectangleMesh.construct")
         normals.data(), sizeof(Vector3<double>)));
     description.indexAttribute = IndexAttribute(indices.data(), sizeof(uint32_t));
     RectangleMesh<double> mesh(description, rectangle);
-    io.outInt(description.numVertices);
-    io.outInt(description.numTriangles);
+    io.outInt(mesh.GetDescription().numVertices);
+    io.outInt(mesh.GetDescription().numTriangles);
+    io.outBool(mesh.GetDescription().constructed);
     for (auto const& p : positions) { io.outVec(p); }
     for (auto const& nrm : normals) { io.outVec(nrm); }
     for (uint32_t i : indices) { io.outInt(i); }
@@ -1237,7 +1238,8 @@ ORACLE_CASE("RectangleMesh.frame.deviation")
         dpdvs.data(), sizeof(Vector3<double>)));
     description.indexAttribute = IndexAttribute(indices.data(), sizeof(uint32_t));
     RectangleMesh<double> mesh(description, rectangle);
-    io.outBool(description.allowUpdateFrame);
+    io.outBool(mesh.GetDescription().allowUpdateFrame);
+    io.outBool(mesh.GetDescription().hasTangentSpaceVectors);
     for (auto const& v : normals) { io.outVec(v); }
     for (auto const& v : tangents) { io.outVec(v); }
     for (auto const& v : bitangents) { io.outVec(v); }
@@ -1362,7 +1364,8 @@ ORACLE_CASE("RectanglePatchMesh.frame")
         dpdvs.data(), sizeof(Vector3<double>)));
     description.indexAttribute = IndexAttribute(indices.data(), sizeof(uint32_t));
     RectanglePatchMesh<double> mesh(description, surface);
-    io.outBool(description.allowUpdateFrame);
+    io.outBool(mesh.GetDescription().allowUpdateFrame);
+    io.outBool(mesh.GetDescription().hasTangentSpaceVectors);
     for (auto const& v : normals) { io.outVec(v); }
     for (auto const& v : tangents) { io.outVec(v); }
     for (auto const& v : bitangents) { io.outVec(v); }
