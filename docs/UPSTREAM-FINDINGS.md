@@ -71,14 +71,14 @@ Nothing here has been reported upstream before; this document is the report.
 
 ## Counts
 
-- **508 distinct findings** across **166** tracked issues (one issue
+- **509 distinct findings** across **166** tracked issues (one issue
   frequently holds several findings in related files).
 - By severity: **248 result-corrupting**, **15 wrong but
-  recoverable**, **172 minor**, **73 documentation**.
+  recoverable**, **173 minor**, **73 documentation**.
 - By port status: **259 fixed or corrected in the port** (of which 157 are code
   fixes with regression tests, 22 are added guards or asserts where upstream has
   undefined behaviour, 64 are comment corrections, 11 are dead-code removals and
-  5 are documented deliberate deviations), **239 preserved deliberately**, and
+  5 are documented deliberate deviations), **240 preserved deliberately**, and
   **10 not ported** (the `GTE_USE_VEC_MAT` branches, dead code that cannot
   compile, and two arbitrary-precision paths).
 - **288 distinct upstream headers** are implicated.
@@ -211,6 +211,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `ContScribeCircle2.h` | `Inscribe` | writes a degenerate circle into the output before returning `false` | minor | fixed | [#292](https://github.com/gradientspaceai/gtengine-js/issues/292) |
 | `ConvertCoordinates.h` | affine example comment | the tuples documented as `B.GetCol(0..3)` are the rows of `B` | doc | corrected | [#160](https://github.com/gradientspaceai/gtengine-js/issues/160) |
 | `ConvertCoordinates.h` | 3D example comment | a 4-tuple used as a 3D basis vector; the snippet declares `cs`/`sn` then uses `c`/`s` | doc | corrected | [#160](https://github.com/gradientspaceai/gtengine-js/issues/160) |
+| `ConvexHull2.h` | `operator()` | indices are sorted by a comparator on the points, so which index of a duplicated hull vertex survives `std::unique` is unspecified (MSVC is stable only for n <= 32) | minor | preserved | [#277](https://github.com/gradientspaceai/gtengine-js/issues/277) |
 | `ConvexHull2.h` | `GetTangent` | silently returns whatever indices it last held if the bounding loop expires | RC | preserved | [#277](https://github.com/gradientspaceai/gtengine-js/issues/277) |
 | `ConvexHull3.h` | `GetHull()` comment | claims `E = T/2` satisfies Euler's formula; for a closed triangle mesh `E = 3T/2` | doc | corrected | [#325](https://github.com/gradientspaceai/gtengine-js/issues/325) |
 | `ConvexHull3.h` | `SelectSplit` | binds scratch-pool slots by const reference and then mutates them | minor | n/a | [#325](https://github.com/gradientspaceai/gtengine-js/issues/325) |
@@ -1449,6 +1450,14 @@ whatever indices it last held, corrupting the hull merge with no diagnostic.
 Preserved (adding a throw would change behaviour in cases where upstream happens
 to succeed); randomized monotone-chain cross-checks never triggered it.
 
+
+**A duplicated hull vertex is named by an unspecified index (minor).** The index
+array is sorted with a comparator on the points, so repeated points are equivalent
+and `std::sort` leaves them in an unspecified order; the index that survives
+`std::unique` is the one `GetHull()` reports. MSVC's insertion-sort path hides it for
+at most 32 points; on 40 lattice points MSVC names index 27 where a stable sort
+names 4 (`points[4] == points[27]`). Found by the C++ oracle of group 9. Port:
+stable sort, preserved; the oracle keeps its inputs at 10 points.
 Issue [#277](https://github.com/gradientspaceai/gtengine-js/issues/277).
 
 ### `ConvexPolyhedron3.h`, `TriangulateEC.h`
