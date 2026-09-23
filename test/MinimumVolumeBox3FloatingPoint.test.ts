@@ -6,6 +6,7 @@ import { ConvexHull3 } from '../src/ConvexHull3.js';
 import { MinimumAreaBox2 } from '../src/MinimumAreaBox2.js';
 import {
     MinimumVolumeBox3FloatingPoint,
+    type MinimumVolumeBox3FloatingPointCandidate,
     type MinimumVolumeBox3FloatingPointResult
 } from '../src/MinimumVolumeBox3FloatingPoint.js';
 import {
@@ -963,3 +964,223 @@ describe('MinimumVolumeBox3FloatingPoint verification', () => {
         }, 60);
     }, 30000);
 });
+
+// ---------------------------------------------------------------------------
+// The port's fix of the upstream ComputeVolume defect (issue #405) must be
+// CONFINED: on every input where upstream's assumption holds, the port has to
+// reproduce upstream's support indices and hence its box bit for bit. The
+// subclass below restores upstream's verbatim ComputeVolume so the two can be
+// compared directly. The v08 oracle found the unconfined form: replacing the
+// edge-vertex minima by hill climbs unconditionally picks a different vertex
+// among vertices whose double projections are equal, and since the support
+// index feeds the exact rational getMinimumVolumeBox, the box centre and
+// extents moved by an ulp on ordinary inputs.
+// ---------------------------------------------------------------------------
+
+// The Vector.h Dot of two 3-tuples, the accumulation order upstream uses.
+function dotOf(u: Vector, v: Vector): number {
+    const a = u.values, b = v.values;
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+class UpstreamComputeVolumeBox3 extends MinimumVolumeBox3FloatingPoint {
+    // The number of candidates for which upstream's assumption "a vertex of
+    // the hull edge realizes the minimum along the candidate axis" is false.
+    // That is the exact separator the port's fix guards on.
+    violations = 0;
+
+    // Verbatim MinimumVolumeBox3FloatingPoint.h, ComputeVolume, plus the
+    // violation counter.
+    protected override computeVolume(
+        candidate: MinimumVolumeBox3FloatingPointCandidate): void {
+        candidate.axis[2] = cross(candidate.axis[0], candidate.axis[1]);
+
+        const pmin = [0, 0, 0], pmax = [0, 0, 0];
+        candidate.minSupportIndex[0] = this.mEdges[candidate.edgeIndex[0]].v[0];
+        pmin[0] = dotOf(candidate.axis[0], this.mTVertices[candidate.minSupportIndex[0]]);
+        const a0 = candidate.axis[0].values;
+        if (-this.getExtreme(Vector.fromArray([-a0[0], -a0[1], -a0[2]])).dMax < pmin[0]) {
+            ++this.violations;
+        }
+        const e0 = this.getExtreme(candidate.axis[0]);
+        candidate.maxSupportIndex[0] = e0.vMax;
+        pmax[0] = e0.dMax;
+        candidate.minSupportIndex[1] = this.mEdges[candidate.edgeIndex[1]].v[0];
+        pmin[1] = dotOf(candidate.axis[1], this.mTVertices[candidate.minSupportIndex[1]]);
+        const a1 = candidate.axis[1].values;
+        if (-this.getExtreme(Vector.fromArray([-a1[0], -a1[1], -a1[2]])).dMax < pmin[1]) {
+            ++this.violations;
+        }
+        const e1 = this.getExtreme(candidate.axis[1]);
+        candidate.maxSupportIndex[1] = e1.vMax;
+        pmax[1] = e1.dMax;
+        const a2 = candidate.axis[2].values;
+        const e2min = this.getExtreme(Vector.fromArray([-a2[0], -a2[1], -a2[2]]));
+        candidate.minSupportIndex[2] = e2min.vMax;
+        pmin[2] = -e2min.dMax;
+        const e2max = this.getExtreme(candidate.axis[2]);
+        candidate.maxSupportIndex[2] = e2max.vMax;
+        pmax[2] = e2max.dMax;
+        candidate.volume =
+            (pmax[0] - pmin[0]) * (pmax[1] - pmin[1]) * (pmax[2] - pmin[2]) /
+            dotOf(candidate.axis[2], candidate.axis[2]);
+    }
+}
+
+function sameBox(a: MinimumVolumeBox3FloatingPointResult,
+    b: MinimumVolumeBox3FloatingPointResult): boolean {
+    if (a.dimension !== b.dimension || !Object.is(a.volume, b.volume)) {
+        return false;
+    }
+    for (let i = 0; i < 3; ++i) {
+        if (!Object.is(a.box.center.values[i], b.box.center.values[i])
+            || !Object.is(a.box.extent.values[i], b.box.extent.values[i])) {
+            return false;
+        }
+        for (let j = 0; j < 3; ++j) {
+            if (!Object.is(a.box.axis[i].values[j], b.box.axis[i].values[j])) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+// Behaves exactly like the port, but checks after every call that the
+// minimum support index is upstream's edge vertex whenever that vertex really
+// realizes the minimum, which is the exact separator the fix guards on.
+class ConfinementProbeBox3 extends MinimumVolumeBox3FloatingPoint {
+    candidates = 0;
+    violations = 0;
+    failures = 0;
+
+    protected override computeVolume(
+        candidate: MinimumVolumeBox3FloatingPointCandidate): void {
+        const edge0 = this.mEdges[candidate.edgeIndex[0]].v[0];
+        const edge1 = this.mEdges[candidate.edgeIndex[1]].v[0];
+        const upstream0 = dotOf(candidate.axis[0], this.mTVertices[edge0]);
+        const upstream1 = dotOf(candidate.axis[1], this.mTVertices[edge1]);
+        const a0 = candidate.axis[0].values;
+        const a1 = candidate.axis[1].values;
+        const climb0 = -this.getExtreme(
+            Vector.fromArray([-a0[0], -a0[1], -a0[2]])).dMax;
+        const climb1 = -this.getExtreme(
+            Vector.fromArray([-a1[0], -a1[1], -a1[2]])).dMax;
+
+        super.computeVolume(candidate);
+
+        ++this.candidates;
+        const violated0 = climb0 < upstream0;
+        const violated1 = climb1 < upstream1;
+        if (violated0 || violated1) {
+            ++this.violations;
+        }
+        if (!violated0 && candidate.minSupportIndex[0] !== edge0) {
+            ++this.failures;
+        }
+        if (!violated1 && candidate.minSupportIndex[1] !== edge1) {
+            ++this.failures;
+        }
+    }
+}
+
+describe('MinimumVolumeBox3FloatingPoint: the ComputeVolume fix is confined', () => {
+    it('keeps upstream support index and projection on every candidate where '
+        + 'upstream is sound', () => {
+        const random = makeRandom(0x1234abcd);
+        const probe = new ConfinementProbeBox3();
+        for (let trial = 0; trial < 40; ++trial) {
+            const points: Vector[] = [];
+            for (let i = 0; i < 9; ++i) {
+                points.push(V(
+                    Math.floor(random() * 11) - 5,
+                    Math.floor(random() * 11) - 5,
+                    Math.floor(random() * 11) - 5));
+            }
+            try {
+                probe.compute(points, 3);
+            } catch {
+                continue;
+            }
+        }
+        // Many candidates examined, the defect really occurs among them, and
+        // the fix never moved a sound support index.
+        expect(probe.candidates).toBeGreaterThan(1000);
+        expect(probe.violations).toBeGreaterThan(0);
+        expect(probe.failures).toBe(0);
+    }, 180000);
+
+    it('differs from upstream only on point sets where upstream returns a '
+        + 'non-containing box', () => {
+        const random = makeRandom(0x5eed1234);
+        let numDefective = 0;
+        let numChanged = 0;
+
+        for (let trial = 0; trial < 300; ++trial) {
+            const points: Vector[] = [];
+            for (let i = 0; i < 9; ++i) {
+                points.push(V(
+                    Math.floor(random() * 11) - 5,
+                    Math.floor(random() * 11) - 5,
+                    Math.floor(random() * 11) - 5));
+            }
+
+            let ported: MinimumVolumeBox3FloatingPointResult;
+            let upstream: MinimumVolumeBox3FloatingPointResult;
+            const probe = new UpstreamComputeVolumeBox3();
+            try {
+                ported = new MinimumVolumeBox3FloatingPoint().compute(points, 3);
+                upstream = probe.compute(points, 3);
+            } catch {
+                continue;
+            }
+            if (ported.dimension !== 3) {
+                continue;
+            }
+
+            // The port's box always contains the points.
+            expectContainsAll(ported.box, points, 1e-9);
+
+            const upstreamContains = points.every(p => {
+                const d = sub3(p, upstream.box.center);
+                for (let i = 0; i < 3; ++i) {
+                    if (Math.abs(dot(d, upstream.box.axis[i]))
+                        > upstream.box.extent.values[i] + 1e-9) {
+                        return false;
+                    }
+                }
+                return true;
+            });
+
+            if (!upstreamContains) {
+                // The defect corrupted upstream's answer; the port must not
+                // reproduce it.
+                ++numDefective;
+                expect(sameBox(ported, upstream)).toBe(false);
+            }
+            if (!sameBox(ported, upstream)) {
+                ++numChanged;
+            }
+            if (probe.violations === 0) {
+                // No candidate violated upstream's assumption, so nothing the
+                // fix does can have changed the answer.
+                expect(sameBox(ported, upstream),
+                    `trial ${trial}: the fix changed a sound result`).toBe(true);
+            }
+        }
+
+        // The two computations must actually differ somewhere, otherwise the
+        // test would pass with the fix removed, and the defect must really
+        // corrupt upstream's answer on some of the 300 clouds.
+        expect(numChanged).toBeGreaterThan(0);
+        expect(numDefective).toBeGreaterThan(0);
+        // Measured at the time of writing: 118 of 300 clouds get a different
+        // box because the winning candidate's volume was underestimated by
+        // the defect, and 5 of 300 are visibly broken upstream (the box does
+        // not contain the points). The guard is the exact defective
+        // condition, so the majority of clouds still see upstream's
+        // arithmetic; the previous test checks that per candidate.
+        expect(numChanged).toBeLessThan(200);
+    }, 180000);
+});
+

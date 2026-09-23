@@ -911,17 +911,42 @@ export class MinimumVolumeBox3FloatingPoint {
         // candidate. The exact (Rational) pipeline does not need the fix: its
         // q0 and q1 are exact, so a degenerate level curve is detected by the
         // d == 0 branch instead of producing noise.
+        //
+        // The fix is CONFINED: upstream's index and its dot product are
+        // computed first, exactly as upstream writes them, and the hill climb
+        // only replaces them when it finds a STRICTLY smaller projection,
+        // which is precisely the case in which the upstream assumption is
+        // violated. Whenever upstream is sound the port therefore reports
+        // upstream's support index and its bit-identical projection, which
+        // matters because minSupportIndex feeds the exact rational
+        // getMinimumVolumeBox: two vertices with equal double projections can
+        // have different exact ones, so an unconditional replacement moved
+        // the box centre and extents by an ulp on ordinary inputs (found by
+        // the v08 oracle).
+        //
+        // Dot(-axis, v) is the exact negation of Dot(axis, v): negating each
+        // component of the direction negates each product exactly and the
+        // sum of the negated products is the negation of the sum, so the
+        // comparison below is exact.
         const a0 = candidate.axis[0].values;
+        candidate.minSupportIndex[0] = this.mEdges[candidate.edgeIndex[0]].v[0];
+        pmin[0] = dot3(candidate.axis[0], this.mTVertices[candidate.minSupportIndex[0]]);
         const e0min = this.getExtreme(Vector.fromArray([-a0[0], -a0[1], -a0[2]]));
-        candidate.minSupportIndex[0] = e0min.vMax;
-        pmin[0] = -e0min.dMax;
+        if (-e0min.dMax < pmin[0]) {
+            candidate.minSupportIndex[0] = e0min.vMax;
+            pmin[0] = -e0min.dMax;
+        }
         const e0 = this.getExtreme(candidate.axis[0]);
         candidate.maxSupportIndex[0] = e0.vMax;
         pmax[0] = e0.dMax;
         const a1 = candidate.axis[1].values;
+        candidate.minSupportIndex[1] = this.mEdges[candidate.edgeIndex[1]].v[0];
+        pmin[1] = dot3(candidate.axis[1], this.mTVertices[candidate.minSupportIndex[1]]);
         const e1min = this.getExtreme(Vector.fromArray([-a1[0], -a1[1], -a1[2]]));
-        candidate.minSupportIndex[1] = e1min.vMax;
-        pmin[1] = -e1min.dMax;
+        if (-e1min.dMax < pmin[1]) {
+            candidate.minSupportIndex[1] = e1min.vMax;
+            pmin[1] = -e1min.dMax;
+        }
         const e1 = this.getExtreme(candidate.axis[1]);
         candidate.maxSupportIndex[1] = e1.vMax;
         pmax[1] = e1.dMax;

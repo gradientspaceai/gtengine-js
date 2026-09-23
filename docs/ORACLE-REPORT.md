@@ -9,7 +9,7 @@ upstream GTE code compiled with MSVC; the port replays the same inputs. See
 - compiler MSVC 194435215 x64 /O2 /fp:precise
 - records-per-case 20
 
-**1161 cases, 20980 records, 202060 floating-point outputs compared; 99.65% bit-identical to the C++ build. 1002 cases are bit-identical on every output. 112 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
+**1202 cases, 21720 records, 208532 floating-point outputs compared; 99.66% bit-identical to the C++ build. 1039 cases are bit-identical on every output. 116 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
 
 Discrete outputs (booleans, counts, indices) always compare exactly and are not counted
 in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |port|, |C++|)`.
@@ -21,6 +21,7 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | v02-algebra | 52 | 960 | 27908 | 99.59% | 37 | 2.33e-16 | `Rotation.eulerAnglesToAxisAngle` |
 | v03-approximation | 75 | 1400 | 10644 | 100.00% | 70 | 0 |  |
 | v04-approximation | 36 | 660 | 6632 | 94.99% | 24 | 4.61e-13 | `ApprTorus3.gaussNewton.initialGuess` |
+| v08-compgeom | 41 | 740 | 6472 | 100.00% | 37 | 0 |  |
 | v09-compgeom | 16 | 220 | 640 | 100.00% | 11 | 0 |  |
 | v14-containment | 70 | 1280 | 4492 | 100.00% | 64 | 0 |  |
 | v17-curves | 51 | 1000 | 17627 | 100.00% | 50 | 0 |  |
@@ -63,6 +64,10 @@ every record.
 | v04-approximation | `ApprEllipseByArcs.approximate.deviation` | 4 of 20 | issue #322: Circumscribe failure discarded in the intermediate-arc loop, leaving the previous arc stored |
 | v04-approximation | `ApprCone3.levenbergMarquardt.staleResidual.deviation` | 14 of 20 | issue #261: LevenbergMarquardtMinimizer::DoIteration builds -J^T*F from the residual at the previously rejected candidate |
 | v04-approximation | `ApprCone3EllipseAndPoints.fit.deviation` | 9 of 20 | issue #349: ComputeCone divides by the ellipse extent a without validating it |
+| v08-compgeom | `MinimumVolumeBox3FloatingPoint.compute.coplanar` | 12 of 20 | #352 (dimension-2 Newell normal loop drops the wrap-around term) |
+| v08-compgeom | `MinimumVolumeBox3FloatingPoint.compute.nonContaining` | 13 of 20 | #405 (ComputeVolume axis minima) and #426 (GetExtreme plateau) |
+| v08-compgeom | `MinimumVolumeBox3Rational.compute.variableT` | 6 of 20 | #355 (MinimizerVariableT rounds its exact parameters to double) |
+| v08-compgeom | `MinimumVolumeBox3Rational.compute.coplanar` | 17 of 20 | #355 (dimension-2 Newell normal loop drops the wrap-around term) |
 | v09-compgeom | `Delaunay2.compute.deviation.numVertices` | 20 of 20 | #277 (GetNumVertices after degenerate input) |
 | v09-compgeom | `Delaunay2.compute.deviation.epsilon` | 20 of 20 | #391 (hardcoded epsilon = 0 in Delaunay2) |
 | v09-compgeom | `Delaunay3.compute.deviation.duplicates` | 20 of 20 | #283 (ProcessedVertex compares the location) |
