@@ -1,0 +1,1595 @@
+// Verify group 8 (computational geometry): differential cases for the headers
+// listed in plan/verify-groups.json group 8.
+//
+// Comparison policy for this family. Almost everything here is + - * / sqrt
+// and comparisons, so every ordinary case is declared exact on the TypeScript
+// side. The three places where the C math library enters are handled as
+// follows.
+//
+//   * SortPointsOnCircle::ByAngle compares std::atan2 values. A one-ulp
+//     disagreement between the MSVC runtime and V8 would change the sort
+//     order, which is a discrete output that no tolerance can rescue. The
+//     generator therefore rejects point pairs whose directions from the sort
+//     centre are distinct but (nearly) parallel: with |DotPerp(W0,W1)| >=
+//     1e-6 * |W0| * |W1| the angular gap is more than ten orders of magnitude
+//     above an ulp of atan2, so the comparison is decided by the geometry and
+//     not by the library. Exactly coincident W vectors are allowed, because
+//     atan2 of identical arguments is identical in any one library and the
+//     comparator then falls through to the arithmetic tie-break.
+//
+//   * InscribedFixedAspectRectInQuad::Execute uses std::atan2 only to pick
+//     the quadrant index j = floor((2/pi) * angle) of each edge normal. The
+//     angle value itself never reaches the result. The generator uses lattice
+//     quads whose four inner normals all have both components nonzero, so
+//     every angle is at least atan(1/12) away from a quadrant boundary and j
+//     is decided identically by both libraries. Everything after that is
+//     arithmetic, so the case is exact.
+//
+//   * MinimumVolumeBox3 point clouds are built by rotating lattice clouds
+//     with sin/cos, but only the final rotated coordinates are recorded as
+//     inputs, so no libm value enters a compared computation.
+//
+// Container orders that C++ leaves unspecified are canonicalized identically
+// on both sides and the case comment says so (BoxManager's overlap set is a
+// std::set and therefore already ordered; NearestNeighborQuery's leaf site
+// lists are sorted).
+#define ORACLE_FAMILY "v08-compgeom"
+#include "Oracle.h"
+
+#include <Mathematics/DisjointIntervals.h>
+#include <Mathematics/DisjointRectangles.h>
+#include <Mathematics/SortPointsOnCircle.h>
+#include <Mathematics/CircleThroughPointSpecifiedTangentAndRadius.h>
+#include <Mathematics/CircleThroughTwoPointsSpecifiedRadius.h>
+#include <Mathematics/ConvexHullSimplePolygon.h>
+#include <Mathematics/ConvexPolyhedron3.h>
+#include <Mathematics/PrimalQuery2.h>
+#include <Mathematics/PrimalQuery3.h>
+#include <Mathematics/ExtremalQuery3PRJ.h>
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdint>
+#include <deque>
+#include <exception>
+#include <limits>
+#include <set>
+#include <vector>
+
+using namespace gte;
+
+namespace
+{
+    // ---- DisjointIntervals / DisjointRectangles -------------------------
+
+    // Membership in a set of half-open intervals, computed by a linear scan
+    // of the reported intervals. This is independent of the merge algorithms
+    // under test and is used as the reference oracle for the Boolean
+    // operations.
+    bool InIntervalSet(DisjointIntervals<double> const& s, double t)
+    {
+        int32_t const n = s.GetNumIntervals();
+        for (int32_t i = 0; i < n; ++i)
+        {
+            double a = 0.0, b = 0.0;
+            s.GetInterval(i, a, b);
+            if (a <= t && t < b)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // The reported intervals must be nonempty, ascending and separated.
+    bool IntervalSetIsCanonical(DisjointIntervals<double> const& s)
+    {
+        int32_t const n = s.GetNumIntervals();
+        double prevMax = -std::numeric_limits<double>::max();
+        for (int32_t i = 0; i < n; ++i)
+        {
+            double a = 0.0, b = 0.0;
+            if (!s.GetInterval(i, a, b))
+            {
+                return false;
+            }
+            if (!(a < b) || !(prevMax < a))
+            {
+                return false;
+            }
+            prevMax = b;
+        }
+        return true;
+    }
+
+    // Record a set: the interval count, every interval, and the out-of-range
+    // probes at i = -1 and i = count (upstream returns false and writes zeros
+    // there; the port returns null and the replay emits the same zeros).
+    void OutIntervalSet(oracle::Ctx& io, DisjointIntervals<double> const& s)
+    {
+        int32_t const n = s.GetNumIntervals();
+        io.outInt(n);
+        for (int32_t i = 0; i < n; ++i)
+        {
+            double a = 0.0, b = 0.0;
+            bool ok = s.GetInterval(i, a, b);
+            io.outBool(ok);
+            io.outReal(a);
+            io.outReal(b);
+        }
+
+        double a = 0.0, b = 0.0;
+        bool okHigh = s.GetInterval(n, a, b);
+        io.outBool(okHigh);
+        io.outReal(a);
+        io.outReal(b);
+
+        double c = 0.0, d = 0.0;
+        bool okLow = s.GetInterval(-1, c, d);
+        io.outBool(okLow);
+        io.outReal(c);
+        io.outReal(d);
+
+        io.outBool(IntervalSetIsCanonical(s));
+    }
+
+    // The reference check for a Boolean operation on interval sets: sample
+    // the real line on a half-integer lattice and compare membership in the
+    // computed result with the Boolean combination of the memberships in the
+    // operands. 'op' is 0 = union, 1 = intersection, 2 = difference,
+    // 3 = exclusive or.
+    bool IntervalOpAgreesWithReference(DisjointIntervals<double> const& s0,
+        DisjointIntervals<double> const& s1,
+        DisjointIntervals<double> const& result, int32_t op)
+    {
+        for (int32_t k = -40; k <= 40; ++k)
+        {
+            double t = 0.25 * static_cast<double>(k);
+            bool in0 = InIntervalSet(s0, t);
+            bool in1 = InIntervalSet(s1, t);
+            bool expected =
+                (op == 0 ? (in0 || in1) :
+                (op == 1 ? (in0 && in1) :
+                (op == 2 ? (in0 && !in1) : (in0 != in1))));
+            if (InIntervalSet(result, t) != expected)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // Draw the endpoints of one interval. Mode 0 uses a very tight lattice so
+    // that touching and nested intervals and empty (xmin >= xmax) requests
+    // occur constantly; mode 1 a wider lattice; mode 2 uniform reals. Every
+    // mode records exactly two doubles.
+    void DrawInterval(oracle::Ctx& io, int32_t mode, double& xmin, double& xmax)
+    {
+        if (mode == 0)
+        {
+            xmin = io.lattice(-3, 3);
+            xmax = io.lattice(-3, 3);
+        }
+        else if (mode == 1)
+        {
+            xmin = io.lattice(-8, 8);
+            xmax = io.lattice(-8, 8);
+        }
+        else
+        {
+            xmin = io.real(-8.0, 8.0);
+            xmax = io.real(-8.0, 8.0);
+        }
+    }
+
+    // Build an interval set from 'numOps' insertions.
+    DisjointIntervals<double> MakeIntervalSet(oracle::Ctx& io, int32_t mode, int32_t numOps)
+    {
+        DisjointIntervals<double> s{};
+        for (int32_t k = 0; k < numOps; ++k)
+        {
+            double xmin = 0.0, xmax = 0.0;
+            DrawInterval(io, mode, xmin, xmax);
+            s.Insert(xmin, xmax);
+        }
+        return s;
+    }
+}
+
+ORACLE_CASE("DisjointIntervals.insertRemove")
+{
+    int32_t mode = io.integer(0, 2);
+    int32_t numOps = io.integer(1, 7);
+    DisjointIntervals<double> s{};
+    for (int32_t k = 0; k < numOps; ++k)
+    {
+        int32_t op = io.integer(0, 1);
+        double xmin = 0.0, xmax = 0.0;
+        DrawInterval(io, mode, xmin, xmax);
+        bool success = (op == 0 ? s.Insert(xmin, xmax) : s.Remove(xmin, xmax));
+        io.outBool(success);
+        io.outInt(s.GetNumIntervals());
+    }
+    OutIntervalSet(io, s);
+}
+
+ORACLE_CASE("DisjointIntervals.operators")
+{
+    int32_t mode = io.integer(0, 2);
+    int32_t numOps0 = io.integer(1, 5);
+    int32_t numOps1 = io.integer(1, 5);
+    DisjointIntervals<double> s0 = MakeIntervalSet(io, mode, numOps0);
+    DisjointIntervals<double> s1 = MakeIntervalSet(io, mode, numOps1);
+
+    OutIntervalSet(io, s0);
+    OutIntervalSet(io, s1);
+
+    DisjointIntervals<double> rUnion = s0 | s1;
+    OutIntervalSet(io, rUnion);
+    io.outBool(IntervalOpAgreesWithReference(s0, s1, rUnion, 0));
+
+    DisjointIntervals<double> rIntersect = s0 & s1;
+    OutIntervalSet(io, rIntersect);
+    io.outBool(IntervalOpAgreesWithReference(s0, s1, rIntersect, 1));
+
+    DisjointIntervals<double> rDifference = s0 - s1;
+    OutIntervalSet(io, rDifference);
+    io.outBool(IntervalOpAgreesWithReference(s0, s1, rDifference, 2));
+
+    DisjointIntervals<double> rXor = s0 ^ s1;
+    OutIntervalSet(io, rXor);
+    io.outBool(IntervalOpAgreesWithReference(s0, s1, rXor, 3));
+
+    // The empty set is the identity for union / xor and the annihilator for
+    // intersection; the operators are exercised with an empty operand too.
+    DisjointIntervals<double> empty{};
+    DisjointIntervals<double> rEmptyUnion = empty | s0;
+    OutIntervalSet(io, rEmptyUnion);
+    DisjointIntervals<double> rEmptyIntersect = s0 & empty;
+    OutIntervalSet(io, rEmptyIntersect);
+    DisjointIntervals<double> rEmptyDifference = empty - s0;
+    OutIntervalSet(io, rEmptyDifference);
+    DisjointIntervals<double> rEmptyXor = s0 ^ empty;
+    OutIntervalSet(io, rEmptyXor);
+}
+
+namespace
+{
+    // ---- DisjointRectangles ---------------------------------------------
+
+    bool InRectangleSet(DisjointRectangles<double> const& s, double x, double y)
+    {
+        int32_t const n = s.GetNumRectangles();
+        for (int32_t i = 0; i < n; ++i)
+        {
+            double xmin = 0.0, xmax = 0.0, ymin = 0.0, ymax = 0.0;
+            s.GetRectangle(i, xmin, xmax, ymin, ymax);
+            if (xmin <= x && x < xmax && ymin <= y && y < ymax)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // The strips must be nonempty and ascending, and each strip's interval
+    // set must itself be canonical.
+    bool RectangleSetIsCanonical(DisjointRectangles<double> const& s)
+    {
+        int32_t const n = s.GetNumStrips();
+        double prevMax = -std::numeric_limits<double>::max();
+        int32_t total = 0;
+        for (int32_t i = 0; i < n; ++i)
+        {
+            double ymin = 0.0, ymax = 0.0;
+            DisjointIntervals<double> xset{};
+            if (!s.GetStrip(i, ymin, ymax, xset))
+            {
+                return false;
+            }
+            if (!(ymin < ymax) || !(prevMax <= ymin))
+            {
+                return false;
+            }
+            if (!IntervalSetIsCanonical(xset))
+            {
+                return false;
+            }
+            prevMax = ymax;
+            total += xset.GetNumIntervals();
+        }
+        return total == s.GetNumRectangles();
+    }
+
+    void OutRectangleSet(oracle::Ctx& io, DisjointRectangles<double> const& s)
+    {
+        int32_t const numRectangles = s.GetNumRectangles();
+        io.outInt(numRectangles);
+        for (int32_t i = 0; i < numRectangles; ++i)
+        {
+            double xmin = 0.0, xmax = 0.0, ymin = 0.0, ymax = 0.0;
+            bool ok = s.GetRectangle(i, xmin, xmax, ymin, ymax);
+            io.outBool(ok);
+            io.outReal(xmin);
+            io.outReal(xmax);
+            io.outReal(ymin);
+            io.outReal(ymax);
+        }
+
+        // Out-of-range rectangle probe.
+        double x0 = 0.0, x1 = 0.0, y0 = 0.0, y1 = 0.0;
+        bool okHigh = s.GetRectangle(numRectangles, x0, x1, y0, y1);
+        io.outBool(okHigh);
+        io.outReal(x0);
+        io.outReal(x1);
+        io.outReal(y0);
+        io.outReal(y1);
+
+        int32_t const numStrips = s.GetNumStrips();
+        io.outInt(numStrips);
+        for (int32_t i = 0; i < numStrips; ++i)
+        {
+            double ymin = 0.0, ymax = 0.0;
+            DisjointIntervals<double> xset{};
+            bool ok = s.GetStrip(i, ymin, ymax, xset);
+            io.outBool(ok);
+            io.outReal(ymin);
+            io.outReal(ymax);
+            OutIntervalSet(io, xset);
+        }
+
+        // Out-of-range strip probes. Upstream leaves ymin, ymax and the
+        // interval set untouched when it returns false, so only the bool is
+        // recorded here.
+        double sy0 = 0.0, sy1 = 0.0;
+        DisjointIntervals<double> sxset{};
+        bool okStripHigh = s.GetStrip(numStrips, sy0, sy1, sxset);
+        io.outBool(okStripHigh);
+        bool okStripLow = s.GetStrip(-1, sy0, sy1, sxset);
+        io.outBool(okStripLow);
+
+        io.outBool(RectangleSetIsCanonical(s));
+    }
+
+    bool RectangleOpAgreesWithReference(DisjointRectangles<double> const& s0,
+        DisjointRectangles<double> const& s1,
+        DisjointRectangles<double> const& result, int32_t op)
+    {
+        for (int32_t kx = -14; kx <= 14; ++kx)
+        {
+            double x = 0.5 * static_cast<double>(kx);
+            for (int32_t ky = -14; ky <= 14; ++ky)
+            {
+                double y = 0.5 * static_cast<double>(ky);
+                bool in0 = InRectangleSet(s0, x, y);
+                bool in1 = InRectangleSet(s1, x, y);
+                bool expected =
+                    (op == 0 ? (in0 || in1) :
+                    (op == 1 ? (in0 && in1) :
+                    (op == 2 ? (in0 && !in1) : (in0 != in1))));
+                if (InRectangleSet(result, x, y) != expected)
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    void DrawRectangle(oracle::Ctx& io, int32_t mode, double& xmin, double& xmax,
+        double& ymin, double& ymax)
+    {
+        DrawInterval(io, mode, xmin, xmax);
+        DrawInterval(io, mode, ymin, ymax);
+    }
+
+    DisjointRectangles<double> MakeRectangleSet(oracle::Ctx& io, int32_t mode, int32_t numOps)
+    {
+        DisjointRectangles<double> s{};
+        for (int32_t k = 0; k < numOps; ++k)
+        {
+            double xmin = 0.0, xmax = 0.0, ymin = 0.0, ymax = 0.0;
+            DrawRectangle(io, mode, xmin, xmax, ymin, ymax);
+            s.Insert(xmin, xmax, ymin, ymax);
+        }
+        return s;
+    }
+}
+
+ORACLE_CASE("DisjointRectangles.insertRemove")
+{
+    int32_t mode = io.integer(0, 2);
+    int32_t numOps = io.integer(1, 6);
+    DisjointRectangles<double> s{};
+    for (int32_t k = 0; k < numOps; ++k)
+    {
+        int32_t op = io.integer(0, 1);
+        double xmin = 0.0, xmax = 0.0, ymin = 0.0, ymax = 0.0;
+        DrawRectangle(io, mode, xmin, xmax, ymin, ymax);
+        bool success = (op == 0 ? s.Insert(xmin, xmax, ymin, ymax)
+            : s.Remove(xmin, xmax, ymin, ymax));
+        io.outBool(success);
+        io.outInt(s.GetNumRectangles());
+    }
+    OutRectangleSet(io, s);
+}
+
+ORACLE_CASE("DisjointRectangles.operators")
+{
+    int32_t mode = io.integer(0, 2);
+    int32_t numOps0 = io.integer(1, 4);
+    int32_t numOps1 = io.integer(1, 4);
+    DisjointRectangles<double> s0 = MakeRectangleSet(io, mode, numOps0);
+    DisjointRectangles<double> s1 = MakeRectangleSet(io, mode, numOps1);
+
+    OutRectangleSet(io, s0);
+    OutRectangleSet(io, s1);
+
+    DisjointRectangles<double> rUnion = s0 | s1;
+    OutRectangleSet(io, rUnion);
+    io.outBool(RectangleOpAgreesWithReference(s0, s1, rUnion, 0));
+
+    DisjointRectangles<double> rIntersect = s0 & s1;
+    OutRectangleSet(io, rIntersect);
+    io.outBool(RectangleOpAgreesWithReference(s0, s1, rIntersect, 1));
+
+    DisjointRectangles<double> rDifference = s0 - s1;
+    OutRectangleSet(io, rDifference);
+    io.outBool(RectangleOpAgreesWithReference(s0, s1, rDifference, 2));
+
+    DisjointRectangles<double> rXor = s0 ^ s1;
+    OutRectangleSet(io, rXor);
+    io.outBool(RectangleOpAgreesWithReference(s0, s1, rXor, 3));
+
+    DisjointRectangles<double> empty{};
+    DisjointRectangles<double> rEmptyUnion = empty | s0;
+    OutRectangleSet(io, rEmptyUnion);
+    DisjointRectangles<double> rEmptyIntersect = s0 & empty;
+    OutRectangleSet(io, rEmptyIntersect);
+    DisjointRectangles<double> rEmptyDifference = empty - s0;
+    OutRectangleSet(io, rEmptyDifference);
+    DisjointRectangles<double> rEmptyXor = s0 ^ empty;
+    OutRectangleSet(io, rEmptyXor);
+}
+
+namespace
+{
+    // ---- PrimalQuery2 / PrimalQuery3 ------------------------------------
+    //
+    // Upstream is templated on Real and intended for an exact type; the port
+    // is number-only, so the C++ side is instantiated with double. All four
+    // generator modes record exactly two doubles per 2D point and three per
+    // 3D point, so the replay reads the mode, the point count and then the
+    // coordinates.
+    //
+    // Modes 1 and 2 construct exact degeneracies on the integer lattice: the
+    // 12 lattice points of the circle x^2+y^2 = 25 (every 4 of them are
+    // exactly cocircular and every 3 of them give a nonzero determinant that
+    // is an exact integer), the 30 lattice points of the sphere
+    // x^2+y^2+z^2 = 9, and collinear / coplanar runs V0 + k*dir. With
+    // coordinates bounded by 10 every product and sum in the determinants is
+    // an integer below 2^53, so the predicates are evaluated at exact zero
+    // where the configuration is degenerate.
+
+    int32_t const circle5[12][2] =
+    {
+        { 5, 0 }, { 4, 3 }, { 3, 4 }, { 0, 5 }, { -3, 4 }, { -4, 3 },
+        { -5, 0 }, { -4, -3 }, { -3, -4 }, { 0, -5 }, { 3, -4 }, { 4, -3 }
+    };
+
+    int32_t const sphere3[30][3] =
+    {
+        { 3, 0, 0 }, { -3, 0, 0 }, { 0, 3, 0 }, { 0, -3, 0 }, { 0, 0, 3 }, { 0, 0, -3 },
+        { 1, 2, 2 }, { 1, 2, -2 }, { 1, -2, 2 }, { 1, -2, -2 },
+        { -1, 2, 2 }, { -1, 2, -2 }, { -1, -2, 2 }, { -1, -2, -2 },
+        { 2, 1, 2 }, { 2, 1, -2 }, { 2, -1, 2 }, { 2, -1, -2 },
+        { -2, 1, 2 }, { -2, 1, -2 }, { -2, -1, 2 }, { -2, -1, -2 },
+        { 2, 2, 1 }, { 2, 2, -1 }, { 2, -2, 1 }, { 2, -2, -1 },
+        { -2, 2, 1 }, { -2, 2, -1 }, { -2, -2, 1 }, { -2, -2, -1 }
+    };
+
+    // One 2D point in the given mode. Exactly two doubles are recorded.
+    Vector2<double> MakePoint2(oracle::Ctx& io, int32_t mode,
+        Vector2<double> const& base, Vector2<double> const& dir)
+    {
+        if (mode == 0)
+        {
+            return io.latticeVec<2>(-4, 4);
+        }
+        if (mode == 1)
+        {
+            int32_t k = io.rawInteger(0, 11);
+            Vector2<double> p
+            {
+                base[0] + static_cast<double>(circle5[k][0]),
+                base[1] + static_cast<double>(circle5[k][1])
+            };
+            return io.givenVec(p);
+        }
+        if (mode == 2)
+        {
+            if (io.rawInteger(0, 3) != 0)
+            {
+                double k = static_cast<double>(io.rawInteger(-3, 3));
+                Vector2<double> p{ base[0] + k * dir[0], base[1] + k * dir[1] };
+                return io.givenVec(p);
+            }
+            Vector2<double> p
+            {
+                static_cast<double>(io.rawInteger(-4, 4)),
+                static_cast<double>(io.rawInteger(-4, 4))
+            };
+            return io.givenVec(p);
+        }
+        return io.vec<2>(-5.0, 5.0);
+    }
+
+    std::vector<Vector2<double>> MakePoints2(oracle::Ctx& io, int32_t mode, int32_t n,
+        Vector2<double>& base, Vector2<double>& dir)
+    {
+        base[0] = static_cast<double>(io.rawInteger(-3, 3));
+        base[1] = static_cast<double>(io.rawInteger(-3, 3));
+        dir = Vector2<double>{ 0.0, 0.0 };
+        do
+        {
+            dir[0] = static_cast<double>(io.rawInteger(-2, 2));
+            dir[1] = static_cast<double>(io.rawInteger(-2, 2));
+        }
+        while (dir[0] == 0.0 && dir[1] == 0.0);
+
+        std::vector<Vector2<double>> P(static_cast<size_t>(n));
+        for (int32_t i = 0; i < n; ++i)
+        {
+            P[static_cast<size_t>(i)] = MakePoint2(io, mode, base, dir);
+        }
+        return P;
+    }
+
+    // One 3D point in the given mode. Exactly three doubles are recorded.
+    Vector3<double> MakePoint3(oracle::Ctx& io, int32_t mode,
+        Vector3<double> const& base, Vector3<double> const& dir0,
+        Vector3<double> const& dir1)
+    {
+        if (mode == 0)
+        {
+            return io.latticeVec<3>(-3, 3);
+        }
+        if (mode == 1)
+        {
+            int32_t k = io.rawInteger(0, 29);
+            Vector3<double> p
+            {
+                base[0] + static_cast<double>(sphere3[k][0]),
+                base[1] + static_cast<double>(sphere3[k][1]),
+                base[2] + static_cast<double>(sphere3[k][2])
+            };
+            return io.givenVec(p);
+        }
+        if (mode == 2)
+        {
+            if (io.rawInteger(0, 3) != 0)
+            {
+                // Coplanar (and, when the second coefficient is zero,
+                // collinear) with the frame <base, dir0, dir1>.
+                double a = static_cast<double>(io.rawInteger(-2, 2));
+                double b = static_cast<double>(io.rawInteger(-2, 2));
+                Vector3<double> p = base + a * dir0 + b * dir1;
+                return io.givenVec(p);
+            }
+            Vector3<double> p
+            {
+                static_cast<double>(io.rawInteger(-3, 3)),
+                static_cast<double>(io.rawInteger(-3, 3)),
+                static_cast<double>(io.rawInteger(-3, 3))
+            };
+            return io.givenVec(p);
+        }
+        return io.vec<3>(-4.0, 4.0);
+    }
+
+    std::vector<Vector3<double>> MakePoints3(oracle::Ctx& io, int32_t mode, int32_t n,
+        Vector3<double>& base, Vector3<double>& dir0, Vector3<double>& dir1)
+    {
+        for (int32_t j = 0; j < 3; ++j)
+        {
+            base[j] = static_cast<double>(io.rawInteger(-2, 2));
+        }
+        dir0 = Vector3<double>{ 0.0, 0.0, 0.0 };
+        dir1 = Vector3<double>{ 0.0, 0.0, 0.0 };
+        do
+        {
+            for (int32_t j = 0; j < 3; ++j)
+            {
+                dir0[j] = static_cast<double>(io.rawInteger(-2, 2));
+                dir1[j] = static_cast<double>(io.rawInteger(-2, 2));
+            }
+        }
+        while (Length(Cross(dir0, dir1)) == 0.0);
+
+        std::vector<Vector3<double>> P(static_cast<size_t>(n));
+        for (int32_t i = 0; i < n; ++i)
+        {
+            P[static_cast<size_t>(i)] = MakePoint3(io, mode, base, dir0, dir1);
+        }
+        return P;
+    }
+}
+
+ORACLE_CASE("PrimalQuery2.toLine")
+{
+    int32_t mode = io.integer(0, 3);
+    int32_t n = io.integer(4, 9);
+    Vector2<double> base{ 0.0, 0.0 }, dir{ 0.0, 0.0 };
+    std::vector<Vector2<double>> P = MakePoints2(io, mode, n, base, dir);
+    PrimalQuery2<double> query(n, P.data());
+    io.outInt(query.GetNumVertices());
+
+    for (int32_t q = 0; q < 4; ++q)
+    {
+        int32_t i = io.integer(0, n - 1);
+        int32_t v0 = io.integer(0, n - 1);
+        int32_t v1 = io.integer(0, n - 1);
+        io.outInt(query.ToLine(i, v0, v1));
+
+        Vector2<double> test = MakePoint2(io, mode, base, dir);
+        io.outInt(query.ToLine(test, v0, v1));
+    }
+}
+
+ORACLE_CASE("PrimalQuery2.toLineWithOrder")
+{
+    // The four-argument overload's collinear 'order' has a known upstream
+    // defect (issue #100: it squares P-V0 instead of V1-V0) which the port
+    // preserves verbatim, so the values are compared bit for bit. Modes 1 and
+    // 2 make the collinear branch common.
+    int32_t mode = io.integer(0, 3);
+    int32_t n = io.integer(4, 9);
+    Vector2<double> base{ 0.0, 0.0 }, dir{ 0.0, 0.0 };
+    std::vector<Vector2<double>> P = MakePoints2(io, mode, n, base, dir);
+    PrimalQuery2<double> query(n, P.data());
+
+    for (int32_t q = 0; q < 4; ++q)
+    {
+        int32_t i = io.integer(0, n - 1);
+        int32_t v0 = io.integer(0, n - 1);
+        int32_t v1 = io.integer(0, n - 1);
+
+        int32_t orderI = 0;
+        int32_t signI = query.ToLine(i, v0, v1, orderI);
+        io.outInt(signI);
+        io.outInt(orderI);
+
+        Vector2<double> test = MakePoint2(io, mode, base, dir);
+        int32_t orderT = 0;
+        int32_t signT = query.ToLine(test, v0, v1, orderT);
+        io.outInt(signT);
+        io.outInt(orderT);
+    }
+}
+
+ORACLE_CASE("PrimalQuery2.toTriangle")
+{
+    int32_t mode = io.integer(0, 3);
+    int32_t n = io.integer(4, 9);
+    Vector2<double> base{ 0.0, 0.0 }, dir{ 0.0, 0.0 };
+    std::vector<Vector2<double>> P = MakePoints2(io, mode, n, base, dir);
+    PrimalQuery2<double> query(n, P.data());
+
+    for (int32_t q = 0; q < 4; ++q)
+    {
+        int32_t i = io.integer(0, n - 1);
+        int32_t v0 = io.integer(0, n - 1);
+        int32_t v1 = io.integer(0, n - 1);
+        int32_t v2 = io.integer(0, n - 1);
+        io.outInt(query.ToTriangle(i, v0, v1, v2));
+
+        Vector2<double> test = MakePoint2(io, mode, base, dir);
+        io.outInt(query.ToTriangle(test, v0, v1, v2));
+    }
+}
+
+ORACLE_CASE("PrimalQuery2.toCircumcircle")
+{
+    int32_t mode = io.integer(0, 3);
+    int32_t n = io.integer(4, 9);
+    Vector2<double> base{ 0.0, 0.0 }, dir{ 0.0, 0.0 };
+    std::vector<Vector2<double>> P = MakePoints2(io, mode, n, base, dir);
+    PrimalQuery2<double> query(n, P.data());
+
+    for (int32_t q = 0; q < 4; ++q)
+    {
+        int32_t i = io.integer(0, n - 1);
+        int32_t v0 = io.integer(0, n - 1);
+        int32_t v1 = io.integer(0, n - 1);
+        int32_t v2 = io.integer(0, n - 1);
+        io.outInt(query.ToCircumcircle(i, v0, v1, v2));
+
+        Vector2<double> test = MakePoint2(io, mode, base, dir);
+        io.outInt(query.ToCircumcircle(test, v0, v1, v2));
+    }
+}
+
+ORACLE_CASE("PrimalQuery2.toLineExtended")
+{
+    int32_t mode = io.integer(0, 3);
+    int32_t n = io.integer(4, 9);
+    Vector2<double> base{ 0.0, 0.0 }, dir{ 0.0, 0.0 };
+    std::vector<Vector2<double>> P = MakePoints2(io, mode, n, base, dir);
+    PrimalQuery2<double> query(n, P.data());
+
+    for (int32_t q = 0; q < 5; ++q)
+    {
+        int32_t i = io.integer(0, n - 1);
+        int32_t v0 = io.integer(0, n - 1);
+        int32_t v1 = io.integer(0, n - 1);
+        auto order = query.ToLineExtended(P[static_cast<size_t>(i)],
+            P[static_cast<size_t>(v0)], P[static_cast<size_t>(v1)]);
+        io.outInt(static_cast<int32_t>(order));
+    }
+}
+
+ORACLE_CASE("PrimalQuery3.toPlane")
+{
+    int32_t mode = io.integer(0, 3);
+    int32_t n = io.integer(5, 10);
+    Vector3<double> base{ 0.0, 0.0, 0.0 }, dir0{ 0.0, 0.0, 0.0 }, dir1{ 0.0, 0.0, 0.0 };
+    std::vector<Vector3<double>> P = MakePoints3(io, mode, n, base, dir0, dir1);
+    PrimalQuery3<double> query(n, P.data());
+    io.outInt(query.GetNumVertices());
+
+    for (int32_t q = 0; q < 4; ++q)
+    {
+        int32_t i = io.integer(0, n - 1);
+        int32_t v0 = io.integer(0, n - 1);
+        int32_t v1 = io.integer(0, n - 1);
+        int32_t v2 = io.integer(0, n - 1);
+        io.outInt(query.ToPlane(i, v0, v1, v2));
+
+        Vector3<double> test = MakePoint3(io, mode, base, dir0, dir1);
+        io.outInt(query.ToPlane(test, v0, v1, v2));
+    }
+}
+
+ORACLE_CASE("PrimalQuery3.toTetrahedron")
+{
+    int32_t mode = io.integer(0, 3);
+    int32_t n = io.integer(5, 10);
+    Vector3<double> base{ 0.0, 0.0, 0.0 }, dir0{ 0.0, 0.0, 0.0 }, dir1{ 0.0, 0.0, 0.0 };
+    std::vector<Vector3<double>> P = MakePoints3(io, mode, n, base, dir0, dir1);
+    PrimalQuery3<double> query(n, P.data());
+
+    for (int32_t q = 0; q < 4; ++q)
+    {
+        int32_t i = io.integer(0, n - 1);
+        int32_t v0 = io.integer(0, n - 1);
+        int32_t v1 = io.integer(0, n - 1);
+        int32_t v2 = io.integer(0, n - 1);
+        int32_t v3 = io.integer(0, n - 1);
+        io.outInt(query.ToTetrahedron(i, v0, v1, v2, v3));
+
+        Vector3<double> test = MakePoint3(io, mode, base, dir0, dir1);
+        io.outInt(query.ToTetrahedron(test, v0, v1, v2, v3));
+    }
+}
+
+ORACLE_CASE("PrimalQuery3.toCircumsphere")
+{
+    int32_t mode = io.integer(0, 3);
+    int32_t n = io.integer(5, 10);
+    Vector3<double> base{ 0.0, 0.0, 0.0 }, dir0{ 0.0, 0.0, 0.0 }, dir1{ 0.0, 0.0, 0.0 };
+    std::vector<Vector3<double>> P = MakePoints3(io, mode, n, base, dir0, dir1);
+    PrimalQuery3<double> query(n, P.data());
+
+    for (int32_t q = 0; q < 4; ++q)
+    {
+        int32_t i = io.integer(0, n - 1);
+        int32_t v0 = io.integer(0, n - 1);
+        int32_t v1 = io.integer(0, n - 1);
+        int32_t v2 = io.integer(0, n - 1);
+        int32_t v3 = io.integer(0, n - 1);
+        io.outInt(query.ToCircumsphere(i, v0, v1, v2, v3));
+
+        Vector3<double> test = MakePoint3(io, mode, base, dir0, dir1);
+        io.outInt(query.ToCircumsphere(test, v0, v1, v2, v3));
+    }
+}
+
+namespace
+{
+    // ---- SortPointsOnCircle ---------------------------------------------
+
+    struct SortInput
+    {
+        std::vector<std::array<double, 2>> P;
+        std::array<double, 2> C;
+        std::array<double, 2> D;
+        bool sortCCW;
+    };
+
+    // The W vectors the sort operates on, computed exactly as upstream does.
+    std::vector<std::array<double, 2>> SortW(SortInput const& in)
+    {
+        std::array<double, 2> Dperp = (in.sortCCW
+            ? std::array<double, 2>{ -in.D[1], in.D[0] }
+            : std::array<double, 2>{ in.D[1], -in.D[0] });
+        std::vector<std::array<double, 2>> W(in.P.size());
+        for (size_t i = 0; i < in.P.size(); ++i)
+        {
+            std::array<double, 2> V = { in.P[i][0] - in.C[0], in.P[i][1] - in.C[1] };
+            W[i] = { in.D[0] * V[0] + in.D[1] * V[1], Dperp[0] * V[0] + Dperp[1] * V[1] };
+        }
+        return W;
+    }
+
+    // No point may coincide with the sort centre: upstream's
+    // LessThanByGeometry is then not a strict weak ordering, which is
+    // undefined behaviour for std::sort (finding #394). Such inputs are kept
+    // out of every generator here.
+    bool NoZeroW(std::vector<std::array<double, 2>> const& W)
+    {
+        for (auto const& w : W)
+        {
+            if (w[0] == 0.0 && w[1] == 0.0)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // For the ByAngle comparison, two W vectors must either be identical (so
+    // that std::atan2 returns the same double for both in any one library) or
+    // have an angular gap far above an ulp of atan2.
+    bool AnglesAreWellSeparated(std::vector<std::array<double, 2>> const& W)
+    {
+        for (size_t i = 0; i + 1 < W.size(); ++i)
+        {
+            for (size_t j = i + 1; j < W.size(); ++j)
+            {
+                if (W[i][0] == W[j][0] && W[i][1] == W[j][1])
+                {
+                    continue;
+                }
+                double cross = W[i][0] * W[j][1] - W[j][0] * W[i][1];
+                double li = std::sqrt(W[i][0] * W[i][0] + W[i][1] * W[i][1]);
+                double lj = std::sqrt(W[j][0] * W[j][0] + W[j][1] * W[j][1]);
+                if (std::fabs(cross) < 1e-6 * li * lj)
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    // Draw a candidate sort input without recording anything. Mode 0 is a
+    // small lattice, mode 1 is uniform and mode 2 repeats a few of the drawn
+    // points verbatim so that the comparators see exactly equivalent
+    // elements.
+    SortInput DrawSortInput(oracle::Ctx& io, int32_t mode, int32_t n)
+    {
+        SortInput in{};
+        in.P.resize(static_cast<size_t>(n));
+        if (mode == 1)
+        {
+            in.C = { io.raw(-3.0, 3.0), io.raw(-3.0, 3.0) };
+            do
+            {
+                in.D = { io.raw(-2.0, 2.0), io.raw(-2.0, 2.0) };
+            }
+            while (in.D[0] == 0.0 && in.D[1] == 0.0);
+            for (int32_t i = 0; i < n; ++i)
+            {
+                in.P[static_cast<size_t>(i)] = { io.raw(-6.0, 6.0), io.raw(-6.0, 6.0) };
+            }
+        }
+        else
+        {
+            in.C = { static_cast<double>(io.rawInteger(-2, 2)),
+                static_cast<double>(io.rawInteger(-2, 2)) };
+            do
+            {
+                in.D = { static_cast<double>(io.rawInteger(-2, 2)),
+                    static_cast<double>(io.rawInteger(-2, 2)) };
+            }
+            while (in.D[0] == 0.0 && in.D[1] == 0.0);
+            for (int32_t i = 0; i < n; ++i)
+            {
+                if (mode == 2 && i > 0 && io.rawInteger(0, 2) == 0)
+                {
+                    in.P[static_cast<size_t>(i)] =
+                        in.P[static_cast<size_t>(io.rawInteger(0, i - 1))];
+                }
+                else
+                {
+                    in.P[static_cast<size_t>(i)] =
+                        { static_cast<double>(io.rawInteger(-5, 5)),
+                          static_cast<double>(io.rawInteger(-5, 5)) };
+                }
+            }
+        }
+        in.sortCCW = (io.rawInteger(0, 1) != 0);
+        return in;
+    }
+
+    // A construction that always satisfies both acceptance tests: distinct
+    // directions taken from the 12 lattice points of the circle of radius 5.
+    SortInput FallbackSortInput(oracle::Ctx& io, int32_t n)
+    {
+        SortInput in{};
+        in.C = { 0.0, 0.0 };
+        in.D = { 1.0, 0.0 };
+        in.sortCCW = (io.rawInteger(0, 1) != 0);
+        in.P.resize(static_cast<size_t>(n));
+        for (int32_t i = 0; i < n; ++i)
+        {
+            int32_t k = i % 12;
+            double scale = static_cast<double>(1 + (i / 12));
+            in.P[static_cast<size_t>(i)] =
+                { scale * static_cast<double>(circle5[k][0]),
+                  scale * static_cast<double>(circle5[k][1]) };
+        }
+        return in;
+    }
+
+    // Record a sort input: the points, the centre, the direction and the
+    // ordering flag.
+    void GiveSortInput(oracle::Ctx& io, SortInput const& in)
+    {
+        for (auto const& p : in.P)
+        {
+            io.given(p[0]);
+            io.given(p[1]);
+        }
+        io.given(in.C[0]);
+        io.given(in.C[1]);
+        io.given(in.D[0]);
+        io.given(in.D[1]);
+        io.given(in.sortCCW ? 1.0 : 0.0);
+    }
+}
+
+ORACLE_CASE("SortPointsOnCircle.byAngleAndByGeometry")
+{
+    // Both sorts of the same input. The generator rejects points coinciding
+    // with the centre (upstream's geometric comparator is then not a strict
+    // weak ordering, finding #394) and directions that are distinct but
+    // nearly parallel (an ulp of std::atan2 would then decide the order).
+    // Coincident points are allowed and are the interesting ties: MSVC's
+    // std::sort is an insertion sort, hence stable, for at most 32 elements,
+    // and Array.prototype.sort is stable, so the two agree on equivalent
+    // elements for these sizes. Anything larger than 32 points would not be
+    // comparable.
+    int32_t mode = io.integer(0, 2);
+    int32_t n = io.integer(2, 10);
+
+    SortInput in{};
+    bool accepted = false;
+    for (int32_t attempt = 0; attempt < 64 && !accepted; ++attempt)
+    {
+        in = DrawSortInput(io, mode, n);
+        std::vector<std::array<double, 2>> W = SortW(in);
+        accepted = NoZeroW(W) && AnglesAreWellSeparated(W);
+    }
+    if (!accepted)
+    {
+        in = FallbackSortInput(io, n);
+    }
+    GiveSortInput(io, in);
+
+    std::vector<size_t> byAngle{}, byGeometry{};
+    SortPointsOnCircle<double>::ByAngle(in.P, in.C, in.D, in.sortCCW, byAngle);
+    SortPointsOnCircle<double>::ByGeometry(in.P, in.C, in.D, in.sortCCW, byGeometry);
+
+    io.outInt(static_cast<int32_t>(byAngle.size()));
+    for (size_t i = 0; i < byAngle.size(); ++i)
+    {
+        io.outInt(static_cast<int32_t>(byAngle[i]));
+    }
+    for (size_t i = 0; i < byGeometry.size(); ++i)
+    {
+        io.outInt(static_cast<int32_t>(byGeometry[i]));
+    }
+
+    // Reference check: with a strict weak ordering and no zero W, the two
+    // independent algorithms must produce the same permutation.
+    io.outBool(byAngle == byGeometry);
+}
+
+ORACLE_CASE("SortPointsOnCircle.byGeometry.ties")
+{
+    // ByGeometry uses arithmetic only, so exact ties (coincident points and
+    // points on a common ray from the centre) are compared here without the
+    // angular separation requirement of the combined case. Points coinciding
+    // with the centre remain excluded (finding #394).
+    int32_t n = io.integer(2, 10);
+
+    SortInput in{};
+    bool accepted = false;
+    for (int32_t attempt = 0; attempt < 64 && !accepted; ++attempt)
+    {
+        in = DrawSortInput(io, 2, n);
+        accepted = NoZeroW(SortW(in));
+    }
+    if (!accepted)
+    {
+        in = FallbackSortInput(io, n);
+    }
+    GiveSortInput(io, in);
+
+    std::vector<size_t> byGeometry{};
+    SortPointsOnCircle<double>::ByGeometry(in.P, in.C, in.D, in.sortCCW, byGeometry);
+    io.outInt(static_cast<int32_t>(byGeometry.size()));
+    for (size_t i = 0; i < byGeometry.size(); ++i)
+    {
+        io.outInt(static_cast<int32_t>(byGeometry[i]));
+    }
+}
+
+namespace
+{
+    // ---- the two circle constructions -----------------------------------
+
+    void OutCircles(oracle::Ctx& io, size_t numCircles,
+        std::array<Circle2<double>, 2> const& circle)
+    {
+        io.outInt(static_cast<int32_t>(numCircles));
+        for (size_t i = 0; i < 2; ++i)
+        {
+            io.outVec(circle[i].center);
+            io.outReal(circle[i].radius);
+        }
+    }
+
+    // The 10 lattice vectors used to make |P-Q| exactly representable, so
+    // that r = |P-Q|/2 gives an exactly zero 'argument' (the single-circle
+    // branch).
+    int32_t const pythag[10][2] =
+    {
+        { 3, 4 }, { 4, 3 }, { -3, 4 }, { 5, 0 }, { 0, 5 },
+        { 6, 8 }, { 8, -6 }, { 1, 0 }, { 0, 2 }, { -2, 0 }
+    };
+}
+
+ORACLE_CASE("CircleThroughTwoPointsSpecifiedRadius.compute")
+{
+    // Mode 0 constructs r = |P-Q|/2 exactly (argument == 0, one circle),
+    // mode 1 makes r slightly smaller (argument < 0, no circle), mode 2 sets
+    // P == Q (sqrLengthPmQ == 0, no circle), mode 3 is a lattice pair with a
+    // lattice radius and mode 4 is uniform. Every mode records five doubles.
+    int32_t mode = io.integer(0, 4);
+    Vector2<double> P{ 0.0, 0.0 }, Q{ 0.0, 0.0 };
+    double r = 0.0;
+
+    if (mode == 0 || mode == 1)
+    {
+        int32_t k = io.rawInteger(0, 9);
+        Vector2<double> base{ static_cast<double>(io.rawInteger(-4, 4)),
+            static_cast<double>(io.rawInteger(-4, 4)) };
+        Vector2<double> d{ static_cast<double>(pythag[k][0]),
+            static_cast<double>(pythag[k][1]) };
+        double length = std::sqrt(d[0] * d[0] + d[1] * d[1]);
+        P = io.givenVec(base);
+        Q = io.givenVec(Vector2<double>{ base[0] - d[0], base[1] - d[1] });
+        r = io.given(mode == 0 ? 0.5 * length : 0.25 * length);
+    }
+    else if (mode == 2)
+    {
+        Vector2<double> base{ static_cast<double>(io.rawInteger(-4, 4)),
+            static_cast<double>(io.rawInteger(-4, 4)) };
+        P = io.givenVec(base);
+        Q = io.givenVec(base);
+        r = io.given(static_cast<double>(io.rawInteger(1, 5)));
+    }
+    else if (mode == 3)
+    {
+        P = io.latticeVec<2>(-5, 5);
+        Q = io.latticeVec<2>(-5, 5);
+        r = io.lattice(0, 6);
+    }
+    else
+    {
+        P = io.vec<2>(-5.0, 5.0);
+        Q = io.vec<2>(-5.0, 5.0);
+        r = io.real(0.0, 8.0);
+    }
+
+    std::array<Circle2<double>, 2> circle{};
+    size_t numCircles = CircleThroughTwoPointsSpecifiedRadius(P, Q, r, circle);
+    OutCircles(io, numCircles, circle);
+
+    // Reference check: each reported circle must contain P and Q, i.e. the
+    // squared distances from the centre must both equal r^2 to within the
+    // conditioning of the construction.
+    bool referenceOk = true;
+    for (size_t i = 0; i < numCircles; ++i)
+    {
+        Vector2<double> dp = P - circle[i].center;
+        Vector2<double> dq = Q - circle[i].center;
+        double scale = std::max(1.0, r * r);
+        referenceOk = referenceOk
+            && std::fabs(Dot(dp, dp) - r * r) <= 1e-9 * scale
+            && std::fabs(Dot(dq, dq) - r * r) <= 1e-9 * scale;
+    }
+    io.outBool(referenceOk);
+}
+
+ORACLE_CASE("CircleThroughPointSpecifiedTangentAndRadius.compute")
+{
+    // The normal must be unit length. Mode 0 uses an axis-aligned normal
+    // (exactly unit) and a lattice point pair, so the signed distance s is an
+    // exact integer; the radius is then chosen to hit s == 0, s == r,
+    // s == 2*r, s > 2*r and 0 < s < r / r < s < 2*r exactly. Mode 1 is a
+    // uniform normal and radius. Every mode records seven doubles.
+    int32_t mode = io.integer(0, 1);
+    int32_t branch = io.integer(0, 5);
+    Vector2<double> P{ 0.0, 0.0 }, A{ 0.0, 0.0 }, N{ 0.0, 0.0 };
+    double r = 0.0;
+
+    if (mode == 0)
+    {
+        int32_t axis = io.rawInteger(0, 3);
+        Vector2<double> n{ 0.0, 0.0 };
+        n[axis % 2] = (axis < 2 ? 1.0 : -1.0);
+        Vector2<double> a{ static_cast<double>(io.rawInteger(-4, 4)),
+            static_cast<double>(io.rawInteger(-4, 4)) };
+        // s = Dot(n, p - a); choose p so that s takes the wanted value. The
+        // sign of s is drawn independently so that upstream's "negate N and
+        // s" branch is reached as often as not.
+        double magnitude = static_cast<double>(io.rawInteger(1, 4)) * 2.0;
+        double sign = (io.rawInteger(0, 1) != 0 ? 1.0 : -1.0);
+        double wanted = (branch == 0 ? 0.0 : sign * magnitude);
+        Vector2<double> tangent{ n[1], -n[0] };
+        double along = static_cast<double>(io.rawInteger(-4, 4));
+        Vector2<double> p{ a[0] + wanted * n[0] + along * tangent[0],
+            a[1] + wanted * n[1] + along * tangent[1] };
+        P = io.givenVec(p);
+        A = io.givenVec(a);
+        N = io.givenVec(n);
+
+        double radius = 1.0;
+        if (branch == 0) { radius = static_cast<double>(io.rawInteger(1, 4)); }
+        else if (branch == 1) { radius = magnitude; }          // s == r
+        else if (branch == 2) { radius = 0.5 * magnitude; }    // s == 2*r
+        else if (branch == 3) { radius = 0.25 * magnitude; }   // s > 2*r
+        else if (branch == 4) { radius = 0.75 * magnitude; }   // r < s < 2*r
+        else { radius = 2.0 * magnitude; }                     // 0 < s < r
+        r = io.given(radius);
+    }
+    else
+    {
+        P = io.vec<2>(-5.0, 5.0);
+        A = io.vec<2>(-5.0, 5.0);
+        N = io.unit<2>();
+        r = io.real(0.25, 6.0);
+    }
+
+    std::array<Circle2<double>, 2> circle{};
+    size_t numCircles = CircleThroughPointSpecifiedTangentAndRadius(P, A, N, r, circle);
+    OutCircles(io, numCircles, circle);
+
+    // Reference check: each reported circle must contain P and be tangent to
+    // the line Dot(N, X - A) = 0, i.e. |Dot(N, C - A)| == r.
+    bool referenceOk = true;
+    for (size_t i = 0; i < numCircles; ++i)
+    {
+        Vector2<double> dp = P - circle[i].center;
+        double scale = std::max(1.0, r * r);
+        referenceOk = referenceOk
+            && std::fabs(Dot(dp, dp) - r * r) <= 1e-9 * scale
+            && std::fabs(std::fabs(Dot(N, circle[i].center - A)) - r) <= 1e-9 * std::max(1.0, r);
+    }
+    io.outBool(referenceOk);
+}
+
+namespace
+{
+    // ---- ConvexHullSimplePolygon ----------------------------------------
+    //
+    // The input must be a simple counterclockwise polygon. Mode 0 walks the
+    // boundary lattice points of an axis-aligned rectangle, which puts long
+    // collinear runs on every edge so that WhichSide returns 0 and the
+    // >= 0 / <= 0 branches are both exercised. Modes 1 and 2 are star-shaped
+    // polygons about the origin (strictly increasing vertex angles with
+    // arbitrary positive radii is enough for simplicity and for
+    // counterclockwise order), lattice and uniform respectively. Only the
+    // final vertex coordinates are recorded, so the sin/cos of mode 2 never
+    // enters a compared computation.
+
+    std::vector<Vector2<double>> MakeSimplePolygon(oracle::Ctx& io, int32_t mode)
+    {
+        std::vector<Vector2<double>> polygon{};
+        if (mode == 0)
+        {
+            int32_t w = io.rawInteger(2, 4);
+            int32_t h = io.rawInteger(2, 4);
+            double ox = static_cast<double>(io.rawInteger(-3, 3));
+            double oy = static_cast<double>(io.rawInteger(-3, 3));
+            for (int32_t x = 0; x < w; ++x)
+            {
+                polygon.push_back(Vector2<double>{ ox + x, oy });
+            }
+            for (int32_t y = 0; y < h; ++y)
+            {
+                polygon.push_back(Vector2<double>{ ox + w, oy + y });
+            }
+            for (int32_t x = w; x > 0; --x)
+            {
+                polygon.push_back(Vector2<double>{ ox + x, oy + h });
+            }
+            for (int32_t y = h; y > 0; --y)
+            {
+                polygon.push_back(Vector2<double>{ ox, oy + y });
+            }
+        }
+        else if (mode == 1)
+        {
+            int32_t n = io.rawInteger(3, 12);
+            int32_t start = io.rawInteger(0, 11);
+            std::vector<int32_t> pick{};
+            for (int32_t k = 0; k < 12 && static_cast<int32_t>(pick.size()) < n; ++k)
+            {
+                if (io.rawInteger(0, 11) < n)
+                {
+                    pick.push_back((start + k) % 12);
+                }
+            }
+            if (pick.size() < 3)
+            {
+                pick = { start % 12, (start + 4) % 12, (start + 8) % 12 };
+            }
+            for (int32_t k : pick)
+            {
+                double scale = static_cast<double>(io.rawInteger(1, 3));
+                polygon.push_back(Vector2<double>{
+                    scale * static_cast<double>(circle5[k][0]),
+                    scale * static_cast<double>(circle5[k][1]) });
+            }
+        }
+        else
+        {
+            int32_t n = io.rawInteger(3, 10);
+            std::vector<double> angles(static_cast<size_t>(n));
+            for (int32_t k = 0; k < n; ++k)
+            {
+                angles[static_cast<size_t>(k)] = io.raw(0.0, 6.28318530717958647692);
+            }
+            std::sort(angles.begin(), angles.end());
+            for (int32_t k = 0; k < n; ++k)
+            {
+                double radius = io.raw(0.5, 5.0);
+                polygon.push_back(Vector2<double>{
+                    radius * std::cos(angles[static_cast<size_t>(k)]),
+                    radius * std::sin(angles[static_cast<size_t>(k)]) });
+            }
+        }
+        return polygon;
+    }
+
+    // The hull must be convex, counterclockwise and contain every polygon
+    // vertex. This is an independent check of the Melkman construction.
+    bool HullIsValid(std::vector<Vector2<double>> const& polygon,
+        std::vector<size_t> const& hull)
+    {
+        size_t const m = hull.size();
+        if (m < 3)
+        {
+            return false;
+        }
+        double area = 0.0;
+        for (size_t i = 0; i < m; ++i)
+        {
+            Vector2<double> const& a = polygon[hull[i]];
+            Vector2<double> const& b = polygon[hull[(i + 1) % m]];
+            area += a[0] * b[1] - b[0] * a[1];
+            Vector2<double> const& c = polygon[hull[(i + 2) % m]];
+            double turn = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
+            if (turn < 0.0)
+            {
+                return false;
+            }
+        }
+        if (!(area > 0.0))
+        {
+            return false;
+        }
+        for (auto const& p : polygon)
+        {
+            for (size_t i = 0; i < m; ++i)
+            {
+                Vector2<double> const& a = polygon[hull[i]];
+                Vector2<double> const& b = polygon[hull[(i + 1) % m]];
+                double side = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
+                if (side < 0.0)
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+}
+
+ORACLE_CASE("ConvexHullSimplePolygon.compute")
+{
+    int32_t mode = io.integer(0, 2);
+    std::vector<Vector2<double>> polygon = MakeSimplePolygon(io, mode);
+    int32_t n = io.integer(static_cast<int32_t>(polygon.size()),
+        static_cast<int32_t>(polygon.size()));
+    for (int32_t i = 0; i < n; ++i)
+    {
+        io.givenVec(polygon[static_cast<size_t>(i)]);
+    }
+
+    ConvexHullSimplePolygon<double> query{};
+    std::vector<size_t> hull{};
+    query(polygon, hull);
+
+    io.outInt(static_cast<int32_t>(hull.size()));
+    for (size_t i = 0; i < hull.size(); ++i)
+    {
+        io.outInt(static_cast<int32_t>(hull[i]));
+    }
+    io.outBool(HullIsValid(polygon, hull));
+}
+
+namespace
+{
+    // ---- convex lattice polytopes ---------------------------------------
+    //
+    // Three convex polytopes with counterclockwise-when-seen-from-outside
+    // triangle faces, used by ConvexPolyhedron3, ExtremalQuery3 and
+    // ExtremalQuery3PRJ. All vertices are on the integer lattice, so the face
+    // normals and the support values are exact integers and the extremal
+    // queries have exact ties.
+
+    int32_t const tetraIndices[12] =
+    {
+        0, 2, 1,  0, 1, 3,  0, 3, 2,  1, 2, 3
+    };
+
+    int32_t const cubeIndices[36] =
+    {
+        0, 3, 2,  0, 2, 1,  4, 5, 6,  4, 6, 7,
+        0, 1, 5,  0, 5, 4,  1, 2, 6,  1, 6, 5,
+        2, 3, 7,  2, 7, 6,  3, 0, 4,  3, 4, 7
+    };
+
+    int32_t const octaIndices[24] =
+    {
+        0, 2, 4,  2, 1, 4,  1, 3, 4,  3, 0, 4,
+        2, 0, 5,  1, 2, 5,  3, 1, 5,  0, 3, 5
+    };
+
+    // Build one of the three polytopes, scaled and translated on the lattice.
+    // Nothing is recorded here; the caller records the final vertices and
+    // indices.
+    void MakePolytope(oracle::Ctx& io, int32_t shape,
+        std::vector<Vector3<double>>& vertices, std::vector<int32_t>& indices)
+    {
+        double sx = static_cast<double>(io.rawInteger(1, 4));
+        double sy = static_cast<double>(io.rawInteger(1, 4));
+        double sz = static_cast<double>(io.rawInteger(1, 4));
+        double ox = static_cast<double>(io.rawInteger(-3, 3));
+        double oy = static_cast<double>(io.rawInteger(-3, 3));
+        double oz = static_cast<double>(io.rawInteger(-3, 3));
+
+        vertices.clear();
+        indices.clear();
+        if (shape == 0)
+        {
+            vertices =
+            {
+                Vector3<double>{ ox, oy, oz },
+                Vector3<double>{ ox + sx, oy, oz },
+                Vector3<double>{ ox, oy + sy, oz },
+                Vector3<double>{ ox, oy, oz + sz }
+            };
+            indices.assign(tetraIndices, tetraIndices + 12);
+        }
+        else if (shape == 1)
+        {
+            for (int32_t k = 0; k < 8; ++k)
+            {
+                double x = ((k == 1 || k == 2 || k == 5 || k == 6) ? sx : 0.0);
+                double y = ((k == 2 || k == 3 || k == 6 || k == 7) ? sy : 0.0);
+                double z = (k >= 4 ? sz : 0.0);
+                vertices.push_back(Vector3<double>{ ox + x, oy + y, oz + z });
+            }
+            indices.assign(cubeIndices, cubeIndices + 36);
+        }
+        else
+        {
+            vertices =
+            {
+                Vector3<double>{ ox + sx, oy, oz },
+                Vector3<double>{ ox - sx, oy, oz },
+                Vector3<double>{ ox, oy + sy, oz },
+                Vector3<double>{ ox, oy - sy, oz },
+                Vector3<double>{ ox, oy, oz + sz },
+                Vector3<double>{ ox, oy, oz - sz }
+            };
+            indices.assign(octaIndices, octaIndices + 24);
+        }
+    }
+
+    // Record a mesh: the vertex count, the vertices, the index count, the
+    // indices.
+    void GiveMesh(oracle::Ctx& io, std::vector<Vector3<double>> const& vertices,
+        std::vector<int32_t> const& indices)
+    {
+        int32_t numVertices = static_cast<int32_t>(vertices.size());
+        io.integer(numVertices, numVertices);
+        for (auto const& v : vertices)
+        {
+            io.givenVec(v);
+        }
+        int32_t numIndices = static_cast<int32_t>(indices.size());
+        io.integer(numIndices, numIndices);
+        for (int32_t i : indices)
+        {
+            io.integer(i, i);
+        }
+    }
+}
+
+ORACLE_CASE("ConvexPolyhedron3.construct")
+{
+    // Mode 0-2 are the three convex lattice polytopes; mode 3 is an
+    // unvalidated mesh of random lattice vertices and random triangles (the
+    // class does not check convexity); mode 4 appends one or two stray
+    // indices, which upstream silently drops because it validates
+    // indices.size() >= 12 but not indices.size() % 3 == 0 (finding #175,
+    // preserved); mode 5 is a too-small input for which the constructor
+    // leaves every member array empty.
+    int32_t mode = io.integer(0, 5);
+    std::vector<Vector3<double>> vertices{};
+    std::vector<int32_t> indices{};
+
+    if (mode <= 2)
+    {
+        MakePolytope(io, mode, vertices, indices);
+    }
+    else if (mode == 3 || mode == 4)
+    {
+        int32_t numVertices = io.rawInteger(4, 7);
+        for (int32_t i = 0; i < numVertices; ++i)
+        {
+            vertices.push_back(Vector3<double>{
+                static_cast<double>(io.rawInteger(-4, 4)),
+                static_cast<double>(io.rawInteger(-4, 4)),
+                static_cast<double>(io.rawInteger(-4, 4)) });
+        }
+        int32_t numTriangles = io.rawInteger(4, 6);
+        for (int32_t t = 0; t < 3 * numTriangles; ++t)
+        {
+            indices.push_back(io.rawInteger(0, numVertices - 1));
+        }
+        if (mode == 4)
+        {
+            int32_t extra = io.rawInteger(1, 2);
+            for (int32_t k = 0; k < extra; ++k)
+            {
+                indices.push_back(io.rawInteger(0, numVertices - 1));
+            }
+        }
+    }
+    else
+    {
+        int32_t numVertices = io.rawInteger(1, 4);
+        for (int32_t i = 0; i < numVertices; ++i)
+        {
+            vertices.push_back(Vector3<double>{
+                static_cast<double>(io.rawInteger(-4, 4)),
+                static_cast<double>(io.rawInteger(-4, 4)),
+                static_cast<double>(io.rawInteger(-4, 4)) });
+        }
+        int32_t numIndices = io.rawInteger(0, 11);
+        for (int32_t k = 0; k < numIndices; ++k)
+        {
+            indices.push_back(io.rawInteger(0, numVertices - 1));
+        }
+    }
+
+    GiveMesh(io, vertices, indices);
+    bool wantPlanes = io.boolean();
+    bool wantAlignedBox = io.boolean();
+
+    std::vector<Vector3<double>> movedVertices = vertices;
+    std::vector<int32_t> movedIndices = indices;
+    ConvexPolyhedron3<double> polyhedron(std::move(movedVertices),
+        std::move(movedIndices), wantPlanes, wantAlignedBox);
+
+    io.outInt(static_cast<int32_t>(polyhedron.vertices.size()));
+    io.outInt(static_cast<int32_t>(polyhedron.indices.size()));
+    io.outInt(static_cast<int32_t>(polyhedron.planes.size()));
+    for (auto const& plane : polyhedron.planes)
+    {
+        io.outVec(plane);
+    }
+    io.outVec(polyhedron.alignedBox.min);
+    io.outVec(polyhedron.alignedBox.max);
+
+    // Reference check for the convex modes: every generated plane must have
+    // an outward normal, i.e. Dot(N, V) + d <= 0 for every polytope vertex V.
+    bool outward = true;
+    if (mode <= 2 && wantPlanes)
+    {
+        for (auto const& plane : polyhedron.planes)
+        {
+            for (auto const& v : polyhedron.vertices)
+            {
+                double value = plane[0] * v[0] + plane[1] * v[1] + plane[2] * v[2] + plane[3];
+                outward = outward && (value <= 0.0);
+            }
+        }
+    }
+    io.outBool(outward);
+
+    // Regenerating after construction must reproduce the same values.
+    polyhedron.GeneratePlanes();
+    polyhedron.GenerateAlignedBox();
+    io.outInt(static_cast<int32_t>(polyhedron.planes.size()));
+    for (auto const& plane : polyhedron.planes)
+    {
+        io.outVec(plane);
+    }
+    io.outVec(polyhedron.alignedBox.min);
+    io.outVec(polyhedron.alignedBox.max);
+}
+
+ORACLE_CASE("ExtremalQuery3PRJ.getExtremeVertices")
+{
+    // The base class ExtremalQuery3 computes the face normals with UnitCross
+    // (a cross product and a sqrt) and ExtremalQuery3PRJ projects the
+    // vertices onto the direction after subtracting the vertex average, so
+    // the whole query is arithmetic. Directions drawn on the lattice are
+    // frequently perpendicular to a face or parallel to an edge of these
+    // polytopes, which is where the strict comparisons produce ties; the
+    // first vertex visited in ascending std::set order wins.
+    int32_t shape = io.integer(0, 2);
+    std::vector<Vector3<double>> vertices{};
+    std::vector<int32_t> indices{};
+    MakePolytope(io, shape, vertices, indices);
+    GiveMesh(io, vertices, indices);
+
+    auto vertexPool = std::make_shared<std::vector<Vector3<double>>>(vertices);
+    Polyhedron3<double> polytope(vertexPool, static_cast<int32_t>(indices.size()),
+        indices.data(), true);
+    ExtremalQuery3PRJ<double> query(polytope);
+
+    auto const& normals = query.GetFaceNormals();
+    io.outInt(static_cast<int32_t>(normals.size()));
+    for (auto const& n : normals)
+    {
+        io.outVec(n);
+    }
+    io.outInt(static_cast<int32_t>(query.GetPolytope().GetUniqueIndices().size()));
+
+    for (int32_t q = 0; q < 4; ++q)
+    {
+        int32_t dirMode = io.integer(0, 1);
+        Vector3<double> direction = (dirMode == 0
+            ? io.latticeDir<3>(-2, 2) : io.unit<3>());
+        int32_t positiveDirection = 0, negativeDirection = 0;
+        query.GetExtremeVertices(direction, positiveDirection, negativeDirection);
+        io.outInt(positiveDirection);
+        io.outInt(negativeDirection);
+
+        // Reference check: brute force over the unrotated, unshifted
+        // vertices. The reported extreme vertices must realize the maximum
+        // and the minimum of Dot(direction, V) over the polytope vertices.
+        double best = -std::numeric_limits<double>::max();
+        double worst = std::numeric_limits<double>::max();
+        for (int32_t i : polytope.GetUniqueIndices())
+        {
+            double d = Dot(direction, vertices[static_cast<size_t>(i)]);
+            best = std::max(best, d);
+            worst = std::min(worst, d);
+        }
+        double dPos = Dot(direction, vertices[static_cast<size_t>(positiveDirection)]);
+        double dNeg = Dot(direction, vertices[static_cast<size_t>(negativeDirection)]);
+        io.outBool(dPos == best && dNeg == worst);
+    }
+}
