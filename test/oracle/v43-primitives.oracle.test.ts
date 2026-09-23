@@ -7,13 +7,16 @@ import { AlignedBoxTreeOfPoints } from '../../src/AlignedBoxTreeOfPoints.js';
 import { AlignedBoxTreeOfSegments } from '../../src/AlignedBoxTreeOfSegments.js';
 import { AlignedBoxTreeOfTriangles } from '../../src/AlignedBoxTreeOfTriangles.js';
 import { BVTree, BVTreeNode } from '../../src/BVTree.js';
-import type { BVTreeOfTrianglesIntersection } from '../../src/BVTreeOfTriangles.js';
+import {
+    intersectLineTriangle, intersectRayTriangle, intersectSegmentTriangle,
+    type BVTreeOfTrianglesIntersection
+} from '../../src/BVTreeOfTriangles.js';
 import { Cone } from '../../src/Cone.js';
 import { Hyperellipsoid } from '../../src/Hyperellipsoid.js';
 import { Hyperplane } from '../../src/Hyperplane.js';
 import { IndexAttribute } from '../../src/IndexAttribute.js';
 import { Matrix } from '../../src/Matrix.js';
-import { Mesh, MeshDescription, MeshTopology } from '../../src/Mesh.js';
+import { MeshDescription, MeshTopology } from '../../src/Mesh.js';
 import { OrientedBox } from '../../src/OrientedBox.js';
 import { OrientedBoxBV } from '../../src/OrientedBoxBV.js';
 import { OrientedBoxTreeOfPoints } from '../../src/OrientedBoxTreeOfPoints.js';
@@ -27,7 +30,8 @@ import { RectangleManager } from '../../src/RectangleManager.js';
 import { RectangleMesh } from '../../src/RectangleMesh.js';
 import { RectanglePatchMesh } from '../../src/RectanglePatchMesh.js';
 import { Tetrahedron3 } from '../../src/Tetrahedron3.js';
-import { Vector, add, sub, mul, normalize } from '../../src/Vector.js';
+import { Triangle } from '../../src/Triangle.js';
+import { Vector, add } from '../../src/Vector.js';
 import { VertexAttribute } from '../../src/VertexAttribute.js';
 import { OracleFamily, type OracleIO } from './harness.js';
 
@@ -662,6 +666,321 @@ describe('oracle: v43-primitives', () => {
         io.outBool(mesh.getDescription().hasTangentSpaceVectors);
         for (const c of channels) { outBuffer(io, c.data); }
     }, { exact: true });
+
+    // ------------------------------- AlignedBoxBV and OrientedBoxBV
+
+    family.case('AlignedBoxBV.queries', (io) => {
+        const useDefault = io.boolean();
+        const boxMin = io.vec(3);
+        const boxExtent = io.vec(3);
+        const P = io.vec(3);
+        const D = io.vec(3);
+        const R = io.vec(3);
+        const bv = new AlignedBoxBV();
+        if (!useDefault) {
+            bv.box.min = boxMin;
+            bv.box.max = add(boxMin, boxExtent);
+        }
+        const axis = bv.getSplittingAxis();
+        io.outVec(bv.box.min);
+        io.outVec(bv.box.max);
+        io.outVec(axis.origin);
+        io.outVec(axis.direction);
+        io.outBool(AlignedBoxBV.intersectLine(P, D, bv));
+        io.outBool(AlignedBoxBV.intersectRay(P, D, bv));
+        io.outBool(AlignedBoxBV.intersectSegment(P, R, bv));
+    }, { exact: true });
+
+    family.case('OrientedBoxBV.queries', (io) => {
+        const useDefault = io.boolean();
+        const center = io.vec(3);
+        const frame = frame3(io);
+        const extent = io.vec(3);
+        const P = io.vec(3);
+        const D = io.vec(3);
+        const R = io.vec(3);
+        const bv = new OrientedBoxBV();
+        if (!useDefault) {
+            bv.box = OrientedBox.fromCenterAxisExtent(center, frame, extent);
+        }
+        const axis = bv.getSplittingAxis();
+        io.outVec(bv.box.center);
+        io.outVec(bv.box.axis[0]);
+        io.outVec(bv.box.axis[1]);
+        io.outVec(bv.box.axis[2]);
+        io.outVec(bv.box.extent);
+        io.outVec(axis.origin);
+        io.outVec(axis.direction);
+        io.outBool(OrientedBoxBV.intersectLine(P, D, bv));
+        io.outBool(OrientedBoxBV.intersectRay(P, D, bv));
+        io.outBool(OrientedBoxBV.intersectSegment(P, R, bv));
+    }, { exact: true });
+
+    // --------------------------------------- Bounding-volume trees
+
+    function nodeIndexOut(i: number): number {
+        return i === BVTreeNode.invalid ? -1 : i;
+    }
+
+    function vertices(io: OracleIO, count: number): Vector[] {
+        const v: Vector[] = [];
+        for (let i = 0; i < count; ++i) { v.push(io.vec(3)); }
+        return v;
+    }
+
+    function linear(io: OracleIO): { P: Vector, D: Vector, R: Vector } {
+        return { P: io.vec(3), D: io.vec(3), R: io.vec(3) };
+    }
+
+    function treeHeight(io: OracleIO): number {
+        const height = io.integer();
+        return height < 0 ? BVTree.fullHeight : height;
+    }
+
+    type AnyTree = AlignedBoxTreeOfPoints | AlignedBoxTreeOfSegments
+        | AlignedBoxTreeOfTriangles | OrientedBoxTreeOfPoints
+        | OrientedBoxTreeOfSegments | OrientedBoxTreeOfTriangles;
+
+    function outTreeStructure(io: OracleIO, tree: AnyTree): void {
+        io.outInt(tree.getHeight());
+        const partition = tree.getPartition();
+        io.outInt(partition.length);
+        for (const p of partition) { io.outInt(p); }
+        const nodes = tree.getNodes();
+        io.outInt(nodes.length);
+        for (const n of nodes) {
+            io.outInt(nodeIndexOut(n.minIndex));
+            io.outInt(nodeIndexOut(n.maxIndex));
+            io.outInt(nodeIndexOut(n.leftChild));
+            io.outInt(nodeIndexOut(n.rightChild));
+        }
+    }
+
+    function outAlignedBoxes(io: OracleIO,
+        tree: AlignedBoxTreeOfPoints | AlignedBoxTreeOfSegments
+            | AlignedBoxTreeOfTriangles): void {
+        for (const n of tree.getNodes()) {
+            io.outVec(n.boundingVolume.box.min);
+            io.outVec(n.boundingVolume.box.max);
+        }
+    }
+
+    // 'skipLeafExtent' omits the extents of leaf nodes, which upstream's
+    // OrientedBoxTreeOfTriangles collapses along the wrong axis (issue #343).
+    function outOrientedBoxes(io: OracleIO,
+        tree: OrientedBoxTreeOfPoints | OrientedBoxTreeOfSegments
+            | OrientedBoxTreeOfTriangles, skipLeafExtent: boolean): void {
+        for (const n of tree.getNodes()) {
+            const box = n.boundingVolume.box;
+            io.outVec(box.center);
+            io.outVec(box.axis[0]);
+            io.outVec(box.axis[1]);
+            io.outVec(box.axis[2]);
+            const isLeaf = (n.leftChild === BVTreeNode.invalid);
+            if (!(skipLeafExtent && isLeaf)) { io.outVec(box.extent); }
+        }
+    }
+
+    function outTreeQueries(io: OracleIO,
+        tree: AlignedBoxTreeOfPoints | AlignedBoxTreeOfSegments
+            | OrientedBoxTreeOfPoints | OrientedBoxTreeOfSegments,
+        L: { P: Vector, D: Vector, R: Vector }): void {
+        for (const [queryType, Q] of [[BVTree.LINE_QUERY, L.D],
+            [BVTree.RAY_QUERY, L.D], [BVTree.SEGMENT_QUERY, L.R]] as
+            [number, Vector][]) {
+            const nodeIndices = tree.execute(queryType, L.P, Q);
+            io.outInt(nodeIndices.length);
+            for (const i of nodeIndices) { io.outInt(i); }
+        }
+    }
+
+    family.case('AlignedBoxTreeOfPoints.create', (io) => {
+        const count = io.integer();
+        io.integer();  // 'mode', used only by the generator
+        const height = treeHeight(io);
+        const v = vertices(io, count);
+        const L = linear(io);
+        const tree = new AlignedBoxTreeOfPoints();
+        tree.create(v, height);
+        outTreeStructure(io, tree);
+        outAlignedBoxes(io, tree);
+        outTreeQueries(io, tree, L);
+    }, { exact: true });
+
+    family.case('OrientedBoxTreeOfPoints.create', (io) => {
+        const count = io.integer();
+        io.integer();
+        const height = treeHeight(io);
+        const v = vertices(io, count);
+        const L = linear(io);
+        const tree = new OrientedBoxTreeOfPoints();
+        tree.create(v, height);
+        outTreeStructure(io, tree);
+        outOrientedBoxes(io, tree, false);
+        outTreeQueries(io, tree, L);
+    }, { exact: true });
+
+    function segments(io: OracleIO, count: number): [number, number][] {
+        const s: [number, number][] = [];
+        for (let i = 0; i < count; ++i) { s.push([io.integer(), io.integer()]); }
+        return s;
+    }
+
+    family.case('AlignedBoxTreeOfSegments.create', (io) => {
+        const numVertices = io.integer();
+        const numSegments = io.integer();
+        io.integer();
+        const height = treeHeight(io);
+        const v = vertices(io, numVertices);
+        const s = segments(io, numSegments);
+        const L = linear(io);
+        const tree = new AlignedBoxTreeOfSegments();
+        tree.createFromSegments(v, s, height);
+        outTreeStructure(io, tree);
+        outAlignedBoxes(io, tree);
+        outTreeQueries(io, tree, L);
+        for (const c of tree.getCentroids()) { io.outVec(c); }
+    }, { exact: true });
+
+    family.case('OrientedBoxTreeOfSegments.create', (io) => {
+        const numVertices = io.integer();
+        const numSegments = io.integer();
+        io.integer();
+        const height = treeHeight(io);
+        const v = vertices(io, numVertices);
+        const s = segments(io, numSegments);
+        const L = linear(io);
+        const tree = new OrientedBoxTreeOfSegments();
+        tree.createFromSegments(v, s, height);
+        outTreeStructure(io, tree);
+        outOrientedBoxes(io, tree, false);
+        outTreeQueries(io, tree, L);
+        for (const c of tree.getCentroids()) { io.outVec(c); }
+    }, { exact: true });
+
+    function triangles(io: OracleIO, count: number): [number, number, number][] {
+        const t: [number, number, number][] = [];
+        for (let i = 0; i < count; ++i) {
+            t.push([io.integer(), io.integer(), io.integer()]);
+        }
+        return t;
+    }
+
+    // The port of the case file's HasCoincidentParameters probe: true when
+    // two triangles are hit at bit-identical parameters, which upstream's
+    // std::set<Intersection> collapses (issue #167).
+    function hasCoincidentParameters(queryType: number, A: Vector, B: Vector,
+        v: readonly Vector[], t: readonly [number, number, number][]): boolean {
+        const query = [intersectLineTriangle, intersectRayTriangle,
+            intersectSegmentTriangle][queryType];
+        const params: number[] = [];
+        for (const tri of t) {
+            const triangle = Triangle.fromVertices(v[tri[0]], v[tri[1]], v[tri[2]]);
+            const r = query(A, B, triangle);
+            if (r.intersect) { params.push(r.parameter); }
+        }
+        for (let i = 0; i < params.length; ++i) {
+            for (let j = i + 1; j < params.length; ++j) {
+                if (params[i] === params[j]) { return true; }
+            }
+        }
+        return false;
+    }
+
+    function outIntersections(io: OracleIO,
+        intersections: readonly BVTreeOfTrianglesIntersection[]): void {
+        io.outInt(intersections.length);
+        for (const it of intersections) {
+            io.outInt(it.triangleIndex);
+            io.outReal(it.parameter);
+            io.outVec(it.point);
+        }
+    }
+
+    function outTriangleTreeQueries(io: OracleIO,
+        tree: AlignedBoxTreeOfTriangles | OrientedBoxTreeOfTriangles,
+        L: { P: Vector, D: Vector, R: Vector }, v: readonly Vector[],
+        t: readonly [number, number, number][]): void {
+        for (let queryType = 0; queryType < 3; ++queryType) {
+            const B = (queryType === 2 ? L.R : L.D);
+            const result = tree.execute(queryType, L.P, B);
+            io.outInt(result.nodeIndices.length);
+            for (const i of result.nodeIndices) { io.outInt(i); }
+            const coincident = hasCoincidentParameters(queryType, L.P, B, v, t);
+            io.outBool(coincident);
+            if (!coincident) { outIntersections(io, result.intersections); }
+        }
+    }
+
+    family.case('AlignedBoxTreeOfTriangles.create', (io) => {
+        const numVertices = io.integer();
+        const numTriangles = io.integer();
+        io.integer();
+        const height = treeHeight(io);
+        const v = vertices(io, numVertices);
+        const t = triangles(io, numTriangles);
+        const L = linear(io);
+        const tree = new AlignedBoxTreeOfTriangles();
+        tree.createFromTriangles(v, t, height);
+        outTreeStructure(io, tree);
+        outAlignedBoxes(io, tree);
+        outTriangleTreeQueries(io, tree, L, v, t);
+        for (const c of tree.getCentroids()) { io.outVec(c); }
+    }, { exact: true });
+
+    family.case('OrientedBoxTreeOfTriangles.create', (io) => {
+        const numVertices = io.integer();
+        const numTriangles = io.integer();
+        io.integer();
+        const height = treeHeight(io);
+        const v = vertices(io, numVertices);
+        const t = triangles(io, numTriangles);
+        const L = linear(io);
+        const tree = new OrientedBoxTreeOfTriangles();
+        tree.createFromTriangles(v, t, height);
+        outTreeStructure(io, tree);
+        outOrientedBoxes(io, tree, true);
+        outTriangleTreeQueries(io, tree, L, v, t);
+        for (const c of tree.getCentroids()) { io.outVec(c); }
+    }, { exact: true });
+
+    // Issue #343: the smallest-extent scan of
+    // OrientedBoxTreeOfTriangles::ComputeLeafBoundingVolume ends with
+    // 'absExtent > minAbsExtent', so upstream zeroes the largest extent and
+    // the leaf box collapses along its longest axis. The port uses '<'.
+    family.case('OrientedBoxTreeOfTriangles.leafExtent.deviation', (io) => {
+        const numVertices = io.integer();
+        const numTriangles = io.integer();
+        io.integer();
+        const v = vertices(io, numVertices);
+        const t = triangles(io, numTriangles);
+        const tree = new OrientedBoxTreeOfTriangles();
+        tree.createFromTriangles(v, t);
+        for (const n of tree.getNodes()) {
+            if (n.leftChild === BVTreeNode.invalid) {
+                io.outVec(n.boundingVolume.box.extent);
+            }
+        }
+    }, { exact: true, deviation: '#343' });
+
+    // Issue #167: BVTreeOfTriangles::Execute collects hits in a
+    // std::set<Intersection> ordered by parameter alone, so two triangles hit
+    // at the same parameter are set-equivalent and all but one are dropped.
+    // The port orders by (parameter, triangleIndex) and keeps both.
+    family.case('BVTreeOfTriangles.coincident.deviation', (io) => {
+        const numVertices = io.integer();
+        const v = vertices(io, numVertices);
+        const i0 = io.integer();
+        const i1 = io.integer();
+        const i2 = io.integer();
+        const t: [number, number, number][] = [[i0, i1, i2], [i0, i1, i2]];
+        const P = io.vec(3);
+        const d = io.vec(3);
+        const tree = new AlignedBoxTreeOfTriangles();
+        tree.createFromTriangles(v, t);
+        const result = tree.execute(BVTree.LINE_QUERY, P, d);
+        outIntersections(io, result.intersections);
+    }, { exact: true, deviation: '#167' });
 
     family.finish();
 });
