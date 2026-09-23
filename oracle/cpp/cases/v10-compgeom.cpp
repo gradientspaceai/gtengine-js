@@ -57,6 +57,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <exception>
 #include <map>
 #include <memory>
@@ -336,4 +337,489 @@ ORACLE_CASE("RotatingCalipers.computeAntipodes.deviation.duplicate")
         io.givenVec<2>(v);
     }
     EmitAntipodes(io, withDup);
+}
+
+// ---- MinimumAreaCircle2 / MinimumVolumeSphere3 ---------------------------
+
+namespace
+{
+    bool SameBits(double a, double b)
+    {
+        uint64_t ua, ub;
+        std::memcpy(&ua, &a, 8);
+        std::memcpy(&ub, &b, 8);
+        return ua == ub;
+    }
+
+    struct Result2
+    {
+        bool ok;
+        double cx, cy, radius;
+        int32_t numSupport;
+        std::array<int32_t, 3> support;
+
+        bool Same(Result2 const& o) const
+        {
+            return ok == o.ok && SameBits(cx, o.cx) && SameBits(cy, o.cy)
+                && SameBits(radius, o.radius) && numSupport == o.numSupport
+                && support == o.support;
+        }
+    };
+
+    Result2 RunMAC(MinimumAreaCircle2<double, double>& q,
+        std::vector<Vector2<double>> const& pts)
+    {
+        Circle2<double> circle{};
+        Result2 r{};
+        r.ok = q(static_cast<int32_t>(pts.size()), pts.data(), circle);
+        r.cx = circle.center[0];
+        r.cy = circle.center[1];
+        r.radius = circle.radius;
+        r.numSupport = q.GetNumSupport();
+        r.support = q.GetSupport();
+        std::sort(r.support.begin(), r.support.begin() + r.numSupport);
+        for (int32_t i = r.numSupport; i < 3; ++i)
+        {
+            r.support[i] = -1;
+        }
+        return r;
+    }
+
+    struct Result3
+    {
+        bool ok;
+        double cx, cy, cz, radius;
+        int32_t numSupport;
+        std::array<int32_t, 4> support;
+
+        bool Same(Result3 const& o) const
+        {
+            return ok == o.ok && SameBits(cx, o.cx) && SameBits(cy, o.cy)
+                && SameBits(cz, o.cz) && SameBits(radius, o.radius)
+                && numSupport == o.numSupport && support == o.support;
+        }
+    };
+
+    Result3 RunMVS(MinimumVolumeSphere3<double, double>& q,
+        std::vector<Vector3<double>> const& pts)
+    {
+        Sphere3<double> sphere{};
+        Result3 r{};
+        r.ok = q(static_cast<int32_t>(pts.size()), pts.data(), sphere);
+        r.cx = sphere.center[0];
+        r.cy = sphere.center[1];
+        r.cz = sphere.center[2];
+        r.radius = sphere.radius;
+        r.numSupport = q.GetNumSupport();
+        r.support = q.GetSupport();
+        std::sort(r.support.begin(), r.support.begin() + r.numSupport);
+        for (int32_t i = r.numSupport; i < 4; ++i)
+        {
+            r.support[i] = -1;
+        }
+        return r;
+    }
+
+    // The engine member advances between calls, so calling the same object
+    // repeatedly samples different shuffles of the same point set. A point
+    // set whose result is the same for all of them is one on which the
+    // implementation-defined permutation cannot be observed, and it is the
+    // only kind this case can compare bit for bit.
+    int32_t const gNumShuffles = 48;
+
+    bool Invariant2(std::vector<Vector2<double>> const& pts, Result2& first)
+    {
+        MinimumAreaCircle2<double, double> q{};
+        first = RunMAC(q, pts);
+        if (!first.ok)
+        {
+            // The trapped-failure fallback is a deliberate port fix of
+            // issue #286; the .deviation case owns it.
+            return false;
+        }
+        for (int32_t k = 1; k < gNumShuffles; ++k)
+        {
+            Result2 r = RunMAC(q, pts);
+            if (!r.Same(first))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool Invariant3(std::vector<Vector3<double>> const& pts, Result3& first)
+    {
+        MinimumVolumeSphere3<double, double> q{};
+        first = RunMVS(q, pts);
+        if (!first.ok)
+        {
+            return false;
+        }
+        for (int32_t k = 1; k < gNumShuffles; ++k)
+        {
+            Result3 r = RunMVS(q, pts);
+            if (!r.Same(first))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // mode 0: uniform doubles; the generic path
+    // mode 1: lattice [-4,4]; exact arithmetic, cocircular triples, ties
+    // mode 2: cocircular lattice about a lattice center, center and nearby
+    //         lattice points mixed in
+    // mode 3: dense lattice [-2,2]; duplicates and degeneracies are common
+    void RawPoints2(oracle::Ctx& io, int32_t mode, size_t n,
+        std::vector<Vector2<double>>& pts)
+    {
+        pts.resize(n);
+        if (mode == 2)
+        {
+            double cx = static_cast<double>(io.rawInteger(-2, 2));
+            double cy = static_cast<double>(io.rawInteger(-2, 2));
+            for (size_t i = 0; i < n; ++i)
+            {
+                int32_t k = io.rawInteger(0, 13);
+                if (k < 12)
+                {
+                    pts[i][0] = cx + static_cast<double>(gCircle25[k][0]);
+                    pts[i][1] = cy + static_cast<double>(gCircle25[k][1]);
+                }
+                else if (k == 12)
+                {
+                    pts[i][0] = cx;
+                    pts[i][1] = cy;
+                }
+                else
+                {
+                    pts[i][0] = cx + static_cast<double>(io.rawInteger(-2, 2));
+                    pts[i][1] = cy + static_cast<double>(io.rawInteger(-2, 2));
+                }
+            }
+            return;
+        }
+
+        for (size_t i = 0; i < n; ++i)
+        {
+            if (mode == 0)
+            {
+                pts[i][0] = io.raw(-4.0, 4.0);
+                pts[i][1] = io.raw(-4.0, 4.0);
+            }
+            else if (mode == 1)
+            {
+                pts[i][0] = static_cast<double>(io.rawInteger(-4, 4));
+                pts[i][1] = static_cast<double>(io.rawInteger(-4, 4));
+            }
+            else
+            {
+                pts[i][0] = static_cast<double>(io.rawInteger(-2, 2));
+                pts[i][1] = static_cast<double>(io.rawInteger(-2, 2));
+            }
+        }
+    }
+
+    void RawPoints3(oracle::Ctx& io, int32_t mode, size_t n,
+        std::vector<Vector3<double>>& pts)
+    {
+        pts.resize(n);
+        for (size_t i = 0; i < n; ++i)
+        {
+            for (int32_t j = 0; j < 3; ++j)
+            {
+                if (mode == 0)
+                {
+                    pts[i][j] = io.raw(-4.0, 4.0);
+                }
+                else if (mode == 1)
+                {
+                    pts[i][j] = static_cast<double>(io.rawInteger(-4, 4));
+                }
+                else
+                {
+                    pts[i][j] = static_cast<double>(io.rawInteger(-2, 2));
+                }
+            }
+        }
+    }
+}
+
+// The full public surface of MinimumAreaCircle2<double,double>: operator(),
+// GetNumSupport() and GetSupport(). The support indices are sorted before
+// they are emitted: upstream writes them in the order the update functions
+// happened to fill mSupport, which depends on the shuffle even when the
+// support *set* does not.
+//
+// The generator keeps at most 8 points, which matters twice: the invariance
+// probe costs 48 queries per draw, and MSVC's std::sort is an insertion sort
+// (hence stable) for at most 32 elements, which is what makes upstream's
+// choice of representative among equal points - the first in sorted order -
+// agree with the port's explicit index tie-break.
+ORACLE_CASE("MinimumAreaCircle2.compute")
+{
+    int32_t mode = io.index() % 4;
+    int32_t n = io.integer(1, 8);
+    std::vector<Vector2<double>> pts{};
+    Result2 res{};
+    bool accepted = false;
+    for (int32_t attempt = 0; attempt < 24 && !accepted; ++attempt)
+    {
+        RawPoints2(io, mode, static_cast<size_t>(n), pts);
+        accepted = Invariant2(pts, res);
+    }
+    if (!accepted)
+    {
+        // Points on a parabola are in general position; the minimum-area
+        // circle of such a set is supported by two or three of them with a
+        // wide margin, so the result does not depend on the permutation.
+        pts.resize(static_cast<size_t>(n));
+        for (int32_t i = 0; i < n; ++i)
+        {
+            double t = static_cast<double>(i) - 2.0;
+            pts[static_cast<size_t>(i)][0] = t;
+            pts[static_cast<size_t>(i)][1] = t * t;
+        }
+        MinimumAreaCircle2<double, double> q{};
+        res = RunMAC(q, pts);
+    }
+
+    for (int32_t i = 0; i < n; ++i)
+    {
+        io.givenVec<2>(pts[static_cast<size_t>(i)]);
+    }
+
+    io.outBool(res.ok);
+    io.outReal(res.cx);
+    io.outReal(res.cy);
+    io.outReal(res.radius);
+    io.outInt(res.numSupport);
+    for (int32_t i = 0; i < res.numSupport; ++i)
+    {
+        io.outInt(res.support[i]);
+    }
+}
+
+// Deliberate port fix of issue #286: in the trapped-failure branch upstream
+// calls GetContainer(numPoints, points, minimal) after numPoints has been
+// overwritten with the *unique* point count, so the fallback circle bounds
+// only a prefix of the input array. The port passes the whole array.
+//
+// The trapped branch is reached about 3 times in 10000 random lattice draws,
+// far too rarely for a rejection loop, so the case draws from a catalogue of
+// four-point lattice sets that were found to reach it (collected with the
+// real upstream query; see the group report). The points are permuted and a
+// random number of duplicates of one of them is prefixed, which leaves the
+// set of distinct points - and therefore the control flow - unchanged while
+// making the unique count smaller than the array length, so upstream's
+// prefix misses at least one genuine point.
+ORACLE_CASE("MinimumAreaCircle2.compute.deviation.trappedFallback")
+{
+    static std::array<std::array<double, 8>, 16> const gTrapped2
+    { {
+        { -1, 4, -3, 0, 2, 4, 4, 0 },
+        { 4, 2, 0, 4, 0, -3, 4, -1 },
+        { -3, -4, 2, 3, -3, 4, 2, -3 },
+        { -2, -1, 0, 2, 3, -4, 4, 1 },
+        { -2, 3, 2, 1, -2, -4, 2, -2 },
+        { 2, 2, -3, -2, -1, 2, 4, -2 },
+        { 2, -3, 2, 3, -3, 4, -3, -4 },
+        { 1, -3, -2, -3, 3, 1, -4, 1 },
+        { -4, -4, 3, 0, -1, 2, -4, 0 },
+        { -4, 2, 4, 2, 3, -3, -3, -3 },
+        { -1, -4, 4, 0, -3, 0, 2, -4 },
+        { -3, -4, -4, 2, 0, 2, -1, -4 },
+        { -2, -1, 4, 1, 3, -4, 0, 2 },
+        { 3, -3, 4, 2, -4, 2, -3, -3 },
+        { 3, -1, 1, 3, -2, 3, -4, -1 },
+        { -2, 1, 0, -3, 4, 4, 0, 4 }
+    } };
+
+    int32_t which = io.rawInteger(0, 15);
+    auto const& raw = gTrapped2[static_cast<size_t>(which)];
+    std::vector<Vector2<double>> base(4);
+    for (size_t i = 0; i < 4; ++i)
+    {
+        base[i][0] = raw[2 * i];
+        base[i][1] = raw[2 * i + 1];
+    }
+
+    std::array<int32_t, 4> order{ 0, 1, 2, 3 };
+    for (int32_t i = 3; i > 0; --i)
+    {
+        int32_t j = io.rawInteger(0, i);
+        std::swap(order[static_cast<size_t>(i)], order[static_cast<size_t>(j)]);
+    }
+    int32_t numDup = io.rawInteger(1, 3);
+    int32_t dupOf = io.rawInteger(0, 3);
+
+    std::vector<Vector2<double>> pts{};
+    for (int32_t k = 0; k < numDup; ++k)
+    {
+        pts.push_back(base[static_cast<size_t>(dupOf)]);
+    }
+    for (int32_t i = 0; i < 4; ++i)
+    {
+        pts.push_back(base[static_cast<size_t>(order[static_cast<size_t>(i)])]);
+    }
+
+    io.given(static_cast<double>(pts.size()));
+    for (auto const& p : pts)
+    {
+        io.givenVec<2>(p);
+    }
+
+    MinimumAreaCircle2<double, double> q{};
+    Result2 res = RunMAC(q, pts);
+    io.outBool(res.ok);
+    io.outReal(res.cx);
+    io.outReal(res.cy);
+    io.outReal(res.radius);
+    io.outInt(res.numSupport);
+    for (int32_t i = 0; i < res.numSupport; ++i)
+    {
+        io.outInt(res.support[i]);
+    }
+}
+
+// Throw parity: operator() calls LogError when there are no points.
+ORACLE_CASE("MinimumAreaCircle2.compute.empty")
+{
+    Vector2<double> unused = io.latticeVec<2>(-2, 2);
+    (void)unused;
+    MinimumAreaCircle2<double, double> q{};
+    Circle2<double> circle{};
+    bool ok = q(0, static_cast<Vector2<double> const*>(nullptr), circle);
+    io.outBool(ok);
+}
+
+// The full public surface of MinimumVolumeSphere3<double,double>. Same
+// comparison policy as the 2D query above.
+ORACLE_CASE("MinimumVolumeSphere3.compute")
+{
+    int32_t mode = io.index() % 3;
+    int32_t n = io.integer(1, 8);
+    std::vector<Vector3<double>> pts{};
+    Result3 res{};
+    bool accepted = false;
+    for (int32_t attempt = 0; attempt < 24 && !accepted; ++attempt)
+    {
+        RawPoints3(io, mode, static_cast<size_t>(n), pts);
+        accepted = Invariant3(pts, res);
+    }
+    if (!accepted)
+    {
+        // Points on the moment curve are in general position.
+        pts.resize(static_cast<size_t>(n));
+        for (int32_t i = 0; i < n; ++i)
+        {
+            double t = static_cast<double>(i) - 2.0;
+            pts[static_cast<size_t>(i)][0] = t;
+            pts[static_cast<size_t>(i)][1] = t * t;
+            pts[static_cast<size_t>(i)][2] = t * t * t;
+        }
+        MinimumVolumeSphere3<double, double> q{};
+        res = RunMVS(q, pts);
+    }
+
+    for (int32_t i = 0; i < n; ++i)
+    {
+        io.givenVec<3>(pts[static_cast<size_t>(i)]);
+    }
+
+    io.outBool(res.ok);
+    io.outReal(res.cx);
+    io.outReal(res.cy);
+    io.outReal(res.cz);
+    io.outReal(res.radius);
+    io.outInt(res.numSupport);
+    for (int32_t i = 0; i < res.numSupport; ++i)
+    {
+        io.outInt(res.support[i]);
+    }
+}
+
+// The 3D twin of the trapped-fallback deviation; see the 2D case.
+ORACLE_CASE("MinimumVolumeSphere3.compute.deviation.trappedFallback")
+{
+    static std::array<std::array<double, 15>, 16> const gTrapped3
+    { {
+        { 2, 0, 1, 1, -1, 1, 0, 1, 2, -1, 2, -1, 1, 1, -2 },
+        { 0, -1, 1, 0, -2, -1, -1, 1, 0, 2, 0, -1, 0, 1, -2 },
+        { 0, 0, 2, 0, 1, 0, 2, -1, 0, 0, -2, -1, -1, -2, 1 },
+        { 1, -1, 0, -2, -2, 2, -1, -2, -2, 1, 1, 2, 1, 0, -2 },
+        { 2, -2, 2, 1, 2, 2, -1, -2, -1, -1, -2, 0, -1, 2, 0 },
+        { 2, -1, -1, -1, -1, -2, 1, 0, 2, -2, 0, 1, 1, 2, -1 },
+        { 1, 2, 2, -1, -2, 2, 2, 0, -1, 0, 2, 2, -1, 0, -1 },
+        { 1, -2, 0, 1, -2, -1, -1, 1, 2, 2, 1, -1, -1, -2, 1 },
+        { -2, 1, 0, 1, -1, 0, -1, 0, -2, -1, -2, 0, 0, 1, 1 },
+        { 0, 1, 0, -1, 0, -1, 1, 2, -2, -2, 2, -2, -2, 1, -2 },
+        { -2, 2, -1, -1, 2, 2, 2, 1, 0, -2, -2, -1, 2, -1, 0 },
+        { 1, -1, 1, 0, 0, -2, 1, 1, -2, 1, -2, -1, 2, 0, 1 },
+        { 2, 0, 1, -2, 2, -1, 1, 2, 1, -2, -1, -2, -1, -1, -1 },
+        { -1, 1, 2, -1, -2, -1, 2, 2, 1, 2, -2, 2, 0, 2, -1 },
+        { 1, 2, 2, 0, 2, 0, 1, 1, 0, 0, 1, 1, 2, 2, 1 },
+        { -2, -1, 1, -1, -1, 2, 0, 0, 1, -1, 0, 0, -2, 0, 2 }
+    } };
+
+    int32_t which = io.rawInteger(0, 15);
+    auto const& raw = gTrapped3[static_cast<size_t>(which)];
+    std::vector<Vector3<double>> base(5);
+    for (size_t i = 0; i < 5; ++i)
+    {
+        base[i][0] = raw[3 * i];
+        base[i][1] = raw[3 * i + 1];
+        base[i][2] = raw[3 * i + 2];
+    }
+
+    std::array<int32_t, 5> order{ 0, 1, 2, 3, 4 };
+    for (int32_t i = 4; i > 0; --i)
+    {
+        int32_t j = io.rawInteger(0, i);
+        std::swap(order[static_cast<size_t>(i)], order[static_cast<size_t>(j)]);
+    }
+    int32_t numDup = io.rawInteger(1, 3);
+    int32_t dupOf = io.rawInteger(0, 4);
+
+    std::vector<Vector3<double>> pts{};
+    for (int32_t k = 0; k < numDup; ++k)
+    {
+        pts.push_back(base[static_cast<size_t>(dupOf)]);
+    }
+    for (int32_t i = 0; i < 5; ++i)
+    {
+        pts.push_back(base[static_cast<size_t>(order[static_cast<size_t>(i)])]);
+    }
+
+    io.given(static_cast<double>(pts.size()));
+    for (auto const& p : pts)
+    {
+        io.givenVec<3>(p);
+    }
+
+    MinimumVolumeSphere3<double, double> q{};
+    Result3 res = RunMVS(q, pts);
+    io.outBool(res.ok);
+    io.outReal(res.cx);
+    io.outReal(res.cy);
+    io.outReal(res.cz);
+    io.outReal(res.radius);
+    io.outInt(res.numSupport);
+    for (int32_t i = 0; i < res.numSupport; ++i)
+    {
+        io.outInt(res.support[i]);
+    }
+}
+
+// Throw parity: operator() calls LogError when there are no points.
+ORACLE_CASE("MinimumVolumeSphere3.compute.empty")
+{
+    Vector3<double> unused = io.latticeVec<3>(-2, 2);
+    (void)unused;
+    MinimumVolumeSphere3<double, double> q{};
+    Sphere3<double> sphere{};
+    bool ok = q(0, static_cast<Vector3<double> const*>(nullptr), sphere);
+    io.outBool(ok);
 }
