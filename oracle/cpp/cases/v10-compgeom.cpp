@@ -1523,3 +1523,117 @@ ORACLE_CASE("IncrementalDelaunay2.getHull.deviation.collinear")
         io.outInt(v);
     }
 }
+
+// ---- a 2D case aimed at the three-point support --------------------------
+
+namespace
+{
+    // Sign of the in-circle determinant for a counterclockwise triangle
+    // <A,B,C>: +1 when D is strictly inside the circumcircle.
+    int32_t ExactInCircle(Vector2<double> const& A, Vector2<double> const& B,
+        Vector2<double> const& C, Vector2<double> const& D)
+    {
+        std::array<Exact, 3> x{ Exact(A[0]) - Exact(D[0]), Exact(B[0]) - Exact(D[0]),
+            Exact(C[0]) - Exact(D[0]) };
+        std::array<Exact, 3> y{ Exact(A[1]) - Exact(D[1]), Exact(B[1]) - Exact(D[1]),
+            Exact(C[1]) - Exact(D[1]) };
+        std::array<Exact, 3> w{ x[0] * x[0] + y[0] * y[0], x[1] * x[1] + y[1] * y[1],
+            x[2] * x[2] + y[2] * y[2] };
+        Exact det = x[0] * (y[1] * w[2] - y[2] * w[1])
+            - y[0] * (x[1] * w[2] - x[2] * w[1])
+            + w[0] * (x[1] * y[2] - x[2] * y[1]);
+        return det.GetSign();
+    }
+
+    // Exact test that the triangle is acute: the dot product of the two edges
+    // at each vertex is positive. The minimum-area circle of an acute
+    // triangle is its circumcircle, so the support set has three points.
+    bool ExactAcute(Vector2<double> const& A, Vector2<double> const& B,
+        Vector2<double> const& C)
+    {
+        auto dot = [](Vector2<double> const& P, Vector2<double> const& Q,
+            Vector2<double> const& R)
+        {
+            Exact ux = Exact(Q[0]) - Exact(P[0]), uy = Exact(Q[1]) - Exact(P[1]);
+            Exact vx = Exact(R[0]) - Exact(P[0]), vy = Exact(R[1]) - Exact(P[1]);
+            return (ux * vx + uy * vy).GetSign();
+        };
+        return dot(A, B, C) > 0 && dot(B, A, C) > 0 && dot(C, A, B) > 0;
+    }
+}
+
+// The general case above ends with a three-point support in about 4% of its
+// records, because the permutation-invariance filter prefers the symmetric
+// two-point circles. This case aims at the three-point support directly: an
+// acute lattice triangle (its minimum-area circle is its circumcircle) plus
+// extra points that the exact in-circle predicate places strictly inside.
+// ExactCircle3's center and squared radius are then the emitted result.
+ORACLE_CASE("MinimumAreaCircle2.compute.circumcircle")
+{
+    int32_t extra = io.integer(0, 4);
+    std::vector<Vector2<double>> pts{};
+    Result2 res{};
+    bool accepted = false;
+    for (int32_t attempt = 0; attempt < 32 && !accepted; ++attempt)
+    {
+        pts.clear();
+        Vector2<double> A{ 0.0, 0.0 }, B{ 0.0, 0.0 }, C{ 0.0, 0.0 };
+        bool acute = false;
+        for (int32_t k = 0; k < 32 && !acute; ++k)
+        {
+            A[0] = static_cast<double>(io.rawInteger(-6, 6));
+            A[1] = static_cast<double>(io.rawInteger(-6, 6));
+            B[0] = static_cast<double>(io.rawInteger(-6, 6));
+            B[1] = static_cast<double>(io.rawInteger(-6, 6));
+            C[0] = static_cast<double>(io.rawInteger(-6, 6));
+            C[1] = static_cast<double>(io.rawInteger(-6, 6));
+            if (ExactOrient2(A, B, C) < 0)
+            {
+                std::swap(B, C);
+            }
+            acute = ExactOrient2(A, B, C) > 0 && ExactAcute(A, B, C);
+        }
+        if (!acute)
+        {
+            continue;
+        }
+        pts = { A, B, C };
+        for (int32_t e = 0; e < extra; ++e)
+        {
+            for (int32_t k = 0; k < 32; ++k)
+            {
+                Vector2<double> D{ static_cast<double>(io.rawInteger(-6, 6)),
+                    static_cast<double>(io.rawInteger(-6, 6)) };
+                if (ExactInCircle(A, B, C, D) > 0)
+                {
+                    pts.push_back(D);
+                    break;
+                }
+            }
+        }
+        accepted = Invariant2(pts, res);
+    }
+    if (!accepted)
+    {
+        pts = { Vector2<double>{ -4.0, 0.0 }, Vector2<double>{ 4.0, 0.0 },
+            Vector2<double>{ 0.0, 3.0 } };
+        MinimumAreaCircle2<double, double> q{};
+        res = RunMAC(q, pts);
+    }
+
+    io.given(static_cast<double>(pts.size()));
+    for (auto const& p : pts)
+    {
+        io.givenVec<2>(p);
+    }
+
+    io.outBool(res.ok);
+    io.outReal(res.cx);
+    io.outReal(res.cy);
+    io.outReal(res.radius);
+    io.outInt(res.numSupport);
+    for (int32_t i = 0; i < res.numSupport; ++i)
+    {
+        io.outInt(res.support[i]);
+    }
+}

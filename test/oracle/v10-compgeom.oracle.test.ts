@@ -109,6 +109,14 @@ describe('oracle: v10-compgeom', () => {
         io.outBool(r.success);
     }, { exact: true });
 
+    // Aimed at the three-point support: an acute lattice triangle plus
+    // points the exact in-circle predicate places strictly inside its
+    // circumcircle, so exactCircle3's output is the emitted result.
+    family.case('MinimumAreaCircle2.compute.circumcircle', (io) => {
+        io.integer();
+        emitCircle(io, readPoints(io, 2));
+    }, { exact: true });
+
     family.case('MinimumVolumeSphere3.compute', (io) => {
         const n = io.integer();
         const points: Vector[] = [];
