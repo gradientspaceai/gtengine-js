@@ -55,6 +55,8 @@
 #include <Mathematics/Constants.h>
 #include <Mathematics/InscribedFixedAspectRectInQuad.h>
 #include <Mathematics/TriangulateEC.h>
+#include <Mathematics/MinimumVolumeBox3FloatingPoint.h>
+#include <Mathematics/MinimumVolumeBox3Rational.h>
 
 #include <algorithm>
 #include <array>
@@ -62,11 +64,64 @@
 #include <cstdint>
 #include <deque>
 #include <exception>
+#include <functional>
 #include <limits>
 #include <set>
 #include <vector>
 
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+
 using namespace gte;
+
+namespace
+{
+    // Both MinimumVolumeBox3 specializations put large exact-arithmetic
+    // objects on the stack (the rational one uses UIntegerFP32<2561>, about
+    // 10 KiB per number, and its own header asks for a 1 GiB stack reserve;
+    // the floating-point one reaches the same exact types through
+    // ConvexHull3). The default 1 MiB main-thread stack overflows, so those
+    // cases run on a thread with a large stack reservation. Nothing else
+    // changes: the callable runs to completion and its exception, if any, is
+    // rethrown on the calling thread so the harness records the throw.
+    struct BigStackCall
+    {
+        std::function<void()> fn;
+        std::exception_ptr error;
+    };
+
+    DWORD WINAPI BigStackThunk(LPVOID parameter)
+    {
+        BigStackCall* call = static_cast<BigStackCall*>(parameter);
+        try
+        {
+            call->fn();
+        }
+        catch (...)
+        {
+            call->error = std::current_exception();
+        }
+        return 0;
+    }
+
+    void RunWithBigStack(std::function<void()> fn)
+    {
+        BigStackCall call{ std::move(fn), nullptr };
+        HANDLE thread = CreateThread(nullptr, 1024ull * 1024ull * 1024ull,
+            BigStackThunk, &call, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+        if (thread == nullptr)
+        {
+            throw std::runtime_error("CreateThread failed");
+        }
+        WaitForSingleObject(thread, INFINITE);
+        CloseHandle(thread);
+        if (call.error)
+        {
+            std::rethrow_exception(call.error);
+        }
+    }
+}
 
 namespace
 {
@@ -2513,4 +2568,600 @@ ORACLE_CASE("TriangulateEC.triangulateTree")
     double expected = ShoelaceArea(points, outer) + ShoelaceArea(points, hole)
         + ShoelaceArea(points, innerOuter);
     io.outBool(TriangulationIsValid(points, triangulator.GetTriangles(), expected));
+}
+
+namespace
+{
+    // ---- MinimumVolumeBox3 ----------------------------------------------
+    //
+    // The port implements the MVB3FloatingPoint and MVB3Rational compute
+    // types; MVB3GPU is not ported. Both are instantiated here with
+    // <double, int32_t, ...> and run single threaded (numThreads = 0), and
+    // lgMaxSample stays small so that the rational pipeline finishes.
+    //
+    // The port deliberately fixes four upstream defects in these two files,
+    // so the generators of the main cases have to stay on the sound side of
+    // each of them and each gets its own deviation case:
+    //   #352 / #355  the dimension-2 Newell normal loop drops the
+    //                wrap-around term in both files, so every coplanar input
+    //                is wrong upstream. The main cases reject coplanar point
+    //                sets (hull dimension < 3) and the deviation cases aim
+    //                straight at them.
+    //   #405         ComputeVolume assumes a hull-edge vertex realizes the
+    //                axis[0]/axis[1] minima.
+    //   #426         GetExtreme's strict-improvement hill climb stalls on a
+    //                floating-point plateau.
+    // Both #405 and #426 show up as the same observable: the returned box
+    // does not contain the input points. The main floating-point case
+    // rejects such records with a capped loop that redraws the whole cloud,
+    // and the deviation case keeps only the worst offender it finds.
+    //
+    // ORDER DEPENDENCE (new upstream finding, see the group report).
+    // ExtractMeshTopology numbers the edges and the triangles by iterating
+    // ETManifoldMesh's mEMap and mTMap, which are std::unordered_map. The
+    // candidate list mEdgeIndices is then every ordered pair (e0, e1) with
+    // e0 < e1 IN THAT NUMBERING, and ProcessEdgePair is not symmetric in its
+    // two edges (the first supplies N and the second M, and the level-curve
+    // branch and the sampled axes differ between the two roles). So both the
+    // set of candidates examined and the tie-breaking "first candidate with
+    // a strictly smaller volume wins" depend on a hash-container iteration
+    // order, which is not part of any specification. Measured with the probe
+    // below: reversing the triangle order of the input mesh changes the
+    // reported minimum volume on a noticeable fraction of small clouds, by
+    // up to 0.8 percent. The oracle therefore
+    //   * emits the box in a form invariant under the axis signs and the
+    //     axis order, the two freedoms the algorithm genuinely leaves open,
+    //     and
+    //   * restricts the main cases to inputs on which upstream's own answer
+    //     does not change when the mesh is presented in a different order.
+
+    // Maximum amount by which a point sticks out of the box, measured along
+    // the box axes. Zero when the box contains every point.
+    double ContainmentViolation(OrientedBox3<double> const& box,
+        std::vector<Vector3<double>> const& points)
+    {
+        double worst = 0.0;
+        for (auto const& p : points)
+        {
+            Vector3<double> d = p - box.center;
+            for (int32_t i = 0; i < 3; ++i)
+            {
+                double t = std::fabs(Dot(d, box.axis[i])) - box.extent[i];
+                worst = std::max(worst, t);
+            }
+        }
+        return worst;
+    }
+
+    double PointScale(std::vector<Vector3<double>> const& points)
+    {
+        double scale = 1.0;
+        for (auto const& p : points)
+        {
+            for (int32_t i = 0; i < 3; ++i)
+            {
+                scale = std::max(scale, std::fabs(p[i]));
+            }
+        }
+        return scale;
+    }
+
+    // Draw a point cloud. Mode 0 is a small lattice; mode 1 rotates a lattice
+    // cloud by a fraction of a degree, the configuration in which upstream's
+    // hill climb stalls (#426); mode 2 is uniform. The sin/cos of mode 1 is
+    // applied here, in the generator; only the final coordinates are
+    // recorded, so no libm value enters a compared computation.
+    std::vector<Vector3<double>> DrawCloud(oracle::Ctx& io, int32_t mode, int32_t n)
+    {
+        std::vector<Vector3<double>> points(static_cast<size_t>(n));
+        for (int32_t i = 0; i < n; ++i)
+        {
+            for (int32_t d = 0; d < 3; ++d)
+            {
+                points[static_cast<size_t>(i)][d] = (mode == 2
+                    ? io.raw(-5.0, 5.0)
+                    : static_cast<double>(io.rawInteger(-4, 4)));
+            }
+        }
+        if (mode == 1)
+        {
+            double angle = io.raw(0.0005, 0.005);
+            double c = std::cos(angle), s = std::sin(angle);
+            int32_t axis = io.rawInteger(0, 2);
+            int32_t a0 = (axis + 1) % 3, a1 = (axis + 2) % 3;
+            for (auto& p : points)
+            {
+                double u = p[a0], v = p[a1];
+                p[a0] = c * u - s * v;
+                p[a1] = s * u + c * v;
+            }
+        }
+        return points;
+    }
+
+    // A coplanar cloud: 'n' lattice points on a lattice plane through
+    // 'origin' spanned by 'dir0' and 'dir1'. Sub-mode 0 forces a triangular
+    // hull (three corners plus interior points), sub-mode 1 allows any hull.
+    std::vector<Vector3<double>> DrawCoplanarCloud(oracle::Ctx& io, int32_t subMode,
+        int32_t n)
+    {
+        Vector3<double> origin{ 0.0, 0.0, 0.0 }, dir0{ 0.0, 0.0, 0.0 }, dir1{ 0.0, 0.0, 0.0 };
+        for (int32_t d = 0; d < 3; ++d)
+        {
+            origin[d] = static_cast<double>(io.rawInteger(-3, 3));
+        }
+        do
+        {
+            for (int32_t d = 0; d < 3; ++d)
+            {
+                dir0[d] = static_cast<double>(io.rawInteger(-2, 2));
+                dir1[d] = static_cast<double>(io.rawInteger(-2, 2));
+            }
+        }
+        while (Length(Cross(dir0, dir1)) == 0.0);
+
+        std::vector<std::array<double, 2>> uv{};
+        if (subMode == 0)
+        {
+            double scale = static_cast<double>(io.rawInteger(2, 4));
+            uv.push_back({ 0.0, 0.0 });
+            uv.push_back({ scale, 0.0 });
+            uv.push_back({ 0.0, scale });
+            for (int32_t i = 3; i < n; ++i)
+            {
+                // Strictly inside the triangle with corners (0,0), (s,0) and
+                // (0,s), so the hull stays a triangle.
+                double a = 0.25 * static_cast<double>(io.rawInteger(1, 2));
+                double b = 0.25 * static_cast<double>(io.rawInteger(1, 2));
+                uv.push_back({ a * scale, b * scale });
+            }
+        }
+        else
+        {
+            for (int32_t i = 0; i < n; ++i)
+            {
+                uv.push_back({ static_cast<double>(io.rawInteger(-4, 4)),
+                    static_cast<double>(io.rawInteger(-4, 4)) });
+            }
+        }
+
+        std::vector<Vector3<double>> points{};
+        for (auto const& p : uv)
+        {
+            points.push_back(origin + p[0] * dir0 + p[1] * dir1);
+        }
+        return points;
+    }
+
+    void GiveCloud(oracle::Ctx& io, std::vector<Vector3<double>> const& points)
+    {
+        int32_t n = static_cast<int32_t>(points.size());
+        io.integer(n, n);
+        for (auto const& p : points)
+        {
+            io.givenVec(p);
+        }
+    }
+
+    // The box is emitted in a form that is invariant under the two freedoms
+    // the algorithm leaves unspecified: the sign of each axis and the order
+    // of the three axes. See the comment on the order dependence above. The
+    // invariants are the centre, the sorted extents, the six distinct
+    // entries of M = sum_i extent[i]^2 * axis[i] * axis[i]^T, and the volume;
+    // together they determine the box up to axis signs and permutation.
+    void OutBox(oracle::Ctx& io, size_t dimension, OrientedBox3<double> const& box,
+        double volume)
+    {
+        io.outInt(static_cast<int32_t>(dimension));
+        io.outVec(box.center);
+
+        std::array<double, 3> extent{ box.extent[0], box.extent[1], box.extent[2] };
+        std::sort(extent.begin(), extent.end());
+        for (int32_t i = 0; i < 3; ++i)
+        {
+            io.outReal(extent[static_cast<size_t>(i)]);
+        }
+
+        std::array<double, 6> m{ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+        for (int32_t i = 0; i < 3; ++i)
+        {
+            double w = box.extent[i] * box.extent[i];
+            Vector3<double> const& a = box.axis[i];
+            m[0] += w * a[0] * a[0];
+            m[1] += w * a[0] * a[1];
+            m[2] += w * a[0] * a[2];
+            m[3] += w * a[1] * a[1];
+            m[4] += w * a[1] * a[2];
+            m[5] += w * a[2] * a[2];
+        }
+        for (int32_t i = 0; i < 6; ++i)
+        {
+            io.outReal(m[static_cast<size_t>(i)]);
+        }
+
+        io.outReal(volume);
+    }
+
+    // The invariants of a box, for the order-stability probe.
+    std::array<double, 13> BoxInvariants(OrientedBox3<double> const& box, double volume)
+    {
+        std::array<double, 13> out{};
+        out[0] = box.center[0];
+        out[1] = box.center[1];
+        out[2] = box.center[2];
+        std::array<double, 3> extent{ box.extent[0], box.extent[1], box.extent[2] };
+        std::sort(extent.begin(), extent.end());
+        out[3] = extent[0];
+        out[4] = extent[1];
+        out[5] = extent[2];
+        for (int32_t i = 0; i < 3; ++i)
+        {
+            double w = box.extent[i] * box.extent[i];
+            Vector3<double> const& a = box.axis[i];
+            out[6] += w * a[0] * a[0];
+            out[7] += w * a[0] * a[1];
+            out[8] += w * a[0] * a[2];
+            out[9] += w * a[1] * a[1];
+            out[10] += w * a[1] * a[2];
+            out[11] += w * a[2] * a[2];
+        }
+        out[12] = volume;
+        return out;
+    }
+
+    bool InvariantsAgree(std::array<double, 13> const& a, std::array<double, 13> const& b,
+        double tolerance)
+    {
+        for (size_t i = 0; i < a.size(); ++i)
+        {
+            double scale = std::max(1.0, std::max(std::fabs(a[i]), std::fabs(b[i])));
+            if (std::fabs(a[i] - b[i]) > tolerance * scale)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    using MVB3FP = MinimumVolumeBox3<double, int32_t, MVB3FloatingPoint>;
+    using MVB3R = MinimumVolumeBox3<double, int32_t, MVB3Rational>;
+
+    void MVB3FPQuery(std::vector<Vector3<double>> const& vertices,
+        std::vector<int32_t> const& indices, int32_t lgMaxSample,
+        OrientedBox3<double>& box, double& volume)
+    {
+        MVB3FP query(0);
+        query(vertices, indices, static_cast<std::size_t>(lgMaxSample), box, volume);
+    }
+
+    // Run the query twice, the second time with the triangles of the hull
+    // presented in reverse order, and report whether the two boxes agree.
+    // This is upstream's own control flow used as the probe.
+    bool HullOrderStable(std::vector<Vector3<double>> const& vertices,
+        std::vector<int32_t> const& indices, int32_t lgMaxSample)
+    {
+        OrientedBox3<double> box0{}, box1{};
+        double volume0 = 0.0, volume1 = 0.0;
+        std::vector<int32_t> reversed{};
+        size_t const numTriangles = indices.size() / 3;
+        for (size_t t = numTriangles; t > 0; --t)
+        {
+            reversed.push_back(indices[3 * (t - 1) + 0]);
+            reversed.push_back(indices[3 * (t - 1) + 1]);
+            reversed.push_back(indices[3 * (t - 1) + 2]);
+        }
+        try
+        {
+            MVB3FPQuery(vertices, indices, lgMaxSample, box0, volume0);
+            MVB3FPQuery(vertices, reversed, lgMaxSample, box1, volume1);
+        }
+        catch (std::exception const&)
+        {
+            return false;
+        }
+        return InvariantsAgree(BoxInvariants(box0, volume0),
+            BoxInvariants(box1, volume1), 0.0);
+    }
+
+    // The same probe for the arbitrary-point query: run it on the points as
+    // drawn and on the reversed point list. Reversing changes both the
+    // ConvexHull3 output ordering and the mesh insertion order, and it moves
+    // the translation origin mTOrigin, so bit-identical invariants are a
+    // strong statement that the answer does not depend on either.
+    bool CloudOrderStable(std::vector<Vector3<double>> const& points, int32_t lgMaxSample)
+    {
+        std::vector<std::vector<Vector3<double>>> orders{};
+        orders.push_back(points);
+        orders.push_back(std::vector<Vector3<double>>(points.rbegin(), points.rend()));
+        for (std::size_t shift = 1; shift < points.size(); ++shift)
+        {
+            std::vector<Vector3<double>> rotated{};
+            for (std::size_t i = 0; i < points.size(); ++i)
+            {
+                rotated.push_back(points[(i + shift) % points.size()]);
+            }
+            orders.push_back(rotated);
+        }
+
+        std::array<double, 13> reference{};
+        for (std::size_t k = 0; k < orders.size(); ++k)
+        {
+            OrientedBox3<double> box{};
+            double volume = 0.0;
+            std::size_t dimension = 0;
+            try
+            {
+                MVB3FP query(0);
+                dimension = query(orders[k], static_cast<std::size_t>(lgMaxSample),
+                    box, volume);
+            }
+            catch (std::exception const&)
+            {
+                return false;
+            }
+            if (dimension != 3)
+            {
+                return false;
+            }
+            std::array<double, 13> invariants = BoxInvariants(box, volume);
+            if (k == 0)
+            {
+                reference = invariants;
+            }
+            else if (!InvariantsAgree(reference, invariants, 0.0))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+}
+
+ORACLE_CASE("MinimumVolumeBox3FloatingPoint.compute")
+{
+    RunWithBigStack([&io]() {
+
+    // Restricted to clouds whose hull is 3-dimensional (the dimension-0, -1
+    // and -2 paths get their own cases) and on which upstream's box really
+    // contains the input points, which is the observable symptom of both
+    // #405 and #426. The loop is capped at 24 attempts and falls back to the
+    // least defective cloud it saw.
+    int32_t mode = io.integer(0, 2);
+    int32_t lgMaxSample = io.integer(2, 4);
+    int32_t n = io.integer(5, 10);
+
+    std::vector<Vector3<double>> best{};
+    double bestViolation = std::numeric_limits<double>::max();
+    for (int32_t attempt = 0; attempt < 24; ++attempt)
+    {
+        std::vector<Vector3<double>> points = DrawCloud(io, mode, n);
+        OrientedBox3<double> box{};
+        double volume = 0.0;
+        MVB3FP query(0);
+        std::size_t dimension = 3;
+        try
+        {
+            dimension = query(points, static_cast<std::size_t>(lgMaxSample), box, volume);
+        }
+        catch (std::exception const&)
+        {
+            continue;
+        }
+        if (dimension != 3)
+        {
+            continue;
+        }
+        double violation = ContainmentViolation(box, points) / PointScale(points);
+        if (!CloudOrderStable(points, lgMaxSample))
+        {
+            // The reported box depends on the order in which the mesh edges
+            // and triangles happen to be enumerated, which comes out of a
+            // std::unordered_map; such a record is not comparable.
+            continue;
+        }
+        if (violation < bestViolation)
+        {
+            bestViolation = violation;
+            best = points;
+        }
+        if (violation <= 1e-9)
+        {
+            break;
+        }
+    }
+    if (best.empty())
+    {
+        best = { Vector3<double>{ 0.0, 0.0, 0.0 }, Vector3<double>{ 4.0, 0.0, 0.0 },
+            Vector3<double>{ 0.0, 3.0, 0.0 }, Vector3<double>{ 0.0, 0.0, 2.0 },
+            Vector3<double>{ 1.0, 1.0, 1.0 } };
+    }
+    GiveCloud(io, best);
+
+    OrientedBox3<double> box{};
+    double volume = 0.0;
+    MVB3FP query(0);
+    std::size_t dimension = query(best, static_cast<std::size_t>(lgMaxSample), box, volume);
+    OutBox(io, dimension, box, volume);
+
+    // Reference check: the box contains every input point and its volume is
+    // the product of twice the extents.
+    double scale = PointScale(best);
+    io.outBool(ContainmentViolation(box, best) <= 1e-9 * scale);
+    double product = 8.0 * box.extent[0] * box.extent[1] * box.extent[2];
+    io.outBool(std::fabs(product - volume) <= 1e-9 * std::max(1.0, std::fabs(volume)));
+    });
+}
+
+ORACLE_CASE("MinimumVolumeBox3FloatingPoint.compute.lowDimension")
+{
+    RunWithBigStack([&io]() {
+
+    // Hull dimension 0 (all points equal) and 1 (all points collinear). The
+    // Newell defect of #352 is confined to the dimension-2 branch, so these
+    // two agree with the port.
+    int32_t dimensionWanted = io.integer(0, 1);
+    int32_t lgMaxSample = io.integer(2, 4);
+    int32_t n = io.integer(4, 8);
+
+    std::vector<Vector3<double>> points{};
+    Vector3<double> origin{ 0.0, 0.0, 0.0 }, dir{ 0.0, 0.0, 0.0 };
+    for (int32_t d = 0; d < 3; ++d)
+    {
+        origin[d] = static_cast<double>(io.rawInteger(-4, 4));
+    }
+    if (dimensionWanted == 0)
+    {
+        for (int32_t i = 0; i < n; ++i)
+        {
+            points.push_back(origin);
+        }
+    }
+    else
+    {
+        do
+        {
+            for (int32_t d = 0; d < 3; ++d)
+            {
+                dir[d] = static_cast<double>(io.rawInteger(-3, 3));
+            }
+        }
+        while (dir[0] == 0.0 && dir[1] == 0.0 && dir[2] == 0.0);
+        for (int32_t i = 0; i < n; ++i)
+        {
+            double t = static_cast<double>(io.rawInteger(-4, 4));
+            points.push_back(origin + t * dir);
+        }
+    }
+    GiveCloud(io, points);
+
+    OrientedBox3<double> box{};
+    double volume = 0.0;
+    MVB3FP query(0);
+    std::size_t dimension = query(points, static_cast<std::size_t>(lgMaxSample), box, volume);
+    OutBox(io, dimension, box, volume);
+    });
+}
+
+ORACLE_CASE("MinimumVolumeBox3FloatingPoint.computeHull")
+{
+    RunWithBigStack([&io]() {
+
+    // The vertices-and-indices query, fed the three convex lattice polytopes
+    // (the cube's coplanar face triangles exercise
+    // RemoveCoplanarTriangleAdjacencies).
+    int32_t shape = io.integer(0, 2);
+    int32_t lgMaxSample = io.integer(2, 4);
+    std::vector<Vector3<double>> vertices{};
+    std::vector<int32_t> indices{};
+    MakePolytope(io, shape, vertices, indices);
+    GiveMesh(io, vertices, indices);
+
+    // The three polytope shapes are fixed, so a rejection loop could not
+    // redraw its way out of a defect. Instead the two acceptance tests are
+    // evaluated here and RECORDED AS AN INPUT, so the replay takes the same
+    // branch: the box is compared only when upstream's answer does not
+    // depend on the mesh order and upstream's box contains the polytope.
+    OrientedBox3<double> box{};
+    double volume = 0.0;
+    MVB3FP query(0);
+    query(vertices, indices, static_cast<std::size_t>(lgMaxSample), box, volume);
+    double scale = PointScale(vertices);
+    bool contains = (ContainmentViolation(box, vertices) <= 1e-9 * scale);
+    bool stable = HullOrderStable(vertices, indices, lgMaxSample);
+    int32_t usable = ((stable && contains) ? 1 : 0);
+    io.integer(usable, usable);
+    if (usable != 0)
+    {
+        OutBox(io, 3, box, volume);
+        io.outBool(ContainmentViolation(box, vertices) <= 1e-9 * scale);
+    }
+    });
+}
+
+ORACLE_CASE("MinimumVolumeBox3FloatingPoint.compute.coplanar")
+{
+    RunWithBigStack([&io]() {
+
+    // Deviation: the dimension-2 Newell normal loop
+    // "for (i0 = numHull - 1, i1 = 1; i1 < numHull; i0 = i1++)" drops the
+    // wrap-around cross-product term, which makes the plane normal wrong for
+    // every coplanar point set and exactly zero when the hull is a triangle.
+    // The port starts the loop at i1 = 0. Sub-mode 0 forces a triangular
+    // hull; sub-mode 1 allows any coplanar hull.
+    int32_t subMode = io.integer(0, 1);
+    int32_t lgMaxSample = io.integer(2, 4);
+    int32_t n = io.integer(4, 8);
+    std::vector<Vector3<double>> points = DrawCoplanarCloud(io, subMode, n);
+    GiveCloud(io, points);
+
+    OrientedBox3<double> box{};
+    double volume = 0.0;
+    MVB3FP query(0);
+    std::size_t dimension = query(points, static_cast<std::size_t>(lgMaxSample), box, volume);
+    OutBox(io, dimension, box, volume);
+    });
+}
+
+ORACLE_CASE("MinimumVolumeBox3FloatingPoint.compute.nonContaining")
+{
+    RunWithBigStack([&io]() {
+
+    // Deviation: clouds on which upstream's own box fails to contain the
+    // input points, the observable symptom of #405 (ComputeVolume assumes a
+    // hull-edge vertex realizes the axis[0]/axis[1] minima) and #426
+    // (GetExtreme's strict-improvement hill climb stalls on a plateau). The
+    // loop is capped at 48 attempts and keeps the worst offender it saw; the
+    // port's box contains the points, so the two disagree.
+    int32_t mode = io.integer(0, 1);
+    int32_t lgMaxSample = io.integer(2, 4);
+    int32_t n = io.integer(6, 10);
+
+    std::vector<Vector3<double>> best{};
+    double bestViolation = -1.0;
+    for (int32_t attempt = 0; attempt < 48; ++attempt)
+    {
+        std::vector<Vector3<double>> points = DrawCloud(io, mode, n);
+        OrientedBox3<double> box{};
+        double volume = 0.0;
+        MVB3FP query(0);
+        std::size_t dimension = 3;
+        try
+        {
+            dimension = query(points, static_cast<std::size_t>(lgMaxSample), box, volume);
+        }
+        catch (std::exception const&)
+        {
+            continue;
+        }
+        if (dimension != 3)
+        {
+            continue;
+        }
+        double violation = ContainmentViolation(box, points) / PointScale(points);
+        if (violation > bestViolation)
+        {
+            bestViolation = violation;
+            best = points;
+        }
+        if (violation > 1e-3)
+        {
+            break;
+        }
+    }
+    if (best.empty())
+    {
+        best = { Vector3<double>{ 0.0, 0.0, 0.0 }, Vector3<double>{ 4.0, 0.0, 0.0 },
+            Vector3<double>{ 0.0, 3.0, 0.0 }, Vector3<double>{ 0.0, 0.0, 2.0 },
+            Vector3<double>{ 1.0, 1.0, 1.0 } };
+    }
+    GiveCloud(io, best);
+
+    OrientedBox3<double> box{};
+    double volume = 0.0;
+    MVB3FP query(0);
+    std::size_t dimension = query(best, static_cast<std::size_t>(lgMaxSample), box, volume);
+    OutBox(io, dimension, box, volume);
+    io.outBool(ContainmentViolation(box, best) <= 1e-9 * PointScale(best));
+    });
 }

@@ -17,7 +17,11 @@ import { ExtremalQuery3PRJ } from '../../src/ExtremalQuery3PRJ.js';
 import {
     InscribedFixedAspectRectInQuad
 } from '../../src/InscribedFixedAspectRectInQuad.js';
+import {
+    MinimumVolumeBox3FloatingPoint
+} from '../../src/MinimumVolumeBox3FloatingPoint.js';
 import { NearestNeighborQuery, PositionSite } from '../../src/NearestNeighborQuery.js';
+import type { OrientedBox3 } from '../../src/OrientedBox.js';
 import { PolygonTree } from '../../src/PolygonTree.js';
 import { Polyhedron3 } from '../../src/Polyhedron3.js';
 import { TriangulateEC } from '../../src/TriangulateEC.js';
@@ -432,6 +436,72 @@ function outTriangles(io: OracleIO, triangles: readonly [number, number, number]
         io.outInt(t[1]);
         io.outInt(t[2]);
     }
+}
+
+// ---- MinimumVolumeBox3 -------------------------------------------------
+
+function containmentViolation(box: OrientedBox3, points: readonly Vector[]): number {
+    let worst = 0;
+    for (const p of points) {
+        const d = sub(p, box.center);
+        for (let i = 0; i < 3; ++i) {
+            const t = Math.abs(dot(d, box.axis[i])) - box.extent.values[i];
+            worst = Math.max(worst, t);
+        }
+    }
+    return worst;
+}
+
+function pointScale(points: readonly Vector[]): number {
+    let scale = 1;
+    for (const p of points) {
+        for (let i = 0; i < 3; ++i) {
+            scale = Math.max(scale, Math.abs(p.values[i]));
+        }
+    }
+    return scale;
+}
+
+function readCloud(io: OracleIO): Vector[] {
+    const n = io.integer();
+    return readPoints(io, n, 3);
+}
+
+// The box is emitted in a form invariant under the two freedoms the
+// algorithm leaves unspecified: the sign of each axis and the order of the
+// three axes. Which candidate wins a volume tie depends on the order in
+// which ExtractMeshTopology numbers the mesh edges and triangles, and that
+// order comes out of a std::unordered_map, so it is not comparable between
+// the two builds; the main cases additionally reject inputs on which
+// upstream's own answer changes with the mesh order. The invariants below
+// are the centre, the sorted extents, the six distinct entries of
+// M = sum_i extent[i]^2 * axis[i] * axis[i]^T, and the volume.
+function outBox(io: OracleIO, dimension: number, box: OrientedBox3, volume: number): void {
+    io.outInt(dimension);
+    io.outVec(box.center);
+
+    const extent = [box.extent.values[0], box.extent.values[1], box.extent.values[2]];
+    extent.sort((a, b) => a - b);
+    for (let i = 0; i < 3; ++i) {
+        io.outReal(extent[i]);
+    }
+
+    const m = [0, 0, 0, 0, 0, 0];
+    for (let i = 0; i < 3; ++i) {
+        const w = box.extent.values[i] * box.extent.values[i];
+        const a = box.axis[i].values;
+        m[0] += w * a[0] * a[0];
+        m[1] += w * a[0] * a[1];
+        m[2] += w * a[0] * a[2];
+        m[3] += w * a[1] * a[1];
+        m[4] += w * a[1] * a[2];
+        m[5] += w * a[2] * a[2];
+    }
+    for (let i = 0; i < 6; ++i) {
+        io.outReal(m[i]);
+    }
+
+    io.outReal(volume);
 }
 
 function readMesh(io: OracleIO): { vertices: Vector[], indices: number[] } {
@@ -1144,6 +1214,86 @@ describe('oracle: v08-compgeom', () => {
             + shoelaceArea(points, innerOuter);
         io.outBool(triangulationIsValid(points, triangulator.getTriangles(), expected));
     }, { exact: true });
+
+    family.case('MinimumVolumeBox3FloatingPoint.compute', (io) => {
+        io.integer();
+        const lgMaxSample = io.integer();
+        io.integer();
+        const points = readCloud(io);
+
+        const query = new MinimumVolumeBox3FloatingPoint(0);
+        const r = query.compute(points, lgMaxSample);
+        outBox(io, r.dimension, r.box, r.volume);
+
+        const scale = pointScale(points);
+        io.outBool(containmentViolation(r.box, points) <= 1e-9 * scale);
+        const product = 8 * r.box.extent.values[0] * r.box.extent.values[1]
+            * r.box.extent.values[2];
+        io.outBool(Math.abs(product - r.volume) <= 1e-9 * Math.max(1, Math.abs(r.volume)));
+        // Tolerance 1e-14, measured maximum scaled error 1.8e-16 (one record
+        // in twenty at the committed size). Cause: the support vertex picked
+        // among vertices whose double projections are equal depends on the
+        // path the GetExtreme hill climb takes, and that path follows the
+        // vertex adjacency order, which ExtractVertexAdjacencies builds by
+        // iterating ETManifoldMesh's std::unordered_map. Two vertices with
+        // equal double projections can have different exact projections, so
+        // the exact rational GetMinimumVolumeBox then places the centre an
+        // ulp apart. Everything else in this case is bit-identical, and the
+        // sibling computeHull case, which fixes the mesh, is exact.
+    }, { tol: 1e-14 });
+
+    family.case('MinimumVolumeBox3FloatingPoint.compute.lowDimension', (io) => {
+        io.integer();
+        const lgMaxSample = io.integer();
+        io.integer();
+        const points = readCloud(io);
+
+        const query = new MinimumVolumeBox3FloatingPoint(0);
+        const r = query.compute(points, lgMaxSample);
+        outBox(io, r.dimension, r.box, r.volume);
+    }, { exact: true });
+
+    family.case('MinimumVolumeBox3FloatingPoint.computeHull', (io) => {
+        io.integer();
+        const lgMaxSample = io.integer();
+        const mesh = readMesh(io);
+
+        // 'usable' is recorded by the C++ side: it is true when upstream's
+        // answer does not change with the mesh order and its box contains
+        // the polytope. Only then is the box comparable.
+        const usable = io.integer();
+
+        const query = new MinimumVolumeBox3FloatingPoint(0);
+        const r = query.computeHull(mesh.vertices, mesh.indices, lgMaxSample);
+        if (usable !== 0) {
+            const scale = pointScale(mesh.vertices);
+            outBox(io, 3, r.box, r.volume);
+            io.outBool(containmentViolation(r.box, mesh.vertices) <= 1e-9 * scale);
+        }
+    }, { exact: true });
+
+    family.case('MinimumVolumeBox3FloatingPoint.compute.coplanar', (io) => {
+        io.integer();
+        const lgMaxSample = io.integer();
+        io.integer();
+        const points = readCloud(io);
+
+        const query = new MinimumVolumeBox3FloatingPoint(0);
+        const r = query.compute(points, lgMaxSample);
+        outBox(io, r.dimension, r.box, r.volume);
+    }, { deviation: '#352 (dimension-2 Newell normal loop drops the wrap-around term)' });
+
+    family.case('MinimumVolumeBox3FloatingPoint.compute.nonContaining', (io) => {
+        io.integer();
+        const lgMaxSample = io.integer();
+        io.integer();
+        const points = readCloud(io);
+
+        const query = new MinimumVolumeBox3FloatingPoint(0);
+        const r = query.compute(points, lgMaxSample);
+        outBox(io, r.dimension, r.box, r.volume);
+        io.outBool(containmentViolation(r.box, points) <= 1e-9 * pointScale(points));
+    }, { deviation: '#405 (ComputeVolume axis minima) and #426 (GetExtreme plateau)' });
 
     family.finish();
 });
