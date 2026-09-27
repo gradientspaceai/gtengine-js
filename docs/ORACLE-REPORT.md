@@ -9,7 +9,7 @@ upstream GTE code compiled with MSVC; the port replays the same inputs. See
 - compiler MSVC 194435215 x64 /O2 /fp:precise
 - records-per-case 20
 
-**1202 cases, 21720 records, 208532 floating-point outputs compared; 99.66% bit-identical to the C++ build. 1039 cases are bit-identical on every output. 116 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
+**1225 cases, 22020 records, 211103 floating-point outputs compared; 99.66% bit-identical to the C++ build. 1054 cases are bit-identical on every output. 124 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
 
 Discrete outputs (booleans, counts, indices) always compare exactly and are not counted
 in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |port|, |C++|)`.
@@ -23,6 +23,7 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | v04-approximation | 36 | 660 | 6632 | 94.99% | 24 | 4.61e-13 | `ApprTorus3.gaussNewton.initialGuess` |
 | v08-compgeom | 41 | 740 | 6472 | 100.00% | 37 | 0 |  |
 | v09-compgeom | 16 | 220 | 640 | 100.00% | 11 | 0 |  |
+| v11-compgeom | 23 | 300 | 2571 | 100.00% | 15 | 0 |  |
 | v14-containment | 70 | 1280 | 4492 | 100.00% | 64 | 0 |  |
 | v17-curves | 51 | 1000 | 17627 | 100.00% | 50 | 0 |  |
 | v18-curves | 24 | 460 | 4738 | 99.70% | 18 | 8.35e-14 | `EllipsoidGeodesic.refine.separated` |
@@ -73,6 +74,14 @@ every record.
 | v09-compgeom | `Delaunay3.compute.deviation.duplicates` | 20 of 20 | #283 (ProcessedVertex compares the location) |
 | v09-compgeom | `Delaunay3.compute.deviation.epsilon` | 20 of 20 | #391 (hardcoded epsilon = 0 in Delaunay3) |
 | v09-compgeom | `Delaunay3.compute.deviation.numVertices` | 20 of 20 | #283 (GetNumVertices after degenerate input) |
+| v11-compgeom | `MinimumAreaBox2.deviation.dimension1Extremes` | 15 of 20 | #328 (dimension-1 extreme indices) |
+| v11-compgeom | `MinimumAreaBox2.deviation.staleState` | 20 of 20 | #328 (stale area and support indices) |
+| v11-compgeom | `MinimumAreaBox2.deviation.polygonPoints` | 20 of 20 | #402 (convex-polygon overload never assigns mPoints) |
+| v11-compgeom | `MinimumAreaBox2.deviation.removeCollinear` | 20 of 20 | #286 (duplicate point drops the next corner) |
+| v11-compgeom | `MinimumAreaBox2.deviation.floatComputeType` | 19 of 20 | port note: exact ComputeType only (MinimumAreaBox2.h header) |
+| v11-compgeom | `SeparatePoints2.deviation.roundoff` | 20 of 20 | #328 (round-off in the side tests) |
+| v11-compgeom | `ConstrainedDelaunay2.deviation.staleInsertedEdges` | 20 of 20 | #325 (mInsertedEdges survives operator()) |
+| v11-compgeom | `ConstrainedDelaunay2.deviation.duplicatesRead` | 20 of 20 | #325 (duplicates[] read before the range check) |
 | v14-containment | `ContLozenge3.getContainer.cornerDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md ContLozenge3.h, issue #174 |
 | v14-containment | `ContEllipse2MinCR.compute.verticalLineDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md ContEllipse2MinCR.h, issue #234 |
 | v14-containment | `ContEllipsoid3MinCR.compute.assertDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md ContEllipsoid3MinCR.h, issue #409 |

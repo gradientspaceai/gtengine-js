@@ -357,6 +357,14 @@ the C++ output (v42: 500 to 1300 of 2000 for every corner reconstruction),
 and name the computations the cases provably cannot discriminate
 (`(max + min) * 0.5` against `(max + min) / 2`, which are one computation).
 
+An upstream out-of-range read that the port guards against can still be
+demonstrated with a `deviation` case when the read can be made deterministic:
+fill the stale storage on purpose first (v11 triangulated a set in which point
+`j` repeats point `r`, then a shorter prefix, so `mDuplicates[j]` kept `r` and
+`Insert({j, s})` silently inserted `<r, s>`). A read that would touch
+unallocated memory (an empty vector) cannot produce a golden record and is
+listed under "Not covered".
+
 Never loosen a tolerance or narrow a generator to make a disagreement
 disappear without knowing which of these it is.
 
