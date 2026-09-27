@@ -137,7 +137,7 @@ export class BSRational implements ArbitraryPrecisionNumber {
     // BSRational(double, double) and also of the int32_t/uint32_t
     // constructors, whose inputs are exactly representable as doubles.
     static fromNumber(numerator: number, denominator?: number): BSRational {
-        return BSRational.fromBSNumber(BSNumber.fromNumber(numerator),
+        return BSRational.fromScalarPair(BSNumber.fromNumber(numerator),
             denominator === undefined ? undefined : BSNumber.fromNumber(denominator));
     }
 
@@ -145,15 +145,39 @@ export class BSRational implements ArbitraryPrecisionNumber {
     // representation; the port of BSRational(float) and
     // BSRational(float, float).
     static fromFloat32(numerator: number, denominator?: number): BSRational {
-        return BSRational.fromBSNumber(BSNumber.fromFloat32(numerator),
+        return BSRational.fromScalarPair(BSNumber.fromFloat32(numerator),
             denominator === undefined ? undefined : BSNumber.fromFloat32(denominator));
     }
 
     // Exact conversion from integers of any size; the port of the
     // int64_t/uint64_t constructors.
     static fromBigInt(numerator: bigint, denominator?: bigint): BSRational {
-        return BSRational.fromBSNumber(BSNumber.fromBigInt(numerator),
+        return BSRational.fromScalarPair(BSNumber.fromBigInt(numerator),
             denominator === undefined ? undefined : BSNumber.fromBigInt(denominator));
+    }
+
+    // The body shared by the upstream (float, float), (double, double),
+    // (int32_t, int32_t), (uint32_t, uint32_t), (int64_t, int64_t) and
+    // (uint64_t, uint64_t) constructors: the sign of a negative denominator
+    // moves to the numerator and nothing else changes. Unlike the
+    // (BSNumber, BSNumber) constructor they do not move the denominator's
+    // exponent into the numerator, so fromNumber(3, 4) keeps the denominator
+    // 4 = 1*2^2. Only getNumerator/getDenominator can tell the difference:
+    // the value, the comparisons, the conversions and the result of every
+    // arithmetic operator are the same either way.
+    private static fromScalarPair(numerator: BSNumber, denominator?: BSNumber): BSRational {
+        const result = new BSRational();
+        result.mNumerator = numerator;
+        if (denominator === undefined) {
+            return result;
+        }
+        logAssert(denominator.getSign() !== 0, 'Division by zero.');
+        if (denominator.getSign() < 0) {
+            numerator.setSign(-numerator.getSign() | 0);
+            denominator.setSign(1);
+        }
+        result.mDenominator = denominator;
+        return result;
     }
 
     // The number must be of the form "x", "x.", "x.y" or ".y", optionally
@@ -186,7 +210,7 @@ export class BSRational implements ArbitraryPrecisionNumber {
                 // upstream has a separate "x." branch that is unreachable
                 // because the index of '.' is always less than the length of
                 // the string).
-                const intPart = BSNumber.fromString(fpNumber.substring(0, decimal));
+                const intPart = BSRational.convertToInteger(fpNumber.substring(0, decimal));
                 const frcPart = BSRational.convertToFraction(fpNumber.substring(decimal + 1));
                 result.mNumerator = intPart.mul(frcPart.mDenominator).add(frcPart.mNumerator);
                 result.mDenominator = frcPart.mDenominator;
@@ -198,7 +222,7 @@ export class BSRational implements ArbitraryPrecisionNumber {
             }
         } else {
             // The number is "x".
-            result.mNumerator = BSNumber.fromString(fpNumber);
+            result.mNumerator = BSRational.convertToInteger(fpNumber);
             result.mDenominator = BSNumber.fromNumber(1);
         }
 
@@ -366,6 +390,20 @@ export class BSRational implements ArbitraryPrecisionNumber {
             return BSRational.fromBSNumber(numerator, denominator);
         }
         return new BSRational();
+    }
+
+    // The port of BSNumber<UInteger>::ConvertToInteger, which upstream calls
+    // for the integer part "x" after the one optional sign has been removed.
+    // It accepts no sign of its own: a second sign ("--5", "+-2.5") is
+    // rejected by its check that a multi-character string starts with a
+    // nonzero digit. BSNumber.fromString accepts a leading sign, so the sign
+    // is rejected here first. (A lone sign character, as in "+-" or "-+.5",
+    // is a one-character integer part: upstream reads '+' - '0' as its value,
+    // finding #95; the port asserts either way.)
+    private static convertToInteger(numberString: string): BSNumber {
+        logAssert(numberString[0] !== '+' && numberString[0] !== '-',
+            'Invalid number format.');
+        return BSNumber.fromString(numberString);
     }
 
     // Helper for converting a string to a BSRational, where the string is the
