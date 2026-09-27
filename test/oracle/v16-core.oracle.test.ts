@@ -4,6 +4,7 @@ import { CurveExtractorEdge, CurveExtractorVertex } from '../../src/CurveExtract
 import { CurveExtractorSquares } from '../../src/CurveExtractorSquares.js';
 import { CurveExtractorTriangles } from '../../src/CurveExtractorTriangles.js';
 import { IEEEBinary16 } from '../../src/IEEEBinary16.js';
+import { ImplicitSurface3 } from '../../src/ImplicitSurface3.js';
 import { MeshCurvature } from '../../src/MeshCurvature.js';
 import { MeshSmoother } from '../../src/MeshSmoother.js';
 import { PolygonTreeEx, PolygonTreeExNode } from '../../src/PolygonTree.js';
@@ -276,6 +277,40 @@ class WeightedSmoother extends MeshSmoother {
     protected override getNormalWeight(i: number, t: number): number {
         return (i % 2 === 0 ? -0.0625 : 0.03125) * t;
     }
+}
+
+// ------------------------------------------------------------ ImplicitSurface3
+
+// The replay of the case file's CubicSurface (same grouping).
+class CubicSurface extends ImplicitSurface3 {
+    constructor(private readonly c: number[]) { super(); }
+    f(p: Vector): number {
+        const c = this.c, x = p.get(0), y = p.get(1), z = p.get(2);
+        return ((((((((((c[0] * (x * x) + c[1] * (y * y)) + c[2] * (z * z))
+            + c[3] * (x * y)) + c[4] * (y * z)) + c[5] * (x * z)) + c[6] * x)
+            + c[7] * y) + c[8] * z) + c[9]) + c[10] * ((x * y) * z));
+    }
+    fx(p: Vector): number {
+        const c = this.c;
+        return (((((2.0 * c[0]) * p.get(0) + c[3] * p.get(1)) + c[5] * p.get(2)) + c[6])
+            + c[10] * (p.get(1) * p.get(2)));
+    }
+    fy(p: Vector): number {
+        const c = this.c;
+        return (((((2.0 * c[1]) * p.get(1) + c[3] * p.get(0)) + c[4] * p.get(2)) + c[7])
+            + c[10] * (p.get(0) * p.get(2)));
+    }
+    fz(p: Vector): number {
+        const c = this.c;
+        return (((((2.0 * c[2]) * p.get(2) + c[4] * p.get(1)) + c[5] * p.get(0)) + c[8])
+            + c[10] * (p.get(0) * p.get(1)));
+    }
+    fxx(_p: Vector): number { return 2.0 * this.c[0]; }
+    fxy(p: Vector): number { return this.c[3] + this.c[10] * p.get(2); }
+    fxz(p: Vector): number { return this.c[5] + this.c[10] * p.get(1); }
+    fyy(_p: Vector): number { return 2.0 * this.c[1]; }
+    fyz(p: Vector): number { return this.c[4] + this.c[10] * p.get(0); }
+    fzz(_p: Vector): number { return 2.0 * this.c[2]; }
 }
 
 describe('oracle: v16-core', () => {
@@ -552,6 +587,40 @@ describe('oracle: v16-core', () => {
         io.outReals(kmax);
         for (const v of curvature.getMinDirections()) { io.outVec(v); }
         for (const v of curvature.getMaxDirections()) { io.outVec(v); }
+    }, { exact: true });
+
+    // ------------------------------------------------------------ ImplicitSurface3
+
+    family.case('ImplicitSurface3.queries', (io) => {
+        const mode = io.integer();
+        const c = io.reals(11);
+        const p = io.vec(3);
+        const epsilon = io.real();
+        const surface = new CubicSurface(c);
+        io.outBool(surface.isOnSurface(p, epsilon));
+        io.outReal(surface.f(p));
+        io.outVec(surface.getGradient(p));
+        io.outMat(surface.getHessian(p));
+        const frame = surface.getFrame(p);
+        io.outVec(frame.tangent0);
+        io.outVec(frame.tangent1);
+        io.outVec(frame.normal);
+        const info = surface.getPrincipalInformation(p);
+        // Independent check: both principal curvatures of the sphere of
+        // radius R are 1/R (A = Hessian / |gradient| = I / R).
+        if (mode === 1) {
+            const r = Math.sqrt(-c[9]);
+            for (const k of [info.curvature0, info.curvature1]) {
+                if (Math.abs(k * r - 1) > 1e-12) {
+                    throw new Error(`sphere curvature ${k} is not 1/R = ${1 / r}`);
+                }
+            }
+        }
+        io.outBool(info.valid);
+        io.outReal(info.curvature0);
+        io.outReal(info.curvature1);
+        io.outVec(info.direction0);
+        io.outVec(info.direction1);
     }, { exact: true });
 
     family.finish();

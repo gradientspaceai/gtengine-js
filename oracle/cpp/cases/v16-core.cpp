@@ -1046,3 +1046,122 @@ ORACLE_CASE("MeshCurvature.compute")
     for (auto const& v : curvature.GetMinDirections()) { io.outVec(v); }
     for (auto const& v : curvature.GetMaxDirections()) { io.outVec(v); }
 }
+
+// ================================================================ ImplicitSurface3
+
+namespace
+{
+    // F = c0 x^2 + c1 y^2 + c2 z^2 + c3 xy + c4 yz + c5 xz + c6 x + c7 y
+    //   + c8 z + c9 + c10 xyz, with every sum grouped left to right as
+    // written; the replay defines the same class with the same grouping
+    // (ORACLE.md, the v18 precedent), so the base-class algorithms are
+    // compared bit for bit.
+    class CubicSurface : public ImplicitSurface3<double>
+    {
+    public:
+        CubicSurface(std::array<double, 11> const& c) : mC(c) {}
+
+        virtual double F(Vector3<double> const& p) const override
+        {
+            double x = p[0], y = p[1], z = p[2];
+            return ((((((((((mC[0] * (x * x) + mC[1] * (y * y)) + mC[2] * (z * z))
+                + mC[3] * (x * y)) + mC[4] * (y * z)) + mC[5] * (x * z)) + mC[6] * x)
+                + mC[7] * y) + mC[8] * z) + mC[9]) + mC[10] * ((x * y) * z));
+        }
+        virtual double FX(Vector3<double> const& p) const override
+        {
+            return (((((2.0 * mC[0]) * p[0] + mC[3] * p[1]) + mC[5] * p[2]) + mC[6]) + mC[10] * (p[1] * p[2]));
+        }
+        virtual double FY(Vector3<double> const& p) const override
+        {
+            return (((((2.0 * mC[1]) * p[1] + mC[3] * p[0]) + mC[4] * p[2]) + mC[7]) + mC[10] * (p[0] * p[2]));
+        }
+        virtual double FZ(Vector3<double> const& p) const override
+        {
+            return (((((2.0 * mC[2]) * p[2] + mC[4] * p[1]) + mC[5] * p[0]) + mC[8]) + mC[10] * (p[0] * p[1]));
+        }
+        virtual double FXX(Vector3<double> const&) const override { return 2.0 * mC[0]; }
+        virtual double FXY(Vector3<double> const& p) const override { return mC[3] + mC[10] * p[2]; }
+        virtual double FXZ(Vector3<double> const& p) const override { return mC[5] + mC[10] * p[1]; }
+        virtual double FYY(Vector3<double> const&) const override { return 2.0 * mC[1]; }
+        virtual double FYZ(Vector3<double> const& p) const override { return mC[4] + mC[10] * p[0]; }
+        virtual double FZZ(Vector3<double> const&) const override { return 2.0 * mC[2]; }
+
+    private:
+        std::array<double, 11> mC;
+    };
+}
+
+ORACLE_CASE("ImplicitSurface3.queries")
+{
+    // Modes: 0 random coefficients and position; 1 the sphere
+    // x^2 + y^2 + z^2 - R^2 at a point on it (lattice Pythagorean points or
+    // a scaled unit vector; the replay checks both principal curvatures are
+    // 1/R); 2 lattice coefficients and lattice position (exact gradients,
+    // repeated eigenvalues, axis-aligned normals); 3 a zero gradient (the
+    // sphere at its center, or a lattice quadric at its critical point).
+    int mode = io.integer(0, 3);
+    std::array<double, 11> c{};
+    Vector3<double> p{};
+    if (mode == 0)
+    {
+        for (auto& x : c) { x = io.real(-2.0, 2.0); }
+        p = io.vec<3>(-2.0, 2.0);
+    }
+    else if (mode == 1)
+    {
+        static int const pyth[4][4] = { {1,2,2,3}, {2,3,6,7}, {1,4,8,9}, {2,6,9,11} };
+        int k = io.rawInteger(0, 4);
+        Vector3<double> q{};
+        double radius = 0.0;
+        if (k < 4)
+        {
+            radius = static_cast<double>(pyth[k][3]);
+            for (int j = 0; j < 3; ++j)
+            {
+                q[j] = (io.rawInteger(0, 1) != 0 ? -1.0 : 1.0) * pyth[k][j];
+            }
+        }
+        else
+        {
+            radius = io.raw(0.5, 3.0);
+            Vector3<double> u{ io.raw(-1.0, 1.0), io.raw(-1.0, 1.0), io.raw(-1.0, 1.0) };
+            Normalize(u);
+            q = radius * u;
+        }
+        c = { 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -radius * radius, 0.0 };
+        for (auto& x : c) { io.given(x); }
+        p = io.givenVec(q);
+    }
+    else if (mode == 2)
+    {
+        for (auto& x : c) { x = io.lattice(-2, 2); }
+        p = io.latticeVec<3>(-2, 2);
+    }
+    else
+    {
+        c = { 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0 };
+        if (io.rawInteger(0, 1) != 0) { c[3] = 1.0; c[0] = 2.0; }
+        for (auto& x : c) { io.given(x); }
+        p = io.givenVec(Vector3<double>{ 0.0, 0.0, 0.0 });
+    }
+    double epsilon = io.real(0.0, 1.0);
+    CubicSurface surface(c);
+    io.outBool(surface.IsOnSurface(p, epsilon));
+    io.outReal(surface.F(p));
+    io.outVec(surface.GetGradient(p));
+    io.outMat(surface.GetHessian(p));
+    Vector3<double> t0{}, t1{}, n{};
+    surface.GetFrame(p, t0, t1, n);
+    io.outVec(t0);
+    io.outVec(t1);
+    io.outVec(n);
+    double k0 = 0.0, k1 = 0.0;
+    Vector3<double> d0{}, d1{};
+    bool valid = surface.GetPrincipalInformation(p, k0, k1, d0, d1);
+    io.outBool(valid);
+    io.outReal(k0);
+    io.outReal(k1);
+    io.outVec(d0);
+    io.outVec(d1);
+}
