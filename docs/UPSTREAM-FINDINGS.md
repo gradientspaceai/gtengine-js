@@ -71,14 +71,14 @@ Nothing here has been reported upstream before; this document is the report.
 
 ## Counts
 
-- **514 distinct findings** across **167** tracked issues (one issue
+- **516 distinct findings** across **167** tracked issues (one issue
   frequently holds several findings in related files).
 - By severity: **250 result-corrupting**, **15 wrong but
-  recoverable**, **176 minor**, **73 documentation**.
+  recoverable**, **178 minor**, **73 documentation**.
 - By port status: **260 fixed or corrected in the port** (of which 158 are code
   fixes with regression tests, 22 are added guards or asserts where upstream has
   undefined behaviour, 64 are comment corrections, 11 are dead-code removals and
-  5 are documented deliberate deviations), **244 preserved deliberately**, and
+  5 are documented deliberate deviations), **246 preserved deliberately**, and
   **10 not ported** (the `GTE_USE_VEC_MAT` branches, dead code that cannot
   compile, and two arbitrary-precision paths).
 - **288 distinct upstream headers** are implicated.
@@ -160,6 +160,8 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `BasisFunction.h` | `GetValue` | doc promises zeros outside `[minIndex, maxIndex]`; `Evaluate` leaves stale nonzero values | doc | preserved | [#415](https://github.com/gradientspaceai/gtengine-js/issues/415) |
 | `BasisFunction.h` | `Create` | validates interior multiplicities against `d+1` where the class doc requires `d`; no total-multiplicity check | minor | preserved | [#415](https://github.com/gradientspaceai/gtengine-js/issues/415) |
 | `BitHacks.h` | header comment | `GetTrailingBit(10) = 2` is wrong (it is 1); a hex prefix on binary digits | doc | corrected | [#67](https://github.com/gradientspaceai/gtengine-js/issues/67), [#363](https://github.com/gradientspaceai/gtengine-js/issues/363) |
+| `BSNumber.h` | `Convert(BSNumber const&, int32_t, int32_t, BSNumber&)` | zeroes `output` before reading `input`, so the aliased call `Convert(x, p, mode, x)` rounds a zeroed number (no upstream caller aliases it) | minor | n/a | [#95](https://github.com/gradientspaceai/gtengine-js/issues/95) |
+| `BSNumber.h` | `BSNumber(int32_t)`, `BSNumber(int64_t)` | evaluate `-number`, signed overflow for `INT32_MIN` / `INT64_MIN` | minor | n/a | [#95](https://github.com/gradientspaceai/gtengine-js/issues/95) |
 | `BSNumber.h` | `ConvertToInteger` | the format asserts sit inside `if (number.size() > 1)`, so one-character garbage is accepted | RC | fixed | [#95](https://github.com/gradientspaceai/gtengine-js/issues/95) |
 | `BSPPolygon2.h` | `operator&`, `operator-` | `Finalize()` asserts a nonempty edge list, so an empty intersection throws | WR | preserved | [#169](https://github.com/gradientspaceai/gtengine-js/issues/169) |
 | `BSPPolygon2.h` | `SplitEdge` | `std::map::insert` is a silent no-op on an existing key, leaving an edge index unmapped | RC | preserved | [#169](https://github.com/gradientspaceai/gtengine-js/issues/169) |
@@ -1012,7 +1014,22 @@ validated and the character's ASCII value minus `'0'` flows straight into the
 digit accumulator.
 
 **Suggested fix.** Move the digit-range assertion outside the size test.
-Port: fixed. Issue [#95](https://github.com/gradientspaceai/gtengine-js/issues/95).
+Port: fixed.
+
+**Two more, found by the C++ oracle of group 5 (both minor, port not
+affected).** `Convert(BSNumber const& input, int32_t precision, int32_t
+roundingMode, BSNumber& output)` calls `output.GetUInteger().SetNumBits(precision)`
+and `SetAllBitsToZero()` before it reads `input.GetUInteger()`, so the aliased
+call `Convert(x, p, mode, x)` rounds a zeroed number: with
+`x = BSN(12345.678) * BSN(3.25)`, `Convert(x, 10, FE_TONEAREST, y)` gives 40128
+while `Convert(x, 10, FE_TONEAREST, x)` gives 3.637978807091713e-12 (MSVC). No
+upstream caller aliases this overload; `APConversion.h` aliases the
+`BSRational` overload, which converts into a local `BSNumber` first and is safe.
+The port's `convertBSNumber` returns a new object. And the `BSNumber(int32_t)`
+and `BSNumber(int64_t)` constructors evaluate `-number`, which is signed
+overflow (undefined behaviour) for `INT32_MIN` and `INT64_MIN`; MSVC x64
+happens to give -2^31 and -2^63. Suggested fix: `0u - static_cast<uint32_t>(number)`
+and the 64-bit equivalent. Issue [#95](https://github.com/gradientspaceai/gtengine-js/issues/95).
 
 ### `BSPPolygon2.h`, `BSPTree2.h`
 
@@ -4282,6 +4299,11 @@ becomes `+-MAX_VALUE` and the interval no longer contains the exact result.
 mechanism makes the reciprocal of an interval with a zero endpoint finite:
 `[1,2] / [0,4]` returns an upper bound of `MAX_VALUE` rather than `+infinity`,
 because `Mul` widens `2 * infinity` with `nextafter(infinity, +max)`.
+The error is not always one step: dividing by an interval of subnormals,
+`[-6.4e-323, 1.5e-323] / [2e-323, 3e-323]`, returns `[-1.15e-14, 2.66e-15]`
+where the exact quotient set is about `[-3.2, 0.75]`, fourteen orders of
+magnitude off, because `Reciprocal` overflows and `nextafter` pulls both ends
+back to `DBL_MAX` (C++ oracle of group 5, 6 of 2000 deep records).
 
 `FPInterval.h` does not share this defect: it uses `fesetround`, and directed
 rounding leaves an infinity alone.
