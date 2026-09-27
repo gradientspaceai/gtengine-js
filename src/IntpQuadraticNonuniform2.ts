@@ -42,7 +42,7 @@ import { AlignedBox } from './AlignedBox.js';
 import { inscribeCircle2 } from './ContScribeCircle2.js';
 import { DistPointAlignedBox } from './DistPointAlignedBox.js';
 import { logAssert } from './Logger.js';
-import { Vector } from './Vector.js';
+import { Vector, add, length, mul, sub } from './Vector.js';
 import { computeBarycentrics2 } from './Vector2.js';
 
 // The duck-typed triangle mesh required by the interpolator.
@@ -106,6 +106,30 @@ class TriangleData {
         this.intersect = [Vector.zero(2), Vector.zero(2), Vector.zero(2)];
         this.coeff = new Array<number>(19).fill(0);
     }
+}
+
+// The center that upstream's Inscribe(v0, v1, v2, circle) leaves in a
+// value-initialized circle: the center of the inscribed circle when the
+// triangle is proper, the same perimeter-weighted combination of the
+// vertices when it is collinear (Inscribe writes the center before it tests
+// the radius and returns false), and (0,0) when the perimeter is zero.
+function inscribedCenter(v0: Vector, v1: Vector, v2: Vector): Vector {
+    const circle = inscribeCircle2(v0, v1, v2);
+    if (circle !== null) {
+        return circle.center.clone();
+    }
+    let len10 = length(sub(v1, v0));
+    let len20 = length(sub(v2, v0));
+    let len21 = length(sub(v2, v1));
+    const perimeter = len10 + len20 + len21;
+    if (perimeter > 0) {
+        const inv = 1 / perimeter;
+        len10 *= inv;
+        len20 *= inv;
+        len21 *= inv;
+        return add(add(mul(len21, v0), mul(len20, v1)), mul(len10, v2));
+    }
+    return Vector.zero(2);
 }
 
 // The port of the private Jet class: a function value and its first-order
@@ -364,15 +388,15 @@ export class IntpQuadraticNonuniform2 {
             const v0 = indices[i++];
             const v1 = indices[i++];
             const v2 = indices[i++];
-            const circle =
-                inscribeCircle2(vertices[v0], vertices[v1], vertices[v2]);
-            if (circle !== null) {
-                this.mTData[t].center = circle.center.clone();
-            }
             // Upstream passes a value-initialized Circle2 to Inscribe and
-            // ignores the returned 'bool', so a degenerate triangle leaves
-            // the center at (0,0). The port keeps that behavior; a Delaunay
-            // triangulation has no degenerate triangles.
+            // ignores the returned 'bool'. Inscribe stores the center before
+            // it tests the radius, so a collinear triangle with a positive
+            // perimeter keeps its perimeter-weighted center, and only a
+            // triangle whose three vertices coincide leaves (0,0). The port
+            // reproduces both (a Delaunay triangulation has no degenerate
+            // triangles, but a duck-typed mesh can).
+            this.mTData[t].center =
+                inscribedCenter(vertices[v0], vertices[v1], vertices[v2]);
         }
 
         // Compute the cross-edge intersections.
