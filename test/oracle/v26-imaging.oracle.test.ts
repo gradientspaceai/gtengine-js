@@ -3,11 +3,23 @@
 // and sqrtf included) and is compared bit for bit. The independent checks
 // at the end of each section run on the port's outputs of the replayed
 // records.
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { Image2 } from '../../src/Image2.js';
 import { Image3 } from '../../src/Image3.js';
 import { ImageUtility2 } from '../../src/ImageUtility2.js';
 import { ImageUtility3 } from '../../src/ImageUtility3.js';
+import {
+    SurfaceExtractor,
+    SurfaceExtractorTriangle,
+    SurfaceExtractorVertex
+} from '../../src/SurfaceExtractor.js';
+import { SurfaceExtractorCubes } from '../../src/SurfaceExtractorCubes.js';
+import { SurfaceExtractorMC } from '../../src/SurfaceExtractorMC.js';
+import { SurfaceExtractorTetrahedra } from '../../src/SurfaceExtractorTetrahedra.js';
+import { Vector } from '../../src/Vector.js';
 import { OracleFamily, type OracleIO } from './harness.js';
 
 // ---- digests and packing (mirroring the C++ helpers) ----
@@ -1006,6 +1018,593 @@ function checkConvex(r: ConvexRecord): string[] {
     return bad;
 }
 
+// ---- surface extractors ----
+
+function bitsFor(range: number): number {
+    let b = 1;
+    while (2 ** b <= range) { ++b; }
+    return b;
+}
+
+function readVoxels(io: OracleIO, n: number, lo: number, hi: number): number[] {
+    return unpack(io, n, bitsFor(hi - lo)).map((u) => u + lo);
+}
+
+function cloneTriangles(ts: readonly SurfaceExtractorTriangle[]): SurfaceExtractorTriangle[] {
+    return ts.map((t) => {
+        const c = new SurfaceExtractorTriangle();
+        c.v = [t.v[0], t.v[1], t.v[2]];
+        return c;
+    });
+}
+
+function digestRational(d: Digest, vs: readonly SurfaceExtractorVertex[]): void {
+    for (const v of vs) {
+        d.integer(v.xNumer); d.integer(v.xDenom); d.integer(v.yNumer);
+        d.integer(v.yDenom); d.integer(v.zNumer); d.integer(v.zDenom);
+    }
+}
+
+function digestTriangles(d: Digest, ts: readonly SurfaceExtractorTriangle[]): void {
+    for (const t of ts) { d.integer(t.v[0]); d.integer(t.v[1]); d.integer(t.v[2]); }
+}
+
+interface SurfaceRecord {
+    kind: 'cubes' | 'tetra';
+    dims: number[];
+    values: number[];
+    level: number;
+    rational: SurfaceExtractorVertex[];
+    triangles: SurfaceExtractorTriangle[];
+}
+const surfaceChecked: SurfaceRecord[] = [];
+
+// Mirrors EmitSurface.
+function emitSurface(io: OracleIO, ex: SurfaceExtractor, level: number, sameDir: boolean,
+    allowFull: boolean): void {
+    const r = ex.extractRational(level);
+    io.outInt(r.vertices.length);
+    io.outInt(r.triangles.length);
+    const d0 = new Digest();
+    digestRational(d0, r.vertices);
+    digestTriangles(d0, r.triangles);
+    io.outInt(d0.h);
+
+    ex.makeUnique(r.vertices, r.triangles);
+    io.outInt(r.vertices.length);
+    io.outInt(r.triangles.length);
+    const d1 = new Digest();
+    digestRational(d1, r.vertices);
+    digestTriangles(d1, r.triangles);
+    io.outInt(d1.h);
+
+    const a = ex.extract(level, false);
+    io.outInt(a.vertices.length);
+    const d2 = new Digest();
+    for (const v of a.vertices) { d2.real(v[0]); d2.real(v[1]); d2.real(v[2]); }
+    digestTriangles(d2, a.triangles);
+    io.outInt(d2.h);
+
+    const b = ex.extract(level, true);
+    io.outInt(b.vertices.length);
+    io.outInt(b.triangles.length);
+    const full = allowFull && b.triangles.length <= 16;
+    const d3 = new Digest();
+    for (const v of b.vertices) {
+        for (let k = 0; k < 3; ++k) { if (full) { io.outReal(v[k]); } else { d3.real(v[k]); } }
+    }
+    for (const t of b.triangles) {
+        for (let k = 0; k < 3; ++k) { if (full) { io.outInt(t.v[k]); } else { d3.integer(t.v[k]); } }
+    }
+    if (!full) { io.outInt(d3.h); }
+
+    const ot = cloneTriangles(b.triangles);
+    ex.orientTriangles(b.vertices, ot, sameDir);
+    outPacked(io, ot.map((t, i) => (t.v[1] !== b.triangles[i].v[1] ? 1 : 0)), 1);
+
+    const normals = ex.computeNormals(b.vertices, ot);
+    const d4 = new Digest();
+    for (const n of normals) {
+        for (let k = 0; k < 3; ++k) { if (full) { io.outReal(n[k]); } else { d4.real(n[k]); } }
+    }
+    if (!full) { io.outInt(d4.h); }
+}
+
+const TYPE_LO = [-128, -32768, -(2 ** 20), 0, 0, 0];
+const TYPE_HI = [127, 32767, 2 ** 20, 255, 65535, 2 ** 20];
+
+function surfaceCase(io: OracleIO, kind: 'cubes' | 'tetra', typed: boolean, lo: number, hi: number,
+    allowFull: boolean, check: boolean): void {
+    let type = 2;
+    if (typed) { type = io.integer(); lo = TYPE_LO[type]; hi = TYPE_HI[type]; }
+    const dims = [io.integer(), io.integer(), io.integer()];
+    const values = readVoxels(io, dims[0] * dims[1] * dims[2], lo, hi);
+    const level = io.integer();
+    const sameDir = io.boolean();
+    const ex = kind === 'cubes'
+        ? new SurfaceExtractorCubes(dims[0], dims[1], dims[2], values)
+        : new SurfaceExtractorTetrahedra(dims[0], dims[1], dims[2], values);
+    if (check) {
+        // Recorded before the outputs are compared: a disagreeing integer
+        // output ends the replay of the record.
+        const r = ex.extractRational(level);
+        ex.makeUnique(r.vertices, r.triangles);
+        surfaceChecked.push({ kind, dims, values, level, rational: r.vertices, triangles: r.triangles });
+    }
+    emitSurface(io, ex, level, sameDir, allowFull);
+}
+
+// Mirrors OrientPoints: vertices, index triples (Triangle's rotation), the
+// direction; outputs the swap bits and the normals.
+function orientPointsCase(io: OracleIO, ex: SurfaceExtractor): void {
+    const nv = io.integer();
+    io.integer();  // the point mode
+    const vs: [number, number, number][] = [];
+    for (let i = 0; i < nv; ++i) { vs.push([io.real(), io.real(), io.real()]); }
+    const nt = io.integer();
+    const ts: SurfaceExtractorTriangle[] = [];
+    for (let t = 0; t < nt; ++t) {
+        const i0 = io.integer();
+        const i1 = io.integer();
+        const i2 = io.integer();
+        ts.push(new SurfaceExtractorTriangle(i0, i1, i2));
+    }
+    const sameDir = io.boolean();
+    const ot = cloneTriangles(ts);
+    ex.orientTriangles(vs, ot, sameDir);
+    outPacked(io, ot.map((t, i) => (t.v[1] !== ts[i].v[1] ? 1 : 0)), 1);
+    for (const n of ex.computeNormals(vs, ot)) { io.outReal(n[0]); io.outReal(n[1]); io.outReal(n[2]); }
+}
+
+function surfacePointsCase(io: OracleIO, kind: 'cubes' | 'tetra'): void {
+    const dims = [io.integer(), io.integer(), io.integer()];
+    const values = readVoxels(io, dims[0] * dims[1] * dims[2], -20, 20);
+    const level = io.integer();
+    const ex = kind === 'cubes'
+        ? new SurfaceExtractorCubes(dims[0], dims[1], dims[2], values)
+        : new SurfaceExtractorTetrahedra(dims[0], dims[1], dims[2], values);
+    ex.extractRational(level);
+    orientPointsCase(io, ex);
+}
+
+function invalidBoundsCase(io: OracleIO): void {
+    const which = io.integer();
+    const d = [io.integer(), io.integer(), io.integer()];
+    const voxels = new Array<number>(64).fill(1);
+    if (which === 0) {
+        new SurfaceExtractorCubes(d[0], d[1], d[2], voxels);
+    } else {
+        new SurfaceExtractorTetrahedra(d[0], d[1], d[2], voxels);
+    }
+    io.outInt(d[0] * d[1] * d[2]);
+}
+
+// ---- SurfaceExtractorMC ----
+
+interface MCVoxelRecord { F: number[]; level: number; perturb: number; valid: boolean; vertices: number[][]; pairs: number[][] }
+const mcVoxelChecked: MCVoxelRecord[] = [];
+
+function mcVoxelCase(io: OracleIO, withVertices: boolean): void {
+    io.integer();  // the value mode
+    const F: number[] = [];
+    for (let i = 0; i < 8; ++i) { F.push(io.real()); }
+    const level = io.real();
+    const perturb = io.real();
+    const mc = new SurfaceExtractorMC(new Image3<number>(2, 2, 2));
+    const { valid, mesh } = mc.extractVoxel(level, perturb, F);
+    const t = mesh.topology;
+    const vertices = mesh.vertices.slice(0, t.numVertices).map((v) => [...v.values]);
+    if (valid) { mcVoxelChecked.push({ F, level, perturb, valid, vertices, pairs: t.vpair.slice(0, t.numVertices) }); }
+    io.outBool(valid);
+    if (!valid) { return; }
+    io.outInt(t.numVertices);
+    io.outInt(t.numTriangles);
+    const packed: number[] = [];
+    for (let i = 0; i < t.numVertices; ++i) { packed.push(t.vpair[i][0], t.vpair[i][1]); }
+    for (let i = 0; i < t.numTriangles; ++i) { packed.push(...t.itriple[i]); }
+    outPacked(io, packed, 4);
+    if (withVertices) {
+        for (const v of vertices) { io.outReal(v[0]); io.outReal(v[1]); io.outReal(v[2]); }
+    }
+}
+
+function readMCImage(io: OracleIO): Image3<number> {
+    const d0 = io.integer();
+    const d1 = io.integer();
+    const d2 = io.integer();
+    io.integer();  // the value mode
+    const image = new Image3<number>(d0, d1, d2);
+    for (let i = 0; i < d0 * d1 * d2; ++i) { image.set(i, io.real()); }
+    return image;
+}
+
+interface MCImageRecord {
+    image: Image3<number>;
+    level: number;
+    perturb: number;
+    vertices: number[][];
+    indices: number[];
+    unique: number[][];
+    uniqueIndices: number[];
+}
+const mcImageChecked: MCImageRecord[] = [];
+
+function mcImageCase(io: OracleIO, topologyOnly: boolean, allowFull: boolean): void {
+    const image = readMCImage(io);
+    const level = io.real();
+    const perturb = io.real();
+    const sameDir = io.boolean();
+    const mc = new SurfaceExtractorMC(image);
+    const r = mc.extract(level, perturb);
+    // Recorded before the outputs are compared (see surfaceCase).
+    const rec: MCImageRecord = {
+        image, level, perturb, vertices: r.vertices.map((v) => [...v.values]), indices: r.indices,
+        unique: [], uniqueIndices: []
+    };
+    if (!topologyOnly && r.vertices.length > 0) {
+        const u0 = mc.makeUnique(r.vertices, r.indices);
+        rec.unique = u0.vertices.map((v) => [...v.values]);
+        rec.uniqueIndices = u0.indices;
+    }
+    mcImageChecked.push(rec);
+    io.outInt(r.vertices.length);
+    io.outInt(r.indices.length);
+    const full = allowFull && r.indices.length <= 48;
+    const emitMesh = (vs: readonly Vector[], is: readonly number[], withVertices: boolean): void => {
+        const d = new Digest();
+        if (withVertices) {
+            for (const v of vs) {
+                for (let k = 0; k < 3; ++k) { if (full) { io.outReal(v.get(k)); } else { d.real(v.get(k)); } }
+            }
+        }
+        for (const i of is) { if (full) { io.outInt(i); } else { d.integer(i); } }
+        if (!full) { io.outInt(d.h); }
+    };
+    emitMesh(r.vertices, r.indices, !topologyOnly);
+    if (topologyOnly || r.vertices.length === 0) { return; }
+    const u = mc.makeUnique(r.vertices, r.indices);
+    io.outInt(u.vertices.length);
+    emitMesh(u.vertices, u.indices, true);
+    const oriented = u.indices.slice();
+    mc.orientTriangles(u.vertices, oriented, sameDir);
+    const swapped: number[] = [];
+    for (let t = 0; 3 * t < oriented.length; ++t) { swapped.push(oriented[3 * t + 1] !== u.indices[3 * t + 1] ? 1 : 0); }
+    outPacked(io, swapped, 1);
+    if (oriented.length === 3) {
+        for (const n of mc.computeNormals(u.vertices, oriented)) { io.outVec(n); }
+    }
+}
+
+function mcMakeUniqueCase(io: OracleIO): void {
+    const mode = io.integer();
+    const nv = (mode === 2 ? 0 : io.integer());
+    const vertices: Vector[] = [];
+    for (let i = 0; i < nv; ++i) { vertices.push(Vector.fromArray([io.real(), io.real(), io.real()])); }
+    const ni = (mode === 3 ? io.integer() : 3 * io.integer());
+    const indices: number[] = [];
+    for (let i = 0; i < ni; ++i) { indices.push(io.integer()); }
+    if (mode === 4) {
+        const bad = io.integer();
+        indices[bad] = (io.boolean() ? nv : -1);
+    }
+    const mc = new SurfaceExtractorMC(new Image3<number>(2, 2, 2));
+    const u = mc.makeUnique(vertices, indices);
+    io.outInt(u.vertices.length);
+    for (const v of u.vertices) { io.outVec(v); }
+    for (const i of u.indices) { io.outInt(i); }
+}
+
+function mcPointsCase(io: OracleIO): void {
+    const image = readMCImage(io);
+    const nv = io.integer();
+    io.integer();  // the point mode
+    const vertices: Vector[] = [];
+    for (let i = 0; i < nv; ++i) { vertices.push(Vector.fromArray([io.real(), io.real(), io.real()])); }
+    const nt = io.integer();
+    const indices: number[] = [];
+    for (let t = 0; t < 3 * nt; ++t) { indices.push(io.integer()); }
+    const sameDir = io.boolean();
+    const mc = new SurfaceExtractorMC(image);
+    const oriented = indices.slice();
+    mc.orientTriangles(vertices, oriented, sameDir);
+    const swapped: number[] = [];
+    for (let t = 0; t < nt; ++t) { swapped.push(oriented[3 * t + 1] !== indices[3 * t + 1] ? 1 : 0); }
+    outPacked(io, swapped, 1);
+    if (nt === 1) {
+        for (const n of mc.computeNormals(vertices, oriented)) { io.outVec(n); }
+    }
+}
+
+function mcNormalsCase(io: OracleIO): void {
+    const nv = io.integer();
+    io.integer();  // the point mode
+    const vertices: Vector[] = [];
+    for (let i = 0; i < nv; ++i) { vertices.push(Vector.fromArray([io.real(), io.real(), io.real()])); }
+    const nt = io.integer();
+    const indices: number[] = [];
+    for (let t = 0; t < 3 * nt; ++t) { indices.push(io.integer()); }
+    const mc = new SurfaceExtractorMC(new Image3<number>(2, 2, 2));
+    for (const n of mc.computeNormals(vertices, indices)) { io.outVec(n); }
+}
+
+// ---- independent checks for the extracted surfaces (exact, BigInt) ----
+
+function vertexKey(v: SurfaceExtractorVertex): string {
+    const g = (a: number, b: number): number => { a = Math.abs(a); while (b !== 0) { [a, b] = [b, a % b]; } return a || 1; };
+    const r = (n: number, d: number) => `${n / g(n, d)}/${d / g(n, d)}`;
+    return `${r(v.xNumer, v.xDenom)},${r(v.yNumer, v.yDenom)},${r(v.zNumer, v.zDenom)}`;
+}
+
+function big(v: SurfaceExtractorVertex): { n: bigint[], d: bigint[] } {
+    return {
+        n: [BigInt(v.xNumer), BigInt(v.yNumer), BigInt(v.zNumer)],
+        d: [BigInt(v.xDenom), BigInt(v.yDenom), BigInt(v.zDenom)]
+    };
+}
+
+// Cubes: the trilinear interpolant of 2v - 2L - 1 vanishes at every vertex.
+function cubesOnLevel(r: SurfaceRecord, v: SurfaceExtractorVertex): boolean {
+    const { n, d } = big(v);
+    const c = n.map((nk, k) => Math.min(r.dims[k] - 2, Math.max(0, Number(nk / d[k]))));
+    const t = n.map((nk, k) => nk - BigInt(c[k]) * d[k]);
+    let sum = 0n;
+    for (let corner = 0; corner < 8; ++corner) {
+        const b = [corner & 1, (corner >> 1) & 1, (corner >> 2) & 1];
+        let w = 1n;
+        for (let k = 0; k < 3; ++k) { w *= (b[k] === 1 ? t[k] : d[k] - t[k]); }
+        const p = [c[0] + b[0], c[1] + b[1], c[2] + b[2]];
+        sum += BigInt(2 * r.values[indexOf(p, r.dims)] - 2 * r.level - 1) * w;
+    }
+    return sum === 0n;
+}
+
+// The tetrahedra of the cube at the origin, by parity (x ^ y ^ z odd first),
+// as corner offsets, in upstream's Extract order.
+const TETRA_ODD = [
+    [[1, 0, 0], [1, 1, 0], [0, 0, 0], [1, 0, 1]], [[0, 1, 0], [0, 0, 0], [1, 1, 0], [0, 1, 1]],
+    [[0, 0, 1], [0, 1, 1], [1, 0, 1], [0, 0, 0]], [[1, 1, 1], [1, 0, 1], [0, 1, 1], [1, 1, 0]],
+    [[0, 0, 0], [0, 1, 1], [1, 0, 1], [1, 1, 0]]];
+const TETRA_EVEN = [
+    [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]], [[1, 1, 0], [0, 1, 0], [1, 0, 0], [1, 1, 1]],
+    [[1, 0, 1], [0, 0, 1], [1, 1, 1], [1, 0, 0]], [[0, 1, 1], [1, 1, 1], [0, 0, 1], [0, 1, 0]],
+    [[1, 1, 1], [0, 1, 0], [1, 0, 0], [0, 0, 1]]];
+
+// Whether the vertex lies in the closed tetrahedron with integer corners
+// cs and the linear interpolant of v - L vanishes there.
+function inTetraOnLevel(r: SurfaceRecord, cs: number[][], v: SurfaceExtractorVertex): boolean {
+    const { n, d } = big(v);
+    const D = d[0] * d[1] * d[2];
+    const P = [n[0] * d[1] * d[2], n[1] * d[0] * d[2], n[2] * d[0] * d[1]];
+    const c0 = cs[0].map(BigInt);
+    const M = [1, 2, 3].map((j) => cs[j].map((x, k) => BigInt(x) - c0[k]));  // columns
+    const a = (i: number, j: number) => M[j][i];
+    const det = a(0, 0) * (a(1, 1) * a(2, 2) - a(1, 2) * a(2, 1)) - a(0, 1) * (a(1, 0) * a(2, 2) - a(1, 2) * a(2, 0))
+        + a(0, 2) * (a(1, 0) * a(2, 1) - a(1, 1) * a(2, 0));
+    const q = P.map((x, k) => x - c0[k] * D);
+    // adj(M) q: row i of the adjugate is the cross product of columns j, k.
+    const cross = (u: bigint[], w: bigint[]) => [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]];
+    const rows = [cross(M[1], M[2]), cross(M[2], M[0]), cross(M[0], M[1])];
+    const L = rows.map((row) => row[0] * q[0] + row[1] * q[1] + row[2] * q[2]);
+    const L0 = det * D - L[0] - L[1] - L[2];
+    if ([L0, ...L].some((x) => x * det < 0n)) { return false; }
+    const f = cs.map((c) => BigInt(r.values[indexOf(c, r.dims)] - r.level));
+    return f[0] * L0 + f[1] * L[0] + f[2] * L[1] + f[3] * L[2] === 0n;
+}
+
+// Tetrahedra: every triangle lies in one tetrahedron of the decomposition,
+// on the zero set of that tetrahedron's linear interpolant.
+function tetraTriangleOnLevel(r: SurfaceRecord, tri: SurfaceExtractorVertex[]): boolean {
+    const lo = [0, 1, 2].map((k) => Math.min(...tri.map((v) => Number(big(v).n[k] / big(v).d[k]))));
+    const ranges = [0, 1, 2].map((k) => [Math.max(0, lo[k] - 1), Math.min(r.dims[k] - 2, lo[k])]);
+    for (let z = ranges[2][0]; z <= ranges[2][1]; ++z) {
+        for (let y = ranges[1][0]; y <= ranges[1][1]; ++y) {
+            for (let x = ranges[0][0]; x <= ranges[0][1]; ++x) {
+                const tetras = ((x ^ y ^ z) & 1) ? TETRA_ODD : TETRA_EVEN;
+                for (const t of tetras) {
+                    const cs = t.map((o) => [x + o[0], y + o[1], z + o[2]]);
+                    if (tri.every((v) => inTetraOnLevel(r, cs, v))) { return true; }
+                }
+            }
+        }
+    }
+    return false;
+}
+
+// The crossing of the level on the grid edge from corner a to corner b
+// (shifted values fa, fb of opposite signs), as a vertex key.
+function crossingKey(a: number[], b: number[], fa: number, fb: number): string {
+    const n: number[] = [];
+    const d: number[] = [];
+    for (let k = 0; k < 3; ++k) {
+        // a[k] + (b[k] - a[k]) * fa / (fa - fb)
+        n.push(a[k] * (fa - fb) + (b[k] - a[k]) * fa);
+        d.push(fa - fb);
+    }
+    return vertexKey(new SurfaceExtractorVertex(n[0], d[0], n[1], d[1], n[2], d[2]));
+}
+
+const surfaceStats = {
+    cubesSaddleFaces: 0, cubesPlusFaces: 0, openRecords: 0, openWithPlusSign: 0,
+    tetraOpenRecords: 0, tetraZeroRecords: 0, mcClosedChecked: 0, mcAmbiguousRecords: 0,
+    mcAmbiguousOpen: 0
+};
+
+// Undirected edge -> number of incident triangles.
+function edgeCounts(tris: readonly number[][]): Map<string, number> {
+    const m = new Map<string, number>();
+    for (const t of tris) {
+        for (let j = 0; j < 3; ++j) {
+            const a = t[j];
+            const b = t[(j + 1) % 3];
+            const key = a < b ? `${a},${b}` : `${b},${a}`;
+            m.set(key, (m.get(key) ?? 0) + 1);
+        }
+    }
+    return m;
+}
+
+// Interior edges (not in one image boundary plane) must have exactly two
+// triangles; boundary-plane edges one or two.
+function openEdges(tris: readonly number[][], onBoundaryPlane: (a: number, b: number) => boolean): number {
+    let open = 0;
+    for (const [key, count] of edgeCounts(tris)) {
+        const [a, b] = key.split(',').map(Number);
+        if (count === 2 || (count === 1 && onBoundaryPlane(a, b))) { continue; }
+        ++open;
+    }
+    return open;
+}
+
+function checkSurface(r: SurfaceRecord): string[] {
+    const bad: string[] = [];
+    const keys = r.rational.map(vertexKey);
+    const index = new Map<string, number>();
+    keys.forEach((k, i) => { if (!index.has(k)) { index.set(k, i); } });
+    const tris = r.triangles.map((t) => [t.v[0], t.v[1], t.v[2]]);
+    for (const t of tris) {
+        if (t[0] === t[1] || t[1] === t[2] || t[2] === t[0]) { bad.push('degenerate triangle'); }
+    }
+    const boundary = (a: number, b: number): boolean => [0, 1, 2].some((k) => {
+        const va = big(r.rational[a]);
+        const vb = big(r.rational[b]);
+        return [0, r.dims[k] - 1].some((e) => va.n[k] === BigInt(e) * va.d[k] && vb.n[k] === BigInt(e) * vb.d[k]);
+    });
+    if (r.kind === 'cubes') {
+        r.rational.forEach((v, i) => { if (!cubesOnLevel(r, v)) { bad.push(`vertex ${i} off the level set`); } });
+        // Saddle faces: the two segments cut off the corners whose sign
+        // differs from the bilinear saddle value (sign(det) * sign(f00)).
+        const s = (p: number[]) => 2 * r.values[indexOf(p, r.dims)] - 2 * r.level - 1;
+        const edges = edgeCounts(tris);
+        const hasEdge = (a: string, b: string) => {
+            const ia = index.get(a);
+            const ib = index.get(b);
+            return ia !== undefined && ib !== undefined && edges.has(ia < ib ? `${ia},${ib}` : `${ib},${ia}`);
+        };
+        let plus = false;
+        for (let axis = 0; axis < 3; ++axis) {
+            const u = (axis + 1) % 3;
+            const w = (axis + 2) % 3;
+            for (let i = 0; i < r.values.length; ++i) {
+                const p = coords(i, r.dims);
+                if (p[u] + 1 >= r.dims[u] || p[w] + 1 >= r.dims[w]) { continue; }
+                const q = [p.slice(), p.slice(), p.slice(), p.slice()];
+                q[1][u] += 1; q[2][u] += 1; q[2][w] += 1; q[3][w] += 1;
+                const f = q.map(s);
+                if (!(f[0] * f[1] < 0 && f[1] * f[2] < 0 && f[2] * f[3] < 0)) { continue; }
+                const det = f[0] * f[2] - f[3] * f[1];
+                if (det === 0) { ++surfaceStats.cubesPlusFaces; plus = true; continue; }
+                ++surfaceStats.cubesSaddleFaces;
+                const P = [0, 1, 2, 3].map((j) => crossingKey(q[j], q[(j + 1) % 4], f[j], f[(j + 1) % 4]));
+                // P[j] lies on the edge from corner j to corner j+1.
+                const ok = det > 0 ? hasEdge(P[0], P[1]) && hasEdge(P[2], P[3])
+                    : hasEdge(P[3], P[0]) && hasEdge(P[1], P[2]);
+                if (!ok) { bad.push(`saddle face at ${p} (axis ${axis}) paired against the bilinear saddle`); }
+            }
+        }
+        const open = openEdges(tris, boundary);
+        if (open > 0) {
+            ++surfaceStats.openRecords;
+            if (plus) { ++surfaceStats.openWithPlusSign; } else { bad.push(`${open} open edges`); }
+        }
+    } else {
+        r.triangles.forEach((t, i) => {
+            if (!tetraTriangleOnLevel(r, t.v.map((j) => r.rational[j]))) { bad.push(`triangle ${i} not on a tetrahedron's level set`); }
+        });
+        if (r.values.some((v) => v === r.level)) {
+            ++surfaceStats.tetraZeroRecords;
+        } else if (openEdges(tris, boundary) > 0) {
+            ++surfaceStats.tetraOpenRecords;
+            bad.push('open edges');
+        }
+    }
+    return bad;
+}
+
+// MC vertices on the level set of the linear interpolant along their edge:
+// the residual (F0 - L) - t (F0 - F1) is at rounding level.
+function mcEdgeResidualOk(F0: number, F1: number, L: number, t: number): boolean {
+    const scale = Math.abs(F0) + Math.abs(F1) + Math.abs(L) + Number.MIN_VALUE;
+    return Math.abs((F0 - L) - t * (F0 - F1)) <= 2 ** -49 * scale && t >= 0 && t <= 1;
+}
+
+function checkMCVoxel(r: MCVoxelRecord): string[] {
+    const bad: string[] = [];
+    r.vertices.forEach((v, i) => {
+        const [j0, j1] = r.pairs[i];
+        const k0 = [j0 & 1, (j0 >> 1) & 1, (j0 >> 2) & 1];
+        const k1 = [j1 & 1, (j1 >> 1) & 1, (j1 >> 2) & 1];
+        for (let k = 0; k < 3; ++k) {
+            if (k0[k] === k1[k]) {
+                if (v[k] !== k0[k]) { bad.push(`vertex ${i} off its edge`); }
+            } else if (!mcEdgeResidualOk(r.F[j0], r.F[j1], r.level, Math.abs(v[k] - k0[k]))) {
+                bad.push(`vertex ${i} off the level set`);
+            }
+        }
+    });
+    return bad;
+}
+
+function checkMCImage(r: MCImageRecord): string[] {
+    const bad: string[] = [];
+    const dims = [0, 1, 2].map((k) => r.image.getDimension(k));
+    const F = (p: number[]) => r.image.get(indexOf(p, dims));
+    r.vertices.forEach((v, i) => {
+        const frac = [0, 1, 2].filter((k) => !Number.isInteger(v[k]));
+        const a = v.map(Math.floor);
+        if (frac.length > 1) { bad.push(`vertex ${i} not on a grid edge`); return; }
+        const k = frac.length === 1 ? frac[0] : 0;
+        const b = a.slice();
+        if (b[k] + 1 < dims[k]) { b[k] += 1; } else { a[k] -= 1; }
+        const t = v[k] - a[k];
+        if (!mcEdgeResidualOk(F(a), F(b), r.level, t)) { bad.push(`vertex ${i} off the level set`); }
+    });
+    if (r.uniqueIndices.length === 0) { return bad; }
+    // Watertightness where the 15-case table is face-consistent: every
+    // voxel classified (no perturbed value exactly zero) and no face with
+    // alternating corner classes.
+    const cls = r.image.getPixels().map((f) => {
+        let g = f - r.level;
+        if (g === 0) { g += r.perturb; }
+        return g < 0 ? -1 : g > 0 ? 1 : 0;
+    });
+    if (cls.includes(0)) { return bad; }
+    let ambiguous = false;
+    for (let axis = 0; axis < 3 && !ambiguous; ++axis) {
+        const u = (axis + 1) % 3;
+        const w = (axis + 2) % 3;
+        for (let i = 0; i < cls.length && !ambiguous; ++i) {
+            const p = coords(i, dims);
+            if (p[u] + 1 >= dims[u] || p[w] + 1 >= dims[w]) { continue; }
+            const q = [p.slice(), p.slice(), p.slice(), p.slice()];
+            q[1][u] += 1; q[2][u] += 1; q[2][w] += 1; q[3][w] += 1;
+            const c = q.map((x) => cls[indexOf(x, dims)]);
+            ambiguous = c[0] === c[2] && c[1] === c[3] && c[0] !== c[1];
+        }
+    }
+    const tris: number[][] = [];
+    for (let t = 0; 3 * t < r.uniqueIndices.length; ++t) { tris.push(r.uniqueIndices.slice(3 * t, 3 * t + 3)); }
+    const boundary = (a: number, b: number) => [0, 1, 2].some((k) =>
+        [0, dims[k] - 1].some((e) => r.unique[a][k] === e && r.unique[b][k] === e));
+    const open = openEdges(tris.filter((t) => t[0] !== t[1] && t[1] !== t[2] && t[2] !== t[0]), boundary);
+    if (ambiguous) {
+        ++surfaceStats.mcAmbiguousRecords;
+        if (open > 0) { ++surfaceStats.mcAmbiguousOpen; }
+        return bad;
+    }
+    ++surfaceStats.mcClosedChecked;
+    if (open > 0) { bad.push(`${open} open edges without an ambiguous face`); }
+    const directed = new Set<string>();
+    for (const t of tris) {
+        if (t[0] === t[1] || t[1] === t[2] || t[2] === t[0]) { continue; }
+        for (let j = 0; j < 3; ++j) {
+            const key = `${t[j]},${t[(j + 1) % 3]}`;
+            if (directed.has(key)) { bad.push('inconsistent orientation'); }
+            directed.add(key);
+        }
+    }
+    return bad;
+}
+
 function runChecks<T>(records: readonly T[], check: (r: T) => string[]): void {
     const bad: string[] = [];
     records.forEach((r, i) => { for (const m of check(r)) { bad.push(`record ${i}: ${m}`); } });
@@ -1070,7 +1669,58 @@ describe('oracle: v26-imaging', () => {
             && r.points[0][0] === r.center[0] && r.points[0][1] === r.center[1] ? [] : ['zero ellipse']));
     });
 
-    // @@TESTS@@
+    family.case('SurfaceExtractorCubes.extract',
+        (io) => surfaceCase(io, 'cubes', false, -50, 50, true, true), exact);
+    family.case('SurfaceExtractorCubes.extract.types',
+        (io) => surfaceCase(io, 'cubes', true, 0, 0, false, true), exact);
+    family.case('SurfaceExtractorCubes.extract.large',
+        (io) => surfaceCase(io, 'cubes', false, -200, 200, false, true), exact);
+    family.case('SurfaceExtractorCubes.extract.plusSign',
+        (io) => surfaceCase(io, 'cubes', false, -30, 30, true, true), exact);
+    // Upstream suspect 1 of the v26 report: the saddle-face pairing.
+    family.case('SurfaceExtractorCubes.extract.saddle',
+        (io) => surfaceCase(io, 'cubes', false, -20, 20, true, true),
+        { exact: true, deviation: 'v26 report, SurfaceExtractorCubes saddle-face pairing' });
+    family.case('SurfaceExtractorCubes.orientTriangles.points', (io) => surfacePointsCase(io, 'cubes'), exact);
+    family.case('SurfaceExtractor.invalidBounds', invalidBoundsCase, exact);
+
+    family.case('SurfaceExtractorMC.extractVoxel', (io) => mcVoxelCase(io, true), exact);
+    family.case('SurfaceExtractorMC.extractVoxel.levelTopology', (io) => mcVoxelCase(io, false), exact);
+    // #443: upstream's edge interpolation omits the level.
+    family.case('SurfaceExtractorMC.extractVoxel.level', (io) => mcVoxelCase(io, true),
+        { exact: true, deviation: '#443 (UPSTREAM-FINDINGS, SurfaceExtractorMC item 1)' });
+    family.case('SurfaceExtractorMC.extract', (io) => mcImageCase(io, false, true), exact);
+    family.case('SurfaceExtractorMC.extract.large', (io) => mcImageCase(io, false, false), exact);
+    family.case('SurfaceExtractorMC.extract.levelTopology', (io) => mcImageCase(io, true, true), exact);
+    family.case('SurfaceExtractorMC.extract.level', (io) => mcImageCase(io, false, false),
+        { exact: true, deviation: '#443 (UPSTREAM-FINDINGS, SurfaceExtractorMC item 1)' });
+    family.case('SurfaceExtractorMC.makeUnique', mcMakeUniqueCase, exact);
+    family.case('SurfaceExtractorMC.orientTriangles.points', mcPointsCase, exact);
+    // Upstream suspect 2 of the v26 report: ComputeNormals uses only the
+    // first triangle.
+    family.case('SurfaceExtractorMC.computeNormals.multiple', mcNormalsCase,
+        { exact: true, deviation: 'v26 report, SurfaceExtractorMC ComputeNormals triangle pointer' });
+
+    family.case('SurfaceExtractorTetrahedra.extract',
+        (io) => surfaceCase(io, 'tetra', false, -50, 50, true, true), exact);
+    family.case('SurfaceExtractorTetrahedra.extract.types',
+        (io) => surfaceCase(io, 'tetra', true, 0, 0, false, true), exact);
+    family.case('SurfaceExtractorTetrahedra.extract.large',
+        (io) => surfaceCase(io, 'tetra', false, -200, 200, false, true), exact);
+    family.case('SurfaceExtractorTetrahedra.orientTriangles.points', (io) => surfacePointsCase(io, 'tetra'), exact);
+    // #132: GetGradient's central tetrahedron of odd-parity cubes.
+    family.case('SurfaceExtractorTetrahedra.orientTriangles.centralTetra', (io) => surfacePointsCase(io, 'tetra'),
+        { exact: true, deviation: '#132 (UPSTREAM-FINDINGS, SurfaceExtractorTetrahedra item 3)' });
+
+    it('extracted surfaces lie on the level set, pair saddle faces by the bilinear saddle and are closed (independent checks)', () => {
+        runChecks(surfaceChecked, checkSurface);
+        runChecks(mcVoxelChecked, checkMCVoxel);
+        runChecks(mcImageChecked, checkMCImage);
+        const statsDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'oracle', 'out');
+        mkdirSync(statsDir, { recursive: true });
+        writeFileSync(join(statsDir, `v26-stats-${surfaceChecked.length}.json`),
+            JSON.stringify({ surfaceStats, skeletonStats }, null, 1));
+    });
 
     family.finish();
 });

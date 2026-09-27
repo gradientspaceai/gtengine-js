@@ -14,6 +14,14 @@
 // a nonzero 'level' therefore places its vertices wrongly. The port
 // subtracts 'level' in the numerators.
 //
+// Upstream bug suspect (FIXED here; found by the C++ oracle, group 26):
+// ComputeNormals sets 'IndexType const* triangle = indices.data()' and never
+// advances it in its loop over the triangles, so it accumulates the first
+// triangle's normal numTriangles times at the first triangle's vertices and
+// leaves every other vertex with the zero normal. The port reads triangle t
+// at indices[3t..3t+2], as the comment ("a running sum of triangle normals
+// at each vertex") and OrientTriangles' loop ('triangle += 3') intend.
+//
 // Port notes: T and IndexType are both number. The nested struct Mesh is
 // exported as SurfaceExtractorMCMesh. The two upstream Extract overloads are
 // extractVoxel(level, perturb, F) (returning the per-voxel mesh and whether
@@ -299,6 +307,8 @@ export class SurfaceExtractorMC extends MarchingCubes {
 
         const numTriangles = Math.floor(indices.length / 3);
         for (let t = 0; t < numTriangles; ++t) {
+            // Upstream never advances its triangle pointer and reads the
+            // first triangle every time (see the file header).
             const base = 3 * t;
             const i0 = indices[base];
             const i1 = indices[base + 1];

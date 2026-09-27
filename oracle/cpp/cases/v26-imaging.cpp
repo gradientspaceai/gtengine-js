@@ -992,4 +992,974 @@ ORACLE_CASE("ImageUtility3.drawLine")
     rec.emit(io, mode != 5);
 }
 
-// @@END@@
+// ---- surface extractors: shared generators and emission ----
+
+namespace
+{
+    // Raw integer voxel values. Modes: uniform in [lo, hi], small lattice,
+    // linear (no saddle faces), a quadric, binary, a hyperbolic product
+    // (saddle faces).
+    std::vector<int64_t> RawVoxels(oracle::Ctx& io, int d0, int d1, int d2, int mode, int64_t lo, int64_t hi)
+    {
+        std::vector<int64_t> v(static_cast<size_t>(d0) * d1 * d2);
+        int64_t a = io.rawInteger(-3, 3), b = io.rawInteger(-3, 3), c = io.rawInteger(-3, 3);
+        int64_t e = io.rawInteger(-5, 5);
+        int64_t cx = io.rawInteger(0, 2 * d0 - 2), cy = io.rawInteger(0, 2 * d1 - 2), cz = io.rawInteger(0, 2 * d2 - 2);
+        int64_t r = io.rawInteger(0, 12);
+        for (int z = 0; z < d2; ++z) for (int y = 0; y < d1; ++y) for (int x = 0; x < d0; ++x)
+        {
+            int64_t value = 0;
+            switch (mode)
+            {
+            case 0: value = lo + static_cast<int64_t>(io.raw(0.0, 1.0) * static_cast<double>(hi - lo + 1)); break;
+            case 1: value = io.rawInteger(-3, 3); break;
+            case 2: value = a * x + b * y + c * z + e; break;
+            case 3: value = (2 * x - cx) * (2 * x - cx) + (2 * y - cy) * (2 * y - cy) + (2 * z - cz) * (2 * z - cz) - r; break;
+            case 4: value = io.rawInteger(0, 1); break;
+            default: value = (2 * x - cx) * (2 * y - cy) + a * (2 * z - cz) + e; break;
+            }
+            v[x + d0 * (y + d1 * z)] = std::min(hi, std::max(lo, value));
+        }
+        return v;
+    }
+
+    // Faces of the voxel grid whose corners alternate in sign about the
+    // Cubes level (shifted values 2v - 2L - 1, never zero), split by the
+    // sign of SurfaceExtractorCubes' face determinant f00*f11 - f01*f10.
+    struct SaddleCount { int nonzero = 0, zero = 0; };
+
+    SaddleCount CubesSaddles(std::vector<int64_t> const& v, int d0, int d1, int d2, int64_t level)
+    {
+        SaddleCount count;
+        auto s = [&](int x, int y, int z) { return 2 * v[x + d0 * (y + d1 * z)] - (2 * level + 1); };
+        auto face = [&](int64_t f00, int64_t f10, int64_t f11, int64_t f01)
+        {
+            if (f00 * f10 < 0 && f10 * f11 < 0 && f11 * f01 < 0)
+            {
+                if (f00 * f11 - f01 * f10 != 0) ++count.nonzero; else ++count.zero;
+            }
+        };
+        for (int z = 0; z < d2; ++z) for (int y = 0; y < d1; ++y) for (int x = 0; x < d0; ++x)
+        {
+            if (y + 1 < d1 && z + 1 < d2) face(s(x, y, z), s(x, y + 1, z), s(x, y + 1, z + 1), s(x, y, z + 1));
+            if (x + 1 < d0 && z + 1 < d2) face(s(x, y, z), s(x + 1, y, z), s(x + 1, y, z + 1), s(x, y, z + 1));
+            if (x + 1 < d0 && y + 1 < d1) face(s(x, y, z), s(x + 1, y, z), s(x + 1, y + 1, z), s(x, y + 1, z));
+        }
+        return count;
+    }
+
+    std::pair<int64_t, int64_t> MinMax(std::vector<int64_t> const& v)
+    {
+        auto mm = std::minmax_element(v.begin(), v.end());
+        return { *mm.first, *mm.second };
+    }
+
+    int BitsFor(int64_t range)
+    {
+        int b = 1;
+        while ((int64_t(1) << b) <= range) { ++b; }
+        return b;
+    }
+
+    // Records voxel values in [lo, hi] packed as v - lo.
+    void GivenVoxels(oracle::Ctx& io, std::vector<int64_t> const& v, int64_t lo, int64_t hi)
+    {
+        std::vector<int64_t> u;
+        for (int64_t x : v) { u.push_back(x - lo); }
+        GivenPacked(io, u, BitsFor(hi - lo));
+    }
+
+    // Emits, for one extractor and level: the rational extraction (counts,
+    // digest), its MakeUnique (counts, digest), the real extraction without
+    // duplicate removal (count, digest) and with it (counts; vertices and
+    // triangles in full when there are at most 16 triangles and full is
+    // requested, else a digest), OrientTriangles (one packed bit per
+    // triangle: swapped) and ComputeNormals on the deduplicated mesh (full
+    // or digest like the vertices).
+    template <typename T, typename Extractor>
+    void EmitSurface(oracle::Ctx& io, Extractor& ex, T level, bool sameDir, bool allowFull)
+    {
+        using Vertex = typename Extractor::Vertex;
+        using Triangle = typename Extractor::Triangle;
+        SurfaceExtractor<T, double>& base = ex;
+        std::vector<Vertex> rv;
+        std::vector<Triangle> rt;
+        base.Extract(level, rv, rt);
+        io.outInt(rv.size());
+        io.outInt(rt.size());
+        Digest d0;
+        for (auto const& v : rv)
+        {
+            d0.integer(v.xNumer); d0.integer(v.xDenom); d0.integer(v.yNumer);
+            d0.integer(v.yDenom); d0.integer(v.zNumer); d0.integer(v.zDenom);
+        }
+        for (auto const& t : rt) { d0.integer(t.v[0]); d0.integer(t.v[1]); d0.integer(t.v[2]); }
+        io.outInt(d0.h);
+
+        base.MakeUnique(rv, rt);
+        io.outInt(rv.size());
+        io.outInt(rt.size());
+        Digest d1;
+        for (auto const& v : rv)
+        {
+            d1.integer(v.xNumer); d1.integer(v.xDenom); d1.integer(v.yNumer);
+            d1.integer(v.yDenom); d1.integer(v.zNumer); d1.integer(v.zDenom);
+        }
+        for (auto const& t : rt) { d1.integer(t.v[0]); d1.integer(t.v[1]); d1.integer(t.v[2]); }
+        io.outInt(d1.h);
+
+        std::vector<std::array<double, 3>> xv;
+        std::vector<Triangle> xt;
+        base.Extract(level, false, xv, xt);
+        io.outInt(xv.size());
+        Digest d2;
+        for (auto const& v : xv) { d2.real(v[0]); d2.real(v[1]); d2.real(v[2]); }
+        for (auto const& t : xt) { d2.integer(t.v[0]); d2.integer(t.v[1]); d2.integer(t.v[2]); }
+        io.outInt(d2.h);
+
+        base.Extract(level, true, xv, xt);
+        io.outInt(xv.size());
+        io.outInt(xt.size());
+        bool const full = allowFull && xt.size() <= 16;
+        Digest d3;
+        for (auto const& v : xv)
+        {
+            if (full) { io.outReal(v[0]); io.outReal(v[1]); io.outReal(v[2]); }
+            else { d3.real(v[0]); d3.real(v[1]); d3.real(v[2]); }
+        }
+        for (auto const& t : xt)
+        {
+            if (full) { io.outInt(t.v[0]); io.outInt(t.v[1]); io.outInt(t.v[2]); }
+            else { d3.integer(t.v[0]); d3.integer(t.v[1]); d3.integer(t.v[2]); }
+        }
+        if (!full) { io.outInt(d3.h); }
+
+        std::vector<Triangle> ot = xt;
+        base.OrientTriangles(xv, ot, sameDir);
+        std::vector<int64_t> swapped(ot.size());
+        for (size_t t = 0; t < ot.size(); ++t) { swapped[t] = (ot[t].v[1] != xt[t].v[1] ? 1 : 0); }
+        OutPacked(io, swapped, 1);
+
+        std::vector<std::array<double, 3>> normals;
+        base.ComputeNormals(xv, ot, normals);
+        Digest d4;
+        for (auto const& n : normals)
+        {
+            if (full) { io.outReal(n[0]); io.outReal(n[1]); io.outReal(n[2]); }
+            else { d4.real(n[0]); d4.real(n[1]); d4.real(n[2]); }
+        }
+        if (!full) { io.outInt(d4.h); }
+    }
+}
+
+// ---- SurfaceExtractorCubes ----
+//
+// Upstream pairs the four crossings of a saddle face the wrong way round on
+// every face whose determinant is nonzero (this report, upstream suspect 1;
+// fixed in the port). The main cases reject images that have such a face
+// (exact integer predicate CubesSaddles, at most 64 redraws, then a linear
+// image, which has none); plus-sign faces (determinant 0) are sound and
+// have their own case; the deviation case requires a defective face.
+
+namespace
+{
+    // Draws dimensions, values and level until 'accept' holds (at most 64
+    // attempts, then a linear image and a level inside its range), records
+    // them, and returns the values and level.
+    template <typename Accept>
+    std::vector<int64_t> DrawCubesImage(oracle::Ctx& io, int d0, int d1, int d2,
+        int64_t lo, int64_t hi, int maxMode, int64_t& level, Accept accept)
+    {
+        std::vector<int64_t> v;
+        bool found = false;
+        for (int attempt = 0; attempt < 64 && !found; ++attempt)
+        {
+            v = RawVoxels(io, d0, d1, d2, io.rawInteger(0, maxMode), lo, hi);
+            auto mm = MinMax(v);
+            level = std::max(lo, mm.first - 1) + static_cast<int64_t>(
+                io.raw(0.0, 1.0) * static_cast<double>(mm.second - std::max(lo, mm.first - 1) + 1));
+            found = accept(v, level);
+        }
+        if (!found)
+        {
+            v = RawVoxels(io, d0, d1, d2, 2, lo, hi);
+            level = MinMax(v).first;
+        }
+        GivenVoxels(io, v, lo, hi);
+        io.given(static_cast<double>(level));
+        return v;
+    }
+
+    bool NoDefectiveSaddle(std::vector<int64_t> const& v, int d0, int d1, int d2, int64_t level)
+    {
+        return CubesSaddles(v, d0, d1, d2, level).nonzero == 0;
+    }
+
+    template <typename T>
+    void CubesTyped(oracle::Ctx& io, int d0, int d1, int d2, std::vector<int64_t> const& v,
+        int64_t level, bool sameDir, bool allowFull)
+    {
+        std::vector<T> voxels(v.size());
+        for (size_t i = 0; i < v.size(); ++i) { voxels[i] = static_cast<T>(v[i]); }
+        SurfaceExtractorCubes<T, double> ex(d0, d1, d2, voxels.data());
+        EmitSurface<T>(io, ex, static_cast<T>(level), sameDir, allowFull);
+    }
+}
+
+// int32_t images of 2..3 voxels per axis; small lattice, uniform [-50, 50],
+// linear, quadric, binary and hyperbolic values; levels from one below the
+// minimum to the maximum.
+ORACLE_CASE("SurfaceExtractorCubes.extract")
+{
+    int d0 = io.integer(2, 3);
+    int d1 = io.integer(2, 3);
+    int d2 = io.integer(2, 3);
+    int64_t level = 0;
+    auto v = DrawCubesImage(io, d0, d1, d2, -50, 50, 5, level,
+        [&](auto const& w, int64_t L) { return NoDefectiveSaddle(w, d0, d1, d2, L); });
+    bool sameDir = io.boolean();
+    CubesTyped<int32_t>(io, d0, d1, d2, v, level, sameDir, true);
+}
+
+// Every pixel type upstream documents. 32-bit values stay within 2^20 so
+// that the port's double arithmetic (exact below 2^53) and upstream's int64
+// products agree; digests only.
+ORACLE_CASE("SurfaceExtractorCubes.extract.types")
+{
+    int type = io.integer(0, 5);
+    int d0 = io.integer(2, 4);
+    int d1 = io.integer(2, 4);
+    int d2 = io.integer(2, 4);
+    int64_t const los[6] = { -128, -32768, -(1 << 20), 0, 0, 0 };
+    int64_t const his[6] = { 127, 32767, 1 << 20, 255, 65535, 1 << 20 };
+    int64_t level = 0;
+    auto v = DrawCubesImage(io, d0, d1, d2, los[type], his[type], 5, level,
+        [&](auto const& w, int64_t L) { return NoDefectiveSaddle(w, d0, d1, d2, L); });
+    bool sameDir = io.boolean();
+    switch (type)
+    {
+    case 0: CubesTyped<int8_t>(io, d0, d1, d2, v, level, sameDir, false); break;
+    case 1: CubesTyped<int16_t>(io, d0, d1, d2, v, level, sameDir, false); break;
+    case 2: CubesTyped<int32_t>(io, d0, d1, d2, v, level, sameDir, false); break;
+    case 3: CubesTyped<uint8_t>(io, d0, d1, d2, v, level, sameDir, false); break;
+    case 4: CubesTyped<uint16_t>(io, d0, d1, d2, v, level, sameDir, false); break;
+    default: CubesTyped<uint32_t>(io, d0, d1, d2, v, level, sameDir, false); break;
+    }
+}
+
+// 4..7 voxels per axis (many cubes, long ear-clipping sequences); digests.
+ORACLE_CASE("SurfaceExtractorCubes.extract.large")
+{
+    int d0 = io.integer(4, 6);
+    int d1 = io.integer(4, 6);
+    int d2 = io.integer(4, 6);
+    int64_t level = 0;
+    auto v = DrawCubesImage(io, d0, d1, d2, -200, 200, 5, level,
+        [&](auto const& w, int64_t L) { return NoDefectiveSaddle(w, d0, d1, d2, L); });
+    bool sameDir = io.boolean();
+    CubesTyped<int32_t>(io, d0, d1, d2, v, level, sameDir, false);
+}
+
+// Plus-sign faces (four alternating corners with f00*f11 == f01*f10, the
+// branch-point path): one face is planted with shifted values u*p, -u*q,
+// w*q, -w*p (u, w, p, q odd), the rest drawn and rejected if a defective
+// saddle appears; the fallback extrudes the planted face along its normal.
+ORACLE_CASE("SurfaceExtractorCubes.extract.plusSign")
+{
+    int d0 = io.integer(2, 3);
+    int d1 = io.integer(2, 3);
+    int d2 = io.integer(2, 3);
+    int64_t level = 0;
+    std::vector<int64_t> v;
+    bool found = false;
+    for (int attempt = 0; attempt < 64 && !found; ++attempt)
+    {
+        level = io.rawInteger(-3, 3);
+        int64_t const odd[2] = { 1, 3 };
+        int64_t u = odd[io.rawInteger(0, 1)], w = odd[io.rawInteger(0, 1)];
+        int64_t p = odd[io.rawInteger(0, 1)], q = odd[io.rawInteger(0, 1)];
+        int64_t sgn = (io.rawInteger(0, 1) == 0 ? 1 : -1);
+        std::array<int64_t, 4> s = { sgn * u * p, -sgn * u * q, sgn * w * q, -sgn * w * p };
+        int axis = io.rawInteger(0, 2);
+        int dims[3] = { d0, d1, d2 };
+        int at = io.rawInteger(0, dims[axis] - 1);
+        int b0 = io.rawInteger(0, dims[(axis + 1) % 3] - 2), b1 = io.rawInteger(0, dims[(axis + 2) % 3] - 2);
+        // The last attempt gives every voxel the value of the planted corner
+        // nearest to it in the face's plane, so that the planted squares are
+        // the only alternating faces.
+        bool extrude = (attempt == 63);
+        v = RawVoxels(io, d0, d1, d2, 1, -30, 30);
+        for (int z = 0; z < d2; ++z) for (int y = 0; y < d1; ++y) for (int x = 0; x < d0; ++x)
+        {
+            int c[3] = { x, y, z };
+            int e0 = c[(axis + 1) % 3] - b0, e1 = c[(axis + 2) % 3] - b1;
+            bool planted = (c[axis] == at && (e0 == 0 || e0 == 1) && (e1 == 0 || e1 == 1));
+            if (!planted && !extrude) continue;
+            e0 = std::min(1, std::max(0, e0));
+            e1 = std::min(1, std::max(0, e1));
+            int j = (e1 == 0 ? (e0 == 0 ? 0 : 1) : (e0 == 1 ? 2 : 3));
+            v[x + d0 * (y + d1 * z)] = (s[j] + 2 * level + 1) / 2;
+        }
+        found = extrude || NoDefectiveSaddle(v, d0, d1, d2, level);
+    }
+    GivenVoxels(io, v, -30, 30);
+    io.given(static_cast<double>(level));
+    bool sameDir = io.boolean();
+    CubesTyped<int32_t>(io, d0, d1, d2, v, level, sameDir, true);
+}
+
+// Upstream suspect 1 of this report: every record has at least one saddle
+// face with a nonzero determinant (at most 64 redraws, then the 2x2x2
+// image with 3 at (0,0,0) and (0,1,1), 0 elsewhere, level 0).
+ORACLE_CASE("SurfaceExtractorCubes.extract.saddle")
+{
+    int d0 = io.integer(2, 3);
+    int d1 = io.integer(2, 3);
+    int d2 = io.integer(2, 3);
+    int64_t level = 0;
+    std::vector<int64_t> v;
+    bool found = false;
+    for (int attempt = 0; attempt < 64 && !found; ++attempt)
+    {
+        v = RawVoxels(io, d0, d1, d2, io.rawInteger(0, 5), -20, 20);
+        auto mm = MinMax(v);
+        level = mm.first - 1 + io.rawInteger(0, static_cast<int>(mm.second - mm.first + 1));
+        found = CubesSaddles(v, d0, d1, d2, level).nonzero > 0;
+    }
+    if (!found)
+    {
+        v.assign(static_cast<size_t>(d0) * d1 * d2, 0);
+        v[0] = 3;
+        v[d0 * (1 + d1)] = 3;
+        level = 0;
+    }
+    GivenVoxels(io, v, -20, 20);
+    io.given(static_cast<double>(level));
+    bool sameDir = io.boolean();
+    CubesTyped<int32_t>(io, d0, d1, d2, v, level, sameDir, true);
+}
+
+namespace
+{
+    // One recorded vertex: uniform in the image box widened by 1/4 (points
+    // just outside give the zero gradient; slightly negative coordinates
+    // truncate to cube 0), an integer point, or a multiple of 1/4. 'allowed'
+    // rejects points (at most 256 redraws, then the image center).
+    template <typename Allowed>
+    std::array<double, 3> DrawPoint(oracle::Ctx& io, int mode, int const* dims, Allowed allowed)
+    {
+        std::array<double, 3> p{};
+        bool ok = false;
+        for (int attempt = 0; attempt < 256 && !ok; ++attempt)
+        {
+            for (int k = 0; k < 3; ++k)
+            {
+                double hi = static_cast<double>(dims[k] - 1);
+                p[k] = (mode == 0 ? io.raw(-0.25, hi + 0.25)
+                    : mode == 1 ? static_cast<double>(io.rawInteger(0, dims[k] - 1))
+                    : io.rawInteger(-1, 4 * (dims[k] - 1) + 1) / 4.0);
+            }
+            ok = allowed(p);
+        }
+        if (!ok)
+        {
+            for (int k = 0; k < 3; ++k) { p[k] = 0.5 * (dims[k] - 1); }
+        }
+        for (int k = 0; k < 3; ++k) { io.given(p[k]); }
+        return p;
+    }
+
+    // Arbitrary vertices and triangles (repeated indices allowed) through
+    // OrientTriangles and ComputeNormals. Outputs: one bit per triangle
+    // (swapped) and the normals in full.
+    template <typename T, typename Allowed>
+    void OrientPoints(oracle::Ctx& io, SurfaceExtractor<T, double>& ex, int const* dims, Allowed allowed)
+    {
+        using Triangle = typename SurfaceExtractor<T, double>::Triangle;
+        int nv = io.integer(3, 7);
+        int mode = io.integer(0, 2);
+        std::vector<std::array<double, 3>> xv;
+        for (int i = 0; i < nv; ++i) { xv.push_back(DrawPoint(io, mode, dims, allowed)); }
+        int nt = io.integer(1, 6);
+        std::vector<Triangle> xt;
+        for (int t = 0; t < nt; ++t)
+        {
+            int i0 = io.integer(0, nv - 1);
+            int i1 = io.integer(0, nv - 1);
+            int i2 = io.integer(0, nv - 1);
+            xt.push_back(Triangle(i0, i1, i2));
+        }
+        bool sameDir = io.boolean();
+        std::vector<Triangle> ot = xt;
+        ex.OrientTriangles(xv, ot, sameDir);
+        std::vector<int64_t> swapped(ot.size());
+        for (size_t t = 0; t < ot.size(); ++t) { swapped[t] = (ot[t].v[1] != xt[t].v[1] ? 1 : 0); }
+        OutPacked(io, swapped, 1);
+        std::vector<std::array<double, 3>> normals;
+        ex.ComputeNormals(xv, ot, normals);
+        for (auto const& n : normals) { io.outReal(n[0]); io.outReal(n[1]); io.outReal(n[2]); }
+    }
+}
+
+// GetGradient (trilinear, from the shifted voxels 2v - 2L - 1 that Extract
+// leaves behind) through OrientTriangles on arbitrary points, including
+// integer points on lattice images, where the average gradient can be
+// exactly orthogonal to the normal and the rounding of the division by 3
+// decides the sign.
+ORACLE_CASE("SurfaceExtractorCubes.orientTriangles.points")
+{
+    int dims[3];
+    for (int k = 0; k < 3; ++k) { dims[k] = io.integer(2, 4); }
+    std::vector<int64_t> v = RawVoxels(io, dims[0], dims[1], dims[2], io.rawInteger(0, 5), -20, 20);
+    GivenVoxels(io, v, -20, 20);
+    int32_t level = io.integer(-3, 3);
+    std::vector<int32_t> voxels(v.begin(), v.end());
+    SurfaceExtractorCubes<int32_t, double> ex(dims[0], dims[1], dims[2], voxels.data());
+    std::vector<SurfaceExtractorCubes<int32_t, double>::Vertex> rv;
+    std::vector<SurfaceExtractorCubes<int32_t, double>::Triangle> rt;
+    ex.Extract(level, rv, rt);
+    OrientPoints<int32_t>(io, ex, dims, [](auto const&) { return true; });
+}
+
+// Constructor precondition: every bound at least 2 (LogAssert). Draws which
+// extractor and bounds in 0..3; the throw records carry no outputs.
+ORACLE_CASE("SurfaceExtractor.invalidBounds")
+{
+    int which = io.integer(0, 1);
+    int d0 = io.integer(0, 3);
+    int d1 = io.integer(0, 3);
+    int d2 = io.integer(0, 3);
+    std::vector<int32_t> voxels(64, 1);
+    if (which == 0)
+    {
+        SurfaceExtractorCubes<int32_t, double> ex(d0, d1, d2, voxels.data());
+    }
+    else
+    {
+        SurfaceExtractorTetrahedra<int32_t, double> ex(d0, d1, d2, voxels.data());
+    }
+    io.outInt(d0 * d1 * d2);
+}
+
+// ---- SurfaceExtractorMC (T = double, IndexType = int32_t) ----
+//
+// #443 (fixed in the port): the edge interpolation omits 'level'. The main
+// cases use level +0 or -0 (where upstream is sound) and compare every
+// output; the '.levelTopology' cases use nonzero levels and compare what
+// does not depend on the vertex positions; the '.level' cases are the
+// deviations.
+
+namespace
+{
+    using MCExtractor = SurfaceExtractorMC<double, int32_t>;
+
+    // One recorded value: uniform, a small lattice (corners on the level),
+    // a multiple of 1/8, or a signed zero.
+    double DrawMCValue(oracle::Ctx& io, int mode)
+    {
+        switch (mode)
+        {
+        case 0: return io.real(-1.0, 1.0);
+        case 1: return io.given(static_cast<double>(io.rawInteger(-2, 2)));
+        case 2: return io.given(io.rawInteger(-16, 16) / 8.0);
+        default: return io.given(io.rawInteger(0, 1) == 0 ? 0.0 : -0.0);
+        }
+    }
+
+    // perturb: 0, -0, +-1/1024, +-1e-300 (a perturbation that survives the
+    // addition), or uniform.
+    double DrawPerturb(oracle::Ctx& io)
+    {
+        switch (io.rawInteger(0, 4))
+        {
+        case 0: return io.given(0.0);
+        case 1: return io.given(-0.0);
+        case 2: return io.given(io.rawInteger(0, 1) == 0 ? 1.0 / 1024.0 : -1.0 / 1024.0);
+        case 3: return io.given(io.rawInteger(0, 1) == 0 ? 1e-300 : -1e-300);
+        default: return io.real(-0.01, 0.01);
+        }
+    }
+
+    double DrawLevel(oracle::Ctx& io, bool zero)
+    {
+        if (zero) { return io.given(io.rawInteger(0, 1) == 0 ? 0.0 : -0.0); }
+        switch (io.rawInteger(0, 2))
+        {
+        case 0: return io.real(-1.0, 1.0);
+        case 1: return io.given(io.rawInteger(1, 16) * (io.rawInteger(0, 1) == 0 ? 0.125 : -0.125));
+        default: return io.given(static_cast<double>(io.rawInteger(0, 1) == 0 ? 1 : -1));
+        }
+    }
+
+    __declspec(noinline) bool CallExtractVoxel(MCExtractor const& mc, double level, double perturb,
+        std::array<double, 8> const& F, MCExtractor::Mesh& mesh)
+    {
+        return mc.Extract(level, perturb, F, mesh);
+    }
+
+    // Per-voxel extraction. Outputs: valid; when valid the counts, the
+    // vertex pairs and triangle triples (4 bits packed) and, if requested,
+    // the local vertices.
+    void MCVoxel(oracle::Ctx& io, bool zeroLevel, bool withVertices)
+    {
+        Image3<double> image(2, 2, 2);
+        MCExtractor mc(image);
+        int mode = io.integer(0, 3);
+        std::array<double, 8> F{};
+        for (int i = 0; i < 8; ++i) { F[i] = DrawMCValue(io, (mode == 3 && io.rawInteger(0, 1) == 0) ? 1 : mode); }
+        double level = DrawLevel(io, zeroLevel);
+        double perturb = DrawPerturb(io);
+        MCExtractor::Mesh mesh;
+        bool valid = CallExtractVoxel(mc, level, perturb, F, mesh);
+        io.outBool(valid);
+        if (!valid) { return; }
+        io.outInt(mesh.topology.numVertices);
+        io.outInt(mesh.topology.numTriangles);
+        std::vector<int64_t> packed;
+        for (int i = 0; i < mesh.topology.numVertices; ++i)
+        {
+            packed.push_back(mesh.topology.vpair[i][0]);
+            packed.push_back(mesh.topology.vpair[i][1]);
+        }
+        for (int i = 0; i < mesh.topology.numTriangles; ++i)
+        {
+            for (int j = 0; j < 3; ++j) { packed.push_back(mesh.topology.itriple[i][j]); }
+        }
+        OutPacked(io, packed, 4);
+        if (withVertices)
+        {
+            for (int i = 0; i < mesh.topology.numVertices; ++i) { io.outVec(mesh.vertices[i]); }
+        }
+    }
+}
+
+ORACLE_CASE("SurfaceExtractorMC.extractVoxel") { MCVoxel(io, true, true); }
+ORACLE_CASE("SurfaceExtractorMC.extractVoxel.levelTopology") { MCVoxel(io, false, false); }
+ORACLE_CASE("SurfaceExtractorMC.extractVoxel.level") { MCVoxel(io, false, true); }
+
+namespace
+{
+    // An Image3<double> of 2..3 voxels per axis: per-voxel values as in
+    // DrawMCValue, a quadric, or a hyperbolic product (ambiguous faces).
+    Image3<double> DrawMCImage(oracle::Ctx& io, int dmin, int dmax)
+    {
+        int d0 = io.integer(dmin, dmax);
+        int d1 = io.integer(dmin, dmax);
+        int d2 = io.integer(dmin, dmax);
+        int mode = io.integer(0, 5);
+        Image3<double> image(d0, d1, d2);
+        double cx = io.raw(0.0, d0 - 1.0), cy = io.raw(0.0, d1 - 1.0), cz = io.raw(0.0, d2 - 1.0);
+        double r = io.raw(0.25, 2.0);
+        for (size_t i = 0; i < image.GetNumPixels(); ++i)
+        {
+            auto c = image.GetCoordinates(i);
+            double x = c[0], y = c[1], z = c[2];
+            double value = 0.0;
+            switch (mode)
+            {
+            case 4: value = io.given((x - cx) * (x - cx) + (y - cy) * (y - cy) + (z - cz) * (z - cz) - r * r); break;
+            case 5: value = io.given((x - cx) * (y - cy) + 0.25 * (z - cz)); break;
+            default: value = DrawMCValue(io, mode); break;
+            }
+            image[i] = value;
+        }
+        return image;
+    }
+
+    // Whole-image extraction. Outputs: vertex and index counts, then the
+    // vertices and indices (in full when there are at most 16 triangles and
+    // full is requested, else a digest); when there are vertices, the
+    // MakeUnique result (same rule), OrientTriangles (one bit per triangle)
+    // and ComputeNormals.
+    void MCImage(oracle::Ctx& io, bool zeroLevel, bool topologyOnly, bool allowFull, int dmax)
+    {
+        Image3<double> image = DrawMCImage(io, 2, dmax);
+        double level = DrawLevel(io, zeroLevel);
+        double perturb = DrawPerturb(io);
+        bool sameDir = io.boolean();
+        MCExtractor mc(image);
+        std::vector<Vector3<double>> vertices;
+        std::vector<int32_t> indices;
+        mc.Extract(level, perturb, vertices, indices);
+        io.outInt(vertices.size());
+        io.outInt(indices.size());
+        bool full = allowFull && indices.size() <= 48;
+        auto emitMesh = [&](std::vector<Vector3<double>> const& vs, std::vector<int32_t> const& is, bool withVertices)
+        {
+            Digest d;
+            if (withVertices)
+            {
+                for (auto const& v : vs) { for (int k = 0; k < 3; ++k) { if (full) io.outReal(v[k]); else d.real(v[k]); } }
+            }
+            for (int32_t i : is) { if (full) io.outInt(i); else d.integer(i); }
+            if (!full) { io.outInt(d.h); }
+        };
+        emitMesh(vertices, indices, !topologyOnly);
+        if (topologyOnly || vertices.empty()) { return; }
+        mc.MakeUnique(vertices, indices);
+        io.outInt(vertices.size());
+        emitMesh(vertices, indices, true);
+        std::vector<int32_t> oriented = indices;
+        mc.OrientTriangles(vertices, oriented, sameDir);
+        std::vector<int64_t> swapped(oriented.size() / 3);
+        for (size_t t = 0; t < swapped.size(); ++t) { swapped[t] = (oriented[3 * t + 1] != indices[3 * t + 1] ? 1 : 0); }
+        OutPacked(io, swapped, 1);
+        // ComputeNormals never advances its triangle pointer (this report,
+        // upstream suspect 2; fixed in the port): it is compared here only
+        // for single-triangle meshes, where upstream is sound, and in the
+        // deviation case SurfaceExtractorMC.computeNormals.multiple.
+        if (oriented.size() == 3)
+        {
+            std::vector<Vector3<double>> normals;
+            mc.ComputeNormals(vertices, oriented, normals);
+            for (auto const& n : normals) { io.outVec(n); }
+        }
+    }
+}
+
+ORACLE_CASE("SurfaceExtractorMC.extract") { MCImage(io, true, false, true, 3); }
+ORACLE_CASE("SurfaceExtractorMC.extract.large") { MCImage(io, true, false, false, 6); }
+ORACLE_CASE("SurfaceExtractorMC.extract.levelTopology") { MCImage(io, false, true, true, 3); }
+ORACLE_CASE("SurfaceExtractorMC.extract.level") { MCImage(io, false, false, false, 3); }
+
+// MakeUnique (UniqueVerticesSimplices::RemoveDuplicateVertices) on
+// arbitrary inputs: duplicated vertices, -0 against +0 (equal under
+// Vector3's operator<, the first one is kept), and the preconditions (no
+// vertices, no indices or a count not divisible by 3, an index out of
+// range: LogAssert, throw records). Outputs: the vertices and indices.
+ORACLE_CASE("SurfaceExtractorMC.makeUnique")
+{
+    double const palette[5] = { 0.0, -0.0, 1.0, 0.5, 2.0 };
+    int mode = io.integer(0, 4);
+    int nv = (mode == 2 ? 0 : io.integer(1, 8));
+    std::vector<Vector3<double>> vertices(nv);
+    for (auto& v : vertices)
+    {
+        for (int k = 0; k < 3; ++k) { v[k] = io.given(palette[io.rawInteger(0, 4)]); }
+    }
+    int ni = (mode == 3 ? io.integer(0, 2) : 3 * io.integer(1, 4));
+    std::vector<int32_t> indices(ni);
+    for (auto& i : indices) { i = io.integer(0, std::max(0, nv - 1)); }
+    if (mode == 4)
+    {
+        int bad = io.integer(0, ni - 1);
+        indices[bad] = (io.boolean() ? nv : -1);
+    }
+    Image3<double> image(2, 2, 2);
+    MCExtractor mc(image);
+    mc.MakeUnique(vertices, indices);
+    io.outInt(vertices.size());
+    for (auto const& v : vertices) { io.outVec(v); }
+    for (int32_t i : indices) { io.outInt(i); }
+}
+
+// GetGradient (trilinear on the raw image, floor-based cell selection,
+// zero outside) through OrientTriangles on arbitrary points and index
+// triples; the integer points on lattice images make the average gradient
+// exactly orthogonal to the normal, where the rounding of the division by
+// 3 decides the sign (Vector3's operator/ multiplies by 1/3).
+ORACLE_CASE("SurfaceExtractorMC.orientTriangles.points")
+{
+    Image3<double> image = DrawMCImage(io, 2, 4);
+    int dims[3] = { image.GetDimension(0), image.GetDimension(1), image.GetDimension(2) };
+    int nv = io.integer(3, 7);
+    int mode = io.integer(0, 2);
+    std::vector<Vector3<double>> vertices;
+    for (int i = 0; i < nv; ++i)
+    {
+        auto p = DrawPoint(io, mode, dims, [](auto const&) { return true; });
+        vertices.push_back(Vector3<double>{ p[0], p[1], p[2] });
+    }
+    int nt = io.integer(1, 6);
+    std::vector<int32_t> indices;
+    for (int t = 0; t < 3 * nt; ++t) { indices.push_back(io.integer(0, nv - 1)); }
+    bool sameDir = io.boolean();
+    MCExtractor mc(image);
+    std::vector<int32_t> oriented = indices;
+    mc.OrientTriangles(vertices, oriented, sameDir);
+    std::vector<int64_t> swapped(nt);
+    for (int t = 0; t < nt; ++t) { swapped[t] = (oriented[3 * t + 1] != indices[3 * t + 1] ? 1 : 0); }
+    OutPacked(io, swapped, 1);
+    // ComputeNormals only where upstream is sound (one triangle), see
+    // MCImage.
+    if (nt == 1)
+    {
+        std::vector<Vector3<double>> normals;
+        mc.ComputeNormals(vertices, oriented, normals);
+        for (auto const& n : normals) { io.outVec(n); }
+    }
+}
+
+// Upstream suspect 2 of this report (fixed in the port): ComputeNormals
+// reads indices.data() for every triangle without advancing, so only the
+// first triangle's normal is accumulated, numTriangles times, at its three
+// vertices; every other vertex gets the zero normal. Arbitrary points and
+// 2..6 triangles; outputs the normals.
+ORACLE_CASE("SurfaceExtractorMC.computeNormals.multiple")
+{
+    Image3<double> image(2, 2, 2);
+    int dims[3] = { 3, 3, 3 };
+    int nv = io.integer(3, 7);
+    int mode = io.integer(0, 2);
+    std::vector<Vector3<double>> vertices;
+    for (int i = 0; i < nv; ++i)
+    {
+        auto p = DrawPoint(io, mode, dims, [](auto const&) { return true; });
+        vertices.push_back(Vector3<double>{ p[0], p[1], p[2] });
+    }
+    int nt = io.integer(2, 6);
+    std::vector<int32_t> indices;
+    for (int t = 0; t < 3 * nt; ++t) { indices.push_back(io.integer(0, nv - 1)); }
+    MCExtractor mc(image);
+    std::vector<Vector3<double>> normals;
+    mc.ComputeNormals(vertices, indices, normals);
+    for (auto const& n : normals) { io.outVec(n); }
+}
+
+// ---- SurfaceExtractorTetrahedra ----
+//
+// Levels on sample values are allowed (the zero-corner cases of
+// ProcessTetrahedron). #132 (fixed in the port): GetGradient's test for the
+// corner tetrahedron at (1,1,1) of an odd-parity cube is dx + dy + dz >= 0
+// (always true) instead of >= 2, so the central tetrahedron 0752 is dead
+// code upstream. Extracted vertices always lie on a cube face and never
+// reach it; the '.points' cases reject points in the region, the
+// '.centralTetra' case is the deviation.
+
+namespace
+{
+    template <typename T>
+    void TetraTyped(oracle::Ctx& io, int d0, int d1, int d2, std::vector<int64_t> const& v,
+        int64_t level, bool sameDir, bool allowFull)
+    {
+        std::vector<T> voxels(v.size());
+        for (size_t i = 0; i < v.size(); ++i) { voxels[i] = static_cast<T>(v[i]); }
+        SurfaceExtractorTetrahedra<T, double> ex(d0, d1, d2, voxels.data());
+        EmitSurface<T>(io, ex, static_cast<T>(level), sameDir, allowFull);
+    }
+
+    // Draws values (modes of RawVoxels) and a level from one below the
+    // minimum to the maximum; lattice modes put the level on samples.
+    std::vector<int64_t> DrawTetraImage(oracle::Ctx& io, int d0, int d1, int d2,
+        int64_t lo, int64_t hi, int64_t& level)
+    {
+        std::vector<int64_t> v = RawVoxels(io, d0, d1, d2, io.rawInteger(0, 5), lo, hi);
+        auto mm = MinMax(v);
+        int64_t l0 = std::max(lo, mm.first - 1);
+        level = l0 + static_cast<int64_t>(io.raw(0.0, 1.0) * static_cast<double>(mm.second - l0 + 1));
+        GivenVoxels(io, v, lo, hi);
+        io.given(static_cast<double>(level));
+        return v;
+    }
+}
+
+ORACLE_CASE("SurfaceExtractorTetrahedra.extract")
+{
+    int d0 = io.integer(2, 3);
+    int d1 = io.integer(2, 3);
+    int d2 = io.integer(2, 3);
+    int64_t level = 0;
+    auto v = DrawTetraImage(io, d0, d1, d2, -50, 50, level);
+    bool sameDir = io.boolean();
+    TetraTyped<int32_t>(io, d0, d1, d2, v, level, sameDir, true);
+}
+
+ORACLE_CASE("SurfaceExtractorTetrahedra.extract.types")
+{
+    int type = io.integer(0, 5);
+    int d0 = io.integer(2, 4);
+    int d1 = io.integer(2, 4);
+    int d2 = io.integer(2, 4);
+    int64_t const los[6] = { -128, -32768, -(1 << 20), 0, 0, 0 };
+    int64_t const his[6] = { 127, 32767, 1 << 20, 255, 65535, 1 << 20 };
+    int64_t level = 0;
+    auto v = DrawTetraImage(io, d0, d1, d2, los[type], his[type], level);
+    bool sameDir = io.boolean();
+    switch (type)
+    {
+    case 0: TetraTyped<int8_t>(io, d0, d1, d2, v, level, sameDir, false); break;
+    case 1: TetraTyped<int16_t>(io, d0, d1, d2, v, level, sameDir, false); break;
+    case 2: TetraTyped<int32_t>(io, d0, d1, d2, v, level, sameDir, false); break;
+    case 3: TetraTyped<uint8_t>(io, d0, d1, d2, v, level, sameDir, false); break;
+    case 4: TetraTyped<uint16_t>(io, d0, d1, d2, v, level, sameDir, false); break;
+    default: TetraTyped<uint32_t>(io, d0, d1, d2, v, level, sameDir, false); break;
+    }
+}
+
+ORACLE_CASE("SurfaceExtractorTetrahedra.extract.large")
+{
+    int d0 = io.integer(4, 6);
+    int d1 = io.integer(4, 6);
+    int d2 = io.integer(4, 6);
+    int64_t level = 0;
+    auto v = DrawTetraImage(io, d0, d1, d2, -200, 200, level);
+    bool sameDir = io.boolean();
+    TetraTyped<int32_t>(io, d0, d1, d2, v, level, sameDir, false);
+}
+
+namespace
+{
+    // True where upstream's GetGradient and the port's differ (#132): an
+    // odd-parity cube, outside the corner tetrahedra at (1,0,0), (0,1,0)
+    // and (0,0,1), and dx + dy + dz < 2. Same truncation and differences as
+    // GetGradient.
+    bool InCentralOddTetra(std::array<double, 3> const& p, int const* dims)
+    {
+        int32_t c[3];
+        for (int k = 0; k < 3; ++k)
+        {
+            c[k] = static_cast<int32_t>(p[k]);
+            if (c[k] < 0 || c[k] + 1 >= dims[k]) return false;
+        }
+        if (((c[0] & 1) ^ (c[1] & 1) ^ (c[2] & 1)) == 0) return false;
+        double dx = p[0] - static_cast<double>(c[0]);
+        double dy = p[1] - static_cast<double>(c[1]);
+        double dz = p[2] - static_cast<double>(c[2]);
+        if (dx - dy - dz >= 0.0 || dx - dy + dz <= 0.0 || dx + dy - dz <= 0.0) return false;
+        return dx + dy + dz < 2.0;
+    }
+
+    class TetraProbe : public SurfaceExtractorTetrahedra<int32_t, double>
+    {
+    public:
+        TetraProbe(int32_t d0, int32_t d1, int32_t d2, int32_t const* voxels)
+            : SurfaceExtractorTetrahedra<int32_t, double>(d0, d1, d2, voxels) {}
+
+        std::array<double, 3> Upstream(std::array<double, 3> const& p) { return GetGradient(p); }
+
+        // The gradient of the central tetrahedron 0752 (upstream's own
+        // expressions in its dead branch), which the port returns there.
+        std::array<double, 3> Central(std::array<double, 3> const& p)
+        {
+            int32_t x = static_cast<int32_t>(p[0]), y = static_cast<int32_t>(p[1]), z = static_cast<int32_t>(p[2]);
+            int32_t i000 = x + mXBound * (y + mYBound * z);
+            double f000 = static_cast<double>(mVoxels[i000]);
+            double f110 = static_cast<double>(mVoxels[i000 + mXBound + 1]);
+            double f101 = static_cast<double>(mVoxels[i000 + mXYBound + 1]);
+            double f011 = static_cast<double>(mVoxels[i000 + mXYBound + mXBound]);
+            return { 0.5 * (-f000 - f011 + f101 + f110), 0.5 * (-f000 + f011 - f101 + f110),
+                0.5 * (-f000 + f011 + f101 - f110) };
+        }
+    };
+
+    // Whether OrientTriangles decides differently for some triangle when
+    // the gradients in the central tetrahedron are the port's.
+    bool OrientationDiffers(TetraProbe& probe, int const* dims, std::vector<std::array<double, 3>> const& xv,
+        std::vector<std::array<int32_t, 3>> const& tris, bool sameDir)
+    {
+        for (auto const& indices : tris)
+        {
+            // The order OrientTriangles sees (the constructor's rotation).
+            SurfaceExtractorTetrahedra<int32_t, double>::Triangle t(indices[0], indices[1], indices[2]);
+            std::array<double, 3> v[3] = { xv[t.v[0]], xv[t.v[1]], xv[t.v[2]] };
+            std::array<double, 3> e1, e2, n;
+            for (int k = 0; k < 3; ++k) { e1[k] = v[1][k] - v[0][k]; e2[k] = v[2][k] - v[0][k]; }
+            n[0] = e1[1] * e2[2] - e1[2] * e2[1];
+            n[1] = e1[2] * e2[0] - e1[0] * e2[2];
+            n[2] = e1[0] * e2[1] - e1[1] * e2[0];
+            bool swap[2];
+            for (int which = 0; which < 2; ++which)
+            {
+                std::array<double, 3> g[3];
+                for (int j = 0; j < 3; ++j)
+                {
+                    g[j] = (which == 1 && InCentralOddTetra(v[j], dims) ? probe.Central(v[j]) : probe.Upstream(v[j]));
+                }
+                double avr[3];
+                for (int k = 0; k < 3; ++k) { avr[k] = (g[0][k] + g[1][k] + g[2][k]) / 3.0; }
+                double dot = avr[0] * n[0] + avr[1] * n[1] + avr[2] * n[2];
+                swap[which] = (sameDir ? dot < 0.0 : dot > 0.0);
+            }
+            if (swap[0] != swap[1]) return true;
+        }
+        return false;
+    }
+}
+
+ORACLE_CASE("SurfaceExtractorTetrahedra.orientTriangles.points")
+{
+    int dims[3];
+    for (int k = 0; k < 3; ++k) { dims[k] = io.integer(2, 4); }
+    std::vector<int64_t> v = RawVoxels(io, dims[0], dims[1], dims[2], io.rawInteger(0, 5), -20, 20);
+    GivenVoxels(io, v, -20, 20);
+    int32_t level = io.integer(-3, 3);
+    std::vector<int32_t> voxels(v.begin(), v.end());
+    SurfaceExtractorTetrahedra<int32_t, double> ex(dims[0], dims[1], dims[2], voxels.data());
+    std::vector<SurfaceExtractorTetrahedra<int32_t, double>::Vertex> rv;
+    std::vector<SurfaceExtractorTetrahedra<int32_t, double>::Triangle> rt;
+    ex.Extract(level, rv, rt);
+    OrientPoints<int32_t>(io, ex, dims, [&](auto const& p) { return !InCentralOddTetra(p, dims); });
+}
+
+// #132 deviation. Every vertex lies in the central tetrahedron of an
+// odd-parity cube, and the record is kept only when some triangle's
+// orientation depends on which gradient is used there (at most 64 redraws
+// of image, level, points, triangles and direction). Recorded in the
+// layout of the '.points' case (point mode 0).
+ORACLE_CASE("SurfaceExtractorTetrahedra.orientTriangles.centralTetra")
+{
+    int dims[3];
+    dims[0] = io.integer(3, 4);
+    dims[1] = io.integer(2, 4);
+    dims[2] = io.integer(2, 4);
+    std::vector<int64_t> v;
+    int32_t level = 0;
+    std::vector<std::array<double, 3>> xv;
+    std::vector<std::array<int32_t, 3>> tris;
+    bool sameDir = true;
+    for (int attempt = 0; attempt < 64; ++attempt)
+    {
+        v = RawVoxels(io, dims[0], dims[1], dims[2], io.rawInteger(0, 5), -20, 20);
+        level = io.rawInteger(-3, 3);
+        xv.assign(io.rawInteger(3, 5), {});
+        for (auto& p : xv)
+        {
+            p = { 1.5, 0.5, 0.5 };
+            for (int k = 0; k < 256; ++k)
+            {
+                std::array<double, 3> q = { io.raw(0.0, dims[0] - 1.0), io.raw(0.0, dims[1] - 1.0), io.raw(0.0, dims[2] - 1.0) };
+                if (InCentralOddTetra(q, dims)) { p = q; break; }
+            }
+        }
+        tris.assign(io.rawInteger(1, 4), {});
+        for (auto& t : tris)
+        {
+            for (int j = 0; j < 3; ++j) { t[j] = io.rawInteger(0, static_cast<int>(xv.size()) - 1); }
+        }
+        sameDir = (io.rawInteger(0, 1) == 1);
+        std::vector<int32_t> voxels(v.begin(), v.end());
+        TetraProbe probe(dims[0], dims[1], dims[2], voxels.data());
+        std::vector<TetraProbe::Vertex> rv;
+        std::vector<TetraProbe::Triangle> rt;
+        probe.Extract(level, rv, rt);
+        if (OrientationDiffers(probe, dims, xv, tris, sameDir)) break;
+    }
+    GivenVoxels(io, v, -20, 20);
+    io.given(level);
+    std::vector<int32_t> voxels(v.begin(), v.end());
+    SurfaceExtractorTetrahedra<int32_t, double> ex(dims[0], dims[1], dims[2], voxels.data());
+    std::vector<SurfaceExtractorTetrahedra<int32_t, double>::Vertex> rv;
+    std::vector<SurfaceExtractorTetrahedra<int32_t, double>::Triangle> rt;
+    ex.Extract(level, rv, rt);
+    io.given(static_cast<double>(xv.size()));
+    io.given(0.0);
+    for (auto const& p : xv) { io.given(p[0]); io.given(p[1]); io.given(p[2]); }
+    io.given(static_cast<double>(tris.size()));
+    std::vector<SurfaceExtractorTetrahedra<int32_t, double>::Triangle> xt;
+    for (auto const& t : tris)
+    {
+        io.given(t[0]);
+        io.given(t[1]);
+        io.given(t[2]);
+        xt.push_back(SurfaceExtractorTetrahedra<int32_t, double>::Triangle(t[0], t[1], t[2]));
+    }
+    io.given(sameDir ? 1.0 : 0.0);
+    auto ot = xt;
+    ex.OrientTriangles(xv, ot, sameDir);
+    std::vector<int64_t> swapped(ot.size());
+    for (size_t t = 0; t < ot.size(); ++t) { swapped[t] = (ot[t].v[1] != xt[t].v[1] ? 1 : 0); }
+    OutPacked(io, swapped, 1);
+    std::vector<std::array<double, 3>> normals;
+    ex.ComputeNormals(xv, ot, normals);
+    for (auto const& n : normals) { io.outReal(n[0]); io.outReal(n[1]); io.outReal(n[2]); }
+}

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Image3 } from '../src/Image3.js';
 import { MarchingCubes } from '../src/MarchingCubes.js';
 import { SurfaceExtractorMC } from '../src/SurfaceExtractorMC.js';
-import type { Vector } from '../src/Vector.js';
+import { Vector } from '../src/Vector.js';
 import { SurfaceExtractorCubes } from '../src/SurfaceExtractorCubes.js';
 import { check, fc } from './helpers/arbitraries.js';
 
@@ -732,5 +732,22 @@ describe('SurfaceExtractorMC verification', () => {
         for (const v of other.vertices) {
             expect(v.values[0]).toBeCloseTo(1.5, 12);
         }
+    });
+
+    it('regression (v26): computeNormals accumulates every triangle, not only the first', () => {
+        // Upstream's ComputeNormals reads indices.data() for every triangle
+        // without advancing the pointer, so it adds the first triangle's
+        // normal numTriangles times to that triangle's vertices and leaves
+        // every other vertex with the zero normal (found by the C++ oracle).
+        // Two disjoint triangles, one in the plane z = 0 and one in x = 0.
+        const vertices = [
+            [0, 0, 0], [1, 0, 0], [0, 1, 0],
+            [0, 0, 2], [0, 1, 2], [0, 0, 3]
+        ].map((p) => Vector.fromArray(p));
+        const indices = [0, 1, 2, 3, 4, 5];
+        const normals = new SurfaceExtractorMC(new Image3<number>(2, 2, 2))
+            .computeNormals(vertices, indices);
+        for (let i = 0; i < 3; ++i) { expect(normals[i].values).toEqual([0, 0, 1]); }
+        for (let i = 3; i < 6; ++i) { expect(normals[i].values).toEqual([1, 0, 0]); }
     });
 });
