@@ -71,14 +71,14 @@ Nothing here has been reported upstream before; this document is the report.
 
 ## Counts
 
-- **512 distinct findings** across **167** tracked issues (one issue
+- **514 distinct findings** across **167** tracked issues (one issue
   frequently holds several findings in related files).
-- By severity: **248 result-corrupting**, **15 wrong but
+- By severity: **250 result-corrupting**, **15 wrong but
   recoverable**, **176 minor**, **73 documentation**.
-- By port status: **259 fixed or corrected in the port** (of which 157 are code
+- By port status: **260 fixed or corrected in the port** (of which 158 are code
   fixes with regression tests, 22 are added guards or asserts where upstream has
   undefined behaviour, 64 are comment corrections, 11 are dead-code removals and
-  5 are documented deliberate deviations), **243 preserved deliberately**, and
+  5 are documented deliberate deviations), **244 preserved deliberately**, and
   **10 not ported** (the `GTE_USE_VEC_MAT` branches, dead code that cannot
   compile, and two arbitrary-precision paths).
 - **288 distinct upstream headers** are implicated.
@@ -278,6 +278,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `ETNonmanifoldMesh.h` | `Insert` / `Remove` | a degenerate triangle aliases two edges; `Remove` throws after already erasing the shared edge | RC | preserved | [#179](https://github.com/gradientspaceai/gtengine-js/issues/179) |
 | `ETNonmanifoldMesh.h` | `Insert` comment | "the (bad) triangle will not be part of the mesh" covers only `mTMap` | doc | corrected | [#179](https://github.com/gradientspaceai/gtengine-js/issues/179) |
 | `ExtremalQuery3BSP.h` | `InsertArc` | arcs are compared only against node great circles, not the accumulated region; ~1% of icosahedron queries are wrong | RC | preserved | [#290](https://github.com/gradientspaceai/gtengine-js/issues/290) |
+| `ExtremalQuery3BSP.h` | construction | `SortAdjacentTriangles` starts at `*TAdjacent.begin()` of an `unordered_set<Triangle*>`, so the tree, its node count and which queries are answered wrongly depend on heap addresses and differ between constructions of the same polytope | RC | preserved | [#290](https://github.com/gradientspaceai/gtengine-js/issues/290) |
 | `ExtremalQuery3BSP.h` | `GetTreeDepth` | reports the DFS stack high-water mark, not the tree depth | minor | preserved | [#290](https://github.com/gradientspaceai/gtengine-js/issues/290) |
 | `ExtremalQuery3BSP.h` | construction | no check of `VETManifoldMesh::Insert` failure or a null `Edge::T[1]` | RC | fixed (assert) | [#290](https://github.com/gradientspaceai/gtengine-js/issues/290) |
 | `FastGaussianBlur2.h`, `FastGaussianBlur3.h` | cleanup | 2D clears `mInput`/`mOutput` on exit, 3D leaves them dangling | minor | preserved | [#436](https://github.com/gradientspaceai/gtengine-js/issues/436) |
@@ -319,6 +320,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `ImageUtility3.h` | `Close<N>` | uncompilable dead code (2D static_assert, nonexistent two-argument `Image3` constructor) | minor | fixed | [#129](https://github.com/gradientspaceai/gtengine-js/issues/129) |
 | `IncrementalDelaunay2.h` | `GetHull` | dereferences `edges.begin()` on an empty edge map | RC | fixed | [#290](https://github.com/gradientspaceai/gtengine-js/issues/290) |
 | `IncrementalDelaunay2.h` | `GetHull` | the unbounded boundary walk never returns to the start for collinear input | RC | fixed | [#290](https://github.com/gradientspaceai/gtengine-js/issues/290) |
+| `IncrementalDelaunay2.h` | `GetHull` | for collinear input the walk can also return to its start early; `hull[]` is then returned padded with supervertex index 0 | RC | fixed | [#290](https://github.com/gradientspaceai/gtengine-js/issues/290) |
 | `IncrementalDelaunay2.h` | `RetriangulateBoundaryRemovalPolygon` | the `numPolygon == 2` branch tests a condition that can never hold | minor | fixed | [#290](https://github.com/gradientspaceai/gtengine-js/issues/290) |
 | `IncrementalDelaunay2.h` | comments | claim `GetNumVertices`/`GetVertices` exclude the supervertices; they do not | doc | corrected | [#290](https://github.com/gradientspaceai/gtengine-js/issues/290) |
 | `IncrementalDelaunay2.h` | `DoEarClipping` | skips `RPPolygon::Remove` on its early exit, leaving `GetNumActive()` one too large | minor | preserved | [#290](https://github.com/gradientspaceai/gtengine-js/issues/290) |
@@ -2122,6 +2124,25 @@ fixed 42-vertex polytopes but not the icosahedron, so a correct implementation
 appears to need a redesigned construction. Preserved in the port with a pointer
 to `ExtremalQuery3PRJ` for exact results.
 
+**The construction is not reproducible (found by the C++ oracle of group 10).**
+`SortAdjacentTriangles` starts its walk at `*tAdj.begin()` of
+`Vertex::TAdjacent`, a `std::unordered_set<Triangle*>`, so the order of the
+bisector arcs, and with it the BSP tree, depends on heap addresses. On 200
+integer shears of the octahedron, each rebuilt 8 times in one MSVC process,
+every polytope got a different node count on some rebuild (11 to 28 nodes), 55
+of them answered some directions differently from their first construction
+(3871 of 320000 answers, with unique argmax, so at least one answer is wrong
+each time), and two runs of the oracle generator produced different goldens.
+`GetNumNodes`, `GetTreeDepth` and the wrong answers above are therefore not
+reproducible. The port reads the same containers in sorted order and is
+deterministic; the oracle compares only the extreme vertices on polytopes
+whose answers do not depend on the tree shape. Sharpened by the same oracle:
+the defect is not confined to icosahedra. Under integer shears with positive
+determinant the MSVC build answers the octahedron wrongly on 142 of 28800
+random directions (0.49%); the unsheared octahedron, tetrahedron and bipyramid
+(sheared or not) gave no wrong answers in 91200 directions. The port answered
+all 120000 oracle directions correctly, which is luck of tree shape, not a fix.
+
 Also: `GetTreeDepth` reports the DFS stack high-water mark, not the tree depth;
 and the class never checks `VETManifoldMesh::Insert` failure or a boundary edge's
 null `Edge::T[1]`, so `std::map::operator[]` silently maps null to a zero face
@@ -2424,6 +2445,14 @@ Issues [#129](https://github.com/gradientspaceai/gtengine-js/issues/129), [#443]
   past the output, for collinear input: the supervertex triangles contribute a
   boundary path that ends in a 2-cycle which never returns to the start.
   Reproduced; the port uses a bounded walk.
+- `GetHull` has a second collinear failure (found by the C++ oracle of group
+  10): starting at one end of the line, the walk returns to its start before
+  every edge has been visited, and `hull[]` is returned normally with its
+  unwritten tail left at the zeros of the `resize`, a "polygon" that contains
+  supervertex 0. Domain (-6,-8)-(6,6), points (4,4),(2,2),(0,0),
+  `FinalizeTriangulation`, `GetHull` returns `[7, 8, 0]` under MSVC. The port
+  reports the degenerate triangulation there too (`i + 1 == numEdges` holds
+  for every nondegenerate triangulation).
 - `RetriangulateBoundaryRemovalPolygon`'s `numPolygon == 2` branch tests
   `polygon[0] == vRemovalIndex`, which can never hold, because `polygon` contains
   the *opposite* vertices. Instrumented: unreachable in practice, since the
