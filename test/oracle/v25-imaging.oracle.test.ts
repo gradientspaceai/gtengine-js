@@ -141,6 +141,38 @@ function digestTuples(io: OracleIO, a: readonly (readonly number[])[]): void {
     d.out(io);
 }
 
+// Independent reference: every 1-D absolute table is GetIndex of the
+// matching 3-tuple table entry by entry; the relative 3-tuples are the
+// documented offsets (the 6-, 18- and 26-neighbourhoods are the offsets
+// with 1, <= 2 and <= 3 nonzero components, the full table is the 3x3x3
+// block in z, y, x order, the corners the unit cube in x, y, z bit order).
+let neighborhoodsChecked = 0;
+function checkNeighborhoods(image: Image3<number>, x: number, y: number, z: number): void {
+    const pairs: [number[], [number, number, number][]][] = [
+        [image.getNeighborhood6(x, y, z), image.getNeighborhood6Coords(x, y, z)],
+        [image.getNeighborhood18(x, y, z), image.getNeighborhood18Coords(x, y, z)],
+        [image.getNeighborhood26(x, y, z), image.getNeighborhood26Coords(x, y, z)],
+        [image.getCorners8(x, y, z), image.getCorners8Coords(x, y, z)],
+        [image.getFull27(x, y, z), image.getFull27Coords(x, y, z)]];
+    for (const [flat, tuples] of pairs) {
+        expect(flat).toEqual(tuples.map((c) => image.getIndex(c[0], c[1], c[2])));
+    }
+    const nonzero = (c: readonly number[]): number => c.filter((v) => v !== 0).length;
+    const rel = (t: [number, number, number][]): number[][] => t.map((c) => [c[0], c[1], c[2]]);
+    const n6 = rel(image.getNeighborhood6Coords()), n18 = rel(image.getNeighborhood18Coords());
+    const n26 = rel(image.getNeighborhood26Coords());
+    expect(n6.every((c) => nonzero(c) === 1) && new Set(n6.map(String)).size === 6).toBe(true);
+    expect(n18.every((c) => nonzero(c) >= 1 && nonzero(c) <= 2)
+        && new Set(n18.map(String)).size === 18).toBe(true);
+    expect(n26.every((c) => nonzero(c) >= 1) && new Set(n26.map(String)).size === 26).toBe(true);
+    const full: number[][] = [], corners: number[][] = [];
+    for (let k = 0; k < 27; ++k) { full.push([k % 3 - 1, Math.floor(k / 3) % 3 - 1, Math.floor(k / 9) - 1]); }
+    for (let k = 0; k < 8; ++k) { corners.push([k & 1, (k >> 1) & 1, (k >> 2) & 1]); }
+    expect(rel(image.getFull27Coords())).toEqual(full);
+    expect(rel(image.getCorners8Coords())).toEqual(corners);
+    ++neighborhoodsChecked;
+}
+
 function image3NeighborhoodCase(io: OracleIO): void {
     const d0 = io.integer();
     const d1 = io.integer();
@@ -171,6 +203,7 @@ function image3NeighborhoodCase(io: OracleIO): void {
         digestTuples(io, image.getNeighborhood26Coords(x, y, z));
         digestTuples(io, image.getCorners8Coords(x, y, z));
         digestTuples(io, image.getFull27Coords(x, y, z));
+        checkNeighborhoods(image, x, y, z);
     }
 }
 
@@ -679,7 +712,7 @@ function marchState(m: FastMarch): MarchState { return m as unknown as MarchStat
 // ComputeTime branch histogram (which upwind terms exist, the sign of the
 // discriminant), recomputed from the state before each call.
 const branches = { one: 0, twoPos: 0, twoNeg: 0, threePos: 0, threeNeg: 0 };
-const marchRefs = { removals: 0, decreases: 0 };
+const marchRefs = { removals: 0, decreases: 0, adjacencyChecked: 0 };
 
 class CountingMarch2 extends FastMarch2 {
     protected override computeTime(i: number): void {
@@ -765,9 +798,26 @@ function outMarchState(io: OracleIO, m: FastMarch, include: readonly boolean[]):
     io.outReal(e.maxValue);
 }
 
+// The grid neighbours of pixel/voxel i (4 in 2D, 6 in 3D).
+function gridNeighbors(m: FastMarch, i: number): number[] {
+    if (m instanceof FastMarch3) {
+        const xB = m.getXBound(), xyB = xB * m.getYBound();
+        return [i - 1, i + 1, i - xB, i + xB, i - xyB, i + xyB];
+    }
+    const xB = (m as FastMarch2).getXBound();
+    return [i - 1, i + 1, i - xB, i + xB];
+}
+
+// With 'check' (no SetTime in the case): every removed pixel has a known
+// neighbour when it is removed (the front grows by adjacency), and its time
+// never changes after its removal (known pixels are never recomputed). The
+// removal values are counted for monotonicity (reported: upstream's #439
+// fallback makes the acceptance order non-monotone).
 function march(io: OracleIO, m: FastMarch, maxIter: number, stop: (key: number) => boolean,
-    count: boolean): void {
+    check: boolean): void {
     let last = -Infinity;
+    let allValid = true;  // an invalid (infinite, NaN, negative) removal ends the adjacency check
+    const removed: [number, number][] = [];
     for (let k = 0; k < maxIter; ++k) {
         const heap = marchState(m).mHeap;
         if (heap.getNumElements() === 0) { break; }
@@ -775,14 +825,27 @@ function march(io: OracleIO, m: FastMarch, maxIter: number, stop: (key: number) 
         if (minimum === null || stop(minimum.key)) { break; }
         io.outInt(minimum.key);
         io.outReal(minimum.value);
-        if (count && Number.isFinite(minimum.value)) {
-            ++marchRefs.removals;
-            if (minimum.value < last) { ++marchRefs.decreases; }
-            last = minimum.value;
+        if (check) {
+            allValid = allValid && minimum.value >= 0 && minimum.value < Number.MAX_VALUE;
+            if (allValid) {
+                expect(gridNeighbors(m, minimum.key).some((j) => m.isValid(j) && !m.isTrial(j)),
+                    'a removed pixel has a known neighbour').toBe(true);
+                ++marchRefs.adjacencyChecked;
+            }
+            removed.push([minimum.key, minimum.value]);
+            if (Number.isFinite(minimum.value)) {
+                ++marchRefs.removals;
+                if (minimum.value < last) { ++marchRefs.decreases; }
+                last = minimum.value;
+            }
         }
         m.iterate();
     }
     io.outInt(-1);
+    for (const [key, value] of removed) {
+        expect(Object.is(m.getTime(key), value) || (Number.isNaN(value) && Number.isNaN(m.getTime(key))),
+            'a known time never changes').toBe(true);
+    }
 }
 
 // Set by drawMarch2 when the inputs are exactly the #439 reproduction.
@@ -976,7 +1039,13 @@ function drawSurface(io: OracleIO, r: Recorded): void {
         const v0 = io.integer();
         const v1 = io.integer();
         const v2 = io.integer();
-        r.rt.push(new SurfaceExtractorTriangle(v0, v1, v2));
+        const triangle = new SurfaceExtractorTriangle(v0, v1, v2);
+        // Independent reference: a cyclic rotation of the input (winding
+        // kept) with a minimal index first.
+        const rotations = [[v0, v1, v2], [v1, v2, v0], [v2, v0, v1]].map(String);
+        expect(rotations).toContain(String(triangle.v));
+        expect(triangle.v[0]).toBe(Math.min(v0, v1, v2));
+        r.rt.push(triangle);
     }
 }
 
@@ -1049,6 +1118,63 @@ function makeUniqueCase(io: OracleIO): void {
     ++makeUniqueChecked;
 }
 
+// ---- exact dyadic arithmetic for the independent references ----
+
+// n * 2^e, exact for every finite double and closed under + - *.
+class Dy {
+    constructor(readonly n: bigint, readonly e: number) {}
+
+    static of(x: number): Dy {
+        if (x === 0) { return new Dy(0n, 0); }
+        const view = new DataView(new ArrayBuffer(8));
+        view.setFloat64(0, x);
+        const hi = view.getUint32(0), lo = view.getUint32(4);
+        const biased = (hi >>> 20) & 0x7FF;
+        let mant = (BigInt(hi & 0xFFFFF) << 32n) | BigInt(lo);
+        if (biased !== 0) { mant |= 1n << 52n; }
+        return new Dy(hi >>> 31 ? -mant : mant, biased === 0 ? -1074 : biased - 1075);
+    }
+
+    add(o: Dy): Dy {
+        return this.e <= o.e ? new Dy(this.n + (o.n << BigInt(o.e - this.e)), this.e)
+            : new Dy((this.n << BigInt(this.e - o.e)) + o.n, o.e);
+    }
+
+    sub(o: Dy): Dy { return this.add(new Dy(-o.n, o.e)); }
+    mul(o: Dy): Dy { return new Dy(this.n * o.n, this.e + o.e); }
+    sign(): number { return this.n > 0n ? 1 : (this.n < 0n ? -1 : 0); }
+}
+
+function dySub3(u: readonly Dy[], v: readonly Dy[]): Dy[] {
+    return [u[0].sub(v[0]), u[1].sub(v[1]), u[2].sub(v[2])];
+}
+
+function dyDotCross(u: readonly Dy[], v: readonly Dy[], w: readonly Dy[]): Dy {
+    return u[0].mul(v[1].mul(w[2]).sub(v[2].mul(w[1])))
+        .add(u[1].mul(v[2].mul(w[0]).sub(v[0].mul(w[2]))))
+        .add(u[2].mul(v[0].mul(w[1]).sub(v[1].mul(w[0]))));
+}
+
+// Independent reference for OrientTriangles: the exact sign of
+// (grad(v0) + grad(v1) + grad(v2)) . ((v1 - v0) x (v2 - v0)) on the
+// oriented triangle. A floating-point decision that contradicts the exact
+// sign is counted (reported; upstream evaluates the dot in floating point).
+const orientRefs = { triangles: 0, contradicted: 0 };
+function checkOrientation(r: Recorded, vertices: readonly (readonly number[])[],
+    triangles: readonly SurfaceExtractorTriangle[], sameDir: boolean): void {
+    const g = r.g.map((c) => Dy.of(c));
+    const grad = (p: readonly Dy[]): Dy[] =>
+        [g[0].add(g[1].mul(p[0])), g[2].add(g[3].mul(p[1])), g[4].add(g[5].mul(p[2]))];
+    for (const t of triangles) {
+        const v = t.v.map((k) => vertices[k].map((c) => Dy.of(c)));
+        const gs = [grad(v[0]), grad(v[1]), grad(v[2])];
+        const sum = [0, 1, 2].map((i) => gs[0][i].add(gs[1][i]).add(gs[2][i]));
+        const s = dyDotCross(sum, dySub3(v[1], v[0]), dySub3(v[2], v[0])).sign();
+        ++orientRefs.triangles;
+        if ((sameDir && s < 0) || (!sameDir && s > 0)) { ++orientRefs.contradicted; }
+    }
+}
+
 function extractCase(io: OracleIO): void {
     const r = new Recorded(2, 2, 2, voxels8);
     drawSurface(io, r);
@@ -1061,6 +1187,7 @@ function extractCase(io: OracleIO): void {
     r.orientTriangles(vertices, triangles, sameDir);
     outTriangles(io, triangles);
     outPoints(io, r.computeNormals(vertices, triangles));
+    checkOrientation(r, vertices, triangles, sameDir);
 }
 
 function surfaceInvalidCase(io: OracleIO): void {
@@ -1150,10 +1277,55 @@ function rasterizeReference(mesh: Mesh, region: Region): Int32Array {
     return grid;
 }
 
+// Independent reference for non-lattice records: upstream's grid vertices
+// and clipped boxes (the same double operations), then the point test in
+// exact dyadic arithmetic on those grid vertices. Voxels where upstream's
+// floating-point DotCross (and its row fill between the first and the last
+// inside voxel) differ from the exact test are counted and reported.
+const tetraExact = { records: 0, voxels: 0, differingVoxels: 0, differingRecords: 0 };
+function rasterizeExact(mesh: Mesh, region: Region): Int32Array {
+    const { rmin, rmax, bound } = region;
+    const mult = [0, 1, 2].map((i) => (bound[i] - 1) / (rmax[i] - rmin[i]));
+    const gv = mesh.vertices.map((v) => v.map((c, i) => Dy.of(mult[i] * (c - rmin[i]))));
+    const grid = new Int32Array(bound[0] * bound[1] * bound[2]).fill(-1);
+    mesh.tetra.forEach((tet, t) => {
+        const lo: number[] = [], hi: number[] = [];
+        let valid = true;
+        for (let i = 0; i < 3; ++i) {
+            let mn = mesh.vertices[tet[0]][i], mx = mn;
+            for (let j = 1; j < 4; ++j) {
+                const c = mesh.vertices[tet[j]][i];
+                if (c < mn) { mn = c; } else if (c > mx) { mx = c; }
+            }
+            mn = (mn < rmin[i] ? rmin[i] : mn);
+            mx = (rmax[i] < mx ? rmax[i] : mx);
+            if (mn > mx) { valid = false; }
+            lo.push(Math.ceil(mult[i] * (mn - rmin[i])));
+            hi.push(Math.floor(mult[i] * (mx - rmin[i])));
+        }
+        if (!valid) { return; }
+        const V = tet.map((k) => gv[k]);
+        for (let i2 = lo[2]; i2 <= hi[2]; ++i2) {
+            for (let i1 = lo[1]; i1 <= hi[1]; ++i1) {
+                for (let i0 = lo[0]; i0 <= hi[0]; ++i0) {
+                    const P = [Dy.of(i0), Dy.of(i1), Dy.of(i2)];
+                    const p0 = dySub3(P, V[0]), e1 = dySub3(V[1], V[0]);
+                    const e2 = dySub3(V[2], V[0]), e3 = dySub3(V[3], V[0]);
+                    const inside = dyDotCross(p0, e2, e1).sign() <= 0
+                        && dyDotCross(p0, e1, e3).sign() <= 0 && dyDotCross(p0, e3, e2).sign() <= 0
+                        && dyDotCross(dySub3(P, V[1]), dySub3(V[2], V[1]), dySub3(V[3], V[1])).sign() <= 0;
+                    if (inside) { grid[i0 + bound[0] * (i1 + bound[1] * i2)] = t; }
+                }
+            }
+        }
+    });
+    return grid;
+}
+
 function tetraCase(io: OracleIO, reference: boolean): void {
     const mesh = readMesh(io);
     const region = readRegion(io);
-    io.integer();  // numThreads: 0 or 1 upstream; the port has one code path
+    io.integer();  // numThreads: upstream's single- or multithreaded path; the port has one
     const r = new TetrahedraRasterizer(mesh.vertices, mesh.tetra);
     const grid = r.rasterize(region.rmin, region.rmax, region.bound);
     outGrid(io, grid);
@@ -1161,6 +1333,15 @@ function tetraCase(io: OracleIO, reference: boolean): void {
         expect([...grid]).toEqual([...rasterizeReference(mesh, region)]);
         ++tetraChecked;
     }
+    const exact = rasterizeExact(mesh, region);
+    let differing = 0;
+    for (let j = 0; j < grid.length; ++j) {
+        if (grid[j] !== -1 || exact[j] !== -1) { ++tetraExact.voxels; }
+        if (grid[j] !== exact[j]) { ++differing; }
+    }
+    ++tetraExact.records;
+    tetraExact.differingVoxels += differing;
+    if (differing > 0) { ++tetraExact.differingRecords; }
 }
 
 function tetraTwiceCase(io: OracleIO): void {
@@ -1229,7 +1410,8 @@ describe('oracle: v25-imaging', () => {
 
     it('independent references were exercised', () => {
         console.log('v25 references', JSON.stringify({ refs, branches, marchRefs,
-            makeUniqueChecked, makeUniqueRotatedDuplicates, tetraChecked, repro439Checked }));
+            makeUniqueChecked, makeUniqueRotatedDuplicates, tetraChecked, repro439Checked,
+            neighborhoodsChecked, orientRefs, tetraExact }));
         expect(refs.blurSumChecked).toBeGreaterThan(0);
         expect(refs.flowPlanarChecked).toBeGreaterThan(0);
         expect(makeUniqueChecked).toBeGreaterThan(0);
