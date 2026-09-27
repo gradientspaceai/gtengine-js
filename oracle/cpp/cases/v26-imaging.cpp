@@ -1836,7 +1836,8 @@ namespace
 // Targeted at the orientation records of the deep run (upstream averages
 // the gradients as sum * (1/3)): lattice images and integer points, kept
 // only when some triangle's orientation differs between sum * (1/3) and
-// sum / 3 (at most 256 redraws). Recorded in the layout of
+// sum / 3 (at most 8192 redraws; qualifying draws are rare, see the
+// report for how many records discriminate). Recorded in the layout of
 // SurfaceExtractorMC.orientTriangles.points (point mode 1).
 ORACLE_CASE("SurfaceExtractorMC.orientTriangles.thirds")
 {
@@ -1845,7 +1846,7 @@ ORACLE_CASE("SurfaceExtractorMC.orientTriangles.thirds")
     std::vector<std::array<double, 3>> xv;
     std::vector<std::array<int32_t, 3>> tris;
     bool sameDir = true;
-    for (int attempt = 0; attempt < 256; ++attempt)
+    for (int attempt = 0; attempt < 8192; ++attempt)
     {
         for (int k = 0; k < 3; ++k) { dims[k] = io.rawInteger(2, 4); }
         values.assign(static_cast<size_t>(dims[0]) * dims[1] * dims[2], 0.0);
@@ -1892,7 +1893,7 @@ ORACLE_CASE("SurfaceExtractorCubes.orientTriangles.thirds")
     std::vector<std::array<double, 3>> xv;
     std::vector<std::array<int32_t, 3>> tris;
     bool sameDir = true;
-    for (int attempt = 0; attempt < 256; ++attempt)
+    for (int attempt = 0; attempt < 8192; ++attempt)
     {
         for (int k = 0; k < 3; ++k) { dims[k] = io.rawInteger(2, 4); }
         v = RawVoxels(io, dims[0], dims[1], dims[2], 1, -20, 20);
