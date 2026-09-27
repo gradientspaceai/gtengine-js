@@ -487,6 +487,15 @@ describe('oracle: v13-compgeom', () => {
         emitTreeEx(io, tree);
     }, { exact: true });
 
+    // Upstream throws "Unexpected condition." when a hole shares an edge
+    // with the outer polygon on the convex hull of the referenced points;
+    // the port preserves it (new suspect, oracle/reports/v13-compgeom.md).
+    family.case('TriangulateCDT.compute.hullSharedEdgeThrows', (io) => {
+        const { pool, root } = readCdtInput(io);
+        const tree = new TriangulateCDT().compute(pool, root);
+        emitTreeEx(io, tree);
+    }, { exact: true });
+
     family.finish();
 
     it('every independent reference check holds on the port output', () => {

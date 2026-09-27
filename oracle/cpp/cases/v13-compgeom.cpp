@@ -22,10 +22,17 @@
 // emitted verbatim: Node::triangulation is filled from a
 // std::set<TriangleKey<true>>, whose order is defined, and the interior,
 // exterior and inside lists are built from the per-node triangulations in
-// node order. SeparatePoints3 iterates std::set<std::pair<size_t,size_t>>
-// (defined order) and the ConvexHull3 triangle list, which v11 showed is
-// bit-identical for at most 32 points; the point sets here have at most 8
-// points per set.
+// node order.
+//
+// SeparatePoints3 iterates a std::set<std::pair<size_t,size_t>> (defined
+// order) and ConvexHull3::GetHull(). v11 showed that the hull's triangle SET
+// is identical to the port's for at most 32 points (the sets here have at
+// most 8), but its ORDER is std::unordered_map order and, for more than four
+// points, even differs between two calls in one process (heap-address
+// dependent, see TraceSeparate3). The query returns the first separating face
+// in that order, so the SeparatePoints3 cases are built on an
+// order-independent soundness predicate and emit the plane only where it is
+// order independent; see SeparatePoints3.compute.
 //
 // One io draw per C++ statement: MSVC evaluates function arguments right to
 // left, so every generated value goes into a named local before it is used.
@@ -1111,33 +1118,36 @@ namespace
     }
 }
 
-// SeparatePoints3<double, double>::operator() on inputs where every
-// OnSameSide / WhichSide return value along upstream's control flow equals
-// the exact one (TraceSeparate3), so the two implementations follow the same
-// path and return the same plane. The capped rejection loop redraws both
-// sets on every attempt.
+// SeparatePoints3<double, double>::operator() on inputs where upstream's
+// floating-point answer provably equals the port's exact one in every face
+// order (TraceSeparate3: the boolean always, and every plane upstream can
+// return is a genuine separator). The capped rejection loop redraws both
+// sets on every attempt; measured acceptance per draw over 2000 records:
+// lattice 35%, uniform 13%, crossed tetrahedra 52%, near-tangent spheres
+// 11%, touching boxes 94%, degenerate 95%, with 2 fallbacks (the far-apart
+// cubes) in 2000 records. The rejected draws are exactly the inputs on
+// which upstream's result depends on its hull order: a face of the owner
+// hull whose own vertex rounds to the wrong side (#348 finding 1).
 //
-// ORDER DEPENDENCE. The face loops visit ConvexHull3::GetHull() triangles,
-// which upstream fills from the hull mesh's std::unordered_map (the port
-// enumerates them in sorted-key order, v11), and return the FIRST face that
-// separates. When a loop has more than one separating face, which plane
-// upstream returns is decided by hash-table order and is not comparable
-// (group report, "Upstream bug suspects"); 'separated' is order independent
-// (the exact face and edge-edge tests do not depend on the visiting order,
-// and the edge-edge loop runs over a std::set). The trace therefore also
-// counts the separating faces of the returning face loop exactly, and the
-// plane is emitted only when it is determined: a face stage with exactly one
-// separating face, or the edge-edge stage (reached only when no face
-// separates; its std::set order is defined). The reference check below
-// covers the undetermined records on each side.
+// ORDER DEPENDENCE. The face loops visit ConvexHull3::GetHull() triangles
+// in std::unordered_map order (heap-address dependent; the port enumerates
+// them in sorted-key order) and return the FIRST face that separates. When
+// a loop has more than one separating face, which plane upstream returns is
+// not reproducible (group report, "Upstream bug suspects"); 'separated' is
+// order independent. The plane is therefore emitted only when it is
+// determined: a face stage whose loop has exactly one face that can pass,
+// or the edge-edge stage (reached only when no face separates; its
+// std::set order is defined). The reference check below covers the
+// undetermined records on each side.
 //
 // The stage the trace reached (degenerate, face of hull 0, face of hull 1,
 // edge-edge plane, none) and the 'determined' flag are recorded as inputs
 // after the points. They only steer which outputs are emitted: 'separated'
 // always; the plane's normal and constant on a determined true return; the
-// plane's origin only when a face plane separated. On the edge-edge path upstream assigns normal and constant
-// directly and leaves 'origin' holding the last face plane it built, the
-// inconsistency the port fixes (#348, finding 2); that field is compared in
+// plane's origin only when a face plane separated. On the edge-edge path
+// upstream assigns normal and constant directly and leaves 'origin' holding
+// the last face plane it built, the inconsistency the port fixes (#348,
+// finding 2); that field is compared in
 // SeparatePoints3.deviation.edgeAxisOrigin instead. On a false return
 // upstream leaves the caller's plane holding the last candidate, which its
 // documentation does not promise; the port returns a default plane, and the
@@ -1322,15 +1332,24 @@ ORACLE_CASE("SeparatePoints3.deviation.roundoff")
 // writes separatingPlane.normal and .constant and leaves .origin holding
 // the origin of the last face plane of hull 1 it constructed; the port
 // builds the plane from normal and constant, so origin = constant * normal.
-// The records are crossed tetrahedra separated by the cross product of their
-// skew edges (d >= 1 in RawCrossedTetrahedra, lattice or jittered), accepted
-// only when the lockstep trace is sound and reaches the edge-edge stage, so
-// 'separated', the normal and the constant agree bit for bit and only the
-// origin differs.
+// The records are crossed tetrahedra separated (or touching, d = 0) by the
+// cross product of their skew edges (RawCrossedTetrahedra, lattice or
+// jittered), accepted only when the trace is sound and reaches the edge-edge
+// stage, so 'separated', the normal and the constant agree bit for bit and
+// only the origin differs. Residue: a record agrees when the plane passes
+// through the origin (constant 0, so the port's origin is 0 * normal) and
+// upstream's stale plane does too, with the same zero signs.
+//
+// DETERMINISM. The stale origin is that of the LAST face of hull 1 in
+// ConvexHull3::GetHull() order, which for more than four points varies
+// between runs (heap-address dependent; a first version of this case with
+// up to 8 points in set 1 produced 7 different records of 2000 in two
+// identical deep runs). Set 1 is therefore always a tetrahedron, whose hull
+// order is reproducible.
 ORACLE_CASE("SeparatePoints3.deviation.edgeAxisOrigin")
 {
     int32_t n0 = io.rawInteger(4, 8);
-    int32_t n1 = io.rawInteger(4, 8);
+    int32_t n1 = 4;
     std::vector<Vector3<double>> pts0{}, pts1{};
     SepTrace trace{ false, -1, false, Plane3<double>{}, false };
     bool accepted = false;
@@ -1339,6 +1358,10 @@ ORACLE_CASE("SeparatePoints3.deviation.edgeAxisOrigin")
         bool jitter = (io.rawInteger(0, 1) != 0);
         RawCrossedTetrahedra(io, static_cast<size_t>(n0), static_cast<size_t>(n1), jitter,
             pts0, pts1);
+        if (pts1.size() != 4)
+        {
+            std::swap(pts0, pts1);
+        }
         trace = TraceSeparate3(pts0, pts1);
         accepted = trace.sound && trace.stage == STAGE_EDGES;
     }
@@ -1603,9 +1626,12 @@ namespace
     //   kind 4: an island touching its hole at a vertex
     //   kind 5: a pinched outer polygon that visits one vertex twice
     //   kind 6: collinear vertices on both the outer polygon and the hole
+    //   kind 7: the U-shaped outer polygon of kind 2 and a hole sharing part
+    //           of the notch's bottom edge (the outer edge is split at the
+    //           hole's vertices: vertex-edge plus edge-edge)
     void BuildCoincident(oracle::Ctx& io, CdtInput& in)
     {
-        int32_t kind = io.rawInteger(0, 6);
+        int32_t kind = io.rawInteger(0, 7);
         double ox = static_cast<double>(io.rawInteger(-3, 3));
         double oy = static_cast<double>(io.rawInteger(-3, 3));
         auto P = [&in, ox, oy](double x, double y)
@@ -1702,6 +1728,23 @@ namespace
                 in.root.child.push_back(hole);
             }
         }
+        else if (kind == 7)
+        {
+            int32_t p0 = P(0, 0), p1 = P(9, 0), p2 = P(9, 9), p3 = P(6, 9);
+            int32_t p4 = P(6, 3), p5 = P(3, 3), p6 = P(3, 9), p7 = P(0, 9);
+            in.root.polygon = { p0, p1, p2, p3, p4, p5, p6, p7 };
+            double a = static_cast<double>(io.rawInteger(3, 5));
+            double b = a + static_cast<double>(io.rawInteger(1, static_cast<int32_t>(6.0 - a)));
+            double c = static_cast<double>(io.rawInteger(3, 6));
+            double apex = static_cast<double>(io.rawInteger(1, 2));
+            // Reuse the outer vertex when the hole's vertex coincides with it.
+            int32_t ha = (a == 3.0 ? p5 : P(a, 3));
+            int32_t hb = (b == 6.0 ? p4 : P(b, 3));
+            int32_t hc = P(c, apex);
+            RawTree hole{};
+            hole.polygon = { ha, hb, hc };      // clockwise
+            in.root.child.push_back(hole);
+        }
         else
         {
             std::vector<Vector2<double>> outer{}, inner{};
@@ -1769,7 +1812,7 @@ namespace
         }
     }
 
-    // Replace about a third of the polygon references by fresh pool entries
+    // Replace about half of the polygon references by fresh pool entries
     // with equal coordinates (a zero coordinate becomes -0 half the time,
     // which std::map<Vector2> and the port's string key both treat as +0).
     void DuplicateSome(oracle::Ctx& io, CdtInput& in)
@@ -1780,7 +1823,7 @@ namespace
         {
             for (auto& index : node->polygon)
             {
-                if (io.rawInteger(0, 2) == 0)
+                if (io.rawInteger(0, 1) == 0)
                 {
                     Vector2<double> p = in.pool[static_cast<size_t>(index)];
                     for (int32_t j = 0; j < 2; ++j)
@@ -2204,7 +2247,16 @@ namespace
         for (int32_t attempt = 0; attempt < 64; ++attempt)
         {
             in = CdtInput{};
-            int32_t shape = (mode == 4 ? io.rawInteger(0, 3) : mode);
+            // Mode 4 draws the coincident shapes on three records of four:
+            // only a vertex referenced twice (shared by two polygons, or
+            // visited twice by one) can be referenced through two indices
+            // with equal coordinates, which is what RemapPolygonTree's
+            // duplicate branch needs.
+            int32_t shape = mode;
+            if (mode == 4)
+            {
+                shape = (io.rawInteger(0, 3) == 0 ? io.rawInteger(0, 2) : 3);
+            }
             if (shape == 0) { BuildSimple(io, in); }
             else if (shape == 1) { BuildHoles(io, in); }
             else if (shape == 2) { BuildNested(io, in); }
@@ -2238,11 +2290,15 @@ namespace
 //   mode 1: an outer polygon with one or two holes
 //   mode 2: concentric nesting 2 to 4 levels deep, extra hole and island
 //   mode 3: coincident configurations (shared vertices and edges, a vertex
-//           on another polygon's edge, pinched polygon, collinear vertices)
-//   mode 4: modes 0-3 with about a third of the polygon references
-//           replaced by duplicated pool points (RemapPolygonTree's
-//           duplicate branch and its overwrite quirk, #348 finding 3,
-//           preserved), including -0 for +0
+//           on another polygon's edge, partly shared edges, pinched
+//           polygon, collinear vertices)
+//   mode 4: mostly mode 3, else modes 0-2, with about half of the polygon
+//           references replaced by duplicated pool points, so that a shared
+//           vertex is referenced through two indices with equal coordinates
+//           (RemapPolygonTree's duplicate branch and its overwrite quirk,
+//           #348 finding 3, preserved), including -0 for +0
+// A shared edge of two polygons must not lie on the convex hull of the
+// referenced points: upstream then throws, which has its own case below.
 //   mode 5: non-lattice star polygons (outer, hole, island)
 // Every record has 0-3 unused pool points and a shuffled pool.
 //
@@ -2322,6 +2378,93 @@ ORACLE_CASE("TriangulateCDT.compute.invalidThrows")
         {
             in.root.polygon.push_back(io.rawInteger(0, n - 1));
         }
+    }
+    GiveCdtInput(io, in);
+
+    auto inputTree = ToPolygonTree(in.root);
+    PolygonTreeEx outputTree{};
+    TriangulateCDT<double> triangulator{};
+    triangulator(in.pool, inputTree, outputTree);
+    EmitTreeEx(io, outputTree);
+}
+
+// Throw parity for a documented-supported input that upstream rejects (new
+// suspect, group report): a hole that shares an edge, or part of an edge,
+// with the outer polygon where that edge lies on the convex hull of the
+// referenced points. ClassifyDFS processes the hole first and extracts its
+// triangles; ETManifoldMesh::Remove then deletes the shared edge, which had
+// no triangle on its other side, and the outer polygon's pass asserts
+// "Unexpected condition." at 'emap.find(ekey) != emap.end()'. The port
+// preserves the behavior (graph.getEdge returns null, same assert). The
+// header says "The algorithm supports coincident vertex-edge and coincident
+// edge-edge configurations"; the same configuration with the shared edge
+// inside the hull (TriangulateCDT.compute, mode 3 kinds 2 and 7) succeeds.
+//
+// The outer polygon is a lattice rectangle w x h (its boundary lattice
+// points as vertices on half the records); the hole is a clockwise
+// triangle or quadrilateral with an edge on the rectangle's left side, from
+// y = a to y = b, 0 <= a < b <= h. The whole configuration is rotated by a
+// multiple of 90 degrees (exactly). Every record is a throw record.
+ORACLE_CASE("TriangulateCDT.compute.hullSharedEdgeThrows")
+{
+    CdtInput in{};
+    int32_t w = io.rawInteger(2, 5);
+    int32_t h = io.rawInteger(2, 5);
+    bool runs = (io.rawInteger(0, 1) != 0);
+    int32_t a = io.rawInteger(0, h - 1);
+    int32_t b = io.rawInteger(a + 1, h);
+    int32_t depth = io.rawInteger(1, w);
+    bool quad = (io.rawInteger(0, 1) != 0);
+    int32_t rotation = io.rawInteger(0, 3);
+    double ox = static_cast<double>(io.rawInteger(-3, 3));
+    double oy = static_cast<double>(io.rawInteger(-3, 3));
+    auto rotate = [rotation, ox, oy](double x, double y)
+    {
+        for (int32_t r = 0; r < rotation; ++r)
+        {
+            double t = x;
+            x = -y;
+            y = t;
+        }
+        return Vector2<double>{ ox + x, oy + y };
+    };
+    std::vector<Vector2<double>> outer{};
+    if (runs)
+    {
+        for (int32_t x = 0; x < w; ++x) { outer.push_back(rotate(x, 0)); }
+        for (int32_t y = 0; y < h; ++y) { outer.push_back(rotate(w, y)); }
+        for (int32_t x = w; x > 0; --x) { outer.push_back(rotate(x, h)); }
+        for (int32_t y = h; y > 0; --y) { outer.push_back(rotate(0, y)); }
+    }
+    else
+    {
+        outer = { rotate(0, 0), rotate(w, 0), rotate(w, h), rotate(0, h) };
+    }
+    in.root.polygon = AddPolygon(in.pool, outer);
+    std::vector<Vector2<double>> hole{ rotate(0, a), rotate(0, b) };
+    double mid = 0.5 * (a + b);
+    if (quad)
+    {
+        hole.push_back(rotate(depth, b));
+        hole.push_back(rotate(depth, a));
+    }
+    else
+    {
+        hole.push_back(rotate(depth, mid));
+    }
+    RawTree child{};
+    child.polygon = AddPolygon(in.pool, hole);   // clockwise
+    in.root.child.push_back(child);
+    ShuffleAndPad(io, in);
+    if (!Sound2(CdtPoints(in)))
+    {
+        // Not expected for these lattice sets (the #391 restriction).
+        in = CdtInput{};
+        in.root.polygon = AddPolygon(in.pool, { { 0.0, 0.0 }, { 4.0, 0.0 }, { 4.0, 3.0 },
+            { 0.0, 3.0 } });
+        RawTree fallback{};
+        fallback.polygon = AddPolygon(in.pool, { { 0.0, 1.0 }, { 0.0, 2.0 }, { 1.0, 1.5 } });
+        in.root.child.push_back(fallback);
     }
     GiveCdtInput(io, in);
 
