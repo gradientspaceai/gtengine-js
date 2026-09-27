@@ -611,6 +611,25 @@ describe('oracle: v06-ap', () => {
         io.outReal(outF);
     }, { exact: true });
 
+    // Upstream's two-step rounding in the subnormal range and beyond the
+    // largest finite value is preserved (see the C++ case comment).
+    family.case('BSRational.convert.subnormalAndOverflow', (io) => {
+        io.integer();  // the range (only the C++ generator uses it)
+        const p = io.real();
+        const q = io.real();
+        const e = io.integer();
+        const tail = io.integer();
+        const s = io.real();
+        const mode = roundingModes[io.integer()];
+        let x = BSRational.ldexp(R(p).div(R(q)), e);
+        if (tail > 0) { x = x.add(BSRational.ldexp(R(1), e - tail)); }
+        x = R(s).mul(x);
+        io.outReal(convertBSRationalToNumber(x, mode));
+        io.outReal(convertBSRationalToFloat32(x, mode));
+        io.outReal(x.toNumber());
+        io.outReal(x.toFloat32());
+    }, { exact: true });
+
     family.case('BSRational.std.exact', (io) => {
         const x = drawBSR(io);
         const y = drawBSR(io);
@@ -730,9 +749,10 @@ describe('oracle: v06-ap', () => {
         outAmB(io, aSqr, bSqr);
     }, { exact: true });
 
-    // Finding #280 item 1 (port fixed): upstream computes the Newton bound
-    // after an exhausted bisection from a stale square.
-    family.case('APConversion.estimateAmB.staleSquares', (io) => {
+    // Finding #280 item 1 (port fixed): after an exhausted bisection upstream
+    // can return a bracket that misses a - b; the port returns the bisection
+    // bracket exactly then. Every record deviates.
+    family.case('APConversion.estimateAmB.bisectionExhausted', (io) => {
         const P = io.real();
         const Q = io.real();
         outAmB(io, R(P), R(Q));

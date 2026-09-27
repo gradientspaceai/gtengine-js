@@ -868,6 +868,47 @@ ORACLE_CASE("BSRational.convert")
     io.outReal(static_cast<double>(outF));
 }
 
+// Convert(BSRational, mode, double&) / (float&) and operator double / float
+// where the result is subnormal or beyond the largest finite value.
+// Upstream rounds twice: Convert to 53 (24) bits with the requested mode,
+// then BSNumber's conversion rounds to nearest onto the subnormal grid, or
+// to infinity. Preserved (a new upstream suspect, see the report): the
+// double operator is up to 1 ulp off in the subnormal range, and the
+// directed modes return results on the wrong side of x there (FE_UPWARD
+// gives 0 for a positive x below 2^-1075) and +-inf instead of the largest
+// finite value for FE_DOWNWARD / FE_TOWARDZERO beyond it. Compared bit for
+// bit. x = sign * (p / q) * 2^e with small p and q (q odd: not dyadic) or
+// q = 1 and a dyadic tail far below the leading bit.
+ORACLE_CASE("BSRational.convert.subnormalAndOverflow")
+{
+    int range = io.integer(0, 3);
+    double p = io.given(static_cast<double>(io.rawInteger(1, 1 << 20)));
+    double q = io.given(io.rawInteger(0, 2) == 0 ? 1.0 : static_cast<double>(2 * io.rawInteger(1, 50) + 1));
+    int e = 0;
+    switch (range)
+    {
+    case 0: e = io.integer(-1100, -1040); break;   // binary64 subnormals
+    case 1: e = io.integer(-175, -140); break;     // binary32 subnormals
+    case 2: e = io.integer(1004, 1010); break;     // binary64 overflow
+    default: e = io.integer(108, 114); break;      // binary32 overflow
+    }
+    int tail = io.integer(0, 80);
+    double s = io.given(RawSign(io));
+    int m = io.integer(0, 3);
+    BSR x = std::ldexp(BSR(p) / BSR(q), e);
+    if (tail > 0) { x = x + std::ldexp(BSR(1), e - tail); }
+    x = BSR(s) * x;
+    int mode = gRoundingModes[m];
+    double d = 0.0;
+    float f = 0.0f;
+    Convert(x, mode, d);
+    Convert(x, mode, f);
+    io.outReal(d);
+    io.outReal(static_cast<double>(f));
+    io.outReal(static_cast<double>(x));
+    io.outReal(static_cast<double>(static_cast<float>(x)));
+}
+
 // The std:: and gte:: overloads that are exact or correctly rounded: fabs,
 // frexp and ldexp (exact on the rational), floor, ceil, sqrt, fmod,
 // remainder (exact IEEE operations on the converted doubles), clamp,
@@ -1021,12 +1062,13 @@ namespace
         return static_cast<uint32_t>(io.given(table[io.rawInteger(0, 7)]));
     }
 
-    // ---- a replica of APConversion::EstimateAmB with the #280 fix, used as
-    // a probe: 'stale' reports that the bisection loop ran out of
-    // iterations after updating tMin (f'' > 0 block) or tMax (f'' < 0 block)
-    // without updating its square, the only situation in which upstream
-    // uses a stale square. The helpers are copies of APConversion's private
-    // PreprocessSqr, GetMinOfSqrt and GetMaxOfSqrt.
+    // ---- Probes for finding #280 item 1. AmBBisectionExhausted replicates
+    // the bisection loops of APConversion::EstimateAmB (upstream's own
+    // control flow) and reports that one ran out of iterations; the helpers
+    // are copies of APConversion's private PreprocessSqr, GetMinOfSqrt and
+    // GetMaxOfSqrt. CmpAmB is an exact comparison of t with sqrt(a2) -
+    // sqrt(b2). AmBDefective is the observable symptom the port fixes: an
+    // exhausted bisection, aSqr >= bSqr, and upstream's bracket misses a - b.
 
     void ProbePreprocess(BSR const& aSqr, BSR& rSqr, int32_t& exponentA)
     {
@@ -1059,9 +1101,9 @@ namespace
         return std::ldexp(aMax, exponent);
     }
 
-    // Returns true when upstream's EstimateAmB would use a stale square.
+    // Returns true when a bisection loop of EstimateAmB runs out of iterations.
     // Only the bisection part is replicated; it decides staleness.
-    bool AmBIsStale(BSR const& aSqr, BSR const& bSqr, int32_t precision, uint32_t maxIterations)
+    bool AmBBisectionExhausted(BSR const& aSqr, BSR const& bSqr, int32_t precision, uint32_t maxIterations)
     {
         BSR const zero(0), three(3), five(5);
         BSR threshold = std::ldexp(BSR(1), -precision);
@@ -1079,7 +1121,7 @@ namespace
             if (tMin < zero) { tMin = zero; }
             if (three * tMin * tMin - a2pb2 >= zero) { return false; }
             BSR tMax = ProbeMaxOfSqrt(uSqr, exponentA) - ProbeMinOfSqrt(vSqr, exponentB);
-            bool updated = false;
+
             for (uint32_t iterate = 1; iterate <= maxIterations; ++iterate)
             {
                 if (tMax - tMin < threshold) { return false; }
@@ -1096,17 +1138,17 @@ namespace
                 {
                     tMin = tMid;
                     Convert(tMin, 2 * precision, FE_DOWNWARD, tMin);
-                    updated = true;
+
                 }
             }
-            return updated;
+            return true;
         }
         if (signSecDer < zero)
         {
             BSR tMax = ProbeMaxOfSqrt(uSqr, exponentA) - ProbeMinOfSqrt(vSqr, exponentB);
             if (three * tMax * tMax - a2pb2 <= zero) { return false; }
             BSR tMin = ProbeMinOfSqrt(uSqr, exponentA) - ProbeMaxOfSqrt(vSqr, exponentB);
-            bool updated = false;
+
             for (uint32_t iterate = 1; iterate <= maxIterations; ++iterate)
             {
                 if (tMax - tMin < threshold) { return false; }
@@ -1123,12 +1165,51 @@ namespace
                 {
                     tMax = tMid;
                     Convert(tMax, 2 * precision, FE_UPWARD, tMax);
-                    updated = true;
+
                 }
             }
-            return updated;
+            return true;
         }
         return false;
+    }
+
+    // The exact sign of t - (sqrt(a2) - sqrt(b2)) for a2, b2 >= 0: with
+    // u = t + b, u < 0 exactly when t < 0 and t^2 > b2; otherwise
+    // sign(u - a) = sign(2*t*b - r) with r = a2 - b2 - t^2.
+    int CmpAmB(BSR const& t, BSR const& a2, BSR const& b2)
+    {
+        BSR const zero(0);
+        BSR tSqr = t * t;
+        if (t < zero && tSqr > b2) { return -1; }
+        BSR r = a2 - b2 - tSqr;
+        int sx = (b2.GetSign() == 0 ? 0 : t.GetSign());
+        int sr = r.GetSign();
+        if (sx == 0) { return -sr; }
+        if (sr == 0) { return sx; }
+        if (sx != sr) { return sx; }
+        BSR x2 = BSR(4) * tSqr * b2;
+        BSR r2 = r * r;
+        int c = (x2 < r2 ? -1 : (r2 < x2 ? 1 : 0));
+        return sx > 0 ? c : -c;
+    }
+
+    bool AmBDefective(BSR const& aSqr, BSR const& bSqr, int32_t precision, uint32_t maxIterations)
+    {
+        if (aSqr < bSqr || !AmBBisectionExhausted(aSqr, bSqr, precision, maxIterations))
+        {
+            return false;
+        }
+        try
+        {
+            APConversion<BSR> apc(precision, maxIterations);
+            BSR tMin, tMax;
+            apc.EstimateAmB(aSqr, bSqr, tMin, tMax);
+            return CmpAmB(tMin, aSqr, bSqr) > 0 || CmpAmB(tMax, aSqr, bSqr) < 0;
+        }
+        catch (std::exception const&)
+        {
+            return false;
+        }
     }
 
     // aSqr/bSqr near the ratio (7 + 3*sqrt(5))/2 at which f''(a - b) = 0,
@@ -1218,11 +1299,12 @@ namespace
 }
 
 // EstimateAmB(aSqr, bSqr, tMin, tMax) on inputs where upstream is sound:
-// records on which the bisection loop runs out of iterations after an
-// update of the variable whose square it caches (finding #280 item 1, fixed
-// in the port) are redrawn, the rest (every branch, early returns, Newton
-// exhaustion) is compared. aSqr = bSqr = 0 reaches the LogError on a zero
-// second derivative (throw parity).
+// records on which a bisection loop runs out of iterations and upstream's
+// bracket then misses a - b (finding #280 item 1, fixed in the port; the
+// probe AmBDefective is exactly the port's replacement condition) are
+// redrawn; the rest (every branch, early returns, exhausted bisections with
+// a valid bracket, Newton exhaustion) is compared. aSqr = bSqr = 0 reaches
+// the LogError on a zero second derivative (throw parity).
 ORACLE_CASE("APConversion.estimateAmB")
 {
     BSR aSqr, bSqr;
@@ -1234,7 +1316,7 @@ ORACLE_CASE("APConversion.estimateAmB")
         DrawAmB(probe, aSqr, bSqr);
         precision = DrawPrecision(probe);
         maxIterations = DrawMaxIterations(probe);
-        if (!AmBIsStale(aSqr, bSqr, precision, maxIterations) || guard == 63)
+        if (!AmBDefective(aSqr, bSqr, precision, maxIterations) || guard == 63)
         {
             io = probe;
             break;
@@ -1265,7 +1347,7 @@ ORACLE_CASE("APConversion.estimateAmB.aLessThanB")
         bSqr = DrawSquare(probe);
         precision = DrawPrecision(probe);
         maxIterations = DrawMaxIterations(probe);
-        if ((aSqr < bSqr && !AmBIsStale(aSqr, bSqr, precision, maxIterations)) || guard == 63)
+        if (aSqr < bSqr || guard == 63)
         {
             io = probe;
             break;
@@ -1280,13 +1362,16 @@ ORACLE_CASE("APConversion.estimateAmB.aLessThanB")
     OutBSR(io, tMax);
 }
 
-// Finding #280 item 1 (port fixed): when the bisection loop of EstimateAmB
-// runs out of iterations after updating tMin (f'' > 0) or tMax (f'' < 0) in
-// its rounding branch, upstream computes the next bound from the square of
-// an older value. Inputs near the ratio (7 + 3*sqrt(5))/2 with few
-// iterations; only records on which the replica reports a stale square are
-// kept (capped; the fallback is the last candidate).
-ORACLE_CASE("APConversion.estimateAmB.staleSquares")
+// Finding #280 item 1 (port fixed): when a bisection loop of EstimateAmB
+// runs out of iterations, upstream runs Newton's method from outside its
+// basin (after an update in the rounding branch also with a stale square)
+// and can return a bracket that misses a - b; the port returns the
+// bisection bracket instead, exactly when upstream's bracket is wrong.
+// Inputs near the ratio (7 + 3*sqrt(5))/2 with few iterations; only records
+// on which upstream's bracket is wrong (AmBDefective: the observable
+// symptom, checked exactly) are kept (capped; the fallback is the last
+// candidate).
+ORACLE_CASE("APConversion.estimateAmB.bisectionExhausted")
 {
     BSR aSqr, bSqr;
     int32_t precision = 1;
@@ -1297,7 +1382,7 @@ ORACLE_CASE("APConversion.estimateAmB.staleSquares")
         DrawNearRatio(probe, aSqr, bSqr);
         precision = static_cast<int32_t>(probe.given(static_cast<double>(probe.rawInteger(30, 110))));
         maxIterations = static_cast<uint32_t>(probe.given(static_cast<double>(probe.rawInteger(1, 4))));
-        if (AmBIsStale(aSqr, bSqr, precision, maxIterations) || guard == 255)
+        if (AmBDefective(aSqr, bSqr, precision, maxIterations) || guard == 255)
         {
             io = probe;
             break;
@@ -1635,7 +1720,17 @@ namespace
                 for (auto const& q : pts) { dup = dup || (q == p); }
                 if (!dup) { pts.push_back(p); }
             }
+            // Sorting by angle about a point inside the hull (the centroid,
+            // nudged off the lattice) gives a simple star-shaped polygon; a
+            // fixed point, possibly outside the hull, on a quarter of the
+            // records gives self-intersecting soups (garbage in: both sides
+            // must still agree).
             Vector2<double> c = P(0.1, 0.05);
+            if (io.rawInteger(0, 3) != 0 && !pts.empty())
+            {
+                c = P(0.01, 0.003);
+                for (auto const& p : pts) { c += p / static_cast<double>(pts.size()); }
+            }
             std::sort(pts.begin(), pts.end(), [&c](Vector2<double> const& a, Vector2<double> const& b)
                 { return std::atan2(a[1] - c[1], a[0] - c[0]) < std::atan2(b[1] - c[1], b[0] - c[0]); });
             if (pts.size() < 3) { pts = { P(0, 0), P(2, 0), P(0, 2) }; }

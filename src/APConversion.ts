@@ -232,6 +232,7 @@ export class APConversion {
         let tMin: BSRational, tMax: BSRational;
         let tMinSqr: BSRational, tMaxSqr: BSRational, tMid: BSRational, tMidSqr: BSRational;
         let f: BSRational;
+        let bisection: { tMin: BSRational, tMax: BSRational } | null = null;
 
         if (signSecDer.greaterThan(this.mZero)) {
             // Choose an initial guess tMin < a-b. Use the FPU to estimate
@@ -293,15 +294,11 @@ export class APConversion {
                     }
                 }
 
-                // PORT FIX (upstream): when the bisection loop above exits by
-                // exhausting mMaxIterations rather than by the break, tMin
-                // was last updated in the rounding-down branch, which does
-                // not recompute tMinSqr. Upstream then uses a tMinSqr that
-                // does not correspond to tMin, which corrupts the bound
-                // computed next. Recompute it here; this is a no-op on every
-                // path where upstream is already consistent (the break sets
-                // tMinSqr = tMidSqr = tMin*tMin exactly).
-                tMinSqr = tMin.mul(tMin);
+                // See PORT FIX (upstream) below: remember a bisection that ran
+                // out of iterations and the bracket it had reached.
+                if (iterate > this.mMaxIterations) {
+                    bisection = { tMin, tMax };
+                }
             }
 
             // Compute an upper bound tMax > a-b.
@@ -323,7 +320,7 @@ export class APConversion {
                 tMinSqr = tMin.mul(tMin);
                 tMax = a2pb2.mul(tMinSqr).sub(a2mb2Sqr).div(tMin.mul(tMinSqr.sub(a2pb2)));
             }
-            return { numIterates: iterate, tMin, tMax };
+            return APConversion.amBResult(iterate, tMin, tMax, bisection, aSqr, bSqr);
         }
 
         if (signSecDer.lessThan(this.mZero)) {
@@ -379,10 +376,11 @@ export class APConversion {
                     }
                 }
 
-                // PORT FIX (upstream): see the corresponding comment in the
-                // f" > 0 block. On exhaustion of the bisection iterations,
-                // upstream's tMaxSqr does not correspond to its tMax.
-                tMaxSqr = tMax.mul(tMax);
+                // See PORT FIX (upstream) below: remember a bisection that ran
+                // out of iterations and the bracket it had reached.
+                if (iterate > this.mMaxIterations) {
+                    bisection = { tMin, tMax };
+                }
             }
 
             // Compute a lower bound tMin < a-b.
@@ -404,7 +402,7 @@ export class APConversion {
                 tMaxSqr = tMax.mul(tMax);
                 tMin = a2pb2.mul(tMaxSqr).sub(a2mb2Sqr).div(tMax.mul(tMaxSqr.sub(a2pb2)));
             }
-            return { numIterates: iterate, tMin, tMax };
+            return APConversion.amBResult(iterate, tMin, tMax, bisection, aSqr, bSqr);
         }
 
         // The sign of the second derivative is Sign(a^4-7*a^2*b^2+b^4) and
@@ -452,6 +450,55 @@ export class APConversion {
         const { numIterates, qMin, qMax } = this.estimate(q);
         // Use the average of the interval endpoints as the estimate.
         return { numIterates, qEstimate: BSRational.ldexp(qMin.add(qMax), -1) };
+    }
+
+    // PORT FIX (upstream, finding #280 item 1): each block of EstimateAmB
+    // bisects until t lies in the basin of a - b in which Newton's method
+    // converges monotonically, then runs Newton from there. When the
+    // bisection runs out of iterations first, upstream still runs Newton, now
+    // from a point outside the basin (and, after an update of the bisected
+    // endpoint in the rounding branch, with the square of an older value),
+    // and can return a bracket that does not contain a - b; for example
+    // aSqr = 701408733, bSqr = 102334155, precision 100, maxIterations 1
+    // returns [t, t] with t = 1.99805758446352...*2^13 > a - b. The bisection
+    // bracket itself is always valid (every step keeps tMin <= a - b <= tMax,
+    // rounding outward). The port evaluates upstream's expressions unchanged
+    // and replaces the result by the bisection bracket only when the
+    // bisection ran out of iterations and the returned bracket is provably
+    // wrong (exact rational comparisons with a - b), and only under the
+    // precondition aSqr >= bSqr (finding #280 item 2 is preserved). An
+    // earlier port fix recomputed the stale square instead, which left 755
+    // of 2000 such brackets wrong (C++ oracle v06).
+    private static amBResult(iterate: number, tMin: BSRational, tMax: BSRational,
+        bisection: { tMin: BSRational, tMax: BSRational } | null,
+        aSqr: BSRational, bSqr: BSRational): { numIterates: number, tMin: BSRational, tMax: BSRational } {
+        if (bisection !== null && aSqr.greaterThanOrEqual(bSqr)
+            && (APConversion.signAmB(tMin, aSqr, bSqr) > 0 || APConversion.signAmB(tMax, aSqr, bSqr) < 0)) {
+            return { numIterates: iterate, tMin: bisection.tMin, tMax: bisection.tMax };
+        }
+        return { numIterates: iterate, tMin, tMax };
+    }
+
+    // The exact sign of t - (sqrt(aSqr) - sqrt(bSqr)) for aSqr, bSqr >= 0,
+    // with rational arithmetic only. With u = t + b, t - (a - b) = u - a;
+    // u < 0 exactly when t < 0 and t^2 > bSqr, and otherwise
+    // sign(u - a) = sign(u^2 - aSqr) = sign(2*t*b - r), r = aSqr - bSqr - t^2.
+    private static signAmB(t: BSRational, aSqr: BSRational, bSqr: BSRational): number {
+        const tSqr = t.mul(t);
+        if (t.getSign() < 0 && tSqr.greaterThan(bSqr)) {
+            return -1;
+        }
+        const r = aSqr.sub(bSqr).sub(tSqr);
+        const sx = (bSqr.getSign() === 0 ? 0 : t.getSign());
+        const sr = r.getSign();
+        if (sx === 0) { return -sr; }
+        if (sr === 0) { return sx; }
+        if (sx !== sr) { return sx; }
+        // Both 2*t*b and r have the sign sx: compare their squares.
+        const x2 = BSRational.fromNumber(4).mul(tSqr).mul(bSqr);
+        const r2 = r.mul(r);
+        const c = (x2.lessThan(r2) ? -1 : (r2.lessThan(x2) ? 1 : 0));
+        return sx > 0 ? c : -c;
     }
 
     // Factor a^2 = r^2 * 2^e, where r^2 in [1/2,1), and return r^2 (possibly

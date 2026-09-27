@@ -541,6 +541,33 @@ describe('APConversion verification', () => {
             }
         });
 
+    // The C++ oracle (v06, APConversion.estimateAmB.bisectionExhausted) found
+    // that recomputing the stale square is not enough: after an exhausted
+    // bisection, Newton's method starts outside its basin and upstream's
+    // bracket can miss a - b even when no square is stale (the first three
+    // inputs: the bisection only moved the endpoint whose square is not
+    // cached), and the earlier port fix, which recomputed the square, still
+    // returned a wrong bracket on the last three. The port now returns the
+    // bisection bracket exactly when the Newton bracket is provably wrong.
+    it('returns a valid bracket whenever the bisection runs out of iterations', () => {
+        const cases: [bigint, bigint, number, number][] = [
+            [701408733n, 102334155n, 100, 1],
+            [37525004164n, 5474824324n, 100, 1],
+            [225851433717n, 32951280099n, 100, 1],
+            [233802911n, 34111385n, 93, 3],
+            [399383052n, 58269202n, 92, 2],
+            [881438214802n, 128600102412n, 88, 2]
+        ];
+        for (const [p, q, precision, maxIterations] of cases) {
+            const aSqr = BSRational.fromBigInt(p);
+            const bSqr = BSRational.fromBigInt(q);
+            const { tMin, tMax } = new APConversion(precision, maxIterations).estimateAmB(aSqr, bSqr);
+            expect(leDiff(tMin, aSqr, bSqr), `${p}/${q}`).toBe(true);
+            expect(geDiff(tMax, aSqr, bSqr), `${p}/${q}`).toBe(true);
+            expect(tMin.lessThan(tMax)).toBe(true);
+        }
+    });
+
     it('rejects invalid construction arguments', () => {
         expect(() => new APConversion(0, 1)).toThrow(/Invalid precision/);
         expect(() => new APConversion(-1, 1)).toThrow(/Invalid precision/);
