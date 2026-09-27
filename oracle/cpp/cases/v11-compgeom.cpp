@@ -1964,3 +1964,516 @@ ORACLE_CASE("SeparatePoints2.deviation.roundoff")
         static_cast<int32_t>(pts1.size()), pts1.data(), separatingLine);
     io.outBool(separated);
 }
+
+// ---- ConstrainedDelaunay2 ------------------------------------------------
+
+namespace
+{
+    using CDT2 = ConstrainedDelaunay2<double>;
+
+    // The Delaunay edges of a triangulation as sorted (min, max) pairs. Used
+    // only by the generators to aim a constraint at an existing edge.
+    std::vector<std::array<int32_t, 2>> SortedGraphEdges(Delaunay2<double> const& del)
+    {
+        std::vector<std::array<int32_t, 2>> edges{};
+        for (auto const& element : del.GetGraph().GetEdges())
+        {
+            edges.push_back({ element.first.V[0], element.first.V[1] });
+        }
+        std::sort(edges.begin(), edges.end());
+        return edges;
+    }
+
+    // Draw one constraint edge, unrecorded. The two endpoints never map to
+    // the same duplicate representative, so upstream's 'Invalid edge.'
+    // assert cannot fire (it has its own throw-parity case). The endpoints
+    // are raw input indices: when one is a duplicate, Insert substitutes its
+    // representative, and that path is covered too.
+    //   emode 0: a uniform pair
+    //   emode 1: an edge of the unconstrained Delaunay triangulation (already
+    //            present unless an earlier constraint removed it)
+    //   emode 2: the vertex farthest from a random vertex, which crosses the
+    //            most triangles
+    //   emode 3: a chain, starting at the previous constraint's end
+    std::array<int32_t, 2> RawConstraint(oracle::Ctx& io,
+        std::vector<Vector2<double>> const& pts, std::vector<size_t> const& duplicates,
+        std::vector<std::array<int32_t, 2>> const& graphEdges, int32_t previousEnd)
+    {
+        int32_t n = static_cast<int32_t>(pts.size());
+        int32_t emode = io.rawInteger(0, 3);
+        std::array<int32_t, 2> edge{ 0, 0 };
+        if (emode == 1 && !graphEdges.empty())
+        {
+            int32_t k = io.rawInteger(0, static_cast<int32_t>(graphEdges.size()) - 1);
+            edge = graphEdges[static_cast<size_t>(k)];
+            if (io.rawInteger(0, 1) != 0)
+            {
+                std::swap(edge[0], edge[1]);
+            }
+            return edge;
+        }
+
+        int32_t start = (emode == 3 && previousEnd >= 0 ? previousEnd : io.rawInteger(0, n - 1));
+        if (emode == 2)
+        {
+            double best = -1.0;
+            for (int32_t j = 0; j < n; ++j)
+            {
+                Vector2<double> diff = pts[static_cast<size_t>(j)] - pts[static_cast<size_t>(start)];
+                double sqrLength = Dot(diff, diff);
+                if (sqrLength > best)
+                {
+                    best = sqrLength;
+                    edge = { start, j };
+                }
+            }
+            return edge;
+        }
+
+        // A capped rejection loop over the second endpoint; at least one
+        // vertex has a different representative because the set has
+        // dimension 2.
+        edge = { start, start };
+        for (int32_t attempt = 0; attempt < 64; ++attempt)
+        {
+            int32_t other = io.rawInteger(0, n - 1);
+            if (duplicates[static_cast<size_t>(other)] != duplicates[static_cast<size_t>(start)])
+            {
+                edge[1] = other;
+                break;
+            }
+        }
+        if (edge[1] == start)
+        {
+            for (int32_t j = 0; j < n; ++j)
+            {
+                if (duplicates[static_cast<size_t>(j)] != duplicates[static_cast<size_t>(start)])
+                {
+                    edge[1] = j;
+                    break;
+                }
+            }
+        }
+        return edge;
+    }
+
+    // The whole constrained triangulation after the insertions: the inserted
+    // edge set (a std::unordered_set upstream, sorted here), then the
+    // compact triangle arrays after UpdateIndicesAdjacencies, canonicalized
+    // exactly as Delaunay2, the hull edges and the graph sizes.
+    void EmitCDT2(oracle::Ctx& io, CDT2& cdt)
+    {
+        std::vector<int32_t> inserted{};
+        for (auto const& ekey : cdt.GetInsertedEdges())
+        {
+            inserted.push_back(ekey.V[0]);
+            inserted.push_back(ekey.V[1]);
+        }
+        EmitSortedTuples<2, int32_t>(io, inserted);
+
+        cdt.UpdateIndicesAdjacencies();
+        size_t numTriangles = cdt.GetNumTriangles();
+        auto const& indices = cdt.GetIndices();
+        auto const& adjacencies = cdt.GetAdjacencies();
+        auto order = CanonicalOrder<3>(indices, numTriangles);
+        auto rank = RankOf(order);
+        EmitFeatures<3>(io, indices, adjacencies, order, rank);
+
+        std::vector<size_t> hull{};
+        bool hullOk = cdt.GetHull(hull);
+        io.outBool(hullOk);
+        EmitSortedTuples<2, size_t>(io, hull);
+
+        io.outInt(cdt.GetGraph().GetTriangles().size());
+        io.outInt(cdt.GetGraph().GetEdges().size());
+    }
+
+    void EmitPartition(oracle::Ctx& io, std::vector<int32_t> const& partitionedEdge)
+    {
+        io.outInt(partitionedEdge.size());
+        for (auto v : partitionedEdge)
+        {
+            io.outInt(v);
+        }
+    }
+}
+
+// ConstrainedDelaunay2<T>: both operator() overloads (alternating by
+// record), Insert, GetInsertedEdges and the inherited compact-array
+// accessors after UpdateIndicesAdjacencies. The point sets are the shared 2D
+// generators restricted by Sound2, because the Delaunay2 base carries the
+// deliberate #391 deviation (v09-compgeom). One to four constraints are
+// inserted in sequence; a later constraint may cross an earlier one, which
+// upstream documents as legal ("the second insertion will interfere with the
+// retriangulation of the first edge").
+//
+// Every predicate on this path is exact (interval filter plus rational
+// fallback in ToLine, rational pseudosquared distances in SelectSplit), and
+// the strip retriangulation is a deterministic bisection, so the whole
+// combinatorial output is compared bit for bit. The strip fill is NOT
+// constrained-Delaunay (docs/UPSTREAM-FINDINGS.md, ConstrainedDelaunay2
+// finding 3, preserved); nothing here asserts that it is. Order: GetLinkEdges
+// iterates VETManifoldMesh::Vertex::TAdjacent, a pointer-keyed set, but at
+// most two link triangles pass the 'sign0 >= 0 && sign1 <= 0' test, and only
+// when the constraint runs through their shared vertex, where both call
+// ProcessCoincidentEdge with that vertex; the result is order independent.
+ORACLE_CASE("ConstrainedDelaunay2.insert")
+{
+    int32_t mode = io.index() % 4;
+    int32_t n = io.integer(3, 10);
+    auto pts = SoundPoints2(io, mode, static_cast<size_t>(n));
+
+    std::vector<size_t> duplicates{};
+    std::vector<std::array<int32_t, 2>> graphEdges{};
+    {
+        Delaunay2<double> probe{};
+        probe(pts);
+        duplicates = probe.GetDuplicates();
+        graphEdges = SortedGraphEdges(probe);
+    }
+    int32_t numEdges = io.integer(1, 4);
+    std::vector<std::array<int32_t, 2>> edges(static_cast<size_t>(numEdges));
+    int32_t previousEnd = -1;
+    for (size_t k = 0; k < edges.size(); ++k)
+    {
+        edges[k] = RawConstraint(io, pts, duplicates, graphEdges, previousEnd);
+        previousEnd = edges[k][1];
+        GivenInt(io, edges[k][0]);
+        GivenInt(io, edges[k][1]);
+    }
+
+    CDT2 cdt{};
+    bool built = (io.index() % 2 == 0 ? cdt(pts) : cdt(pts.size(), pts.data()));
+    io.outBool(built);
+    for (auto const& edge : edges)
+    {
+        std::vector<int32_t> partitionedEdge{};
+        cdt.Insert(edge, partitionedEdge);
+        EmitPartition(io, partitionedEdge);
+    }
+    EmitCDT2(io, cdt);
+}
+
+namespace
+{
+    // A long constraint through a band of points. The endpoints are
+    // base -/+ 5*d for a lattice direction d; the other points sit at
+    // base + s*d + h*perp(d) with |s| <= 3, so the Delaunay triangulation
+    // has many triangles across the segment and the strip is long, which is
+    // where the bisection retriangulation (SelectSplit) does real work.
+    //   smode 0: uniform s and h (h bounded away from 0)
+    //   smode 1: lattice s and h, h = 0 on a quarter of the points, so the
+    //            strip walk meets vertices on the constraint
+    //            (ProcessTriangleStrip's querySign == 0 subdivision)
+    //   smode 2: every band point on the segment's line except one or two
+    //            apexes, so most of the constraint is coincident with
+    //            existing edges (the ProcessCoincidentEdge chain)
+    void RawStripPoints(oracle::Ctx& io, int32_t smode, size_t n,
+        std::vector<Vector2<double>>& pts)
+    {
+        pts.resize(n);
+        double bx = static_cast<double>(io.rawInteger(-2, 2));
+        double by = static_cast<double>(io.rawInteger(-2, 2));
+        double dx = static_cast<double>(io.rawInteger(1, 2));
+        double dy = static_cast<double>(io.rawInteger(-1, 1));
+        pts[0] = { bx - 5.0 * dx, by - 5.0 * dy };
+        pts[1] = { bx + 5.0 * dx, by + 5.0 * dy };
+        size_t numApexes = static_cast<size_t>(io.rawInteger(1, 2));
+        for (size_t i = 2; i < n; ++i)
+        {
+            double s = 0.0, h = 0.0;
+            if (smode == 0)
+            {
+                s = io.raw(-3.0, 3.0);
+                h = io.raw(0.25, 2.0);
+                if (io.rawInteger(0, 1) != 0)
+                {
+                    h = -h;
+                }
+            }
+            else if (smode == 1)
+            {
+                s = static_cast<double>(io.rawInteger(-3, 3));
+                h = (io.rawInteger(0, 3) == 0 ? 0.0 : static_cast<double>(io.rawInteger(-2, 2)));
+            }
+            else
+            {
+                s = static_cast<double>(io.rawInteger(-4, 4));
+                h = (i < 2 + numApexes ? static_cast<double>(io.rawInteger(1, 3))
+                    * (i % 2 == 0 ? 1.0 : -1.0) : 0.0);
+            }
+            pts[i][0] = bx + s * dx - h * dy;
+            pts[i][1] = by + s * dy + h * dx;
+        }
+    }
+}
+
+// Insert the long constraint <0, 1>, then optionally a second constraint
+// between the two band points farthest apart across the first one, which
+// crosses it (the documented interference), then the first one again.
+ORACLE_CASE("ConstrainedDelaunay2.insert.strip")
+{
+    int32_t smode = io.index() % 3;
+    int32_t n = io.integer(5, 11);
+    std::vector<Vector2<double>> pts{};
+    bool accepted = false;
+    for (int32_t attempt = 0; attempt < 64 && !accepted; ++attempt)
+    {
+        RawStripPoints(io, smode, static_cast<size_t>(n), pts);
+        accepted = Sound2(pts);
+    }
+    if (!accepted)
+    {
+        Fallback2(static_cast<size_t>(n), pts);
+    }
+    for (size_t i = 0; i < pts.size(); ++i)
+    {
+        io.givenVec<2>(pts[i]);
+    }
+
+    // The crossing constraint: the lowest-indexed point strictly left of the
+    // line <0,1> and the lowest-indexed point strictly right of it, by the
+    // exact predicate. -1 when one side is empty.
+    int32_t left = -1, right = -1;
+    for (int32_t i = 2; i < n; ++i)
+    {
+        int32_t sign = ExactOrient2(pts[0], pts[1], pts[static_cast<size_t>(i)]);
+        if (sign > 0 && left < 0)
+        {
+            left = i;
+        }
+        else if (sign < 0 && right < 0)
+        {
+            right = i;
+        }
+    }
+    bool cross = (left >= 0 && right >= 0 && io.rawInteger(0, 1) != 0);
+    GivenInt(io, cross ? 1 : 0);
+    GivenInt(io, cross ? left : 0);
+    GivenInt(io, cross ? right : 0);
+
+    CDT2 cdt{};
+    bool built = cdt(pts);
+    io.outBool(built);
+    std::vector<int32_t> partitionedEdge{};
+    cdt.Insert({ 0, 1 }, partitionedEdge);
+    EmitPartition(io, partitionedEdge);
+    if (cross)
+    {
+        std::vector<int32_t> crossing{};
+        cdt.Insert({ left, right }, crossing);
+        EmitPartition(io, crossing);
+        std::vector<int32_t> again{};
+        cdt.Insert({ 1, 0 }, again);
+        EmitPartition(io, again);
+    }
+    EmitCDT2(io, cdt);
+}
+
+// Throw parity for Insert's LogAssert(edge[0] != edge[1] && in range,
+// "Invalid edge."), evaluated after the duplicate substitution: the two
+// endpoints are the same index, or two different indices of the same point.
+// Every record is a throw record. Out-of-range indices are not drawn here:
+// upstream reads duplicates[] before the range check, which is the subject
+// of ConstrainedDelaunay2.deviation.duplicatesRead.
+ORACLE_CASE("ConstrainedDelaunay2.insert.invalidEdgeThrows")
+{
+    int32_t n = io.integer(4, 9);
+    std::vector<Vector2<double>> pts{};
+    bool accepted = false;
+    for (int32_t attempt = 0; attempt < 64 && !accepted; ++attempt)
+    {
+        RawPoints2(io, 1, static_cast<size_t>(n - 1), pts);
+        // Repeat one point so that a duplicate pair exists.
+        Vector2<double> repeated = pts[static_cast<size_t>(io.rawInteger(0, n - 2))];
+        pts.push_back(repeated);
+        accepted = Sound2(pts);
+    }
+    if (!accepted)
+    {
+        Fallback2(static_cast<size_t>(n - 1), pts);
+        pts.push_back(pts[0]);
+    }
+    for (size_t i = 0; i < pts.size(); ++i)
+    {
+        io.givenVec<2>(pts[i]);
+    }
+
+    std::vector<size_t> duplicates{};
+    {
+        Delaunay2<double> probe{};
+        probe(pts);
+        duplicates = probe.GetDuplicates();
+    }
+    std::array<int32_t, 2> edge{ 0, 0 };
+    if (io.rawInteger(0, 1) == 0)
+    {
+        int32_t v = io.rawInteger(0, n - 1);
+        edge = { v, v };
+    }
+    else
+    {
+        // The last point duplicates an earlier one.
+        edge = { static_cast<int32_t>(duplicates[static_cast<size_t>(n - 1)]), n - 1 };
+    }
+    GivenInt(io, edge[0]);
+    GivenInt(io, edge[1]);
+
+    CDT2 cdt{};
+    bool built = cdt(pts);
+    std::vector<int32_t> partitionedEdge{};
+    cdt.Insert(edge, partitionedEdge);
+    io.outBool(built);
+    EmitPartition(io, partitionedEdge);
+}
+
+// DELIBERATE DEVIATION (#325, ConstrainedDelaunay2 finding 1). operator()
+// forwards to Delaunay2<T>::operator(), which never touches mInsertedEdges,
+// so a functor reused for a second data set reports the first set's
+// constraints from GetInsertedEdges(); those keys index unrelated vertices
+// of the new triangulation. The port clears the set in compute(). The
+// record: triangulate A, insert one to three constraints, triangulate B
+// (with the other operator() overload), emit GetInsertedEdges(), insert one
+// constraint into B and emit the partition and GetInsertedEdges() again.
+// Every record whose first set received a constraint not also inserted into
+// B deviates; the partitions agree.
+ORACLE_CASE("ConstrainedDelaunay2.deviation.staleInsertedEdges")
+{
+    int32_t nA = io.integer(3, 9);
+    auto ptsA = SoundPoints2(io, 1, static_cast<size_t>(nA));
+    int32_t nB = io.integer(3, 9);
+    auto ptsB = SoundPoints2(io, 0, static_cast<size_t>(nB));
+
+    std::vector<size_t> dupA{}, dupB{};
+    std::vector<std::array<int32_t, 2>> edgesA0{}, edgesB0{};
+    {
+        Delaunay2<double> probe{};
+        probe(ptsA);
+        dupA = probe.GetDuplicates();
+        edgesA0 = SortedGraphEdges(probe);
+        probe(ptsB);
+        dupB = probe.GetDuplicates();
+        edgesB0 = SortedGraphEdges(probe);
+    }
+    int32_t numEdgesA = io.integer(1, 3);
+    std::vector<std::array<int32_t, 2>> edgesA(static_cast<size_t>(numEdgesA));
+    for (size_t k = 0; k < edgesA.size(); ++k)
+    {
+        edgesA[k] = RawConstraint(io, ptsA, dupA, edgesA0, -1);
+        GivenInt(io, edgesA[k][0]);
+        GivenInt(io, edgesA[k][1]);
+    }
+    std::array<int32_t, 2> edgeB = RawConstraint(io, ptsB, dupB, edgesB0, -1);
+    GivenInt(io, edgeB[0]);
+    GivenInt(io, edgeB[1]);
+
+    CDT2 cdt{};
+    cdt(ptsA);
+    for (auto const& edge : edgesA)
+    {
+        std::vector<int32_t> partitionedEdge{};
+        cdt.Insert(edge, partitionedEdge);
+    }
+    bool built = cdt(ptsB.size(), ptsB.data());
+    io.outBool(built);
+    std::vector<int32_t> stale{};
+    for (auto const& ekey : cdt.GetInsertedEdges())
+    {
+        stale.push_back(ekey.V[0]);
+        stale.push_back(ekey.V[1]);
+    }
+    EmitSortedTuples<2, int32_t>(io, stale);
+    std::vector<int32_t> partitionedEdge{};
+    cdt.Insert(edgeB, partitionedEdge);
+    EmitPartition(io, partitionedEdge);
+    EmitCDT2(io, cdt);
+}
+
+// DELIBERATE DEVIATION (#325, ConstrainedDelaunay2 finding 2). Insert
+// substitutes 'edge[i] = duplicates[edge[i]]' before its range assert, so an
+// out-of-range index is read from beyond the end of mDuplicates. The read is
+// made deterministic here: the functor first triangulates a set A of nA
+// points whose point j (nB <= j < nA) repeats point r < nB, so A leaves
+// mDuplicates[j] = r; it then triangulates the prefix B of nB points, and
+// Delaunay2<T>::operator() does 'mDuplicates.clear(); resize(nB)', which
+// keeps the capacity and the stale element j. Insert({j, s}) on B then reads
+// r, passes the assert, and upstream inserts the unrelated constraint
+// <r, s> into B and returns normally. The port validates the raw indices
+// first and throws "Invalid edge." Every accepted record deviates (C++
+// returns, the port throws).
+ORACLE_CASE("ConstrainedDelaunay2.deviation.duplicatesRead")
+{
+    int32_t nB = io.integer(3, 7);
+    int32_t m = io.integer(1, 3);
+    std::vector<Vector2<double>> ptsA{};
+    int32_t j = -1, s = -1;
+    for (int32_t attempt = 0; attempt < 64 && j < 0; ++attempt)
+    {
+        std::vector<Vector2<double>> ptsB{};
+        RawPoints2(io, 1, static_cast<size_t>(nB), ptsB);
+        ptsA = ptsB;
+        for (int32_t k = 0; k < m; ++k)
+        {
+            Vector2<double> extra = ptsB[static_cast<size_t>(io.rawInteger(0, nB - 1))];
+            if (k > 0 && io.rawInteger(0, 1) != 0)
+            {
+                extra[0] = static_cast<double>(io.rawInteger(-3, 3));
+                extra[1] = static_cast<double>(io.rawInteger(-3, 3));
+            }
+            ptsA.push_back(extra);
+        }
+        if (!Sound2(ptsA) || !Sound2(ptsB))
+        {
+            continue;
+        }
+        Delaunay2<double> probe{};
+        probe(ptsA);
+        std::vector<size_t> dupA = probe.GetDuplicates();
+        probe(ptsB);
+        std::vector<size_t> dupB = probe.GetDuplicates();
+        for (int32_t k = nB; k < nB + m && j < 0; ++k)
+        {
+            size_t r = dupA[static_cast<size_t>(k)];
+            if (r < static_cast<size_t>(nB) && dupB[r] == r)
+            {
+                for (int32_t t = 0; t < nB; ++t)
+                {
+                    if (dupB[static_cast<size_t>(t)] != r)
+                    {
+                        j = k;
+                        s = t;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    if (j < 0)
+    {
+        // Points on a parabola (general position) with every extra point
+        // repeating point 0, the first extreme processed.
+        Fallback2(static_cast<size_t>(nB), ptsA);
+        Vector2<double> first = ptsA[0];
+        ptsA.resize(static_cast<size_t>(nB + m), first);
+        j = nB;
+        s = 1;
+    }
+    for (size_t i = 0; i < ptsA.size(); ++i)
+    {
+        io.givenVec<2>(ptsA[i]);
+    }
+    bool swapped = (io.rawInteger(0, 1) != 0);
+    std::array<int32_t, 2> edge{ swapped ? s : j, swapped ? j : s };
+    GivenInt(io, edge[0]);
+    GivenInt(io, edge[1]);
+
+    std::vector<Vector2<double>> ptsB(ptsA.begin(), ptsA.begin() + nB);
+    CDT2 cdt{};
+    cdt(ptsA);
+    bool built = cdt(ptsB);
+    io.outBool(built);
+    std::vector<int32_t> partitionedEdge{};
+    cdt.Insert(edge, partitionedEdge);
+    EmitPartition(io, partitionedEdge);
+    EmitCDT2(io, cdt);
+}

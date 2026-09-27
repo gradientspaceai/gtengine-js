@@ -509,5 +509,131 @@ describe('oracle: v11-compgeom', () => {
         io.outBool(query.compute(pts0, pts1).separated);
     }, { exact: true, deviation: '#328 (round-off in the side tests)' });
 
+    // ---- ConstrainedDelaunay2 --------------------------------------------
+
+    function emitPartition(io: OracleIO, partitionedEdge: readonly number[]): void {
+        io.outInt(partitionedEdge.length);
+        for (const v of partitionedEdge) {
+            io.outInt(v);
+        }
+    }
+
+    function emitInsertedEdges(io: OracleIO, cdt: ConstrainedDelaunay2): void {
+        const inserted: number[] = [];
+        for (const ekey of cdt.getInsertedEdges()) {
+            inserted.push(ekey.V[0], ekey.V[1]);
+        }
+        emitSortedTuples(io, inserted, 2);
+    }
+
+    // Mirrors EmitCDT2: inserted edges, canonical compact arrays after
+    // updateIndicesAdjacencies, hull edges, graph sizes.
+    function emitCDT2(io: OracleIO, cdt: ConstrainedDelaunay2): void {
+        emitInsertedEdges(io, cdt);
+        cdt.updateIndicesAdjacencies();
+        const numTriangles = cdt.getNumTriangles();
+        const indices = cdt.getIndices();
+        const adjacencies = cdt.getAdjacencies();
+        const order = canonicalOrder(indices, numTriangles, 3);
+        const rank = rankOf(order);
+        emitFeatures(io, indices, adjacencies, order, rank, 3);
+        const hull = cdt.getHull();
+        io.outBool(true);
+        emitSortedTuples(io, hull, 2);
+        io.outInt(cdt.getGraph().getNumTriangles());
+        io.outInt(cdt.getGraph().getNumEdges());
+    }
+
+    function readEdge(io: OracleIO): [number, number] {
+        const e0 = io.integer();
+        const e1 = io.integer();
+        return [e0, e1];
+    }
+
+    // Both upstream operator() overloads forward to Delaunay2::operator();
+    // the port has the one compute().
+    family.case('ConstrainedDelaunay2.insert', (io) => {
+        const n = io.integer();
+        const pts = points(io, n, 2);
+        const numEdges = io.integer();
+        const edges: [number, number][] = [];
+        for (let k = 0; k < numEdges; ++k) {
+            edges.push(readEdge(io));
+        }
+        const cdt = new ConstrainedDelaunay2();
+        io.outBool(cdt.compute(pts));
+        for (const edge of edges) {
+            emitPartition(io, cdt.insert(edge));
+        }
+        emitCDT2(io, cdt);
+    }, { exact: true });
+
+    family.case('ConstrainedDelaunay2.insert.strip', (io) => {
+        const n = io.integer();
+        const pts = points(io, n, 2);
+        const cross = io.integer() !== 0;
+        const left = io.integer();
+        const right = io.integer();
+        const cdt = new ConstrainedDelaunay2();
+        io.outBool(cdt.compute(pts));
+        emitPartition(io, cdt.insert([0, 1]));
+        if (cross) {
+            emitPartition(io, cdt.insert([left, right]));
+            emitPartition(io, cdt.insert([1, 0]));
+        }
+        emitCDT2(io, cdt);
+    }, { exact: true });
+
+    // Throw parity for 'Invalid edge.' after the duplicate substitution.
+    family.case('ConstrainedDelaunay2.insert.invalidEdgeThrows', (io) => {
+        const n = io.integer();
+        const pts = points(io, n, 2);
+        const edge = readEdge(io);
+        const cdt = new ConstrainedDelaunay2();
+        const built = cdt.compute(pts);
+        const partitionedEdge = cdt.insert(edge);
+        io.outBool(built);
+        emitPartition(io, partitionedEdge);
+    }, { exact: true });
+
+    // The port clears the inserted-edge set in compute().
+    family.case('ConstrainedDelaunay2.deviation.staleInsertedEdges', (io) => {
+        const nA = io.integer();
+        const ptsA = points(io, nA, 2);
+        const nB = io.integer();
+        const ptsB = points(io, nB, 2);
+        const numEdgesA = io.integer();
+        const edgesA: [number, number][] = [];
+        for (let k = 0; k < numEdgesA; ++k) {
+            edgesA.push(readEdge(io));
+        }
+        const edgeB = readEdge(io);
+        const cdt = new ConstrainedDelaunay2();
+        cdt.compute(ptsA);
+        for (const edge of edgesA) {
+            cdt.insert(edge);
+        }
+        io.outBool(cdt.compute(ptsB));
+        emitInsertedEdges(io, cdt);
+        emitPartition(io, cdt.insert(edgeB));
+        emitCDT2(io, cdt);
+    }, { exact: true, deviation: '#325 (mInsertedEdges survives operator())' });
+
+    // The port range-checks the raw indices before the duplicate
+    // substitution and throws; upstream reads the stale element j of
+    // mDuplicates left by the previous data set and inserts <r, s>.
+    family.case('ConstrainedDelaunay2.deviation.duplicatesRead', (io) => {
+        const nB = io.integer();
+        const m = io.integer();
+        const ptsA = points(io, nB + m, 2);
+        const edge = readEdge(io);
+        const ptsB = ptsA.slice(0, nB);
+        const cdt = new ConstrainedDelaunay2();
+        cdt.compute(ptsA);
+        io.outBool(cdt.compute(ptsB));
+        emitPartition(io, cdt.insert(edge));
+        emitCDT2(io, cdt);
+    }, { exact: true, deviation: '#325 (duplicates[] read before the range check)' });
+
     family.finish();
 });
