@@ -13,7 +13,9 @@
 //       "This algorithm guarantees a correct output only when ComputeType is
 //       an exact arithmetic type that supports division. In GTE, one such
 //       type is BSRational<UIntegerAP32>." The port's BSRational is
-//       bigint-backed, which is the same arithmetic.
+//       bigint-backed, which is the same arithmetic. Only
+//       MinimumAreaBox2.deviation.floatComputeType instantiates
+//       MinimumAreaBox2<double, double>, to show what the choice changes.
 //   MinimumWidthPoints2<double>             (Rational = BSRational<UIntegerAP32>
 //                                            internally, as the port)
 //   SeparatePoints2<double, double>         (ComputeType is vestigial)
