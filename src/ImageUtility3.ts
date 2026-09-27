@@ -161,10 +161,12 @@ export class ImageUtility3 {
 
     // Compute a dilation with a structuring element consisting of neighbors
     // specified by 3-tuple offsets relative to the voxel.
+    // Unlike the 2D version and the 3D erode, upstream's 3D Dilate asserts
+    // only that the output image differs from the input (which the port
+    // guarantees by returning a new image), not that the neighbor list is
+    // nonempty: an empty list returns a copy of the input.
     static dilate(inImage: Image3<number>,
         neighbors: readonly (readonly number[])[]): Image3<number> {
-        logAssert(neighbors.length > 0, 'Invalid neighbors.');
-
         const outImage = copyImage3(inImage);
 
         // If the voxel at (i0,i1,i2) is 1, then the voxels at

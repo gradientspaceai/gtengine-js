@@ -265,10 +265,17 @@ describe('ImageUtility3.dilate and erode', () => {
         expect(nonzeroCoords(ImageUtility3.erode6(image, false))).toEqual(coordKeys(ones));
     });
 
-    it('rejects an empty structuring element', () => {
+    it('erode rejects an empty structuring element; dilate copies the input (as upstream)', () => {
+        // Upstream's 3D Dilate has no numNeighbors > 0 assertion (its 2D
+        // counterpart and the 3D Erode do); the C++ oracle (v26,
+        // ImageUtility3.dilate) returns the input unchanged.
         const image = makeImage(4, 4, 4, [[1, 1, 1]]);
-        expect(() => ImageUtility3.dilate(image, [])).toThrow('Invalid neighbors.');
+        const copy = ImageUtility3.dilate(image, []);
+        expect(copy).not.toBe(image);
+        expect(copy.getPixels()).toEqual(image.getPixels());
         expect(() => ImageUtility3.erode(image, true, [])).toThrow('Invalid neighbors.');
+        expect(() => ImageUtility3.open(image, true, [])).toThrow('Invalid neighbors.');
+        expect(() => ImageUtility3.close(image, true, [])).toThrow('Invalid neighbors.');
     });
 
     it('dilation and erosion are dual under complementation', () => {
