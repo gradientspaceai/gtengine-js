@@ -92,7 +92,7 @@ vertex are compared too (3980 of the 8000 deep-run queries).
 | --- | --- | --- | --- |
 | `RotatingCalipers.h` | `RotatingCalipers.computeAntipodes` (the only public entry point; strictly convex polygons from cocircular lattice points, lattice hulls and real hulls) | exact | pass, 2000 |
 | | `….computeAntipodes.collinear` (exact edge midpoints inserted, the collinear-removal path of `CreatePolygon`) | exact | pass, 2000 |
-| | `….computeAntipodes.collinearThrows` (2 to 6 collinear points: throw parity for the `indices.size() >= 3` assert) | exact | pass, 2000 throw records |
+| | `….computeAntipodes.collinearThrows` (1 to 6 collinear points: throw parity for the `indices.size() >= 3` assert; the 330 one-point records make upstream's out-of-range `vertices[1]` read deterministic with a valid point in the vector's spare capacity, the v11 stale-storage technique) | exact | pass, 2000 throw records |
 | | `….computeAntipodes.deviation.duplicate` (#286) | deviation | 2000 of 2000 deviate |
 | `MinimumAreaCircle2.h` | `MinimumAreaCircle2.compute` (`operator()`, `GetNumSupport`, `GetSupport`; uniform, lattice, cocircular lattice and dense lattice modes, 1 to 8 points, at most 6 unique) | exact | pass, 2000 |
 | | `….compute.circumcircle` (acute lattice triangle plus points strictly inside its circumcircle: three-point support on every record) | exact | pass, 2000 |
@@ -297,10 +297,11 @@ exact.
 * **`MinimumAreaCircle2` / `MinimumVolumeSphere3` with a null pointer and a
   positive count.** The port's API takes an array; the empty call is covered
   (`.empty`).
-* **`RotatingCalipers::ComputeAntipodes` with 0 or 1 vertex.** Upstream
-  reads `vertices.back()` / `vertices[1]` out of bounds before its size
-  assert (#286, port asserts up front); 2 to 6 collinear points are the
-  throw-parity case.
+* **`RotatingCalipers::ComputeAntipodes` with no vertex.** Upstream reads
+  `vertices.back()` of an empty vector, before the allocation, ahead of its
+  size assert (#286; the port asserts up front). The one-vertex input, whose
+  out-of-range read of `vertices[1]` can be made deterministic, is part of
+  the `.collinearThrows` case.
 * **`IncrementalDelaunay2::GetHull` on an empty edge map.** Upstream
   dereferences `edges.begin()` of an empty map (#290, the port returns an
   empty hull); only the replica is run there (111 residue records of the

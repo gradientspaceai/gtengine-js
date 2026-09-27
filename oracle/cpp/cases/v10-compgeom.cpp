@@ -358,14 +358,17 @@ ORACLE_CASE("RotatingCalipers.computeAntipodes.deviation.duplicate")
 
 // Throw parity: CreatePolygon keeps only the vertices at which the polygon
 // turns, so 2 to 6 exactly collinear points (in any order, repeats allowed)
-// leave fewer than 3 and ComputeAntipodes' LogAssert fires. One point, or
-// none, is excluded: upstream then reads vertices[1] (or vertices.back())
-// out of bounds before the assert, which the port replaces by an up-front
-// assert (issue #286, "reads vertices.back() and vertices[1] before the size
-// assert").
+// leave fewer than 3 and ComputeAntipodes' LogAssert fires. A single point
+// is included too: upstream then reads vertices[1] out of range before the
+// assert (issue #286; the port asserts up front), and the read is made
+// deterministic by leaving a valid point in the vector's spare capacity
+// (the stale-storage technique of v11). Its value does not matter: the first
+// edge, back() to front(), is the zero vector, so DotPerp is zero and the
+// assert fires anyway. No point at all is excluded: vertices.back() of an
+// empty vector reads before the allocation.
 ORACLE_CASE("RotatingCalipers.computeAntipodes.collinearThrows")
 {
-    int32_t n = io.integer(2, 6);
+    int32_t n = io.integer(1, 6);
     int32_t bx = io.rawInteger(-3, 3);
     int32_t by = io.rawInteger(-3, 3);
     int32_t dx = io.rawInteger(1, 3);
@@ -380,6 +383,13 @@ ORACLE_CASE("RotatingCalipers.computeAntipodes.collinearThrows")
     for (auto const& p : pts)
     {
         io.givenVec<2>(p);
+    }
+    if (n == 1)
+    {
+        // Spare capacity holding a valid point for upstream's vertices[1].
+        pts.reserve(2);
+        pts.push_back(Vector2<double>{ 7.0, -5.0 });
+        pts.pop_back();
     }
     EmitAntipodes(io, pts);
 }
