@@ -264,3 +264,18 @@ describe('Exp2Estimate verification', () => {
         }
     });
 });
+
+// Upstream's static_cast<int32_t>(floor(x)) is undefined behaviour for
+// floor(x) >= 2^31 and MSVC returns +0 there; the port returns +inf, 2^x
+// rounded (C++ oracle v23-estimates, Exp2Estimate.estimateRR.hugeArgument).
+describe('exp2EstimateRR beyond the int32 exponent range', () => {
+    it('overflows to +inf for x >= 2^31 and underflows to +0 for x < -2^31', () => {
+        for (const d of DEGREES) {
+            expect(exp2EstimateRR(2 ** 31, d)).toBe(Infinity);
+            expect(exp2EstimateRR(3e9, d)).toBe(Infinity);
+            expect(exp2EstimateRR(1e300, d)).toBe(Infinity);
+            expect(Object.is(exp2EstimateRR(-3e9, d), 0)).toBe(true);
+            expect(exp2EstimateRR(2 ** 31 - 0.5, d)).toBe(Infinity);
+        }
+    });
+});

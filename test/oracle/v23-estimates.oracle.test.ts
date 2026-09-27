@@ -18,6 +18,10 @@
 // f(t, A) sin(A) = sin(t A). Branch histograms of the range reductions are
 // collected too (the RR branches are recomputed with an exact BigInt
 // remainder) and the last tests require every branch to be reached.
+/// <reference types="node" />
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { acosEstimate, getACosEstimateMaxError } from '../../src/ACosEstimate.js';
 import { asinEstimate, getASinEstimateMaxError } from '../../src/ASinEstimate.js';
@@ -61,7 +65,19 @@ const DEG_1_16 = range(1, 16);
 
 // ---- reference checks and branch histograms ------------------------------
 
-interface RefStats { checked: number; violations: string[]; worst: number }
+// With ORACLE_STATS set, the reference statistics and branch histograms are
+// also written to oracle/out/stats/v23-estimates-<title>.txt.
+function report(title: string, lines: string[]): void {
+    const text = `${title}\n  ${lines.join('\n  ')}\n`;
+    console.log(text);
+    if (process.env['ORACLE_STATS']) {
+        const dir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'oracle', 'out', 'stats');
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, `v23-estimates-${title.replace(/ /g, '-')}.txt`), text);
+    }
+}
+
+interface RefStats { checked: number; violations: string[]; worst: number; overBound: number }
 const refStats = new Map<string, RefStats>();
 const histograms = new Map<string, Map<string, number>>();
 
@@ -69,10 +85,12 @@ const histograms = new Map<string, Map<string, number>>();
 // the error exceeds bound + slack.
 function refCheck(key: string, err: number, bound: number, slack: number, what: () => string): void {
     let s = refStats.get(key);
-    if (s === undefined) { s = { checked: 0, violations: [], worst: 0 }; refStats.set(key, s); }
+    if (s === undefined) { s = { checked: 0, violations: [], worst: 0, overBound: 0 }; refStats.set(key, s); }
     ++s.checked;
     const ratio = Math.abs(err) / bound;
     if (!(ratio <= s.worst)) { s.worst = Number.isNaN(ratio) ? Infinity : ratio; }
+    // Above the bound but inside the evaluation-rounding slack.
+    if (ratio > 1) { ++s.overBound; }
     if (!(Math.abs(err) <= bound + slack) && s.violations.length < 5) {
         s.violations.push(`${what()}: error ${err} bound ${bound}`);
     }
@@ -528,13 +546,13 @@ describe('oracle: v23-estimates', () => {
 
     // Unit length, and the angle from q0 is t times the angle q0-q1.
     const slerpRef = (key: string, t: number, q0: readonly number[], q1: readonly number[],
-        r: readonly number[]): void => {
+        r: readonly number[], bound = 1e-12): void => {
         if (!(t >= 0 && t <= 1)) { return; }
         const A = angleBetween(q0, q1);
         const what = (): string => `${key}(t = ${t}, q0 = ${q0}, q1 = ${q1})`;
-        refCheck(`${key} |r| - 1`, norm(r) - 1, 1e-12, 0, what);
-        refCheck(`${key} angle(q0, r) - tA`, angleBetween(q0, r) - t * A, 1e-12, 0, what);
-        refCheck(`${key} angle(r, q1) - (1-t)A`, angleBetween(r, q1) - (1 - t) * A, 1e-12, 0, what);
+        refCheck(`${key} |r| - 1`, norm(r) - 1, bound, 0, what);
+        refCheck(`${key} angle(q0, r) - tA`, angleBetween(q0, r) - t * A, bound, 0, what);
+        refCheck(`${key} angle(r, q1) - (1-t)A`, angleBetween(r, q1) - (1 - t) * A, bound, 0, what);
     };
 
     family.case('Slerp.slerp', (io) => {
@@ -575,7 +593,12 @@ describe('oracle: v23-estimates', () => {
             if (dot(q0, q1) < -0.99) { count('Slerp.slerpMidpoint', 'dot(q0, q1) < -0.99'); }
             const r = slerpUsingMidpoint(t, q0, q1, qh, cosAH);
             emitSlerp(io, r, !(cosAH < 1), first ? q0 : qh, first ? qh : q1);
-            if (cosAH < 1 && cosAH >= 1e-3) { slerpRef('SlerpMidpoint', t, q0, q1, r); }
+            // The documented preprocessing forms 1 + cosA, which cancels near
+            // the antipode: cosAH and qh carry a relative error of about
+            // 2^-52/(4 cosAH^2), so the reference bound grows accordingly.
+            if (cosAH < 1 && cosAH >= 1e-3) {
+                slerpRef('SlerpMidpoint', t, q0, q1, r, 1e-12 + 4e-16 / (cosAH * cosAH));
+            }
         }
     });
 
@@ -665,10 +688,11 @@ describe('oracle: v23-estimates', () => {
         const lines: string[] = [];
         const violations: string[] = [];
         for (const [key, s] of [...refStats.entries()].sort()) {
-            lines.push(`${key}: ${s.checked} checked, worst |error|/bound ${s.worst.toPrecision(3)}`);
+            lines.push(`${key}: ${s.checked} checked, worst |error|/bound ${s.worst.toPrecision(6)}`
+                + (s.overBound > 0 ? `, ${s.overBound} above the bound within the rounding slack` : ''));
             violations.push(...s.violations.map((v) => `${key}: ${v}`));
         }
-        console.log(`v23 reference checks\n  ${lines.join('\n  ')}`);
+        report('reference checks', lines);
         expect(refStats.size).toBeGreaterThan(0);
         expect(violations).toEqual([]);
     });
@@ -679,7 +703,7 @@ describe('oracle: v23-estimates', () => {
             const parts = [...h.entries()].sort().map(([b, n]) => `${b}: ${n}`);
             lines.push(`${key}: ${parts.join(', ')}`);
         }
-        console.log(`v23 branch histograms\n  ${lines.join('\n  ')}`);
+        report('branch histograms', lines);
         const required: Record<string, string[]> = {
             'Exp2Estimate.estimateRR': ['normal', 'normal y=0', 'subnormal', 'underflow to 0',
                 'overflow', 'non-finite'],

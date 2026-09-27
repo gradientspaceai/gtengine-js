@@ -116,6 +116,13 @@ export function exp2Estimate(x: number, degree: number): number {
 // degree-3 estimate is
 //   const x = ...;  // any real number
 //   const result = exp2EstimateRR(x, 3);
+//
+// Upstream converts floor(x) with static_cast<int32_t>, which is undefined
+// behaviour when floor(x) is outside the int32_t range; MSVC produces
+// INT_MIN there, so upstream returns +0 for every x >= 2^31 (where 2^x
+// overflows) and for x < -2^31 (where +0 is the right answer by luck). This
+// port keeps the exponent as a double, so x >= 2^31 gives +inf, the rounded
+// value of 2^x (C++ oracle, v23-estimates). ExpEstimateRR inherits this.
 export function exp2EstimateRR(x: number, degree: number): number {
     const p = Math.floor(x);
     const y = x - p;
