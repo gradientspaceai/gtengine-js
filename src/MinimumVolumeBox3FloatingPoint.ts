@@ -485,6 +485,13 @@ export class MinimumVolumeBox3FloatingPoint {
         for (let i = 0; i < numE; ++i) {
             this.mEdges[i] = makeEdge();
         }
+        // Upstream only reserves mEdgeIndices here and ExtractMeshTopology
+        // appends, so a functor reused for a second mesh processes the first
+        // mesh's edge pairs (as indices into the new edges) before its own:
+        // duplicate work that can reorder exact ties, and out-of-range indices
+        // (undefined behaviour) when the new mesh has fewer edges. The port
+        // starts from an empty list, a fresh functor's behaviour (v12 oracle,
+        // MinimumVolumeBox3FloatingPoint.computeHull.reuse).
         this.mEdgeIndices = [];
         this.mTriangles = new Array<MinimumVolumeBox3FloatingPointTriangle>(numT);
         for (let i = 0; i < numT; ++i) {

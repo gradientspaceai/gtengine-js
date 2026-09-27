@@ -11,7 +11,9 @@ import { describe } from 'vitest';
 import {
     MinimumVolumeBox3FloatingPoint, type MinimumVolumeBox3FloatingPointCandidate
 } from '../../src/MinimumVolumeBox3FloatingPoint.js';
-import { MinimumVolumeBox3Rational } from '../../src/MinimumVolumeBox3Rational.js';
+import {
+    MinimumVolumeBox3Rational, type MinimumVolumeBox3RationalCandidate
+} from '../../src/MinimumVolumeBox3Rational.js';
 import { BSNumber } from '../../src/BSNumber.js';
 import type { OrientedBox3 } from '../../src/OrientedBox.js';
 import { VETManifoldMesh } from '../../src/VETManifoldMesh.js';
@@ -68,6 +70,23 @@ function pointScale(points: readonly Vector[]): number {
 
 function contains(box: OrientedBox3, points: readonly Vector[]): boolean {
     return containmentViolation(box, points) <= 1e-9 * pointScale(points);
+}
+
+// The C++ BoxIsConsistent: orthonormal axes and volume = 8 * e0 * e1 * e2,
+// both to 1e-9.
+function boxIsConsistent(box: OrientedBox3, volume: number): boolean {
+    for (let i = 0; i < 3; ++i) {
+        for (let j = 0; j < 3; ++j) {
+            const a = box.axis[i].values, b = box.axis[j].values;
+            const d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+            if (Math.abs(d - (i === j ? 1 : 0)) > 1e-9) {
+                return false;
+            }
+        }
+    }
+    const e = box.extent.values;
+    const product = 8 * e[0] * e[1] * e[2];
+    return Math.abs(product - volume) <= 1e-9 * Math.max(1, Math.abs(volume));
 }
 
 function outBox(io: OracleIO, box: OrientedBox3, volume: number): void {
@@ -201,6 +220,43 @@ class MinimizerProbeFP extends ProbeFP {
     }
 }
 
+function outNVector(io: OracleIO, v: readonly BSNumber[]): void {
+    for (let j = 0; j < 3; ++j) {
+        io.outReal(v[j].toNumber());
+    }
+}
+
+function outAlignedR(io: OracleIO, s: ProbeR['state']): void {
+    const c = s.aligned;
+    for (let i = 0; i < 3; ++i) {
+        io.outInt(c.minSupportIndex[i]);
+        io.outInt(c.maxSupportIndex[i]);
+    }
+    io.outReal(c.volume.toNumber());
+}
+
+// The winner's exact fields, each rounded to double once.
+function outWinnerR(io: OracleIO, s: ProbeR['state']): void {
+    const c = s.winner;
+    io.outInt(c.edgeIndex[0]);
+    io.outInt(c.edgeIndex[1]);
+    io.outInt(c.levelCurveProcessorIndex);
+    for (let i = 0; i < 2; ++i) {
+        outNVector(io, c.N[i]);
+        outNVector(io, c.M[i]);
+    }
+    io.outReal(c.f00.toNumber());
+    io.outReal(c.f10.toNumber());
+    io.outReal(c.f01.toNumber());
+    io.outReal(c.f11.toNumber());
+    for (let i = 0; i < 3; ++i) {
+        outNVector(io, c.axis[i]);
+        io.outInt(c.minSupportIndex[i]);
+        io.outInt(c.maxSupportIndex[i]);
+    }
+    io.outReal(c.volume.toNumber());
+}
+
 // The C++ Dimension2Record: mode, lgMaxSample, n, the cloud, the diagnostic.
 function dimension2Record(io: OracleIO,
     query: MinimumVolumeBox3FloatingPoint | MinimumVolumeBox3Rational): void {
@@ -212,6 +268,106 @@ function dimension2Record(io: OracleIO,
     const r = query.compute(points, lgMaxSample);
     io.outInt(r.dimension);
     outBox(io, r.box, r.volume);
+}
+
+// The C++ MinimizerProbeR. Upstream's MinimizerVariableT receives its
+// arguments rounded to double (#355); the port's receives them exactly, and
+// toNumber() is the same rounding, so the sums agree.
+class MinimizerProbeR extends ProbeR {
+    calls = [0, 0, 0, 0];
+    argSum = [0, 0, 0, 0, 0, 0];
+    processors = new Map<number, number>();
+
+    constructor(readonly disabled: number) {
+        super(0);
+    }
+
+    private hit(c: MinimumVolumeBox3RationalCandidate): void {
+        const p = c.levelCurveProcessorIndex;
+        this.processors.set(p, (this.processors.get(p) ?? 0) + 1);
+    }
+
+    protected override minimizerConstantS(c: MinimumVolumeBox3RationalCandidate,
+        mvc: MinimumVolumeBox3RationalCandidate): void {
+        ++this.calls[0];
+        this.hit(c);
+        if ((this.disabled & 1) === 0) {
+            super.minimizerConstantS(c, mvc);
+        }
+    }
+
+    protected override minimizerConstantT(c: MinimumVolumeBox3RationalCandidate,
+        mvc: MinimumVolumeBox3RationalCandidate): void {
+        ++this.calls[1];
+        this.hit(c);
+        if ((this.disabled & 2) === 0) {
+            super.minimizerConstantT(c, mvc);
+        }
+    }
+
+    protected override minimizerVariableS(sminNumer: BSNumber, smaxNumer: BSNumber,
+        sDenom: BSNumber, c: MinimumVolumeBox3RationalCandidate,
+        mvc: MinimumVolumeBox3RationalCandidate): void {
+        ++this.calls[2];
+        this.hit(c);
+        this.argSum[0] += sminNumer.toNumber();
+        this.argSum[1] += smaxNumer.toNumber();
+        this.argSum[2] += sDenom.toNumber();
+        if ((this.disabled & 4) === 0) {
+            super.minimizerVariableS(sminNumer, smaxNumer, sDenom, c, mvc);
+        }
+    }
+
+    protected override minimizerVariableT(tminNumer: BSNumber, tmaxNumer: BSNumber,
+        tDenom: BSNumber, c: MinimumVolumeBox3RationalCandidate,
+        mvc: MinimumVolumeBox3RationalCandidate): void {
+        ++this.calls[3];
+        this.hit(c);
+        this.argSum[3] += tminNumer.toNumber();
+        this.argSum[4] += tmaxNumer.toNumber();
+        this.argSum[5] += tDenom.toNumber();
+        if ((this.disabled & 8) === 0) {
+            super.minimizerVariableT(tminNumer, tmaxNumer, tDenom, c, mvc);
+        }
+    }
+}
+
+// The C++ ReuseRecord: one minimizer-probe functor for mesh A, counters
+// cleared, then mesh B.
+function reuseRecord(io: OracleIO, query: MinimizerProbeFP | MinimizerProbeR): void {
+    const lgMaxSample = io.integer();
+    const a = readMesh(io);
+    const b = readMesh(io);
+    io.integer();  // diagnostic: the stale pairs changed upstream's box
+    query.computeHull(a.vertices, a.indices, lgMaxSample);
+    query.calls = [0, 0, 0, 0];
+    query.argSum = [0, 0, 0, 0, 0, 0];
+    query.processors.clear();
+    const r = query.computeHull(b.vertices, b.indices, lgMaxSample);
+    outMinimizerCalls(io, query);
+    outBox(io, r.box, r.volume);
+}
+
+// The C++ InvalidArgumentRecord; every record throws.
+function invalidArgumentRecord(io: OracleIO,
+    query: MinimumVolumeBox3FloatingPoint | MinimumVolumeBox3Rational): void {
+    const kind = io.integer();
+    io.integer();
+    const lgMaxSample = io.integer();
+    if (kind <= 1) {
+        const n = io.integer();
+        const points: Vector[] = [];
+        for (let i = 0; i < n; ++i) {
+            points.push(io.vec(3));
+        }
+        const r = query.compute(points, lgMaxSample);
+        io.outInt(r.dimension);
+        outBox(io, r.box, r.volume);
+    } else {
+        const { vertices, indices } = readMesh(io);
+        const r = query.computeHull(vertices, indices, lgMaxSample);
+        outBox(io, r.box, r.volume);
+    }
 }
 
 function outMinimizerCalls(io: OracleIO,
@@ -294,12 +450,14 @@ describe('oracle: v12-compgeom', () => {
         const numThreads = io.integer();
         const points = readCloud(io);
         io.integer();  // diagnostic RawAgreement (hash-order effect on the raw query)
+        io.integer();  // diagnostic: the exact-support separator holds
 
         const query = new MinimumVolumeBox3FloatingPoint(numThreads);
         const r = query.compute(points, lgMaxSample);
         io.outInt(r.dimension);
         outBox(io, r.box, r.volume);
         io.outBool(contains(r.box, points));
+        io.outBool(boxIsConsistent(r.box, r.volume));
     }, { exact: true });
 
     family.case('MinimumVolumeBox3FloatingPoint.computeHull.canonical', (io) => {
@@ -309,11 +467,13 @@ describe('oracle: v12-compgeom', () => {
         const numThreads = io.integer();
         const { vertices, indices } = readMesh(io);
         io.integer();  // diagnostic RawAgreement
+        io.integer();  // diagnostic: the exact-support separator holds
 
         const query = new ProbeFP(numThreads);
         const r = query.computeHull(vertices, indices, lgMaxSample);
         outBox(io, r.box, r.volume);
         io.outBool(contains(r.box, vertices));
+        io.outBool(boxIsConsistent(r.box, r.volume));
         const s = query.state;
         outTopology(io, s);
         outAlignedFP(io, s);
@@ -371,6 +531,111 @@ describe('oracle: v12-compgeom', () => {
     family.case('MinimumVolumeBox3FloatingPoint.compute.dimension2.floatComputeType', (io) => {
         dimension2Record(io, new MinimumVolumeBox3FloatingPoint(0));
     }, { exact: true, deviation: 'design: MinimumAreaBox2 is exact-only (src/MinimumAreaBox2.ts)' });
+
+    // Deviation (#405, #426): a support vertex of upstream's winner falls
+    // short of the exact extreme by more than the rounding bound, so the
+    // port's confined fix replaces it.
+    family.case('MinimumVolumeBox3FloatingPoint.computeHull.provenViolation', (io) => {
+        const lgMaxSample = io.integer();
+        io.integer();
+        const { vertices, indices } = readMesh(io);
+        io.integer();  // diagnostic: the search found such a mesh
+        const r = new MinimumVolumeBox3FloatingPoint(0).computeHull(vertices, indices, lgMaxSample);
+        outBox(io, r.box, r.volume);
+        io.outBool(contains(r.box, vertices));
+    }, { exact: true, deviation: '#405, #426 (proven support violations of the winner)' });
+
+    family.case('MinimumVolumeBox3Rational.computeHull.canonical', (io) => {
+        io.integer();
+        const lgMaxSample = io.integer();
+        io.integer();
+        const numThreads = io.integer();
+        const { vertices, indices } = readMesh(io);
+        io.integer();  // diagnostic RawAgreement
+
+        const query = new ProbeR(numThreads);
+        const r = query.computeHull(vertices, indices, lgMaxSample);
+        outBox(io, r.box, r.volume);
+        io.outBool(contains(r.box, vertices));
+        io.outBool(boxIsConsistent(r.box, r.volume));
+        const s = query.state;
+        outTopology(io, s);
+        outAlignedR(io, s);
+        outWinnerR(io, s);
+    }, { exact: true, timeout: 600000 });
+
+    family.case('MinimumVolumeBox3Rational.compute.canonical', (io) => {
+        io.integer();
+        const lgMaxSample = io.integer();
+        io.integer();
+        const numThreads = io.integer();
+        const points = readCloud(io);
+        io.integer();  // diagnostic RawAgreement
+
+        const query = new MinimumVolumeBox3Rational(numThreads);
+        const r = query.compute(points, lgMaxSample);
+        io.outInt(r.dimension);
+        outBox(io, r.box, r.volume);
+        io.outBool(contains(r.box, points));
+        io.outBool(boxIsConsistent(r.box, r.volume));
+    }, { exact: true, timeout: 600000 });
+
+    family.case('MinimumVolumeBox3Rational.getExtreme', (io) => {
+        io.integer();
+        io.integer();
+        const { vertices, indices } = readMesh(io);
+        const query = new ProbeR(0);
+        query.prepare(vertices, indices, 2);
+        for (let k = 0; k < 4; ++k) {
+            io.integer();
+            const r = query.extreme(io.vec(3));
+            io.outInt(r.vMax);
+            io.outReal(r.dMax);
+        }
+    }, { exact: true, timeout: 600000 });
+
+    family.case('MinimumVolumeBox3Rational.minimizers', (io) => {
+        io.integer();
+        const lgMaxSample = io.integer();
+        io.integer();
+        const disabled = 8 | io.integer();
+        const { vertices, indices } = readMesh(io);
+        const query = new MinimizerProbeR(disabled);
+        const r = query.computeHull(vertices, indices, lgMaxSample);
+        outMinimizerCalls(io, query);
+        outBox(io, r.box, r.volume);
+        outWinnerR(io, query.state);
+    }, { exact: true, timeout: 600000 });
+
+    family.case('MinimumVolumeBox3Rational.compute.dimension2', (io) => {
+        dimension2Record(io, new MinimumVolumeBox3Rational(0));
+    }, { exact: true });
+
+    family.case('MinimumVolumeBox3Rational.compute.dimension2.floatComputeType', (io) => {
+        dimension2Record(io, new MinimumVolumeBox3Rational(0));
+    }, { exact: true, deviation: 'design: MinimumAreaBox2 is exact-only (src/MinimumAreaBox2.ts)' });
+
+    // Deviation (new suspect, group report): upstream appends to
+    // mEdgeIndices on every call, so a reused functor processes the previous
+    // mesh's edge pairs first; the port resets them.
+    family.case('MinimumVolumeBox3FloatingPoint.computeHull.reuse', (io) => {
+        reuseRecord(io, new MinimizerProbeFP(0));
+    }, { exact: true, deviation: 'v12 suspect: stale mEdgeIndices on functor reuse' });
+
+    family.case('MinimumVolumeBox3Rational.computeHull.reuse', (io) => {
+        reuseRecord(io, new MinimizerProbeR(8));
+    }, {
+        exact: true, timeout: 600000,
+        deviation: 'v12 suspect: stale mEdgeIndices on functor reuse'
+    });
+
+    family.case('MinimumVolumeBox3FloatingPoint.invalidArgument', (io) => {
+        invalidArgumentRecord(io, new MinimumVolumeBox3FloatingPoint(0));
+    }, { exact: true });
+
+    family.case('MinimumVolumeBox3Rational.invalidArgument', (io) => {
+        invalidArgumentRecord(io, new MinimumVolumeBox3Rational(0));
+    }, { exact: true });
 
     family.finish();
 });
