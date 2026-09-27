@@ -642,3 +642,31 @@ describe('MinimumVolumeSphere3 verification', () => {
             .toBeGreaterThan(minimal.radius + 0.4);
     });
 });
+
+// Found by the C++ oracle of group 10: ExactSphere4's center
+// X[0]*P0 + X[1]*P1 + X[2]*P2 + x3*P3 accumulates left to right upstream,
+// ((a + b) + c) + d. The port summed (a + b) + (c + d), which put the center
+// 1 ulp off the MSVC build on this input (center x 0.018733754116927015
+// instead of 0.01873375411692702). A fresh query applies the permutation the
+// oracle case reproduced, so the four-point support is reached as upstream
+// reaches it.
+describe('MinimumVolumeSphere3 oracle regression', () => {
+    it('matches the MSVC build bit for bit on a four-point support', () => {
+        const points = [
+            v3(-3.293586670861485, -0.12953490456198846, 0.5339831807143769),
+            v3(0.1241582600502591, -1.7550729261458766, -2.9244341348467096),
+            v3(2.8614830535272615, 2.861005297448945, -0.34439497386759754),
+            v3(-1.3741761042887344, -1.274193646114215, 1.3771924197931265),
+            v3(3.171357675461315, -0.22999551181267197, 0.9116795710366148)
+        ];
+        const query = new MinimumVolumeSphere3();
+        const { minimal, success } = query.compute(points);
+        expect(success).toBe(true);
+        expect(minimal.center.get(0)).toBe(0.01873375411692702);
+        expect(minimal.center.get(1)).toBe(0.7371663981764889);
+        expect(minimal.center.get(2)).toBe(-0.40002552461980934);
+        expect(minimal.radius).toBe(3.5489449146947596);
+        expect(query.numSupport).toBe(4);
+        expect(query.support.slice(0, 4)).toEqual([2, 0, 4, 1]);
+    });
+});
