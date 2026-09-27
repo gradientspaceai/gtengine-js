@@ -26,6 +26,19 @@
 // preserved; the port replicates this with (insertion-ordered) Map keyed by
 // a canonical string of the tuple. The private debugging function
 // PrintRectangles (ostream output) is not ported.
+//
+// Port fix of an upstream defect (found by the C++ oracle, group 24): in the
+// four-crossing (saddle) cell of GetComponents, upstream chooses the pairing
+// of the four level-set points by the sign of det = i00*i11 - i01*i10. That
+// determinant ignores the level (it is the asymptotic decider for level 0
+// only) and its two disjoint pairings are swapped: det > 0 cuts off corners
+// 00 and 11 although det > 0 at level 0 means the interpolant's saddle has
+// their sign, so they are connected through the cell. For the cell
+// 10, -1; -1, 10 at level 0.5 upstream returns segments around the positive
+// corners while the bilinear interpolant is 4.5 at the cell center. The port
+// decides by the exact sign of dg = det - level*(i00 + i11 - i01 - i10),
+// which is (i00-L)(i11-L) - (i01-L)(i10-L), and keeps upstream's choice on
+// every cell where it agrees (sign(det) = -sign(dg)).
 
 import { logAssert, logError } from './Logger.js';
 
@@ -35,6 +48,35 @@ const CFG_NONE = 0;
 const CFG_INCR = 1;
 const CFG_DECR = 2;
 const CFG_MULT = 3;
+
+// The exact sign of det - level * s for integers det and s and a finite
+// double level, computed by writing level = m * 2^e with integer m.
+function signOfDetMinusLevelTimes(det: bigint, level: number, s: bigint): number {
+    const view = new DataView(new ArrayBuffer(8));
+    view.setFloat64(0, level);
+    const hi = view.getUint32(0), lo = view.getUint32(4);
+    const biased = (hi >>> 20) & 0x7FF;
+    let m = (BigInt(hi & 0xFFFFF) << 32n) | BigInt(lo);
+    let e: number;
+    if (biased === 0) {
+        e = -1074;  // zero or subnormal
+    } else {
+        m |= 1n << 52n;
+        e = biased - 1075;
+    }
+    if ((hi >>> 31) !== 0) {
+        m = -m;
+    }
+    let lhs = det;
+    let rhs = m * s;
+    if (e >= 0) {
+        rhs <<= BigInt(e);
+    } else {
+        lhs <<= BigInt(-e);
+    }
+    const d = lhs - rhs;
+    return (d > 0n ? 1 : (d < 0n ? -1 : 0));
+}
 
 // Helper classes for the skeleton climbing (upstream private nested types).
 class QuadRectangle {
@@ -774,12 +816,23 @@ export class AdaptiveSkeletonClimbing2 {
                 const i01 = BigInt(this.mInputPixels[index]);
 
                 const det = i00 * i11 - i01 * i10;
-                if (det > 0n) {
+
+                // Port fix (see the header note): upstream pairs by the sign
+                // of det alone, which ignores the level and swaps the two
+                // disjoint pairings. The bilinear interpolant's saddle lies
+                // above the level (corners 00 and 11 connected through the
+                // cell) iff dg = det - level*(i00 + i11 - i01 - i10) > 0,
+                // evaluated exactly. Upstream's choice is kept wherever it is
+                // right, i.e. sign(det) = -sign(dg), and replaced otherwise.
+                const upstreamSign = (det > 0n ? 1 : (det < 0n ? -1 : 0));
+                const dgSign = signOfDetMinusLevelTimes(det, level, i00 + i11 - i01 - i10);
+                const decision = (upstreamSign === -dgSign ? upstreamSign : -dgSign);
+                if (decision > 0) {
                     // Disjoint hyperbolic segments, pair <P0,P2> and
                     // <P1,P3>.
                     this.addEdge(vertices, edges, x0, y0, fx2, fy2);
                     this.addEdge(vertices, edges, x1, y1, fx3, fy3);
-                } else if (det < 0n) {
+                } else if (decision < 0) {
                     // Disjoint hyperbolic segments, pair <P0,P3> and
                     // <P1,P2>.
                     this.addEdge(vertices, edges, x0, y0, fx3, fy3);

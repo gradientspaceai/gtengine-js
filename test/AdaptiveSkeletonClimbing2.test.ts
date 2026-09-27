@@ -204,10 +204,11 @@ describe('AdaptiveSkeletonClimbing2', () => {
         checkVerticesOnLevelSet(pixels.map((p) => 10 - p), size, level, flipped.vertices);
     });
 
-    it('adds a branch point for the plus-sign configuration (det = 0)', () => {
+    it('adds a branch point for the plus-sign configuration (saddle on the level)', () => {
         // Cell (0,0) has corners i00 = -2, i10 = 4, i01 = 1, i11 = -2 with
-        // level -0.5: all four edges are crossed and
-        // det = (-2)(-2) - (1)(4) = 0, the plus-sign configuration.
+        // level 0: all four edges are crossed and the bilinear interpolant's
+        // saddle (1/3, 2/3) has the value 0 exactly
+        // (dg = (-2)(-2) - (1)(4) - 0 = 0), the plus-sign configuration.
         const N = 1;
         const size = (1 << N) + 1;
         const pixels = [
@@ -216,19 +217,90 @@ describe('AdaptiveSkeletonClimbing2', () => {
             1, -2, -2
         ];
         const asc = new AdaptiveSkeletonClimbing2(N, pixels);
-        const level = -0.5;
+        const level = 0;
 
         const { vertices, edges } = asc.extract(level, N);
         checkVerticesOnLevelSet(pixels, size, level, vertices);
 
-        // The branch point is (fx2, y0) = (0.25, 0.5): the interpolated
-        // ymin crossing x and the interpolated xmin crossing y.
+        // The branch point is (fx2, y0) = (1/3, 2/3): the interpolated
+        // ymin crossing x and the interpolated xmin crossing y, which is the
+        // saddle.
         const branchEdges = edges.filter(([v0, v1]) => {
             const isBranch = (v: [number, number]): boolean =>
-                Math.abs(v[0] - 0.25) < 1.0e-12 && Math.abs(v[1] - 0.5) < 1.0e-12;
+                Math.abs(v[0] - 1 / 3) < 1.0e-12 && Math.abs(v[1] - 2 / 3) < 1.0e-12;
             return isBranch(vertices[v0]) || isBranch(vertices[v1]);
         });
         expect(branchEdges.length).toBe(4);
+    });
+
+    // Regression tests for the port fix of upstream's saddle pairing (C++
+    // oracle, group 24): upstream decides by det = i00*i11 - i01*i10, which
+    // ignores the level and swaps the two disjoint pairings.
+    it('pairs the saddle crossings by the bilinear interpolant, not by det alone', () => {
+        // Cell (0,0) = 10, -1; -1, 10. At level 0.5 the interpolant's saddle
+        // (the cell center) is 4.5 > 0.5, so the positive corners 00 and 11
+        // are connected and the segments cut off the negative corners 10 and
+        // 01. Upstream (det = 99 > 0) cuts off 00 and 11 instead.
+        const pixels = [10, -1, -1, -1, 10, 10, -1, 10, 10];
+        const { vertices, edges } = new AdaptiveSkeletonClimbing2(1, pixels).extract(0.5, 1);
+        const cell = edges.slice(0, 2).map(([a, b]) => [vertices[a], vertices[b]]);
+        const r = 9.5 / 11;  // the crossings 9.5/11 away from the corner 10
+        // Segment 0 joins the xmin point (0, y0) to the ymax point (x3, 1),
+        // cutting off corner 01; segment 1 joins the xmax point (1, y1) to
+        // the ymin point (x2, 0), cutting off corner 10.
+        expect(cell[0][0][0]).toBe(0);
+        expect(cell[0][1][1]).toBe(1);
+        expect(cell[1][0][0]).toBe(1);
+        expect(cell[1][1][1]).toBe(0);
+        expect(cell[0][0][1]).toBeCloseTo(r, 14);
+        expect(cell[0][1][0]).toBeCloseTo(1 - r, 14);
+        expect(cell[1][1][0]).toBeCloseTo(r, 14);
+        // At level 5.5 the saddle (4.5) is below the level: the positive
+        // corners are cut off, which is also upstream's answer.
+        const high = new AdaptiveSkeletonClimbing2(1, pixels).extract(5.5, 1);
+        const highCell = high.edges.slice(0, 2).map(([a, b]) => [high.vertices[a], high.vertices[b]]);
+        expect(highCell[0][0][0]).toBe(0);
+        expect(highCell[0][1][1]).toBe(0);
+        expect(highCell[1][0][0]).toBe(1);
+        expect(highCell[1][1][1]).toBe(1);
+    });
+
+    it('the segments of every saddle cell cut off the corners on the far side of the saddle value', () => {
+        // Independent reference: the saddle value of the bilinear
+        // interpolant, f(xs, ys) with xs = (f00 - f01)/D, ys = (f00 - f10)/D,
+        // D = f00 - f10 - f01 + f11. A segment joining the crossings on the
+        // two edges at a corner cuts that corner off; it must be a corner
+        // whose sign relative to the level differs from the saddle's.
+        const small = fc.integer({ min: -9, max: 9 });
+        check(fc.tuple(fc.array(small, { minLength: 9, maxLength: 9 }),
+            fc.integer({ min: -19, max: 18 })), ([pixels, k]) => {
+                const level = k + 0.5;
+                const { vertices, edges } = new AdaptiveSkeletonClimbing2(1, pixels).extract(level, 1);
+                for (const [a, b] of edges) {
+                    const p = vertices[a], q = vertices[b];
+                    const cx = Math.floor(Math.min(p[0], q[0]) + 1e-9);
+                    const cy = Math.floor(Math.min(p[1], q[1]) + 1e-9);
+                    const px = [0, 1, 0, 1].map((i, j) => pixels[cx + i + 3 * (cy + (j >> 1))]);
+                    const [f00, f10, f01, f11] = px;
+                    const above = px.map((v) => v > level);
+                    if (!(above[0] === above[3] && above[1] === above[2] && above[0] !== above[1])) {
+                        continue;
+                    }
+                    const D = f00 - f10 - f01 + f11;
+                    const xs = (f00 - f01) / D, ys = (f00 - f10) / D;
+                    const saddle = f00 * (1 - xs) * (1 - ys) + f10 * xs * (1 - ys)
+                        + f01 * (1 - xs) * ys + f11 * xs * ys;
+                    if (Math.abs(saddle - level) < 1e-9) {
+                        continue;  // plus sign
+                    }
+                    // The corner shared by the two cell edges the segment joins.
+                    const onX = (v: [number, number]) => Number.isInteger(v[0]);
+                    const corner = [p, q].reduce((c, v) => onX(v)
+                        ? [v[0] - cx, c[1]] : [c[0], v[1] - cy], [0, 0]);
+                    const f = [f00, f10, f01, f11][corner[0] + 2 * corner[1]];
+                    expect(f > level).not.toBe(saddle > level);
+                }
+            });
     });
 
     it('makeUnique removes duplicate vertices and edges', () => {
