@@ -971,13 +971,14 @@ namespace
     //      by the leaf region the direction lands in, which is tree shape),
     //      and
     //  (b) upstream's BSP answers both with that unique vertex.
-    // Condition (b) excludes the directions on which the preserved
-    // construction defect of issue #290 fires. It is not confined to the
-    // icosahedra of the original measurement: a sheared octahedron (the
-    // octahedron below under an integer linear map) answers about 2% of
-    // random directions with a vertex that is not extreme. The port's BSP,
-    // built from the same arcs in a different order, is right on those
-    // directions, so nothing can be compared there. See the group report.
+    // Condition (b) is a guard for the preserved construction defect of
+    // issue #290; on the polytopes this case draws it never fired in the
+    // measurements of the group report. Sheared octahedra are NOT drawn:
+    // there the MSVC build answers about 0.5% of random directions with a
+    // vertex that is not extreme, and which directions those are changes
+    // from one construction to the next (the tree depends on the pointer
+    // hash order of unordered_set<Triangle*>, i.e. on heap addresses), so
+    // the accepted directions - and the goldens - would not be reproducible.
     bool SoundDirection(ExtremalQuery3BSP<double>& query,
         std::vector<Vector3<double>> const& verts, Vector3<double> const& D)
     {
@@ -1046,8 +1047,10 @@ namespace
 // VETManifoldMesh's std::unordered_map / std::unordered_set<Triangle*>
 // containers, whose iteration order MSVC decides from pointer hashes, while
 // the port reads them through sorted accessors. The two trees are different
-// partitions of the same Gauss map: measured on the octahedron above,
-// upstream builds 12 nodes and the port 15.
+// partitions of the same Gauss map (the port builds 15 nodes for the
+// octahedron; upstream's count varies from one construction to the next,
+// between 11 and 28 nodes for sheared octahedra, because it depends on heap
+// addresses).
 //
 // Directions whose extreme vertex is not unique are rejected for the same
 // reason: a tie is resolved by which leaf region the direction lands in.
@@ -1056,7 +1059,15 @@ ORACLE_CASE("ExtremalQuery3BSP.getExtremeVertices")
     int32_t which = io.integer(0, 2);
     BasePolytope const& base = BasePolytopeOf(which);
     std::vector<Vector3<double>> verts{};
-    TransformPolytope(io, base, verts);
+    if (which == 1)
+    {
+        // The regular octahedron only; see SoundDirection.
+        verts = base.vertices;
+    }
+    else
+    {
+        TransformPolytope(io, base, verts);
+    }
     for (auto const& v : verts)
     {
         io.givenVec<3>(v);
