@@ -190,12 +190,18 @@ describe('SurfaceExtractorCubes: face ambiguity resolution', () => {
         return new SurfaceExtractorCubes(2, 2, 2, voxels);
     };
 
-    it('det > 0 pairs the face vertices into a single six-sided loop', () => {
-        // f00 = +1, f10 = -1, f11 = +5, f01 = -1: det = 5 - 1 = 4 > 0.
+    // Upstream pairs these faces the wrong way round (the det > 0 and
+    // det < 0 branches are swapped; found by the C++ oracle, v26, and fixed
+    // in the port). The expectations below follow the bilinear interpolant
+    // of the face: its saddle value has the sign of det * f00.
+    it('det > 0 (positive saddle) cuts off the two negative corners: two triangles', () => {
+        // f00 = +1, f10 = -1, f11 = +5, f01 = -1: det = 5 - 1 = 4 > 0. The
+        // only negative corners are (0,1,0) and (0,0,1), separated by the
+        // positive saddle of the xmin face.
         const extractor = singleVoxel(1, 1, 0, 1, 0, 1, 3, 1);
         const { vertices, triangles } = extractor.extract(0, true);
         expect(vertices.length).toBe(6);
-        expect(triangles.length).toBe(4);
+        expect(triangles.length).toBe(2);
         // Every vertex lies on the boundary of the unit voxel.
         for (const v of vertices) {
             expect(Math.min(v[0], v[1], v[2])).toBeGreaterThanOrEqual(0);
@@ -203,12 +209,33 @@ describe('SurfaceExtractorCubes: face ambiguity resolution', () => {
         }
     });
 
-    it('det < 0 pairs the face vertices into two triangles', () => {
+    it('det < 0 (negative saddle) joins the negative corners: a six-sided loop', () => {
         // f00 = +1, f10 = -3, f11 = +1, f01 = -3: det = 1 - 9 = -8 < 0.
         const extractor = singleVoxel(1, 1, -1, 1, -1, 1, 1, 1);
         const { vertices, triangles } = extractor.extract(0, true);
         expect(vertices.length).toBe(6);
-        expect(triangles.length).toBe(2);
+        expect(triangles.length).toBe(4);
+    });
+
+    it('regression (v26): the face segments cut off the corners on the other side of the saddle', () => {
+        // 3 at (0,0,0) and (0,1,1), 0 elsewhere, level 0: face x = 0 has
+        // shifted values 5, -1, 5, -1 and center value 2 > 0, so the level
+        // curves on it cut off the negative corners (0,1,0) and (0,0,1).
+        // Upstream returns two caps around the positive corners instead.
+        const extractor = singleVoxel(3, 0, 0, 0, 0, 0, 3, 0);
+        const { vertices, triangles } = extractor.extract(0, true);
+        const find = (p: number[]) => vertices.findIndex((v) => v.every((c, k) => c === p[k]));
+        const hasEdge = (p: number[], q: number[]) => {
+            const a = find(p);
+            const b = find(q);
+            expect(a).toBeGreaterThanOrEqual(0);
+            expect(b).toBeGreaterThanOrEqual(0);
+            return triangles.some((t) => t.v.includes(a) && t.v.includes(b));
+        };
+        expect(hasEdge([0, 5 / 6, 0], [0, 1, 1 / 6])).toBe(true);
+        expect(hasEdge([0, 0, 5 / 6], [0, 1 / 6, 1])).toBe(true);
+        expect(hasEdge([0, 5 / 6, 0], [0, 0, 5 / 6])).toBe(false);
+        expect(hasEdge([0, 1, 1 / 6], [0, 1 / 6, 1])).toBe(false);
     });
 
     it('det == 0 inserts a branch point on the face', () => {

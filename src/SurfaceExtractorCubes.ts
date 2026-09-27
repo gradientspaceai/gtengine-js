@@ -15,6 +15,24 @@
 // class method extractRational(level), which returns the two arrays. The
 // nested VETable/TVertex classes are module-private. LogError becomes
 // logError from src/Logger.ts.
+//
+// Upstream bug (FIXED here; found by the C++ oracle, group 26): when all four
+// edges of a voxel face are crossed (corners alternating in sign) and the
+// face determinant det = f00*f11 - f01*f10 of the shifted values is nonzero,
+// the Get*Edges functions pair the four crossings the wrong way round. For
+// the bilinear interpolant of the face, the sign of the saddle value is
+// sign(det) * sign(f00) (the denominator f00 + f11 - f01 - f10 has the sign
+// of f00), so for det > 0 the corners f00 and f11 are connected through the
+// saddle and the level curves cut off the corners f10 and f01; upstream's
+// det > 0 branch instead joins the two crossings next to f00 and the two
+// next to f11, cutting off the connected corners (and det < 0 likewise).
+// Example: the 2x2x2 image with 3 at (0,0,0) and (0,1,1) and 0 elsewhere,
+// level 0: face x = 0 has shifted values 5, -1, 5, -1 and its center value
+// 2 > 0, but upstream returns two caps around the positive corners, whose
+// chord through (0, 0.4167, 0.4167) passes where the interpolant is 2.08.
+// Adjacent voxels make the same (wrong) choice on a shared face, so the
+// mesh stays closed; only the topology is wrong. The port swaps the two
+// branches; det == 0 (the plus-sign branch point) is unchanged.
 
 import { logError } from './Logger.js';
 import {
@@ -505,11 +523,14 @@ export class SurfaceExtractorCubes extends SurfaceExtractor {
                 const f01 = this.mVoxels[i];
                 const det = f00 * f11 - f01 * f10;
 
-                if (det > 0) {
+                // Upstream bug (fixed here, see the file header): upstream
+                // uses this pairing for det > 0 and the other one for
+                // det < 0, which cuts off the wrong pair of corners.
+                if (det < 0) {
                     // Disjoint hyperbolic segments, pair <P0,P2>, <P1,P3>.
                     table.insertEdge(EI_XMIN_YMIN, EI_XMIN_ZMIN);
                     table.insertEdge(EI_XMIN_YMAX, EI_XMIN_ZMAX);
-                } else if (det < 0) {
+                } else if (det > 0) {
                     // Disjoint hyperbolic segments, pair <P0,P3>, <P1,P2>.
                     table.insertEdge(EI_XMIN_YMIN, EI_XMIN_ZMAX);
                     table.insertEdge(EI_XMIN_YMAX, EI_XMIN_ZMIN);
@@ -587,11 +608,14 @@ export class SurfaceExtractorCubes extends SurfaceExtractor {
                 const f01 = this.mVoxels[i];
                 const det = f00 * f11 - f01 * f10;
 
-                if (det > 0) {
+                // Upstream bug (fixed here, see the file header): upstream
+                // uses this pairing for det > 0 and the other one for
+                // det < 0, which cuts off the wrong pair of corners.
+                if (det < 0) {
                     // Disjoint hyperbolic segments, pair <P0,P2>, <P1,P3>.
                     table.insertEdge(EI_XMAX_YMIN, EI_XMAX_ZMIN);
                     table.insertEdge(EI_XMAX_YMAX, EI_XMAX_ZMAX);
-                } else if (det < 0) {
+                } else if (det > 0) {
                     // Disjoint hyperbolic segments, pair <P0,P3>, <P1,P2>.
                     table.insertEdge(EI_XMAX_YMIN, EI_XMAX_ZMAX);
                     table.insertEdge(EI_XMAX_YMAX, EI_XMAX_ZMIN);
@@ -669,11 +693,14 @@ export class SurfaceExtractorCubes extends SurfaceExtractor {
                 const f01 = this.mVoxels[i];
                 const det = f00 * f11 - f01 * f10;
 
-                if (det > 0) {
+                // Upstream bug (fixed here, see the file header): upstream
+                // uses this pairing for det > 0 and the other one for
+                // det < 0, which cuts off the wrong pair of corners.
+                if (det < 0) {
                     // Disjoint hyperbolic segments, pair <P0,P2>, <P1,P3>.
                     table.insertEdge(EI_XMIN_YMIN, EI_YMIN_ZMIN);
                     table.insertEdge(EI_XMAX_YMIN, EI_YMIN_ZMAX);
-                } else if (det < 0) {
+                } else if (det > 0) {
                     // Disjoint hyperbolic segments, pair <P0,P3>, <P1,P2>.
                     table.insertEdge(EI_XMIN_YMIN, EI_YMIN_ZMAX);
                     table.insertEdge(EI_XMAX_YMIN, EI_YMIN_ZMIN);
@@ -751,11 +778,14 @@ export class SurfaceExtractorCubes extends SurfaceExtractor {
                 const f01 = this.mVoxels[i];
                 const det = f00 * f11 - f01 * f10;
 
-                if (det > 0) {
+                // Upstream bug (fixed here, see the file header): upstream
+                // uses this pairing for det > 0 and the other one for
+                // det < 0, which cuts off the wrong pair of corners.
+                if (det < 0) {
                     // Disjoint hyperbolic segments, pair <P0,P2>, <P1,P3>.
                     table.insertEdge(EI_XMIN_YMAX, EI_YMAX_ZMIN);
                     table.insertEdge(EI_XMAX_YMAX, EI_YMAX_ZMAX);
-                } else if (det < 0) {
+                } else if (det > 0) {
                     // Disjoint hyperbolic segments, pair <P0,P3>, <P1,P2>.
                     table.insertEdge(EI_XMIN_YMAX, EI_YMAX_ZMAX);
                     table.insertEdge(EI_XMAX_YMAX, EI_YMAX_ZMIN);
@@ -833,11 +863,14 @@ export class SurfaceExtractorCubes extends SurfaceExtractor {
                 const f01 = this.mVoxels[i];
                 const det = f00 * f11 - f01 * f10;
 
-                if (det > 0) {
+                // Upstream bug (fixed here, see the file header): upstream
+                // uses this pairing for det > 0 and the other one for
+                // det < 0, which cuts off the wrong pair of corners.
+                if (det < 0) {
                     // Disjoint hyperbolic segments, pair <P0,P2>, <P1,P3>.
                     table.insertEdge(EI_XMIN_ZMIN, EI_YMIN_ZMIN);
                     table.insertEdge(EI_XMAX_ZMIN, EI_YMAX_ZMIN);
-                } else if (det < 0) {
+                } else if (det > 0) {
                     // Disjoint hyperbolic segments, pair <P0,P3>, <P1,P2>.
                     table.insertEdge(EI_XMIN_ZMIN, EI_YMAX_ZMIN);
                     table.insertEdge(EI_XMAX_ZMIN, EI_YMIN_ZMIN);
@@ -915,11 +948,14 @@ export class SurfaceExtractorCubes extends SurfaceExtractor {
                 const f01 = this.mVoxels[i];
                 const det = f00 * f11 - f01 * f10;
 
-                if (det > 0) {
+                // Upstream bug (fixed here, see the file header): upstream
+                // uses this pairing for det > 0 and the other one for
+                // det < 0, which cuts off the wrong pair of corners.
+                if (det < 0) {
                     // Disjoint hyperbolic segments, pair <P0,P2>, <P1,P3>.
                     table.insertEdge(EI_XMIN_ZMAX, EI_YMIN_ZMAX);
                     table.insertEdge(EI_XMAX_ZMAX, EI_YMAX_ZMAX);
-                } else if (det < 0) {
+                } else if (det > 0) {
                     // Disjoint hyperbolic segments, pair <P0,P3>, <P1,P2>.
                     table.insertEdge(EI_XMIN_ZMAX, EI_YMAX_ZMAX);
                     table.insertEdge(EI_XMAX_ZMAX, EI_YMIN_ZMAX);

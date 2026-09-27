@@ -12,7 +12,17 @@
 // Extract computes each edge vertex as F[j0] / (F[j0] - F[j1]), the zero
 // crossing of F, instead of the crossing of F - level. Every extraction with
 // a nonzero 'level' therefore places its vertices wrongly. The port
-// subtracts 'level' in the numerators.
+// subtracts 'level' in the numerators for a nonzero level; at level 0
+// (either sign), where upstream is correct, it evaluates upstream's own
+// expression, which also keeps the sign of a zero coordinate.
+//
+// Upstream bug suspect (FIXED here; found by the C++ oracle, group 26):
+// ComputeNormals sets 'IndexType const* triangle = indices.data()' and never
+// advances it in its loop over the triangles, so it accumulates the first
+// triangle's normal numTriangles times at the first triangle's vertices and
+// leaves every other vertex with the zero normal. The port reads triangle t
+// at indices[3t..3t+2], as the comment ("a running sum of triangle normals
+// at each vertex") and OrientTriangles' loop ('triangle += 3') intend.
 //
 // Port notes: T and IndexType are both number. The nested struct Mesh is
 // exported as SurfaceExtractorMCMesh. The two upstream Extract overloads are
@@ -138,7 +148,11 @@ export class SurfaceExtractorMC extends MarchingCubes {
             // (F[j0] - level) - (F[j1] - level) = F[j0] - F[j1]. The
             // unperturbed F values are used, exactly as upstream does, so
             // 'perturb' still affects only the sign classification and never
-            // the vertex placement.
+            // the vertex placement. For level == 0 (either sign) upstream is
+            // correct and the port evaluates upstream's expression: F - (-0)
+            // is +0 for F = -0, so the shifted numerator would change the
+            // sign of a zero coordinate (found by the C++ oracle, v26).
+            const unshifted = (level === 0);
             const vertex = mesh.vertices[i];
             const k0 = [j0 & 1, (j0 & 2) >> 1, (j0 & 4) >> 2];
             const k1 = [j1 & 1, (j1 & 2) >> 1, (j1 & 4) >> 2];
@@ -147,11 +161,11 @@ export class SurfaceExtractorMC extends MarchingCubes {
                     if (k1[index] === 0) {
                         vertex.values[index] = 0;
                     } else { // k1[index] = 1
-                        vertex.values[index] = (F[j0] - level) / (F[j0] - F[j1]);
+                        vertex.values[index] = (unshifted ? F[j0] : F[j0] - level) / (F[j0] - F[j1]);
                     }
                 } else { // k0[index] = 1
                     if (k1[index] === 0) {
-                        vertex.values[index] = (F[j1] - level) / (F[j1] - F[j0]);
+                        vertex.values[index] = (unshifted ? F[j1] : F[j1] - level) / (F[j1] - F[j0]);
                     } else { // k1[index] = 1
                         vertex.values[index] = 1;
                     }
@@ -263,11 +277,17 @@ export class SurfaceExtractorMC extends MarchingCubes {
             const gradient1 = this.getGradient(v1);
             const gradient2 = this.getGradient(v2);
 
-            // Compute the average gradient.
+            // Compute the average gradient. Upstream divides the Vector3 sum
+            // by 3 with Vector.h's operator/, which multiplies by the
+            // reciprocal 1/3; plain division differs in the last bit and,
+            // where the average gradient is orthogonal to the normal in exact
+            // arithmetic, flips the sign of the dot product (found by the
+            // C++ oracle, v26).
+            const invThree = 1 / 3;
             const gradientAvr = [
-                (gradient0.values[0] + gradient1.values[0] + gradient2.values[0]) / 3,
-                (gradient0.values[1] + gradient1.values[1] + gradient2.values[1]) / 3,
-                (gradient0.values[2] + gradient1.values[2] + gradient2.values[2]) / 3
+                (gradient0.values[0] + gradient1.values[0] + gradient2.values[0]) * invThree,
+                (gradient0.values[1] + gradient1.values[1] + gradient2.values[1]) * invThree,
+                (gradient0.values[2] + gradient1.values[2] + gradient2.values[2]) * invThree
             ];
 
             // Compute the dot product of normal and average gradient.
@@ -299,6 +319,8 @@ export class SurfaceExtractorMC extends MarchingCubes {
 
         const numTriangles = Math.floor(indices.length / 3);
         for (let t = 0; t < numTriangles; ++t) {
+            // Upstream never advances its triangle pointer and reads the
+            // first triangle every time (see the file header).
             const base = 3 * t;
             const i0 = indices[base];
             const i1 = indices[base + 1];
