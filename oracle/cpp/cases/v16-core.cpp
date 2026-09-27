@@ -658,3 +658,183 @@ ORACLE_CASE("IEEEBinary16.mathLibm")
         atandivpi(x), atan2divpi(x, y), cospi(x), sinpi(x), exp10(x) };
     for (auto const& v : r) { OutHalf(io, v); }
 }
+
+// ================================================================ PolygonWindingOrder
+
+ORACLE_CASE("PolygonWindingOrder.operator")
+{
+    // Star-shaped polygons (vertices sorted by angle around the origin,
+    // then reversed half the time) on a small lattice or with real
+    // coordinates, collinear runs through the lexicographically smallest
+    // vertex, and fully degenerate (collinear) polygons.
+    int mode = io.integer(0, 3);
+    int n = io.integer(3, 8);
+    std::vector<Vector2<double>> polygon(static_cast<size_t>(n));
+    if (mode == 3)
+    {
+        // Collinear: every vertex on one lattice line.
+        auto base = io.latticeVec<2>(-3, 3);
+        auto dir = io.latticeDir<2>(-2, 2);
+        for (auto& p : polygon)
+        {
+            double k = io.lattice(-3, 3);
+            p = base + k * dir;
+        }
+    }
+    else
+    {
+        struct AngleVertex { double angle; Vector2<double> p; };
+        std::vector<AngleVertex> raw(static_cast<size_t>(n));
+        for (auto& v : raw)
+        {
+            if (mode == 0) { v.p = { (double)io.rawInteger(-4, 4), (double)io.rawInteger(-4, 4) }; }
+            else if (mode == 1) { v.p = { io.raw(-5.0, 5.0), io.raw(-5.0, 5.0) }; }
+            else
+            {
+                // A collinear run through the lower-left corner (-4,-4).
+                int k = io.rawInteger(0, 4);
+                v.p = (io.rawInteger(0, 1) != 0 ? Vector2<double>{ -4.0 + k, -4.0 }
+                    : Vector2<double>{ (double)io.rawInteger(-4, 4), (double)io.rawInteger(-3, 4) });
+            }
+            v.angle = std::atan2(v.p[1], v.p[0]);
+        }
+        std::sort(raw.begin(), raw.end(), [](AngleVertex const& a, AngleVertex const& b)
+            { return a.angle < b.angle || (a.angle == b.angle && a.p < b.p); });
+        bool reverse = (io.rawInteger(0, 1) != 0);
+        for (int i = 0; i < n; ++i)
+        {
+            polygon[static_cast<size_t>(i)] = raw[static_cast<size_t>(reverse ? n - 1 - i : i)].p;
+        }
+        for (auto& p : polygon) { io.givenVec(p); }
+    }
+    PolygonWindingOrder<double> query;
+    io.outBool(query(polygon));
+}
+
+// ================================================================ PolygonTree
+
+namespace
+{
+    // A PolygonTreeEx with 1..6 nodes in breadth-first order, each node with
+    // a chirality in {-1, 0, +1} and 0..3 triangles over a pool of lattice
+    // points (degenerate triangles included), plus the triangle lists the
+    // triangulators fill.
+    struct TreeDraw
+    {
+        std::vector<Vector2<double>> points;
+        PolygonTreeEx tree;
+    };
+
+    TreeDraw DrawTree(oracle::Ctx& io)
+    {
+        TreeDraw d{};
+        int numPoints = io.integer(3, 8);
+        d.points.resize(static_cast<size_t>(numPoints));
+        for (auto& p : d.points) { p = io.latticeVec<2>(-4, 4); }
+        int numNodes = io.integer(1, 6);
+        d.tree.nodes.resize(static_cast<size_t>(numNodes));
+        // Breadth-first: node k's parent is drawn among the earlier nodes in
+        // nondecreasing order, so children of a node are contiguous.
+        std::vector<size_t> parent(static_cast<size_t>(numNodes), 0);
+        for (int k = 1; k < numNodes; ++k)
+        {
+            int lo = static_cast<int>(parent[static_cast<size_t>(k - 1)]);
+            parent[static_cast<size_t>(k)] = static_cast<size_t>(io.integer(k == 1 ? 0 : lo, k - 1));
+        }
+        for (int k = 0; k < numNodes; ++k)
+        {
+            auto& node = d.tree.nodes[static_cast<size_t>(k)];
+            node.self = static_cast<size_t>(k);
+            node.parent = (k == 0 ? std::numeric_limits<size_t>::max() : parent[static_cast<size_t>(k)]);
+            node.minChild = static_cast<size_t>(numNodes);
+            node.supChild = static_cast<size_t>(numNodes);
+            node.chirality = io.integer(-1, 1);
+            int numTriangles = io.integer(0, 3);
+            node.triangulation.resize(static_cast<size_t>(numTriangles));
+            for (auto& t : node.triangulation)
+            {
+                for (auto& v : t) { v = io.integer(0, numPoints - 1); }
+            }
+        }
+        for (int k = numNodes - 1; k >= 1; --k)
+        {
+            auto& p = d.tree.nodes[parent[static_cast<size_t>(k)]];
+            p.minChild = static_cast<size_t>(k);
+            if (p.supChild == static_cast<size_t>(numNodes) && k + 1 <= numNodes)
+            {
+                p.supChild = static_cast<size_t>(k + 1);
+            }
+        }
+        for (auto& node : d.tree.nodes)
+        {
+            if (node.minChild == static_cast<size_t>(numNodes)) { node.supChild = node.minChild; }
+        }
+        for (size_t k = 0; k < d.tree.nodes.size(); ++k)
+        {
+            for (auto const& t : d.tree.nodes[k].triangulation)
+            {
+                d.tree.insideTriangles.push_back(t);
+                d.tree.insideNodeIndices.push_back(k);
+            }
+        }
+        return d;
+    }
+
+    Vector2<double> DrawTest(oracle::Ctx& io, TreeDraw const& d)
+    {
+        // A pool point, the midpoint of two pool points (on an edge), or a
+        // lattice point.
+        int mode = io.rawInteger(0, 2);
+        Vector2<double> test{};
+        if (mode == 0) { test = d.points[static_cast<size_t>(io.rawInteger(0, static_cast<int>(d.points.size()) - 1))]; }
+        else if (mode == 1)
+        {
+            auto const& a = d.points[static_cast<size_t>(io.rawInteger(0, static_cast<int>(d.points.size()) - 1))];
+            auto const& b = d.points[static_cast<size_t>(io.rawInteger(0, static_cast<int>(d.points.size()) - 1))];
+            test = 0.5 * (a + b);
+        }
+        else { test = { (double)io.rawInteger(-4, 4), (double)io.rawInteger(-4, 4) }; }
+        return io.givenVec(test);
+    }
+
+    void OutIndexOrInvalid(oracle::Ctx& io, size_t i)
+    {
+        if (i == std::numeric_limits<size_t>::max()) { io.outInt(-1); }
+        else { io.outInt(i); }
+    }
+}
+
+ORACLE_CASE("PolygonTree.getContainingTriangle")
+{
+    // The three point-containment queries of PolygonTreeEx on lattice
+    // triangles with test points at vertices, on edges and elsewhere, so the
+    // 'sdot > 0' tests are evaluated at exact zero. The tree search visits
+    // the nodes in stack order; the list searches return the first hit.
+    TreeDraw d = DrawTree(io);
+    Vector2<double> test = DrawTest(io, d);
+    int64_t chirality = io.integer(-1, 1);
+    auto r0 = d.tree.GetContainingTriangle(test, d.points.data());
+    auto r1 = d.tree.GetContainingTriangle(test, d.tree.insideTriangles,
+        d.tree.insideNodeIndices, d.points.data());
+    size_t r2 = d.tree.GetContainingTriangle(test, d.tree.insideTriangles,
+        chirality, d.points.data());
+    OutIndexOrInvalid(io, r0.first);
+    OutIndexOrInvalid(io, r0.second);
+    OutIndexOrInvalid(io, r1.first);
+    OutIndexOrInvalid(io, r1.second);
+    OutIndexOrInvalid(io, r2);
+}
+
+ORACLE_CASE("PolygonTree.getContainingTriangle.invalidArgument")
+{
+    // LogAssert(triangles.size() == nodeIndices.size()): throw parity.
+    TreeDraw d = DrawTree(io);
+    Vector2<double> test = DrawTest(io, d);
+    int drop = io.integer(0, 1);
+    std::vector<size_t> nodeIndices = d.tree.insideNodeIndices;
+    if (drop == 1) { nodeIndices.push_back(0); }
+    auto r = d.tree.GetContainingTriangle(test, d.tree.insideTriangles,
+        nodeIndices, d.points.data());
+    OutIndexOrInvalid(io, r.first);
+    OutIndexOrInvalid(io, r.second);
+}

@@ -4,6 +4,9 @@ import { CurveExtractorEdge, CurveExtractorVertex } from '../../src/CurveExtract
 import { CurveExtractorSquares } from '../../src/CurveExtractorSquares.js';
 import { CurveExtractorTriangles } from '../../src/CurveExtractorTriangles.js';
 import { IEEEBinary16 } from '../../src/IEEEBinary16.js';
+import { PolygonTreeEx, PolygonTreeExNode } from '../../src/PolygonTree.js';
+import { PolygonWindingOrder } from '../../src/PolygonWindingOrder.js';
+import { Vector, add, mul } from '../../src/Vector.js';
 import { OracleFamily, type OracleIO } from './harness.js';
 
 // ------------------------------------------------------------ CurveExtractor
@@ -148,6 +151,55 @@ function referenceConvert32To16(bits: number): number {
 
 function outHalf(io: OracleIO, h: IEEEBinary16, tol?: number): void {
     io.outReal(h.number, tol);
+}
+
+// ------------------------------------------------------------ PolygonTree
+
+interface TreeDraw {
+    points: Vector[];
+    tree: PolygonTreeEx;
+}
+
+function drawTree(io: OracleIO): TreeDraw {
+    const numPoints = io.integer();
+    const points: Vector[] = [];
+    for (let i = 0; i < numPoints; ++i) { points.push(io.vec(2)); }
+    const numNodes = io.integer();
+    const parent: number[] = [0];
+    for (let k = 1; k < numNodes; ++k) { parent.push(io.integer()); }
+    const tree = new PolygonTreeEx();
+    for (let k = 0; k < numNodes; ++k) {
+        const node = new PolygonTreeExNode();
+        node.self = k;
+        node.parent = (k === 0 ? PolygonTreeEx.INVALID : parent[k]);
+        node.minChild = numNodes;
+        node.supChild = numNodes;
+        node.chirality = io.integer();
+        const numTriangles = io.integer();
+        for (let t = 0; t < numTriangles; ++t) {
+            node.triangulation.push([io.integer(), io.integer(), io.integer()]);
+        }
+        tree.nodes.push(node);
+    }
+    for (let k = numNodes - 1; k >= 1; --k) {
+        const p = tree.nodes[parent[k]];
+        p.minChild = k;
+        if (p.supChild === numNodes) { p.supChild = k + 1; }
+    }
+    for (const node of tree.nodes) {
+        if (node.minChild === numNodes) { node.supChild = node.minChild; }
+    }
+    tree.nodes.forEach((node, k) => {
+        for (const t of node.triangulation) {
+            tree.insideTriangles.push(t);
+            tree.insideNodeIndices.push(k);
+        }
+    });
+    return { points, tree };
+}
+
+function outIndexOrInvalid(io: OracleIO, i: number): void {
+    io.outInt(i === PolygonTreeEx.INVALID ? -1 : i);
 }
 
 describe('oracle: v16-core', () => {
@@ -299,6 +351,75 @@ describe('oracle: v16-core', () => {
             H.atandivpi(x), H.atan2divpi(x, y), H.cospi(x), H.sinpi(x), H.exp10(x)];
         for (const v of r) { outHalf(io, v, 1e-3); }
     });
+
+    // ------------------------------------------------------------ PolygonWindingOrder
+
+    family.case('PolygonWindingOrder.operator', (io) => {
+        const mode = io.integer();
+        const n = io.integer();
+        const polygon: Vector[] = [];
+        if (mode === 3) {
+            const base = io.vec(2);
+            const dir = io.vec(2);
+            for (let i = 0; i < n; ++i) {
+                const k = io.real();
+                polygon.push(add(base, mul(dir, k)));
+            }
+        } else {
+            for (let i = 0; i < n; ++i) { polygon.push(io.vec(2)); }
+        }
+        const ccw = new PolygonWindingOrder().isCounterClockwise(polygon);
+        // Independent check on the simple (star-shaped) lattice polygons:
+        // when the turn at the lexicographically smallest vertex is strict,
+        // the answer is the sign of the shoelace area, computed exactly.
+        if (mode === 0) {
+            let area2 = 0n;
+            for (let i = 0, j = n - 1; i < n; j = i++) {
+                area2 += BigInt(polygon[j].get(0)) * BigInt(polygon[i].get(1))
+                    - BigInt(polygon[i].get(0)) * BigInt(polygon[j].get(1));
+            }
+            let ll = 0;
+            for (let i = 1; i < n; ++i) { if (polygon[i].lessThan(polygon[ll])) { ll = i; } }
+            const p = polygon[ll], a = polygon[(ll + 1) % n], b = polygon[(ll + n - 1) % n];
+            const turn = (a.get(0) - p.get(0)) * (b.get(1) - p.get(1))
+                - (a.get(1) - p.get(1)) * (b.get(0) - p.get(0));
+            const distinct = new Set(polygon.map(v => `${v.get(0)},${v.get(1)}`)).size === n;
+            if (turn !== 0 && distinct && area2 !== 0n && (area2 > 0n) !== ccw) {
+                throw new Error('winding order disagrees with the shoelace area');
+            }
+        }
+        io.outBool(ccw);
+    }, { exact: true });
+
+    // ------------------------------------------------------------ PolygonTree
+
+    family.case('PolygonTree.getContainingTriangle', (io) => {
+        const d = drawTree(io);
+        const test = io.vec(2);
+        const chirality = io.integer();
+        const r0 = d.tree.getContainingTriangle(test, d.points);
+        const r1 = d.tree.getContainingTriangleInList(test, d.tree.insideTriangles,
+            d.tree.insideNodeIndices, d.points);
+        const r2 = PolygonTreeEx.getContainingTriangleWithChirality(test,
+            d.tree.insideTriangles, chirality, d.points);
+        outIndexOrInvalid(io, r0.nIndex);
+        outIndexOrInvalid(io, r0.tIndex);
+        outIndexOrInvalid(io, r1.nIndex);
+        outIndexOrInvalid(io, r1.tIndex);
+        outIndexOrInvalid(io, r2);
+    }, { exact: true });
+
+    family.case('PolygonTree.getContainingTriangle.invalidArgument', (io) => {
+        const d = drawTree(io);
+        const test = io.vec(2);
+        const drop = io.integer();
+        const nodeIndices = [...d.tree.insideNodeIndices];
+        if (drop === 1) { nodeIndices.push(0); }
+        const r = d.tree.getContainingTriangleInList(test, d.tree.insideTriangles,
+            nodeIndices, d.points);
+        outIndexOrInvalid(io, r.nIndex);
+        outIndexOrInvalid(io, r.tIndex);
+    }, { exact: true });
 
     family.finish();
 });
