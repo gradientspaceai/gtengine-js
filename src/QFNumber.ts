@@ -255,11 +255,20 @@ export class QFNumber implements ArbitraryPrecisionNumber {
     }
 
     // The port of C++ operator/(T const& s, QFNumber const& q).
+    //
+    // Upstream writes x1 = -(s * q.x[1]) / denom, and unary minus binds
+    // tighter than '/', so the numerator is negated BEFORE the division.
+    // For N = 1 the two orders agree bit for bit (IEEE division is sign
+    // symmetric), but for N >= 2 the division is a quadratic-field division
+    // whose numerator coefficients are differences a*b - c*d: when the two
+    // products are equal, (-a)*b - (-c)*d is +0 while -(a*b - c*d) is -0,
+    // so negating after the division flips the sign of an exact zero
+    // coefficient (found by the C++ oracle, v05-ap).
     static scalarDiv(s: number, q: QFNumber): QFNumber {
         const denom = cSub(cMul(q.x[0], q.x[0]),
             cMul(cMul(q.x[1], q.x[1]), q.d));
         const x0 = cDiv(cMul(q.x[0], s), denom);
-        const x1 = cNeg(cDiv(cMul(q.x[1], s), denom));
+        const x1 = cDiv(cNeg(cMul(q.x[1], s)), denom);
         return new QFNumber(x0, x1, q.d);
     }
 

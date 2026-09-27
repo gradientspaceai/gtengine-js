@@ -571,3 +571,26 @@ describe('QFNumber verification', () => {
         expect(() => shallow.lessThan(deep)).toThrow(/Mismatched coefficient depth/);
     });
 });
+
+describe('QFNumber scalarDiv negation order (C++ oracle v05-ap)', () => {
+    // Upstream operator/(s, q) writes x1 = -(s * q.x[1]) / denom: the
+    // numerator is negated before the (quadratic-field) division. For
+    // N >= 2 the division forms differences a*b - c*d, and negating after
+    // the division turns an exact +0 coefficient into -0.
+    it('negates the numerator before dividing, as upstream does', () => {
+        const q = new QFNumber(new QFNumber(1, 0, 1), new QFNumber(0, 1, 1), 0);
+        const r = QFNumber.scalarDiv(1, q);
+        const x1 = r.x[1] as QFNumber;
+        // Upstream (MSVC build): numer0 = (-0)*1 - ((-1)*0)*1 = +0.
+        expect(Object.is(x1.x[0], 0)).toBe(true);
+        expect(x1.x[1]).toBe(-1);
+
+        // The two groupings really differ on this input (denom = (1, 0)).
+        const denom = new QFNumber(1, 0, 1);
+        const numer = (q.x[1] as QFNumber).mul(1);
+        const upstream = numer.negate().div(denom);
+        const negatedAfter = numer.div(denom).negate();
+        expect(Object.is(upstream.x[0], 0)).toBe(true);
+        expect(Object.is(negatedAfter.x[0], -0)).toBe(true);
+    });
+});
