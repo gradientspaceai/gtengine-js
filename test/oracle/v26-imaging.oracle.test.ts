@@ -1184,11 +1184,10 @@ function surfacePointsCase(io: OracleIO, kind: 'cubes' | 'tetra'): void {
     orientPointsCase(io, ex);
 }
 
-function invalidBoundsCase(io: OracleIO): void {
-    const which = io.integer();
+function invalidBoundsCase(io: OracleIO, kind: 'cubes' | 'tetra'): void {
     const d = [io.integer(), io.integer(), io.integer()];
     const voxels = new Array<number>(64).fill(1);
-    if (which === 0) {
+    if (kind === 'cubes') {
         new SurfaceExtractorCubes(d[0], d[1], d[2], voxels);
     } else {
         new SurfaceExtractorTetrahedra(d[0], d[1], d[2], voxels);
@@ -1759,7 +1758,7 @@ describe('oracle: v26-imaging', () => {
     // Every record's orientation depends on dividing the gradient sum by 3
     // (upstream) rather than multiplying by 1/3.
     family.case('SurfaceExtractorCubes.orientTriangles.thirds', (io) => surfacePointsCase(io, 'cubes'), exact);
-    family.case('SurfaceExtractor.invalidBounds', invalidBoundsCase, exact);
+    family.case('SurfaceExtractorCubes.constructor.invalid', (io) => invalidBoundsCase(io, 'cubes'), exact);
 
     family.case('SurfaceExtractorMC.extractVoxel', (io) => mcVoxelCase(io, true), exact);
     family.case('SurfaceExtractorMC.extractVoxel.levelTopology', (io) => mcVoxelCase(io, false), exact);
@@ -1782,6 +1781,7 @@ describe('oracle: v26-imaging', () => {
     family.case('SurfaceExtractorMC.computeNormals.multiple', mcNormalsCase,
         { exact: true, deviation: 'v26 report, SurfaceExtractorMC ComputeNormals triangle pointer' });
 
+    family.case('SurfaceExtractorTetrahedra.constructor.invalid', (io) => invalidBoundsCase(io, 'tetra'), exact);
     family.case('SurfaceExtractorTetrahedra.extract',
         (io) => surfaceCase(io, 'tetra', false, -50, 50, true, true), exact);
     family.case('SurfaceExtractorTetrahedra.extract.types',

@@ -1421,24 +1421,30 @@ ORACLE_CASE("SurfaceExtractorCubes.orientTriangles.points")
     OrientPoints<int32_t>(io, ex, dims, [](auto const&) { return true; });
 }
 
-// Constructor precondition: every bound at least 2 (LogAssert). Draws which
-// extractor and bounds in 0..3; the throw records carry no outputs.
-ORACLE_CASE("SurfaceExtractor.invalidBounds")
+// Constructor precondition (SurfaceExtractor's LogAssert): every bound at
+// least 2. Bounds in 0..3; the throw records carry no outputs.
+namespace
 {
-    int which = io.integer(0, 1);
-    int d0 = io.integer(0, 3);
-    int d1 = io.integer(0, 3);
-    int d2 = io.integer(0, 3);
-    std::vector<int32_t> voxels(64, 1);
-    if (which == 0)
+    template <typename Extractor>
+    void InvalidBounds(oracle::Ctx& io)
     {
-        SurfaceExtractorCubes<int32_t, double> ex(d0, d1, d2, voxels.data());
+        int d0 = io.integer(0, 3);
+        int d1 = io.integer(0, 3);
+        int d2 = io.integer(0, 3);
+        std::vector<int32_t> voxels(64, 1);
+        Extractor ex(d0, d1, d2, voxels.data());
+        io.outInt(d0 * d1 * d2);
     }
-    else
-    {
-        SurfaceExtractorTetrahedra<int32_t, double> ex(d0, d1, d2, voxels.data());
-    }
-    io.outInt(d0 * d1 * d2);
+}
+
+ORACLE_CASE("SurfaceExtractorCubes.constructor.invalid")
+{
+    InvalidBounds<SurfaceExtractorCubes<int32_t, double>>(io);
+}
+
+ORACLE_CASE("SurfaceExtractorTetrahedra.constructor.invalid")
+{
+    InvalidBounds<SurfaceExtractorTetrahedra<int32_t, double>>(io);
 }
 
 // ---- SurfaceExtractorMC (T = double, IndexType = int32_t) ----
