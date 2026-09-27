@@ -1430,3 +1430,276 @@ ORACLE_CASE("VETNonmanifoldMesh.remove.isolatesVertex")
     io.outBool(removed);
     EmitVET(io, mesh);
 }
+
+// ================================================================ RevolutionMesh, TubeMesh
+//
+// The profile and medial curves are BezierCurve objects (arithmetic only,
+// compared bit for bit in v17), so the whole mesh is arithmetic plus sqrt
+// except the cos/sin tables of the column angles c * (1/n) * 2pi (and, for
+// DISK texture coordinates, 2pi * c / n). The exact cases draw n from the
+// column counts on which MSVC's and V8's cos and sin agree bit for bit on
+// every table entry (measured with a stand-alone probe for n = 1..80):
+// 1,2,3,4,5,6,7,9,10,14,18,21,23,25,27,28,35,42,50,54 for the tables and
+// 1,2,3,4,5,6,7,9,10,12,13,14,17,18,25,26,28,34,35,36,52 for DISK. The
+// '.libm' cases take any n and compare the reals with the default 1e-12.
+
+namespace
+{
+    struct MeshBuffers
+    {
+        bool normals, tcoords, frame, wantDynamic, wantCCW;
+        std::vector<Vector3<double>> positions, normal, tangent, bitangent, dpdu, dpdv;
+        std::vector<Vector2<double>> tcoord;
+        std::vector<uint32_t> indices;
+    };
+
+    void DrawMeshChannels(oracle::Ctx& io, MeshBuffers& b)
+    {
+        b.normals = io.boolean();
+        b.tcoords = io.boolean();
+        b.frame = io.boolean();
+        b.wantDynamic = io.boolean();
+        b.wantCCW = io.boolean();
+    }
+
+    void AttachChannels(MeshDescription& d, MeshBuffers& b)
+    {
+        size_t n = d.numVertices;
+        d.wantDynamicTangentSpaceUpdate = b.wantDynamic;
+        d.wantCCW = b.wantCCW;
+        b.positions.assign(n, Vector3<double>{ 0.0, 0.0, 0.0 });
+        d.vertexAttributes.push_back(VertexAttribute("position", b.positions.data(), sizeof(Vector3<double>)));
+        if (b.normals)
+        {
+            b.normal.assign(n, Vector3<double>{ 0.0, 0.0, 0.0 });
+            d.vertexAttributes.push_back(VertexAttribute("normal", b.normal.data(), sizeof(Vector3<double>)));
+        }
+        if (b.tcoords)
+        {
+            b.tcoord.assign(n, Vector2<double>{ 0.0, 0.0 });
+            d.vertexAttributes.push_back(VertexAttribute("tcoord", b.tcoord.data(), sizeof(Vector2<double>)));
+        }
+        if (b.frame)
+        {
+            b.tangent.assign(n, Vector3<double>{ 0.0, 0.0, 0.0 });
+            b.bitangent.assign(n, Vector3<double>{ 0.0, 0.0, 0.0 });
+            b.dpdu.assign(n, Vector3<double>{ 0.0, 0.0, 0.0 });
+            b.dpdv.assign(n, Vector3<double>{ 0.0, 0.0, 0.0 });
+            d.vertexAttributes.push_back(VertexAttribute("tangent", b.tangent.data(), sizeof(Vector3<double>)));
+            d.vertexAttributes.push_back(VertexAttribute("bitangent", b.bitangent.data(), sizeof(Vector3<double>)));
+            d.vertexAttributes.push_back(VertexAttribute("dpdu", b.dpdu.data(), sizeof(Vector3<double>)));
+            d.vertexAttributes.push_back(VertexAttribute("dpdv", b.dpdv.data(), sizeof(Vector3<double>)));
+        }
+        b.indices.assign(3 * static_cast<size_t>(d.numTriangles), 0u);
+        d.indexAttribute = IndexAttribute(b.indices.data(), sizeof(uint32_t));
+    }
+
+    // 'what': bit 0 positions, bit 1 normals and frame, bit 2 tcoords,
+    // bit 3 indices.
+    void EmitMesh(oracle::Ctx& io, MeshDescription const& d, MeshBuffers const& b,
+        int what, bool exactOnly)
+    {
+        io.outInt(d.numVertices);
+        io.outInt(d.numTriangles);
+        io.outBool(d.constructed);
+        io.outBool(d.allowUpdateFrame);
+        io.outBool(d.hasTangentSpaceVectors);
+        (void)exactOnly;
+        if (what & 1) { for (auto const& v : b.positions) { io.outVec(v); } }
+        if (what & 2)
+        {
+            for (auto const& v : b.normal) { io.outVec(v); }
+            for (auto const& v : b.tangent) { io.outVec(v); }
+            for (auto const& v : b.bitangent) { io.outVec(v); }
+            for (auto const& v : b.dpdu) { io.outVec(v); }
+            for (auto const& v : b.dpdv) { io.outVec(v); }
+        }
+        if (what & 4) { for (auto const& v : b.tcoord) { io.outVec(v); } }
+        if (what & 8) { for (uint32_t i : b.indices) { io.outInt(i); } }
+    }
+
+    int DrawStableColumns(oracle::Ctx& io, bool tube)
+    {
+        // Table-stable n (tube: n = numCols - 1) that are also DISK-stable.
+        static int const revolution[] = { 1, 2, 3, 4, 5, 6, 7, 9, 10, 14 };
+        static int const tube1[] = { 3, 4, 5, 6, 7, 8, 10, 11, 15, 19 };
+        int k = io.rawInteger(0, 9);
+        return static_cast<int>(io.given(static_cast<double>(tube ? tube1[k] : revolution[k])));
+    }
+
+    // A profile curve (x(t), z(t)) for the topology: x0 = x(tmin) is 0 for
+    // DISK and SPHERE, x1 = x(tmax) is 0 for SPHERE, the curve is closed for
+    // TORUS. Lattice control points or real ones.
+    std::shared_ptr<BezierCurve<2, double>> DrawProfile(oracle::Ctx& io, MeshTopology topology)
+    {
+        // A closed quadratic Bezier (P0, P1, P0) retraces itself, which the
+        // documented precondition (non-self-intersecting except at the
+        // endpoints) excludes, so TORUS profiles are cubic or quartic.
+        int degree = io.integer(topology == MeshTopology::TORUS ? 3 : 2, 4);
+        bool lattice = io.boolean();
+        std::vector<Vector2<double>> controls(static_cast<size_t>(degree) + 1);
+        for (int i = 0; i <= degree; ++i)
+        {
+            double x = (lattice ? io.lattice(1, 3) : io.real(0.5, 3.0));
+            double z = (lattice ? io.lattice(-2, 2) : io.real(-2.0, 2.0));
+            controls[static_cast<size_t>(i)] = { x, z };
+        }
+        if (topology == MeshTopology::DISK || topology == MeshTopology::SPHERE) { controls.front()[0] = 0.0; }
+        if (topology == MeshTopology::SPHERE) { controls.back()[0] = 0.0; }
+        if (topology == MeshTopology::TORUS) { controls.back() = controls.front(); }
+        return std::make_shared<BezierCurve<2, double>>(degree, controls.data());
+    }
+}
+
+namespace
+{
+    // One RevolutionMesh. 'topologyMode': 0 CYLINDER/TORUS/DISK, 1 SPHERE.
+    void RunRevolution(oracle::Ctx& io, bool stableColumns, int topologyMode, int what)
+    {
+        static MeshTopology const topologies[3] =
+            { MeshTopology::CYLINDER, MeshTopology::TORUS, MeshTopology::DISK };
+        MeshTopology topology = (topologyMode == 1 ? MeshTopology::SPHERE
+            : topologies[io.integer(0, 2)]);
+        // A TORUS with numRows = 2 (the minimum) has only two distinct
+        // profile samples (t = tmin and tmax coincide), so its two bands are
+        // one annulus traversed in opposite directions and UpdateFrame's
+        // per-vertex sums cancel almost exactly: the frame is then decided
+        // by rounding noise, and a 1-ulp cos/sin difference flips it. The
+        // same happens for a quadratic closed profile at any row count (it
+        // retraces itself; DrawProfile now excludes it). Measured on the
+        // deep run of this case: 27 of 2000 records disagreed with neither
+        // restriction, 4 (all quadratic, numRows = 4) with the row
+        // restriction alone, 24 (all numRows <= 2) with the degree
+        // restriction alone, none with both; every disagreement was in the
+        // normal and frame channels of TORUS meshes with frames, the
+        // positions agreeing to 1e-12. The libm case therefore draws at
+        // least three rows for TORUS; the exact case covers numRows = 2 bit
+        // for bit.
+        bool torus = (topology == MeshTopology::TORUS);
+        int numRows = io.integer(!stableColumns && torus ? 3 : 1, 5);
+        int numCols = (stableColumns ? DrawStableColumns(io, false) : io.integer(3, 40));
+        bool sampleByArcLength = io.boolean();
+        MeshBuffers b{};
+        DrawMeshChannels(io, b);
+        if (topologyMode == 1) { b.tcoords = true; }
+        auto curve = DrawProfile(io, topology);
+        MeshDescription d(topology, static_cast<uint32_t>(numRows), static_cast<uint32_t>(numCols));
+        AttachChannels(d, b);
+        RevolutionMesh<double> mesh(d, curve, sampleByArcLength);
+        EmitMesh(io, mesh.GetDescription(), b, what, stableColumns);
+    }
+}
+
+ORACLE_CASE("RevolutionMesh.construct")
+{
+    // CYLINDER, TORUS and DISK profiles, rows 1..5 (clamped to the topology
+    // minimum), column counts with libm-stable angle tables, arc-length or
+    // uniform sampling, every channel combination (normals, client tcoords,
+    // the four tangent-space channels with or without
+    // wantDynamicTangentSpaceUpdate: UpdateFrame versus UpdateNormals) and
+    // both windings. DISK texture coordinates never add the declared origin
+    // (#412, preserved).
+    RunRevolution(io, true, 0, 15);
+}
+
+ORACLE_CASE("RevolutionMesh.sphere")
+{
+    // SPHERE: positions and texture coordinates (one-row spheres divide by
+    // numRows - 1 = 0: NaN tcoords, #412, preserved). The indices, and the
+    // normals and frames computed from them, differ: see
+    // RevolutionMesh.sphere.indices.
+    RunRevolution(io, true, 1, 5);
+}
+
+ORACLE_CASE("RevolutionMesh.sphere.indices")
+{
+    // Deliberate port fix of Mesh.h (#220, #240; Mesh.h items 1 and 2):
+    // upstream's second pole fan starts at (numRows - 1) * numCols instead
+    // of (numRows - 1) * (numCols + 1) and is wound opposite to the rest of
+    // the mesh. Every SPHERE mesh deviates (the winding alone for one row).
+    RunRevolution(io, true, 1, 15);
+}
+
+ORACLE_CASE("RevolutionMesh.libm")
+{
+    // Any column count 3..40: cos/sin of the column angles come from the
+    // MSVC runtime and V8 (1 ulp apart on a few percent of the angles), so
+    // the reals are compared with the default tolerance 1e-12; the counts,
+    // flags and indices exactly.
+    RunRevolution(io, false, 0, 15);
+}
+
+ORACLE_CASE("RevolutionMesh.invalid")
+{
+    // A topology RevolutionMesh does not support (ARBITRARY, RECTANGLE):
+    // constructed = false and nothing else happens. Then the Mesh
+    // constructor's LogAsserts: no index attribute, no position channel.
+    int mode = io.integer(0, 3);
+    auto curve = DrawProfile(io, MeshTopology::CYLINDER);
+    MeshTopology topology = (mode == 0 ? MeshTopology::RECTANGLE : MeshTopology::CYLINDER);
+    MeshDescription d(topology, 3u, 4u);
+    MeshBuffers b{};
+    b.normals = true;
+    AttachChannels(d, b);
+    if (mode == 2) { d.indexAttribute = IndexAttribute(); }
+    if (mode == 3) { d.vertexAttributes.erase(d.vertexAttributes.begin()); }
+    RevolutionMesh<double> mesh(d, curve, false);
+    io.outBool(mesh.GetDescription().constructed);
+    io.outInt(mesh.GetDescription().numVertices);
+}
+
+namespace
+{
+    // One TubeMesh: a cubic or quartic Bezier medial curve, the radial
+    // function r(t) = a + b t + c t^2 (arithmetic, mirrored in the replay),
+    // a zero up vector (Frenet frames) or a lattice one.
+    void RunTube(oracle::Ctx& io, bool stableColumns, bool closed, int what)
+    {
+        int numRows = io.integer(1, 5);
+        int numCols = (stableColumns ? DrawStableColumns(io, true) : io.integer(3, 40));
+        bool sampleByArcLength = io.boolean();
+        MeshBuffers b{};
+        DrawMeshChannels(io, b);
+        int degree = io.integer(3, 4);
+        std::vector<Vector3<double>> controls(static_cast<size_t>(degree) + 1);
+        for (auto& c : controls) { c = io.vec<3>(-3.0, 3.0); }
+        auto medial = std::make_shared<BezierCurve<3, double>>(degree, controls.data());
+        double ra = io.real(0.25, 1.0);
+        double rb = io.real(-0.25, 0.25);
+        double rc = io.real(-0.25, 0.25);
+        std::function<double(double)> radial = [ra, rb, rc](double t) { return (ra + rb * t) + rc * (t * t); };
+        Vector3<double> up{ 0.0, 0.0, 0.0 };
+        if (io.boolean()) { up = io.latticeVec<3>(-1, 1); }
+        MeshDescription d(MeshTopology::CYLINDER, static_cast<uint32_t>(numRows), static_cast<uint32_t>(numCols));
+        AttachChannels(d, b);
+        TubeMesh<double> mesh(d, medial, radial, closed, sampleByArcLength, up);
+        EmitMesh(io, mesh.GetDescription(), b, what, stableColumns);
+    }
+}
+
+ORACLE_CASE("TubeMesh.construct")
+{
+    // Open tubes: rows 1..5 (clamped to 2), column counts whose angle
+    // table (n = numCols - 1 angles) is libm-stable, arc-length or uniform
+    // sampling, Frenet or up-vector frames, every channel combination.
+    // Rings have numCols - 1 distinct angles and a degenerate quad column
+    // (#240 item 8, preserved).
+    RunTube(io, true, false, 15);
+}
+
+ORACLE_CASE("TubeMesh.closed")
+{
+    // Deliberate port fix (#240, TubeMesh item 3): the closed-tube fixup
+    // copies the first ring onto the last with the numCols stride instead
+    // of numCols + 1 and stops one vertex short, overwriting an interior
+    // ring. Positions (and the normals and frames computed from them)
+    // deviate; the counts, flags, texture coordinates and indices agree.
+    RunTube(io, true, true, 15);
+}
+
+ORACLE_CASE("TubeMesh.libm")
+{
+    // Any column count 3..40, reals compared with the default tolerance
+    // 1e-12 (cos/sin of the column angles); counts, flags, indices exact.
+    RunTube(io, false, false, 15);
+}

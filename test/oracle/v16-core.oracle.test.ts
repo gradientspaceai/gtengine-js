@@ -4,7 +4,13 @@ import { CurveExtractorEdge, CurveExtractorVertex } from '../../src/CurveExtract
 import { CurveExtractorSquares } from '../../src/CurveExtractorSquares.js';
 import { CurveExtractorTriangles } from '../../src/CurveExtractorTriangles.js';
 import { IEEEBinary16 } from '../../src/IEEEBinary16.js';
+import { BezierCurve } from '../../src/BezierCurve.js';
 import { EdgeKey } from '../../src/EdgeKey.js';
+import { IndexAttribute } from '../../src/IndexAttribute.js';
+import { MeshDescription, MeshTopology } from '../../src/Mesh.js';
+import { RevolutionMesh } from '../../src/RevolutionMesh.js';
+import { TubeMesh } from '../../src/TubeMesh.js';
+import { VertexAttribute } from '../../src/VertexAttribute.js';
 import { ETNonmanifoldMesh } from '../../src/ETNonmanifoldMesh.js';
 import { ImplicitSurface3 } from '../../src/ImplicitSurface3.js';
 import { TriangleKey } from '../../src/TriangleKey.js';
@@ -376,6 +382,111 @@ function emitVET(io: OracleIO, mesh: VETNonmanifoldMesh): void {
 function readOp(io: OracleIO): { type: number, v: [number, number, number] } {
     const type = io.integer();
     return { type, v: [io.integer(), io.integer(), io.integer()] };
+}
+
+// ------------------------------------------------------------ RevolutionMesh, TubeMesh
+
+interface MeshBuffers {
+    normals: boolean; tcoords: boolean; frame: boolean;
+    wantDynamic: boolean; wantCCW: boolean;
+    channels: Map<string, Float64Array>;
+    indices: Uint32Array;
+}
+
+function readMeshChannels(io: OracleIO): MeshBuffers {
+    return {
+        normals: io.boolean(), tcoords: io.boolean(), frame: io.boolean(),
+        wantDynamic: io.boolean(), wantCCW: io.boolean(),
+        channels: new Map(), indices: new Uint32Array(0)
+    };
+}
+
+function attachChannels(d: MeshDescription, b: MeshBuffers): void {
+    const n = d.numVertices;
+    d.wantDynamicTangentSpaceUpdate = b.wantDynamic;
+    d.wantCCW = b.wantCCW;
+    const add = (semantic: string, components: number): void => {
+        const data = new Float64Array(n * components);
+        b.channels.set(semantic, data);
+        d.vertexAttributes.push(new VertexAttribute(semantic, data, 8 * components));
+    };
+    add('position', 3);
+    if (b.normals) { add('normal', 3); }
+    if (b.tcoords) { add('tcoord', 2); }
+    if (b.frame) { for (const s of ['tangent', 'bitangent', 'dpdu', 'dpdv']) { add(s, 3); } }
+    b.indices = new Uint32Array(3 * d.numTriangles);
+    d.indexAttribute = new IndexAttribute(b.indices, 4);
+}
+
+function emitMesh(io: OracleIO, d: MeshDescription, b: MeshBuffers, what: number): void {
+    io.outInt(d.numVertices);
+    io.outInt(d.numTriangles);
+    io.outBool(d.constructed);
+    io.outBool(d.allowUpdateFrame);
+    io.outBool(d.hasTangentSpaceVectors);
+    const out = (s: string): void => {
+        const data = b.channels.get(s);
+        if (data) { for (const x of data) { io.outReal(x); } }
+    };
+    if (what & 1) { out('position'); }
+    if (what & 2) { for (const s of ['normal', 'tangent', 'bitangent', 'dpdu', 'dpdv']) { out(s); } }
+    if (what & 4) { out('tcoord'); }
+    if (what & 8) { for (const i of b.indices) { io.outInt(i); } }
+}
+
+function readMeshChannelsFixed(): MeshBuffers {
+    return {
+        normals: true, tcoords: false, frame: false, wantDynamic: false, wantCCW: true,
+        channels: new Map(), indices: new Uint32Array(0)
+    };
+}
+
+function readProfile(io: OracleIO, topology: MeshTopology): BezierCurve {
+    const degree = io.integer();
+    io.boolean();
+    const controls: Vector[] = [];
+    for (let i = 0; i <= degree; ++i) { controls.push(io.vec(2)); }
+    if (topology === MeshTopology.DISK || topology === MeshTopology.SPHERE) {
+        controls[0].set(0, 0);
+    }
+    if (topology === MeshTopology.SPHERE) { controls[degree].set(0, 0); }
+    if (topology === MeshTopology.TORUS) { controls[degree] = controls[0].clone(); }
+    return new BezierCurve(2, degree, controls);
+}
+
+function runRevolution(io: OracleIO, topologyMode: number, what: number): void {
+    const topologies = [MeshTopology.CYLINDER, MeshTopology.TORUS, MeshTopology.DISK];
+    const topology = (topologyMode === 1 ? MeshTopology.SPHERE : topologies[io.integer()]);
+    const numRows = io.integer();
+    const numCols = io.integer();
+    const sampleByArcLength = io.boolean();
+    const b = readMeshChannels(io);
+    if (topologyMode === 1) { b.tcoords = true; }
+    const curve = readProfile(io, topology);
+    const d = new MeshDescription(topology, numRows, numCols);
+    attachChannels(d, b);
+    const mesh = new RevolutionMesh(d, curve, sampleByArcLength);
+    emitMesh(io, mesh.getDescription(), b, what);
+}
+
+function runTube(io: OracleIO, closed: boolean, what: number): void {
+    const numRows = io.integer();
+    const numCols = io.integer();
+    const sampleByArcLength = io.boolean();
+    const b = readMeshChannels(io);
+    const degree = io.integer();
+    const controls: Vector[] = [];
+    for (let i = 0; i <= degree; ++i) { controls.push(io.vec(3)); }
+    const medial = new BezierCurve(3, degree, controls);
+    const ra = io.real();
+    const rb = io.real();
+    const rc = io.real();
+    const radial = (t: number): number => (ra + rb * t) + rc * (t * t);
+    const up = io.boolean() ? io.vec(3) : new Vector(3);
+    const d = new MeshDescription(MeshTopology.CYLINDER, numRows, numCols);
+    attachChannels(d, b);
+    const mesh = new TubeMesh(d, medial, radial, closed, sampleByArcLength, up);
+    emitMesh(io, mesh.getDescription(), b, what);
 }
 
 describe('oracle: v16-core', () => {
@@ -763,6 +874,42 @@ describe('oracle: v16-core', () => {
         io.outBool(mesh.remove(target[0], target[1], target[2]));
         emitVET(io, mesh);
     }, { exact: true, deviation: '#240 (VETNonmanifoldMesh::Remove inverted assertion)' });
+
+    // ------------------------------------------------------------ RevolutionMesh
+
+    family.case('RevolutionMesh.construct', (io) => runRevolution(io, 0, 15), { exact: true });
+
+    family.case('RevolutionMesh.sphere', (io) => runRevolution(io, 1, 5), { exact: true });
+
+    family.case('RevolutionMesh.sphere.indices', (io) => runRevolution(io, 1, 15),
+        { exact: true, deviation: '#220, #240 (Mesh.h SPHERE pole fan stride and winding)' });
+
+    // cos/sin of arbitrary column angles (MSVC runtime against V8).
+    family.case('RevolutionMesh.libm', (io) => runRevolution(io, 0, 15));
+
+    family.case('RevolutionMesh.invalid', (io) => {
+        const mode = io.integer();
+        const curve = readProfile(io, MeshTopology.CYLINDER);
+        const topology = (mode === 0 ? MeshTopology.RECTANGLE : MeshTopology.CYLINDER);
+        const d = new MeshDescription(topology, 3, 4);
+        const b = readMeshChannelsFixed();
+        attachChannels(d, b);
+        if (mode === 2) { d.indexAttribute = new IndexAttribute(); }
+        if (mode === 3) { d.vertexAttributes.shift(); }
+        const mesh = new RevolutionMesh(d, curve, false);
+        io.outBool(mesh.getDescription().constructed);
+        io.outInt(mesh.getDescription().numVertices);
+    }, { exact: true });
+
+    // ------------------------------------------------------------ TubeMesh
+
+    family.case('TubeMesh.construct', (io) => runTube(io, false, 15), { exact: true });
+
+    family.case('TubeMesh.closed', (io) => runTube(io, true, 15),
+        { exact: true, deviation: '#240 (TubeMesh closed-tube fixup stride)' });
+
+    // cos/sin of arbitrary column angles (MSVC runtime against V8).
+    family.case('TubeMesh.libm', (io) => runTube(io, false, 15));
 
     family.finish();
 });
