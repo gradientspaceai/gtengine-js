@@ -71,14 +71,14 @@ Nothing here has been reported upstream before; this document is the report.
 
 ## Counts
 
-- **523 distinct findings** across **168** tracked issues (one issue
+- **526 distinct findings** across **169** tracked issues (one issue
   frequently holds several findings in related files).
 - By severity: **255 result-corrupting**, **16 wrong but
-  recoverable**, **179 minor**, **73 documentation**.
+  recoverable**, **180 minor**, **75 documentation**.
 - By port status: **262 fixed or corrected in the port** (of which 160 are code
   fixes with regression tests, 22 are added guards or asserts where upstream has
   undefined behaviour, 64 are comment corrections, 11 are dead-code removals and
-  5 are documented deliberate deviations), **251 preserved deliberately**, and
+  5 are documented deliberate deviations), **254 preserved deliberately**, and
   **10 not ported** (the `GTE_USE_VEC_MAT` branches, dead code that cannot
   compile, and two arbitrary-precision paths).
 - **288 distinct upstream headers** are implicated.
@@ -311,6 +311,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `HelmertTransformation7.h` | `A = sum(u v^T)` | computed and never read (dead Procrustes leftover) | minor | n/a | [#262](https://github.com/gradientspaceai/gtengine-js/issues/262) |
 | `HelmertTransformation7.h` | `LogAssert(mNumPoints >= 7)` | confuses "7 parameters" with "7 points"; 3 correspondences suffice | minor | preserved | [#262](https://github.com/gradientspaceai/gtengine-js/issues/262) |
 | `HelmertTransformation7.h` | `UpdateF` | `0.0` double literal in template code; stray `;;` | minor | corrected | [#262](https://github.com/gradientspaceai/gtengine-js/issues/262) |
+| `HermiteCubic.h`, `HermiteQuintic.h`, `HermiteBicubic.h`, `HermiteBiquintic.h`, `HermiteTricubic.h`, `HermiteTriquintic.h` | comments, `c` access | stale copy-paste documentation (cubic/quintic, 2D/3D, C1/C2, `Hxxxx`, nonexistent class names) and `c` private in the 1D classes under a "set manually" comment while public in the tensor-product classes | doc | n/a | [#539](https://github.com/gradientspaceai/gtengine-js/issues/539) |
 | `Histogram.h` | bucket index (L80-87, 126-133, 171-178) | the maximum sample lands in bucket `B-2` about 7% of the time | minor | preserved | [#436](https://github.com/gradientspaceai/gtengine-js/issues/436) |
 | `Histogram.h` | rescaled path | a subnormal sample range overflows `mult` and writes outside `mBuckets` | RC | preserved | [#436](https://github.com/gradientspaceai/gtengine-js/issues/436) |
 | `Hyperellipsoid.h` | `FromCoefficients` | `Inverse(A, &invertible)` with only `Matrix.h` included: whether the closed-form `Matrix2x2.h`/`Matrix3x3.h` overload or the Gaussian-elimination template is called depends on the including translation unit, so two units can compute different last bits | minor | fixed | [#217](https://github.com/gradientspaceai/gtengine-js/issues/217) |
@@ -339,6 +340,8 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `IntpAkimaUniform2.h`, `IntpAkimaUniform3.h` | `GetFXY` (and 3D `GetFXZ`, `GetFYZ`, `GetFXYZ`) | max-boundary stencils reuse the min-boundary coefficients on a reversed index sequence, so the sign is inverted | RC | fixed | [#58](https://github.com/gradientspaceai/gtengine-js/issues/58) |
 | `IntpBicubic2.h`, `IntpBilinear2.h`, `IntpTricubic3.h`, `IntpTrilinear3.h` | `operator()` | documented input clamping clamps only the cell index; the fractional coordinate extrapolates | RC | preserved | [#69](https://github.com/gradientspaceai/gtengine-js/issues/69) |
 | `IntpBicubic2.h`, `IntpTricubic3.h` | `mBlend[0][3]` initialiser | stray double semicolon | minor | corrected | [#69](https://github.com/gradientspaceai/gtengine-js/issues/69) |
+| `IntpBilinear2.h`, `IntpBicubic2.h`, `IntpTrilinear3.h`, `IntpTricubic3.h` | cell index | `static_cast<int32_t>(xIndex)` is undefined for NaN or coordinates beyond int32; MSVC yields `INT_MIN`, which the `ix < 0` clamp maps to cell 0, so a far-right query is evaluated on the first cell | minor | preserved | [#69](https://github.com/gradientspaceai/gtengine-js/issues/69) |
+| `IntpBicubic2.h` | constructor assertion | requires a 3x3 minimum with the Akima comment about boundary-derivative estimates; bicubic estimates no derivatives and its clamped stencil works on 2x2 | doc | preserved | [#69](https://github.com/gradientspaceai/gtengine-js/issues/69) |
 | `IntpBilinear2.h` | constructor comment | claims a 3x3 block minimum where the assertion and algorithm need 2x2 | doc | corrected | [#69](https://github.com/gradientspaceai/gtengine-js/issues/69) |
 | `IntpBSplineUniform.h` | `ComputePowers` | writes `powerDSDT[1]` unconditionally after `resize(degree+1)`; overruns for degree 0 | RC | fixed | [#135](https://github.com/gradientspaceai/gtengine-js/issues/135) |
 | `IntpBSplineUniform.h` | `A` extraction | reads `Q[k][col]` past the degree after leading-zero elimination | minor | fixed | [#135](https://github.com/gradientspaceai/gtengine-js/issues/135) |
@@ -2419,6 +2422,22 @@ only at unit spacing.
 
 Issues [#122](https://github.com/gradientspaceai/gtengine-js/issues/122), [#439](https://github.com/gradientspaceai/gtengine-js/issues/439).
 
+### `HermiteCubic.h`, `HermiteQuintic.h`, `HermiteBicubic.h`, `HermiteBiquintic.h`, `HermiteTricubic.h`, `HermiteTriquintic.h`
+
+**Documentation and access (found by the C++ oracle of group 28).**
+`HermiteCubic.h` and `HermiteQuintic.h` declare `c` private directly under "Set
+the coefficients manually as desired", while the four tensor-product classes make
+it public. `HermiteQuintic.h` says "Hermite cubic interpolation ... globally
+C1-continuous" (the quintic lattice interpolant is C2) and labels `hermite(5, x)`
+as `Hxxxx`; `HermiteBiquintic.h` describes "6x6x6 coefficients ... voxels at
+(x,y,z)" for a 2D class; `HermiteTriquintic.h` says "Hermite cubic interpolation
+... 4x4x4 coefficients"; comments name the nonexistent `IntpHermiteCubic2<T>`,
+`IntpHermiteCubic3<T>` and `HermiteCubic{2,3}`. The formulas are correct: the
+corner conditions hold to round-off for all six classes and every evaluation is
+bit-identical to the MSVC build (3.27 million outputs).
+
+Issue [#539](https://github.com/gradientspaceai/gtengine-js/issues/539).
+
 ### `Histogram.h`
 
 **1. The maximum sample misses the last bucket about 7% of the time.**
@@ -2636,7 +2655,20 @@ copy-pasted stale comment text.
 Cosmetic in the same family: `IntpTricubic3.h` and `IntpBicubic2.h` have a stray
 double semicolon in the `mBlend[0][3]` initializer; `IntpBilinear2.h`'s
 constructor comment claims a 3x3 block minimum while the assertion and algorithm
-need only 2x2.
+need only 2x2. `IntpBicubic2.h`'s constructor assertion is the twin: it requires
+3x3 with the Akima comment about "the estimates of the boundary derivatives",
+but bicubic estimates no derivatives and its clamped 4x4 stencil works on 2x2
+(C++ oracle of group 28).
+
+**Cell index conversion (minor; C++ oracle of group 28).** All four headers
+compute `static_cast<int32_t>(xIndex)`, undefined when `xIndex` is NaN or
+outside the int32 range. MSVC's `cvttsd2si` yields `INT_MIN`, which the
+`ix < 0` clamp maps to cell 0, so a far-right query is evaluated on the first
+cell: for `f = x + 2y` on `[0,2]^2` with unit spacing, `IntpBilinear2(2147483646, 1)`
+is 4 but `IntpBilinear2(2147483648, 1)` is 2147483650, and `IntpBicubic2` jumps
+from 4.95e27 to -4.95e27 at the same point. Port: `Math.trunc` followed by the
+same clamp, which selects the last cell and matches upstream for every
+|xIndex| < 2^31.
 
 Issue [#69](https://github.com/gradientspaceai/gtengine-js/issues/69). Port: preserved.
 
