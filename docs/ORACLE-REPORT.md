@@ -9,7 +9,7 @@ upstream GTE code compiled with MSVC; the port replays the same inputs. See
 - compiler MSVC 194435215 x64 /O2 /fp:precise
 - records-per-case 20
 
-**1278 cases, 22980 records, 236289 floating-point outputs compared; 99.69% bit-identical to the C++ build. 1101 cases are bit-identical on every output. 129 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
+**1302 cases, 23300 records, 241402 floating-point outputs compared; 99.70% bit-identical to the C++ build. 1117 cases are bit-identical on every output. 137 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
 
 Discrete outputs (booleans, counts, indices) always compare exactly and are not counted
 in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |port|, |C++|)`.
@@ -26,6 +26,8 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | v09-compgeom | 16 | 220 | 640 | 100.00% | 11 | 0 |  |
 | v10-compgeom | 18 | 280 | 3532 | 100.00% | 14 | 0 |  |
 | v11-compgeom | 23 | 300 | 2571 | 100.00% | 15 | 0 |  |
+| v12-compgeom | 18 | 240 | 5080 | 100.00% | 12 | 0 |  |
+| v13-compgeom | 6 | 80 | 33 | 100.00% | 4 | 0 |  |
 | v14-containment | 70 | 1280 | 4492 | 100.00% | 64 | 0 |  |
 | v17-curves | 51 | 1000 | 17627 | 100.00% | 50 | 0 |  |
 | v18-curves | 24 | 460 | 4738 | 99.70% | 18 | 8.35e-14 | `EllipsoidGeodesic.refine.separated` |
@@ -69,7 +71,7 @@ every record.
 | v04-approximation | `ApprCone3EllipseAndPoints.fit.deviation` | 9 of 20 | issue #349: ComputeCone divides by the ellipse extent a without validating it |
 | v05-ap | `BSNumber.construct.string.singleChar` | 20 of 20 | #95 (ConvertToInteger validates one-character strings) |
 | v08-compgeom | `MinimumVolumeBox3FloatingPoint.compute.coplanar` | 12 of 20 | #352 (dimension-2 Newell normal loop drops the wrap-around term) |
-| v08-compgeom | `MinimumVolumeBox3FloatingPoint.compute.nonContaining` | 13 of 20 | #405 (ComputeVolume axis minima) and #426 (GetExtreme plateau) |
+| v08-compgeom | `MinimumVolumeBox3FloatingPoint.compute.nonContaining` | 14 of 20 | #405 (ComputeVolume axis minima) and #426 (GetExtreme plateau) |
 | v08-compgeom | `MinimumVolumeBox3Rational.compute.variableT` | 6 of 20 | #355 (MinimizerVariableT rounds its exact parameters to double) |
 | v08-compgeom | `MinimumVolumeBox3Rational.compute.coplanar` | 17 of 20 | #355 (dimension-2 Newell normal loop drops the wrap-around term) |
 | v09-compgeom | `Delaunay2.compute.deviation.numVertices` | 20 of 20 | #277 (GetNumVertices after degenerate input) |
@@ -89,6 +91,14 @@ every record.
 | v11-compgeom | `SeparatePoints2.deviation.roundoff` | 20 of 20 | #328 (round-off in the side tests) |
 | v11-compgeom | `ConstrainedDelaunay2.deviation.staleInsertedEdges` | 20 of 20 | #325 (mInsertedEdges survives operator()) |
 | v11-compgeom | `ConstrainedDelaunay2.deviation.duplicatesRead` | 20 of 20 | #325 (duplicates[] read before the range check) |
+| v12-compgeom | `MinimumVolumeBox3FloatingPoint.getExtreme.plateau` | 20 of 20 | #426 (GetExtreme stalls on a floating-point plateau) |
+| v12-compgeom | `MinimumVolumeBox3FloatingPoint.compute.dimension2.floatComputeType` | 20 of 20 | design: MinimumAreaBox2 is exact-only (src/MinimumAreaBox2.ts) |
+| v12-compgeom | `MinimumVolumeBox3FloatingPoint.computeHull.provenViolation` | 17 of 20 | #405, #426 (proven support violations of the winner) |
+| v12-compgeom | `MinimumVolumeBox3Rational.compute.dimension2.floatComputeType` | 20 of 20 | design: MinimumAreaBox2 is exact-only (src/MinimumAreaBox2.ts) |
+| v12-compgeom | `MinimumVolumeBox3FloatingPoint.computeHull.reuse` | 20 of 20 | v12 suspect: stale mEdgeIndices on functor reuse |
+| v12-compgeom | `MinimumVolumeBox3Rational.computeHull.reuse` | 20 of 20 | v12 suspect: stale mEdgeIndices on functor reuse |
+| v13-compgeom | `SeparatePoints3.deviation.roundoff` | 20 of 20 | #348 SeparatePoints3 finding 1 (exact side predicate) |
+| v13-compgeom | `SeparatePoints3.deviation.edgeAxisOrigin` | 18 of 20 | #348 SeparatePoints3 finding 2 (consistent plane origin) |
 | v14-containment | `ContLozenge3.getContainer.cornerDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md ContLozenge3.h, issue #174 |
 | v14-containment | `ContEllipse2MinCR.compute.verticalLineDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md ContEllipse2MinCR.h, issue #234 |
 | v14-containment | `ContEllipsoid3MinCR.compute.assertDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md ContEllipsoid3MinCR.h, issue #409 |

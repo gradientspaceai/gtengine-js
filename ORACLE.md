@@ -389,6 +389,16 @@ Halving is exact, adding is not: `0.5 * (a + b)` lies exactly on a segment
 only when `a + b` is exact. Use lattice or dyadic coordinates (multiples of
 2^-10) for exact midpoints.
 
+When a hash-container order decides the winner (`unordered_map` numbering,
+`unordered_set` adjacency, heap-address-seeded hull order), pin it instead of
+tolerating: a subclass that replays upstream's protected pipeline with sorted
+iteration on both sides (v12 `Canonical<Base>`) turned v08's volume tolerances
+of 2e-2 and 1.5e-1 into exact comparisons of every internal. And confine a
+floating-point fix by a rigorous rounding bound, not by a strict double
+comparison: "replace on any strictly smaller projection" fired on the rounding
+noise between the vertices of one hull face and moved the box by ulps on
+ordinary clouds (v12, #405/#426).
+
 Never loosen a tolerance or narrow a generator to make a disagreement
 disappear without knowing which of these it is.
 
