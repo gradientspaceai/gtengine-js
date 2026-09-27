@@ -54,8 +54,11 @@ describe('oracle: v10-compgeom', () => {
 
     // ---- MinimumAreaCircle2 / MinimumVolumeSphere3 -----------------------
 
-    // Only point sets whose result does not depend on the implementation
-    // defined std::shuffle permutation reach this case; see the C++ file.
+    // The C++ side makes upstream run the port's own shuffle permutation (a
+    // lockstep std::default_random_engine; see PortOrderResult in the C++
+    // file), so the result, the support set and the support order are all
+    // compared as they are. A fresh query per record: the port's first
+    // compute() applies the permutation the C++ side reproduced.
     function emitCircle(io: OracleIO, points: readonly Vector[]): void {
         const query = new MinimumAreaCircle2();
         const { minimal, success } = query.compute(points);
@@ -64,10 +67,8 @@ describe('oracle: v10-compgeom', () => {
         io.outReal(minimal.center.get(1));
         io.outReal(minimal.radius);
         io.outInt(query.numSupport);
-        const support = query.support.slice(0, query.numSupport).slice().sort(
-            (a, b) => a - b);
-        for (const s of support) {
-            io.outInt(s);
+        for (let i = 0; i < query.numSupport; ++i) {
+            io.outInt(query.support[i]);
         }
     }
 
@@ -80,20 +81,13 @@ describe('oracle: v10-compgeom', () => {
         io.outReal(minimal.center.get(2));
         io.outReal(minimal.radius);
         io.outInt(query.numSupport);
-        const support = query.support.slice(0, query.numSupport).slice().sort(
-            (a, b) => a - b);
-        for (const s of support) {
-            io.outInt(s);
+        for (let i = 0; i < query.numSupport; ++i) {
+            io.outInt(query.support[i]);
         }
     }
 
     family.case('MinimumAreaCircle2.compute', (io) => {
-        const n = io.integer();
-        const points: Vector[] = [];
-        for (let i = 0; i < n; ++i) {
-            points.push(io.vec(2));
-        }
-        emitCircle(io, points);
+        emitCircle(io, readPoints(io, 2));
     }, { exact: true });
 
     // The port passes the whole input array to getContainerCircle2 where
@@ -118,12 +112,7 @@ describe('oracle: v10-compgeom', () => {
     }, { exact: true });
 
     family.case('MinimumVolumeSphere3.compute', (io) => {
-        const n = io.integer();
-        const points: Vector[] = [];
-        for (let i = 0; i < n; ++i) {
-            points.push(io.vec(3));
-        }
-        emitSphere(io, points);
+        emitSphere(io, readPoints(io, 3));
     }, { exact: true });
 
     family.case('MinimumVolumeSphere3.compute.deviation.trappedFallback', (io) => {

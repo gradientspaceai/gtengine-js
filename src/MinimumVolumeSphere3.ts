@@ -376,9 +376,12 @@ export class MinimumVolumeSphere3 {
         const { X, invertible } = LinearSystem.solve3x3(A, B);
         if (invertible) {
             const x3 = 1 - X.get(0) - X.get(1) - X.get(2);
-            minimal.center = add(
-                add(mul(X.get(0), P0), mul(X.get(1), P1)),
-                add(mul(X.get(2), P2), mul(x3, P3)));
+            // Upstream's X[0]*P0 + X[1]*P1 + X[2]*P2 + x3*P3 accumulates
+            // left to right, ((a + b) + c) + d; the pairwise grouping
+            // (a + b) + (c + d) differs in the last bit.
+            minimal.center = add(add(add(
+                mul(X.get(0), P0), mul(X.get(1), P1)), mul(X.get(2), P2)),
+                mul(x3, P3));
             const tmp = add(
                 add(mul(X.get(0), E0), mul(X.get(1), E1)),
                 mul(X.get(2), E2));
