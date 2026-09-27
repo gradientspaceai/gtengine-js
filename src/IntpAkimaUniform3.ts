@@ -36,13 +36,15 @@
 //     construction is built from a copy of the first xBound*yBound*zBound
 //     samples so that a longer input array is accepted, as in the
 //     IntpAkimaUniform2 port.
-//   - Upstream bug preserved: GetFXY, GetFXZ, GetFYZ and GetFXYZ reuse the
+//   - Upstream bug fixed: GetFXY, GetFXZ, GetFYZ and GetFXYZ reuse the
 //     min-boundary one-sided difference coefficients at the max boundaries
 //     with reflected sample indices and without negating the mask, so each
 //     reflected direction flips the sign of the estimated mixed partial
 //     derivative there. This is the 3D analogue of the IntpAkimaUniform2
-//     issue (gtengine-js issue #58); as in that port the quirk is preserved
-//     so the TypeScript results match upstream exactly.
+//     issue (gtengine-js issue #58). As in that port, the affected stencils
+//     are negated (see getFXY and getFXYZ); every other value is computed
+//     exactly as upstream computes it, which the C++ oracle
+//     (IntpAkimaUniform3.evaluate / .maxBoundary, v28) confirms bit for bit.
 
 import { Array3 } from './Array3.js';
 import { logAssert } from './Logger.js';

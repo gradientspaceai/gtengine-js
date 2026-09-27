@@ -487,5 +487,43 @@ describe('oracle: v28-interpolation', () => {
         io.outReal(interp.evaluate(0.25, 0.5));
     }, exact);
 
+    // ------------------------------------------------------ signed zeros
+    //
+    // std::max(-0, +0) is -0 and Math.max(-0, +0) is +0; the port clamps
+    // with stdMax/stdMin (upstream's comparison form).
+
+    family.case('IntpAkima1.evaluate.signedZero', (io) => {
+        const quantity = io.integer();
+        const xMin = io.real();
+        const xSpacing = io.real();
+        const F = io.reals(quantity);
+        const interp = new IntpAkimaUniform1(quantity, xMin, xSpacing, F);
+        for (let q = 0; q < 4; ++q) {
+            const x = io.real();
+            io.outReal(interp.evaluate(x));
+            for (let order = 0; order <= 3; ++order) { io.outReal(interp.evaluate(order, x)); }
+        }
+    }, exact);
+
+    family.case('IntpAkimaUniform2.evaluate.signedZero', (io) => {
+        const nx = io.integer();
+        const ny = io.integer();
+        const xSpacing = io.real();
+        const ySpacing = io.real();
+        const F = io.reals(nx * ny);
+        outAkima2(io, new IntpAkimaUniform2(nx, ny, 0, xSpacing, 0, ySpacing, F), 3);
+    }, exact);
+
+    family.case('IntpAkimaUniform3.evaluate.signedZero', (io) => {
+        const nx = io.integer();
+        const ny = io.integer();
+        const nz = io.integer();
+        const xSpacing = io.real();
+        const ySpacing = io.real();
+        const zSpacing = io.real();
+        const F = io.reals(nx * ny * nz);
+        outAkima3(io, new IntpAkimaUniform3(nx, ny, nz, 0, xSpacing, 0, ySpacing, 0, zSpacing, F));
+    }, exact);
+
     family.finish();
 });

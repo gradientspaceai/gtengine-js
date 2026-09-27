@@ -1116,3 +1116,88 @@ ORACLE_CASE("IntpBilinear2.construct.validation")
     IntpBilinear2<double> interp(xBound, yBound, 0.0, xSpacing, 0.0, ySpacing, F.data());
     io.outReal(interp(0.25, 0.5));
 }
+
+// ---------------------------------------------------------- signed zeros
+//
+// The Akima interpolators clamp with std::max/std::min, which return their
+// first argument on ties: std::max(-0, +0) is -0 where Math.max gives +0.
+// The difference reaches an output only through a zero sample at the lower
+// corner (c0 + dx * (...) with c0 = -0 and dx = -0), so these cases put the
+// grid minimum at +0, a signed zero at the first sample, and query +-0.
+
+namespace
+{
+    // +0, -0, or a small integer.
+    double RawSparse(oracle::Ctx& io)
+    {
+        int k = io.rawInteger(0, 3);
+        return (k == 0 ? 0.0 : (k == 1 ? -0.0 : static_cast<double>(io.rawInteger(-2, 2))));
+    }
+
+    // -0, +0, a negative value (clamped to the +0 minimum) or a dyadic value
+    // inside the first cell.
+    double RawNearZero(oracle::Ctx& io, double spacing)
+    {
+        int k = io.rawInteger(0, 3);
+        if (k == 0) { return -0.0; }
+        if (k == 1) { return 0.0; }
+        if (k == 2) { return -spacing * io.rawInteger(1, 4) / 4.0; }
+        return spacing * io.rawInteger(1, 3) / 4.0;
+    }
+}
+
+ORACLE_CASE("IntpAkima1.evaluate.signedZero")
+{
+    int quantity = io.integer(3, 5);
+    double xMin = io.given(0.0);
+    double xSpacing = io.given(RawSpacing(io));
+    std::vector<double> F(static_cast<size_t>(quantity));
+    F[0] = io.given(io.rawInteger(0, 1) == 0 ? -0.0 : 0.0);
+    for (size_t i = 1; i < F.size(); ++i) { F[i] = io.given(RawSparse(io)); }
+    IntpAkimaUniform1<double> interp(quantity, xMin, xSpacing, F.data());
+    for (int q = 0; q < 4; ++q)
+    {
+        double x = io.given(RawNearZero(io, xSpacing));
+        io.outReal(interp(x));
+        for (int order = 0; order <= 3; ++order) { io.outReal(interp(order, x)); }
+    }
+}
+
+ORACLE_CASE("IntpAkimaUniform2.evaluate.signedZero")
+{
+    int nx = io.integer(3, 4);
+    int ny = io.integer(3, 4);
+    double xSpacing = io.given(RawSpacing(io));
+    double ySpacing = io.given(RawSpacing(io));
+    std::vector<double> F(static_cast<size_t>(nx) * static_cast<size_t>(ny));
+    F[0] = io.given(io.rawInteger(0, 1) == 0 ? -0.0 : 0.0);
+    for (size_t i = 1; i < F.size(); ++i) { F[i] = io.given(RawSparse(io)); }
+    IntpAkimaUniform2<double> interp(nx, ny, 0.0, xSpacing, 0.0, ySpacing, F.data());
+    for (int q = 0; q < 3; ++q)
+    {
+        double x = io.given(RawNearZero(io, xSpacing));
+        double y = io.given(RawNearZero(io, ySpacing));
+        OutAkima2(io, interp, x, y);
+    }
+}
+
+ORACLE_CASE("IntpAkimaUniform3.evaluate.signedZero")
+{
+    int nx = io.integer(3, 4);
+    int ny = io.integer(3, 4);
+    int nz = io.integer(3, 4);
+    double xSpacing = io.given(RawSpacing(io));
+    double ySpacing = io.given(RawSpacing(io));
+    double zSpacing = io.given(RawSpacing(io));
+    std::vector<double> F(static_cast<size_t>(nx * ny * nz));
+    F[0] = io.given(io.rawInteger(0, 1) == 0 ? -0.0 : 0.0);
+    for (size_t i = 1; i < F.size(); ++i) { F[i] = io.given(RawSparse(io)); }
+    IntpAkimaUniform3<double> interp(nx, ny, nz, 0.0, xSpacing, 0.0, ySpacing, 0.0, zSpacing, F.data());
+    for (int q = 0; q < 2; ++q)
+    {
+        double x = io.given(RawNearZero(io, xSpacing));
+        double y = io.given(RawNearZero(io, ySpacing));
+        double z = io.given(RawNearZero(io, zSpacing));
+        OutAkima3(io, interp, x, y, z);
+    }
+}
