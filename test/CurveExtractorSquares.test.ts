@@ -453,3 +453,43 @@ describe('CurveExtractorSquares verification', () => {
         });
     });
 });
+
+describe('CurveExtractorSquares three-zero corners (C++ oracle, group 16)', () => {
+    // Upstream's '+000' and '00+0' bodies are swapped: for a square whose
+    // only nonzero corner is (0,0) or (1,1) it emits the two edges incident
+    // to that corner. The zero set of the bilinear interpolant is the pair
+    // of edges opposite the nonzero corner; the port emits those.
+    function extract2x2(f00: number, f10: number, f01: number, f11: number) {
+        return new CurveExtractorSquares(2, 2, [f00, f10, f01, f11]).extract(0);
+    }
+
+    it('emits the right and top edges when only (0,0) is nonzero (+000)', () => {
+        for (const s of [1, -3]) {
+            const r = extract2x2(s, 0, 0, 0);
+            expect(r.vertices.map(asPair)).toEqual([[1, 0], [1, 1], [1, 1], [0, 1]]);
+            expect(r.edges.map(e => e.v)).toEqual([[0, 1], [2, 3]]);
+        }
+    });
+
+    it('emits the left and bottom edges when only (1,1) is nonzero (00+0)', () => {
+        for (const s of [2, -1]) {
+            const r = extract2x2(0, 0, 0, s);
+            expect(r.vertices.map(asPair)).toEqual([[0, 1], [0, 0], [0, 0], [1, 0]]);
+            expect(r.edges.map(e => e.v)).toEqual([[0, 1], [2, 3]]);
+        }
+    });
+
+    it('puts every vertex of a one-nonzero-corner square on the level set', () => {
+        // The bilinear interpolant vanishes at a vertex exactly when the
+        // vertex is not the nonzero corner (all vertices are corners here).
+        for (let corner = 0; corner < 4; ++corner) {
+            const f = [0, 0, 0, 0];
+            f[corner] = 5;
+            const r = extract2x2(f[0], f[1], f[2], f[3]);
+            const at = [[0, 0], [1, 0], [0, 1], [1, 1]][corner];
+            for (const v of r.vertices) {
+                expect(asPair(v)).not.toEqual(at);
+            }
+        }
+    });
+});

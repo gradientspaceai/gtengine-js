@@ -850,3 +850,47 @@ describe('IEEEBinary16 verification', () => {
         });
     });
 });
+
+describe('IEEEBinary16 wrappers against the MSVC build (C++ oracle, group 16)', () => {
+    const H = IEEEBinary16;
+    const h = (x: number) => H.fromNumber(x);
+
+    it('ldexp returns zero, infinity and NaN unchanged for any exponent', () => {
+        // x * 2^e was 0 * inf or inf * 0 = NaN once 2^e left binary64.
+        expect(H.ldexp(h(0), 1100).number).toBe(0);
+        expect(Object.is(H.ldexp(h(-0), 1100).number, -0)).toBe(true);
+        expect(H.ldexp(h(Infinity), -1100).number).toBe(Infinity);
+        expect(H.ldexp(h(-Infinity), -1080).number).toBe(-Infinity);
+        expect(H.ldexp(h(1), 1100).number).toBe(Infinity);
+        expect(H.ldexp(h(65504), -1100).number).toBe(0);
+        expect(H.ldexp(h(3), 2).number).toBe(12);
+    });
+
+    it('pow follows C for pow(+1, y) and pow(-1, +-inf)', () => {
+        expect(H.pow(h(1), h(NaN)).number).toBe(1);
+        expect(H.pow(h(1), h(Infinity)).number).toBe(1);
+        expect(H.pow(h(-1), h(Infinity)).number).toBe(1);
+        expect(H.pow(h(-1), h(-Infinity)).number).toBe(1);
+        expect(Number.isNaN(H.pow(h(2), h(NaN)).number)).toBe(true);
+        expect(H.pow(h(2), h(3)).number).toBe(8);
+    });
+
+    it('sinpi and cospi use the binary32 pi and a binary32 product', () => {
+        // Upstream calls the float overloads of Functions.h:
+        // std::sin(x * static_cast<float>(GTE_C_PI)) in float. At x = 65504
+        // the binary32 product is far from 65504 * pi; the double overload
+        // (which the port used) gives sin(65504 * pi) = -0 after rounding.
+        const x = h(65504);
+        const product = Math.fround(65504 * Math.fround(Math.PI));
+        expect(H.sinpi(x).number).toBe(h(Math.fround(Math.sin(product))).number);
+        expect(Math.abs(H.sinpi(x).number)).toBeGreaterThan(1e-3);
+        expect(H.cospi(x).number).toBe(h(Math.fround(Math.cos(product))).number);
+    });
+
+    it('invsqrt is 1.0f / sqrtf(x), two binary32 roundings', () => {
+        for (const x of [2, 3, 5, 7, 0.1, 1000, 65504]) {
+            const s = Math.fround(Math.sqrt(Math.fround(x)));
+            expect(H.invsqrt(h(x)).number).toBe(h(Math.fround(1 / s)).number);
+        }
+    });
+});
