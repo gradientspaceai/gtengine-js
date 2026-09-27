@@ -261,9 +261,26 @@ describe('DistTriangle3OrientedBox3 verification', () => {
                     OrientedBox.fromCenterAxisExtent(xf(b.center),
                         [rot(b.axis[0]), rot(b.axis[1]), rot(b.axis[2])],
                         b.extent));
-                expectClose(r0.distance, r1.distance, 1e-8, 1e-8);
+                // The box queries accumulate the squared distance
+                // incrementally while clamping to faces and edges, so near
+                // contact the reported distance is accurate only to about
+                // sqrt(eps) times the coordinate scale, while the closest
+                // points stay accurate: CI seed -646087252 had a lattice
+                // triangle whose plane passes exactly through a box corner
+                // (a touching zero), reported as 1.46e-7 on both sides with
+                // the moved closest pair 1.3e-15 apart. Both comparisons
+                // allow for that.
+                let scale = 1;
+                for (let i = 0; i < 3; ++i) {
+                    scale = Math.max(scale, Math.abs(t.v[0].values[i]),
+                        Math.abs(t.v[1].values[i]), Math.abs(t.v[2].values[i]),
+                        Math.abs(b.center.values[i]) + b.extent.values[i]);
+                }
+                const nearContact = 4 * Math.sqrt(Number.EPSILON) * scale;
+                expectClose(r0.distance, r1.distance,
+                    Math.max(1e-8, nearContact), 1e-8);
                 expectClose(length(sub(r1.closest[0], r1.closest[1])),
-                    r0.distance, 1e-7, 1e-7);
+                    r0.distance, Math.max(1e-7, nearContact), 1e-7);
             });
     });
 
