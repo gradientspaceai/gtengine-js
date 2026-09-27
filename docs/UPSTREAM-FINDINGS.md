@@ -71,14 +71,14 @@ Nothing here has been reported upstream before; this document is the report.
 
 ## Counts
 
-- **533 distinct findings** across **172** tracked issues (one issue
+- **535 distinct findings** across **173** tracked issues (one issue
   frequently holds several findings in related files).
-- By severity: **257 result-corrupting**, **16 wrong but
-  recoverable**, **184 minor**, **76 documentation**.
-- By port status: **265 fixed or corrected in the port** (of which 162 are code
+- By severity: **258 result-corrupting**, **16 wrong but
+  recoverable**, **185 minor**, **76 documentation**.
+- By port status: **266 fixed or corrected in the port** (of which 163 are code
   fixes with regression tests, 22 are added guards or asserts where upstream has
   undefined behaviour, 65 are comment corrections, 11 are dead-code removals and
-  5 are documented deliberate deviations), **258 preserved deliberately**, and
+  5 are documented deliberate deviations), **259 preserved deliberately**, and
   **10 not ported** (the `GTE_USE_VEC_MAT` branches, dead code that cannot
   compile, and two arbitrary-precision paths).
 - **288 distinct upstream headers** are implicated.
@@ -229,6 +229,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `CubicRootsQR.h`, `QuarticRootsQR.h` | `GetQuadraticRoots` | real roots of even multiplicity are silently dropped (rounded-negative discriminant) | RC | preserved | [#488](https://github.com/gradientspaceai/gtengine-js/issues/488) |
 | `CurvatureFlow2.h` | line 48 | mixed-derivative coefficient is 0.5 where the curvature-flow numerator has 2 | RC | preserved | [#123](https://github.com/gradientspaceai/gtengine-js/issues/123) |
 | `CurveExtractor.h` | `MakeUnique` | remapped edge indices are not re-sorted, so reversed duplicates survive dedup | minor | preserved | [#67](https://github.com/gradientspaceai/gtengine-js/issues/67), [#362](https://github.com/gradientspaceai/gtengine-js/issues/362) |
+| `CurveExtractorSquares.h` | `ProcessSquare` '+000' / '00+0' | the two case bodies are swapped: each emits the two square edges incident to the one nonzero corner instead of the two zero edges | RC | fixed | [#546](https://github.com/gradientspaceai/gtengine-js/issues/546) |
 | `Cylinder3.h` | class comment | claims the default constructor sets the axis to (0,0,1); `Line3<T>()` gives (1,0,0) | doc | corrected | [#155](https://github.com/gradientspaceai/gtengine-js/issues/155) |
 | `Delaunay2.h` | `GetNumVertices` | returns 0 after degenerate input while `GetVertices` still returns the caller's pointer | RC | fixed | [#277](https://github.com/gradientspaceai/gtengine-js/issues/277) |
 | `Delaunay2.h` | `GetContainingTriangle` comment | "inside all four edges" is a 3D copy-paste | doc | corrected | [#277](https://github.com/gradientspaceai/gtengine-js/issues/277) |
@@ -624,6 +625,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `VEManifoldMesh.h` | `Insert` | writes the new edge into `mEMap` before the nonmanifold check, leaving a phantom edge on failure | RC | preserved | [#73](https://github.com/gradientspaceai/gtengine-js/issues/73) |
 | `VertexCollapseMesh.h` | `Collapsed` comment, `VCM_NO_MORE_ALLOWED` | the comment describes a restore that never happens; the code never returns that status | doc | corrected | [#295](https://github.com/gradientspaceai/gtengine-js/issues/295), [#412](https://github.com/gradientspaceai/gtengine-js/issues/412) |
 | `VertexCollapseMesh.h` | `TriangulateLink`, `Collapsed` | floating-point ear clipping of a link with collinear vertices returns a duplicate triangle; the old fan is removed before the failure is noticed, so `DoCollapse` returns false with a corrupted mesh | RC | fixed | [#498](https://github.com/gradientspaceai/gtengine-js/issues/498) |
+| `VertexCollapseMesh.h` | `ComputeWeight`, constructor | sums over pointer-hashed `unordered_set<Triangle*>` / `unordered_set<int32_t>` and fills the heap in `unordered_map` order, so weights and normals depend in the last bits on the allocator, weight ties on container order, and `Record::removed` is in hash order | minor | preserved | [#498](https://github.com/gradientspaceai/gtengine-js/issues/498) |
 | `VertexCollapseMesh.h` | `DoCollapse` | `record.vertex = 0x80000000` relies on implementation-defined conversion pre-C++20 | minor | preserved | [#295](https://github.com/gradientspaceai/gtengine-js/issues/295) |
 | `VETNonmanifoldMesh.h` | `Remove` | the assertion is inverted and fires for every well-formed mesh | RC | fixed | [#240](https://github.com/gradientspaceai/gtengine-js/issues/240) |
 | `VTSManifoldMesh.h` | `Remove` | over-erases `VAdjacent`, dropping adjacencies still contributed by surviving faces | RC | fixed | [#256](https://github.com/gradientspaceai/gtengine-js/issues/256) |
@@ -1685,6 +1687,24 @@ Issue [#123](https://github.com/gradientspaceai/gtengine-js/issues/123). Port: p
   `// else 'other' is an empty Array3.`, copy-pasted from `Array3.h`.
 
 Issues [#67](https://github.com/gradientspaceai/gtengine-js/issues/67), [#362](https://github.com/gradientspaceai/gtengine-js/issues/362), [#363](https://github.com/gradientspaceai/gtengine-js/issues/363), [#439](https://github.com/gradientspaceai/gtengine-js/issues/439). Port: preserved.
+### `CurveExtractorSquares.h`
+
+**The '+000' and '00+0' case bodies are swapped (result-corrupting; found by the
+C++ oracle of group 16).** In upstream's `(f00, f10, f11, f01)` sign notation,
+'+000' has only the corner `(x, y)` nonzero; the zero set of the bilinear
+interpolant `f00 (1-u)(1-v)` is the right and top edges, but `ProcessSquare`
+emits `(x, yp)-(x, y)` and `(x, y)-(xp, y)`, the two edges incident to the
+nonzero corner. '00+0' (only `(xp, yp)` nonzero) emits the right and top edges
+where the zero set is the left and bottom edges. Each body is the other's
+answer; '0+00' and '000+' are correct. Example: the 2x2 image
+`{f00, f10, f01, f11} = {1, 0, 0, 0}` at level 0 yields the edges `(0,1)-(0,0)`
+and `(0,0)-(1,0)`, both through `(0,0)`, where the image is 1. Both sides
+agreed bit for bit; an exact (bigint) check that every vertex lies on the level
+set caught it on 26 of 2000 deep records. Port: fixed; deviation case
+`CurveExtractorSquares.extract.threeZeroCorners` (2000 of 2000 records).
+
+Issue [#546](https://github.com/gradientspaceai/gtengine-js/issues/546).
+
 ### `Cylinder3.h`, `Polyhedron3.h`, `Parallelepiped3.h`, `Parallelogram2.h`, `Torus3.h`, `SegmentMesh.h`, `AlignedBox.h`, `OrientedBox.h`, `Triangle.h`
 
 Primitive-level contract and documentation findings, all preserved:
@@ -4629,6 +4649,13 @@ missing link edge and returns `VCM_UNEXPECTED_ERROR` with the mesh already
 modified. The port checks, before removing anything, that the inserted triangles
 are topologically a triangulation of the link (`n-2` triangles, link edges used
 once, all other edges twice) and defers the vertex otherwise.
+
+**Hash-order dependence (minor; C++ oracle of group 16).** `ComputeWeight` sums
+over `unordered_set<Triangle*>` (pointer-hashed) and `unordered_set<int32_t>`,
+and the constructor fills the heap in `unordered_map` order, so the weights and
+normals depend in the last bits on the allocator, weight ties are broken by
+container order, and `Record::removed` is in hash order. Port: sorted iteration;
+the oracle compares a canonical-order driver bit for bit (225537 heap weights).
 
 Issues [#295](https://github.com/gradientspaceai/gtengine-js/issues/295), [#412](https://github.com/gradientspaceai/gtengine-js/issues/412), [#498](https://github.com/gradientspaceai/gtengine-js/issues/498).
 ### Remaining single-item findings
