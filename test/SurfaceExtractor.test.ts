@@ -177,6 +177,32 @@ describe('SurfaceExtractorVertex', () => {
         expect(v.zDenom).toBe(8);
     });
 
+    // Upstream stores int64_t numerators, which have no negative zero: a
+    // zero numerator over a negative denominator normalizes to +0, and
+    // Convert returns +0. The port used to negate it to -0 (C++ oracle,
+    // group 25: 9 of 20 SurfaceExtractor.extract records differed in the
+    // sign of a zero coordinate).
+    it('normalizes a zero numerator to +0 as int64_t does', () => {
+        const v = new SurfaceExtractorVertex(0, -3, -0, 2, 0 * -2 - 0, -1);
+        expect(Object.is(v.xNumer, 0)).toBe(true);
+        expect(Object.is(v.yNumer, 0)).toBe(true);
+        expect(Object.is(v.zNumer, 0)).toBe(true);
+        expect(v.xDenom).toBe(3);
+        expect(v.zDenom).toBe(1);
+        // The upstream expression order: negate the numerator, which alone
+        // yields -0 for a zero numerator.
+        expect(Object.is(-0 / 3, -0)).toBe(true);
+        class Probe extends SurfaceExtractor {
+            constructor() { super(2, 2, 2, new Int32Array(8)); }
+            extractRational(): { vertices: SurfaceExtractorVertex[], triangles: SurfaceExtractorTriangle[] } {
+                return { vertices: [v], triangles: [] };
+            }
+            protected getGradient(): [number, number, number] { return [0, 0, 0]; }
+        }
+        const p = new Probe().convert([v])[0];
+        expect(p.every((c) => Object.is(c, 0))).toBe(true);
+    });
+
     it('compares rationals with different denominators', () => {
         const a = new SurfaceExtractorVertex(1, 2, 3, 4, 5, 6);
         const b = new SurfaceExtractorVertex(2, 4, 6, 8, 10, 12);

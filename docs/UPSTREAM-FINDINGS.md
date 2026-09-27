@@ -71,14 +71,14 @@ Nothing here has been reported upstream before; this document is the report.
 
 ## Counts
 
-- **535 distinct findings** across **173** tracked issues (one issue
+- **537 distinct findings** across **173** tracked issues (one issue
   frequently holds several findings in related files).
-- By severity: **258 result-corrupting**, **16 wrong but
+- By severity: **260 result-corrupting**, **16 wrong but
   recoverable**, **185 minor**, **76 documentation**.
-- By port status: **266 fixed or corrected in the port** (of which 163 are code
+- By port status: **267 fixed or corrected in the port** (of which 164 are code
   fixes with regression tests, 22 are added guards or asserts where upstream has
   undefined behaviour, 65 are comment corrections, 11 are dead-code removals and
-  5 are documented deliberate deviations), **259 preserved deliberately**, and
+  5 are documented deliberate deviations), **260 preserved deliberately**, and
   **10 not ported** (the `GTE_USE_VEC_MAT` branches, dead code that cannot
   compile, and two arbitrary-precision paths).
 - **288 distinct upstream headers** are implicated.
@@ -295,6 +295,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `ExtremalQuery3BSP.h` | construction | no check of `VETManifoldMesh::Insert` failure or a null `Edge::T[1]` | RC | fixed (assert) | [#290](https://github.com/gradientspaceai/gtengine-js/issues/290) |
 | `FastGaussianBlur2.h`, `FastGaussianBlur3.h` | cleanup | 2D clears `mInput`/`mOutput` on exit, 3D leaves them dangling | minor | preserved | [#436](https://github.com/gradientspaceai/gtengine-js/issues/436) |
 | `FastMarch.h` | `GetTimeExtremes` | redundantly re-tests one element | minor | preserved | [#52](https://github.com/gradientspaceai/gtengine-js/issues/52) |
+| `FastMarch2.h`, `FastMarch3.h` | `Iterate` | `mHeap.Remove` returns false on an empty heap, `i` stays 0 and `Iterate` reads `mTrials[SIZE_MAX]`; the heap is protected, so a fixed-count loop has no way to stop in time | RC | fixed | [#439](https://github.com/gradientspaceai/gtengine-js/issues/439) |
 | `FastMarch2.h`, `FastMarch3.h` | `ComputeTime` | the negative-discriminant fallback takes the larger neighbour time instead of the Godunov minimum | RC | preserved | [#439](https://github.com/gradientspaceai/gtengine-js/issues/439) |
 | `FastMarch2.h`, `FastMarch3.h` | grid spacing | spacings are stored but never used by the numerical method | minor | preserved | [#439](https://github.com/gradientspaceai/gtengine-js/issues/439) |
 | `FastMarch3.h` | `Initialize` (L232-341) | the six boundary faces are omitted from zero-speed marking, so face voxels index off-grid | RC | fixed | [#121](https://github.com/gradientspaceai/gtengine-js/issues/121) |
@@ -602,6 +603,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `TCBSplineCurve.h` | constructor | never sets `mConstructed`, so `operator bool` reports failure for every valid curve | RC | fixed | [#182](https://github.com/gradientspaceai/gtengine-js/issues/182) |
 | `TCBSplineCurve.h` | `ComputeInteriorTangents` | the lambda pass divides by zero when both Kochanek-Bartels tangents vanish; NaN coefficients | RC | preserved | [#415](https://github.com/gradientspaceai/gtengine-js/issues/415) |
 | `Tetrahedron3.h` | `GetPlanes` | sets only `normal` and `constant`, leaving `Plane3::origin` at the world origin | RC | fixed | [#268](https://github.com/gradientspaceai/gtengine-js/issues/268) |
+| `TetrahedraRasterizer.h` | `MultiThreadedRasterizer` | threads store plain `int32_t` into one grid; a voxel centre on a face shared by tetrahedra of different threads (`PointInTetrahedron` is inclusive) is written concurrently, a data race, and gets whichever index lands last where the single-threaded path keeps the larger index | RC | n/a | [#439](https://github.com/gradientspaceai/gtengine-js/issues/439) |
 | `TetrahedraRasterizer.h` | `ClipCullAABBs` | clips the stored boxes in place, so a second call with a larger region scans the clipped box | RC | preserved | [#439](https://github.com/gradientspaceai/gtengine-js/issues/439) |
 | `Torus3.h` | `GetParameters` | documents `u, v` in `[0, 2*pi)` but returns `atan2` values in `[-pi, pi]` | doc | preserved | [#455](https://github.com/gradientspaceai/gtengine-js/issues/455) |
 | `Torus3.h` | `Evaluate` | guards the second-order derivatives with `maxOrder == 2` rather than `>= 2` | minor | preserved | [#484](https://github.com/gradientspaceai/gtengine-js/issues/484) |
@@ -2343,6 +2345,21 @@ Issue [#290](https://github.com/gradientspaceai/gtengine-js/issues/290).
 
 ### `FastMarch.h`, `FastMarch2.h`, `FastMarch3.h`
 
+**`Iterate` on an empty heap reads out of range (result-corrupting; C++ oracle of
+group 25).** `mHeap.Remove` returns false when the heap is empty, `i` keeps its
+initial 0 (or the previous SIZE_MAX-style sentinel) and `Iterate` indexes
+`mTrials` with it; the heap is protected, so the caller has no public "done" test
+and a fixed-count loop reads out of range. Port: `iterate()` returns on an empty
+heap.
+
+**The acceptance order is not monotone (note on the `ComputeTime` fallback; group
+25).** FastMarch2 on a 5x4 grid, spacing 1, seed (1,1), interior speeds 4, 4, 1
+(row y = 1) and 0.25, 0.5, 0.5 (row y = 2): removals are (2,1) at 0.25, (3,1) at
+1.25, (3,2) at 2.9557, then (2,2) at 2.0149. When (2,1) was accepted, (2,2) took
+the trial time 4 of (1,2) as upwind data, the fallback kept 4 (correct 2.25), and
+only a later recomputation brought it below an already accepted time. The deep
+run sees 552 decreases in 31214 removals, identical on both sides.
+
 **1. `FastMarch3::Initialize` omits the six boundary faces (result-corrupting).**
 Lines 232-341 mark only the vertices and edges of the grid boundary as zero
 speed, while the 2D sibling marks its entire border and the comment says the
@@ -2500,6 +2517,13 @@ Issues [#88](https://github.com/gradientspaceai/gtengine-js/issues/88), [#394](h
 the average is taken over a window shifted by one pixel, and the final sample
 reads one element past the padded buffer. Verified against a hand-computed
 average (1/0.625 for the `u = x` ramp). Port: iterates `0 <= x < mXBound`.
+Sharpened by the C++ oracle of group 25: `GetUy(x, yBound)` reads
+`Array2::mIndirect1[yBound + 2]`, one past the row-pointer vector, and
+dereferences it for every x of the last row (3D: `GetUz` with Array3's plane
+pointers), in the constructor and in every `Update`, so upstream's filters are
+undefined behaviour on every use; the oracle replaces only `ComputeParameter` by
+an explicit specialization and the rest of both filters matches the port to
+6.2e-15 (through `std::exp`).
 
 On a constant image the gradient average is zero, so `mParameter = Infinity` and
 `exp(-Infinity*0) = NaN`. No guard exists upstream; none was added.
@@ -4510,6 +4534,15 @@ reduced state. Issue [#517](https://github.com/gradientspaceai/gtengine-js/issue
 Issues [#42](https://github.com/gradientspaceai/gtengine-js/issues/42), [#80](https://github.com/gradientspaceai/gtengine-js/issues/80), [#379](https://github.com/gradientspaceai/gtengine-js/issues/379), [#476](https://github.com/gradientspaceai/gtengine-js/issues/476), [#478](https://github.com/gradientspaceai/gtengine-js/issues/478).
 
 ### `SurfaceExtractorMC.h`, `SurfaceExtractorTetrahedra.h`, `TetrahedraRasterizer.h`
+
+**`MultiThreadedRasterizer` has a data race (result-corrupting, undefined
+behaviour; C++ oracle of group 25).** The threads store plain `int32_t` values
+into one shared grid. A voxel centre on a face shared by tetrahedra handled by
+different threads (`PointInTetrahedron` is inclusive) is written concurrently
+and gets whichever index lands last, where the single-threaded path keeps the
+larger index. The documentation recommends `numThreads > 0` without a caveat.
+Port: single-threaded only; the oracle compares upstream's multithreaded path on
+non-overlapping tetrahedra, where it agrees bit for bit.
 
 **1. `SurfaceExtractorMC::Extract` omits `level` from the edge interpolation.**
 Upstream writes `vertex[index] = F[j0] / (F[j0] - F[j1]);` where it must be

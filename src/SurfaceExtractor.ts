@@ -43,28 +43,33 @@ export class SurfaceExtractorVertex {
         // The vertex generation leads to the numerator and denominator
         // having the same sign. This constructor changes sign to ensure the
         // numerator and denominator are both positive.
+        //
+        // Port note: upstream stores int64_t, which has no negative zero.
+        // The '+ 0' turns a -0 (from negating a zero numerator, or from a
+        // caller computing 0 * d with d < 0) into +0, so that convert()
+        // returns +0 where upstream does (found by the C++ oracle, group 25).
         if (inXDenom > 0) {
-            this.xNumer = inXNumer;
+            this.xNumer = inXNumer + 0;
             this.xDenom = inXDenom;
         } else {
-            this.xNumer = -inXNumer;
-            this.xDenom = -inXDenom;
+            this.xNumer = -inXNumer + 0;
+            this.xDenom = -inXDenom + 0;
         }
 
         if (inYDenom > 0) {
-            this.yNumer = inYNumer;
+            this.yNumer = inYNumer + 0;
             this.yDenom = inYDenom;
         } else {
-            this.yNumer = -inYNumer;
-            this.yDenom = -inYDenom;
+            this.yNumer = -inYNumer + 0;
+            this.yDenom = -inYDenom + 0;
         }
 
         if (inZDenom > 0) {
-            this.zNumer = inZNumer;
+            this.zNumer = inZNumer + 0;
             this.zDenom = inZDenom;
         } else {
-            this.zNumer = -inZNumer;
-            this.zDenom = -inZDenom;
+            this.zNumer = -inZNumer + 0;
+            this.zDenom = -inZDenom + 0;
         }
     }
 
