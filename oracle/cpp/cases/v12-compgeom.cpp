@@ -35,13 +35,15 @@
 // Sorted), and for a point cloud it sorts the ConvexHull3 triangles (which
 // are TriangleKey tuples) before building the mesh. Everything else - the
 // convex hull, the geometry, the coplanar merge, the aligned candidate, all
-// 81 level-curve processors, the four minimizers, ComputeVolume, GetExtreme,
+// level-curve processors, the four minimizers, ComputeVolume, GetExtreme,
 // the threaded candidate search and the rational box - is upstream's code.
-// The order is then the port's, and the full box compares bit for bit. Every
-// record also runs upstream's raw operator() (all four overloads are used)
-// and records, as a diagnostic input the replay ignores, whether the raw
-// answer equals the canonical one: the fraction of records on which the
-// hash order changes the box is thereby measured on the MSVC build.
+// The order is then the port's, and the full box compares bit for bit. The
+// hull cases also run upstream's raw operator() (overloads 3 and 4) and
+// record, as a diagnostic input the replay ignores, how the raw answer
+// compares with the canonical one (RawAgreement), which measures the effect
+// of the hash order on the MSVC build. (The raw point-cloud query is not run:
+// ConvexHull3's triangle order depends on heap addresses and would make the
+// golden irreproducible; the cloud cases sort those triangles, see RunCloud.)
 //
 // DELIBERATE PORT FIXES (docs/UPSTREAM-FINDINGS.md) and how they are kept
 // out of the exact cases:
@@ -525,6 +527,11 @@ namespace
         }
         UniqueVerticesSimplices<Vec3, int32_t, 3> uvs{};
         uvs.RemoveDuplicateAndUnusedVertices(points, source, vertices, indices);
+        // ConvexHull3 lists its triangles in an order that depends on heap
+        // addresses (it seeds its searches from an unordered_set<Triangle*>),
+        // so it can change from run to run; sort the triples first so that the
+        // scrambled order below, and the golden, are reproducible.
+        CanonicalFP::SortTriangles(indices);
 
         std::size_t const numTriangles = indices.size() / 3;
         std::vector<std::array<int32_t, 3>> triangles(numTriangles);
@@ -912,28 +919,15 @@ ORACLE_CASE("MinimumVolumeBox3FloatingPoint.compute.canonical")
     }
     GiveCloud(io, best);
 
-    // Upstream's raw query, overload 1 or 2. Diagnostic only: whether the
-    // hash order changed the answer (RawAgreement) is recorded as an input the replay
-    // ignores.
-    OrientedBox3<double> rawBox{};
-    double rawVolume = 0.0;
-    MVB3FP raw(static_cast<std::size_t>(numThreads));
-    if (io.index() % 2 == 0)
-    {
-        raw(best.size(), best.data(), static_cast<std::size_t>(lgMaxSample), rawBox, rawVolume);
-    }
-    else
-    {
-        raw(best, static_cast<std::size_t>(lgMaxSample), rawBox, rawVolume);
-    }
-
+    // Upstream's raw point-cloud query is not run here: its ConvexHull3
+    // triangle order depends on heap addresses, so a diagnostic built on it
+    // would make the golden irreproducible. The hull cases measure the
+    // value-keyed hash orders (RawAgreement) instead.
     OrientedBox3<double> box{};
     double volume = 0.0;
     CanonicalFP query(static_cast<std::size_t>(numThreads));
     std::size_t dimension = query.RunCloud(best, static_cast<std::size_t>(lgMaxSample),
         box, volume);
-    int32_t rawAgreement = RawAgreement(box, volume, rawBox, rawVolume);
-    io.integer(rawAgreement, rawAgreement);
     // Diagnostic input, ignored by the replay: 1 when the recorded cloud
     // passed the exact-support separator (0 only for a capped fallback).
     int32_t sound = (SupportsAreExact(query) ? 1 : 0);
@@ -1917,25 +1911,12 @@ ORACLE_CASE("MinimumVolumeBox3Rational.compute.canonical")
     }
     GiveCloud(io, best);
 
-    OrientedBox3<double> rawBox{};
-    double rawVolume = 0.0;
-    MVB3R raw(static_cast<std::size_t>(numThreads));
-    if (io.index() % 2 == 0)
-    {
-        raw(best.size(), best.data(), static_cast<std::size_t>(lgMaxSample), rawBox, rawVolume);
-    }
-    else
-    {
-        raw(best, static_cast<std::size_t>(lgMaxSample), rawBox, rawVolume);
-    }
-
+    // No raw run and no diagnostic: see the floating-point sibling.
     OrientedBox3<double> box{};
     double volume = 0.0;
     CanonicalR query(static_cast<std::size_t>(numThreads));
     std::size_t dimension = query.RunCloud(best, static_cast<std::size_t>(lgMaxSample),
         box, volume);
-    int32_t rawAgreement = RawAgreement(box, volume, rawBox, rawVolume);
-    io.integer(rawAgreement, rawAgreement);
 
     io.outInt(static_cast<int32_t>(dimension));
     OutBox(io, box, volume);

@@ -449,7 +449,6 @@ describe('oracle: v12-compgeom', () => {
         io.integer();
         const numThreads = io.integer();
         const points = readCloud(io);
-        io.integer();  // diagnostic RawAgreement (hash-order effect on the raw query)
         io.integer();  // diagnostic: the exact-support separator holds
 
         const query = new MinimumVolumeBox3FloatingPoint(numThreads);
@@ -570,7 +569,6 @@ describe('oracle: v12-compgeom', () => {
         io.integer();
         const numThreads = io.integer();
         const points = readCloud(io);
-        io.integer();  // diagnostic RawAgreement
 
         const query = new MinimumVolumeBox3Rational(numThreads);
         const r = query.compute(points, lgMaxSample);
