@@ -131,10 +131,10 @@ above):
 
 | check | result |
 | --- | --- |
-| Hermite corner conditions: `H` and its derivatives at the corners equal the samples (2000 random sets each; triquintic 300 sets, all 27 fields at 8 corners) | cubic `1.8e-15`, quintic `8.2e-14`, bicubic `5.5e-14`, biquintic `8.3e-12`, tricubic `3.1e-13` (relative); triquintic at most `1.0 eps * sum|c P P P|`, i.e. pure cancellation in coefficients up to ~1e4 |
-| `IntpAkima1` reproduces the samples at the nodes (4473 node queries) | exact at interior nodes; `1.1e-13` absolute at the upper end node, evaluated as the right end of the last cell |
+| Hermite corner conditions: `H` and its derivatives at the corners equal the samples (2000 random sets each; triquintic 300 sets, all 27 fields at 8 corners) | cubic `1.8e-15`, quintic `8.2e-14`, bicubic `5.5e-14`, biquintic `8.3e-12`, tricubic `3.1e-13` (relative); triquintic at most `1.01 eps * sum|c P P P|`, i.e. pure cancellation in coefficients up to ~1e4 |
+| `IntpAkima1` reproduces the samples at the nodes (4473 node queries) | exact at the 3059 queries on a node below the last; `1.1e-13` absolute at the 1414 on the upper end node, which is evaluated as the right end of the last cell |
 | `IntpAkima1` first derivative against a central difference, `h = 1e-3 * spacing` | within 5x of `h^2 |f'''|/6 + 4 eps |f|/h` |
-| `IntpAkimaUniform2` `Fxy` against a central difference of `Fx` | within 4.5x of the same bound |
+| `IntpAkimaUniform2` `Fxy` against a central difference of `Fx` | within 5x of the same bound |
 | `IntpAkimaUniform2`/`3` reproduce bilinear/trilinear data | see the deviation section: exact to round-off except upstream's max faces |
 | `IntpBicubic2` Catmull-Rom: samples at nodes (dyadic spacing) | exact |
 | Catmull-Rom reproduces biquadratic data in cells whose 4x4 stencil is inside the grid | `8.3e-15` relative |
@@ -165,8 +165,8 @@ can be negative. This is a property of the method, not a defect.
   index past the function table (undefined behaviour); not generated.
 * **Cell indices of magnitude `2^31` or more, and NaN coordinates, in
   `IntpBicubic2`/`IntpBilinear2`.** `static_cast<int32_t>(xIndex)` is
-  undefined there (suspect 1 below), so the generators keep `|x - xMin|` within
-  three spacings of the domain.
+  undefined there (suspect 1 below), so the generators stay within two spacings
+  of the domain.
 * The **order-dependent sign of zero** in the four provably indistinguishable
   places named under "Port defects fixed".
 

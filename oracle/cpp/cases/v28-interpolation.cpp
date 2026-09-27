@@ -18,9 +18,13 @@
 // the min-boundary one-sided stencils at the max boundaries without the sign
 // flip, and the port fixes it. The main cases therefore query only cells
 // whose corners avoid every max face (probed with upstream's own clamp and
-// lookup expressions), or use additively separable data, on which every
-// mixed-derivative stencil is exactly zero; the '.maxBoundary' cases query the
-// cells on the max faces and are declared deviations.
+// lookup expressions), or use additively separable data (3D: with
+// power-of-two spacings), on which every mixed-derivative stencil is exactly
+// zero; the '.maxBoundary' cases query the cells on the max faces and are
+// declared deviations.
+//
+// Out of scope: cell indices |x - xMin| / xSpacing >= 2^31 and NaN in
+// IntpBicubic2/IntpBilinear2, where static_cast<int32_t> is undefined.
 #define ORACLE_FAMILY "v28-interpolation"
 #include "Oracle.h"
 
