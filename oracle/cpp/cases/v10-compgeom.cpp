@@ -131,6 +131,7 @@ namespace
     //           candidate
     //   mode 1: the convex hull of random lattice points
     //   mode 2: the convex hull of random real points
+    //   mode 3: the convex hull of random dyadic points (multiples of 2^-10)
     // Returns an empty vector when the draw did not produce a polygon with
     // at least three vertices; the caller redraws.
     std::vector<Vector2<double>> RawConvexPolygon(oracle::Ctx& io, int32_t mode)
@@ -158,6 +159,14 @@ namespace
             {
                 pts[i][0] = static_cast<double>(io.rawInteger(-6, 6));
                 pts[i][1] = static_cast<double>(io.rawInteger(-6, 6));
+            }
+            else if (mode == 3)
+            {
+                // Dyadic reals, multiples of 2^-10: sums and halves of two
+                // coordinates are exact, so edge midpoints lie exactly on
+                // their edge (the .collinear case).
+                pts[i][0] = static_cast<double>(io.rawInteger(-6144, 6144)) / 1024.0;
+                pts[i][1] = static_cast<double>(io.rawInteger(-6144, 6144)) / 1024.0;
             }
             else
             {
@@ -257,7 +266,12 @@ ORACLE_CASE("RotatingCalipers.computeAntipodes")
 // issue #286 is inactive and the two implementations must agree.
 ORACLE_CASE("RotatingCalipers.computeAntipodes.collinear")
 {
-    int32_t mode = io.index() % 3;
+    // Modes 0, 1 and 3: every coordinate is an integer or a multiple of
+    // 2^-10, so the midpoints below are exact. (Mode 2's arbitrary reals
+    // would round a + b, leaving the "midpoint" a hair off the edge, and
+    // when it falls inside, the polygon is not convex any more.)
+    int32_t const modes[3] = { 0, 1, 3 };
+    int32_t mode = modes[io.index() % 3];
     std::vector<Vector2<double>> poly{};
     for (int32_t attempt = 0; attempt < 32 && poly.empty(); ++attempt)
     {
@@ -269,9 +283,10 @@ ORACLE_CASE("RotatingCalipers.computeAntipodes.collinear")
             Vector2<double>{ 0.0, 3.0 } };
     }
 
-    // Subdivide a random subset of the edges at their midpoints. Halving is
-    // exact in binary floating point, so the inserted vertex is exactly on
-    // the segment and DotPerp of the two edges it creates is exactly zero.
+    // Subdivide a random subset of the edges at their midpoints. With these
+    // coordinates the sum and the halving are exact, so the inserted vertex
+    // is exactly on the segment and DotPerp of the two edges it creates is
+    // exactly zero; the exact orientation test below confirms it.
     std::vector<Vector2<double>> refined{};
     size_t const m = poly.size();
     for (size_t i0 = 0; i0 < m; ++i0)
@@ -285,6 +300,8 @@ ORACLE_CASE("RotatingCalipers.computeAntipodes.collinear")
                 0.5 * (poly[i0][0] + poly[i1][0]),
                 0.5 * (poly[i0][1] + poly[i1][1])
             };
+            LogAssert(ExactOrient2(poly[i0], mid, poly[i1]) == 0,
+                "The midpoint must be exactly on the edge.");
             refined.push_back(mid);
         }
     }
@@ -1397,8 +1414,9 @@ ORACLE_CASE("IncrementalDelaunay2.getContainingTriangle")
         int32_t qmode = io.rawInteger(0, 3);
         if (qmode == 0)
         {
-            q[0] = io.raw(-7.0, 7.0);
-            q[1] = io.raw(-7.0, 7.0);
+            // Often outside the rectangle, hence outside the hull.
+            q[0] = io.raw(-11.0, 11.0);
+            q[1] = io.raw(-11.0, 11.0);
         }
         else if (qmode == 1)
         {
@@ -1746,7 +1764,8 @@ namespace
 // permutation, as in the general case.
 ORACLE_CASE("MinimumAreaCircle2.compute.circumcircle")
 {
-    int32_t extra = io.integer(0, 4);
+    // At most 3 extra points: 6 unique points is the lockstep cap.
+    int32_t extra = io.integer(0, 3);
     std::vector<Vector2<double>> pts{};
     Result2 res{};
     bool accepted = false;
@@ -1791,8 +1810,9 @@ ORACLE_CASE("MinimumAreaCircle2.compute.circumcircle")
     }
     if (!accepted)
     {
+        // An acute lattice triangle.
         pts = { Vector2<double>{ -4.0, 0.0 }, Vector2<double>{ 4.0, 0.0 },
-            Vector2<double>{ 0.0, 3.0 } };
+            Vector2<double>{ 0.0, 5.0 } };
         accepted = PortOrderMAC(pts, res);
         LogAssert(accepted, "The fallback must be comparable.");
     }
