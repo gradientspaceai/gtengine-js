@@ -71,14 +71,14 @@ Nothing here has been reported upstream before; this document is the report.
 
 ## Counts
 
-- **541 distinct findings** across **174** tracked issues (one issue
+- **548 distinct findings** across **174** tracked issues (one issue
   frequently holds several findings in related files).
-- By severity: **261 result-corrupting**, **16 wrong but
-  recoverable**, **188 minor**, **76 documentation**.
-- By port status: **269 fixed or corrected in the port** (of which 166 are code
+- By severity: **265 result-corrupting**, **16 wrong but
+  recoverable**, **190 minor**, **77 documentation**.
+- By port status: **270 fixed or corrected in the port** (of which 167 are code
   fixes with regression tests, 22 are added guards or asserts where upstream has
   undefined behaviour, 65 are comment corrections, 11 are dead-code removals and
-  5 are documented deliberate deviations), **262 preserved deliberately**, and
+  5 are documented deliberate deviations), **268 preserved deliberately**, and
   **10 not ported** (the `GTE_USE_VEC_MAT` branches, dead code that cannot
   compile, and two arbitrary-precision paths).
 - **288 distinct upstream headers** are implicated.
@@ -103,6 +103,13 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `AdaptiveSkeletonClimbing3.h` | `GetVertices` | narrows `Real` box corners through `static_cast<float>` | minor | preserved | [#194](https://github.com/gradientspaceai/gtengine-js/issues/194) |
 | `AlignedBox.h` | `GetVertices` comment | typos "whern", `vertex[i][d = max[d]` | doc | corrected | [#78](https://github.com/gradientspaceai/gtengine-js/issues/78) |
 | `AlignedBoxBV.h` | `GetSplittingAxis` | dead store `maxExtent = extents[2]` | minor | dropped | [#268](https://github.com/gradientspaceai/gtengine-js/issues/268) |
+| `AdaptiveSkeletonClimbing3.h` | `Get{X,Y,Z}{Min,Max}EdgesS` case 15 | the six four-crossing face cases pair by the level-free `det` with the pairings swapped (the 3D instance of the `AdaptiveSkeletonClimbing2` defect); wrong on 62200 of 86605 faces of the oracle's deviation case | RC | fixed | [#544](https://github.com/gradientspaceai/gtengine-js/issues/544) |
+| `AdaptiveSkeletonClimbing3.h` | `Get*EdgesM` | merged boxes crack where the boxes on the two sides of a grid plane cut it into different rectangles: each side triangulates the plane with its own polyline (65 of 3344 closed-level-set meshes) | RC | preserved | [#194](https://github.com/gradientspaceai/gtengine-js/issues/194) |
+| `AdaptiveSkeletonClimbing3.h` | `Merge`, `depth > N` | a merged child box is added only at nodes with `depth <= 1`, so for a user depth above `N` every mergeable leaf is dropped (a 9^3 sphere: 512 boxes at depth 3, none at depth 4) | RC | preserved | [#194](https://github.com/gradientspaceai/gtengine-js/issues/194) |
+| `AdaptiveSkeletonClimbing3.h` | `fixBoundary` | the comment says boundary voxels do not merge; the leaf branch adds a unit box for every leaf, so nothing merges anywhere and `depth` has no effect | doc | preserved | [#194](https://github.com/gradientspaceai/gtengine-js/issues/194) |
+| `AdaptiveSkeletonClimbing3.h` | `RemoveTrianglesEC` | geometry-free ear clipping puts diagonals and flat triangles into voxel faces (edges on four triangles; `MakeUnique` then opens closed meshes) | minor | preserved | [#194](https://github.com/gradientspaceai/gtengine-js/issues/194) |
+| `AdaptiveSkeletonClimbing3.h` | plus-sign branch points | a degree-4 wireframe vertex is never clipped, so the triangulation around it is incomplete and the mesh has holes (11 closed level sets of 3344) | RC | preserved | [#194](https://github.com/gradientspaceai/gtengine-js/issues/194) |
+| `AdaptiveSkeletonClimbing3.h` | `OrientTriangles` | `GetGradient` at `trunc(position)` uses a neighbouring cell's interpolant for vertices on cell faces, so 1052 of 3190 closed 2-manifold meshes come out inconsistently oriented | minor | preserved | [#194](https://github.com/gradientspaceai/gtengine-js/issues/194) |
 | `APConversion.h` | `EstimateAmB` | when the bisection runs out of iterations, Newton starts outside its basin (and, in the rounding branch, with a stale square) and the returned bracket can miss `a - b` | RC | fixed | [#280](https://github.com/gradientspaceai/gtengine-js/issues/280) |
 | `APConversion.h` | `EstimateAmB` | undocumented `aSqr >= bSqr` precondition; otherwise the bracket is inverted | doc | preserved | [#280](https://github.com/gradientspaceai/gtengine-js/issues/280) |
 | `APConversion.h` | `EstimateSqrt` | `EstimateSqrt(0)` returns `[0, 5e-324]`, violating the documented strict lower bound; no negative-input guard | minor | preserved | [#280](https://github.com/gradientspaceai/gtengine-js/issues/280) |
@@ -670,8 +677,11 @@ meaningful), it is wrong on every non-degenerate saddle. Reproduction: the image
 corners, and the first segment crosses (0.43, 0.43) where the interpolant is
 4.6. Both sides agreed bit for bit; the defect showed only in an independent
 topology check. Also minor: `int64_t det` overflows for `uint32_t` pixels above
-about 3.04e9. The same level-free `det` appears in the face cases of
-`AdaptiveSkeletonClimbing3.h` (verify group 27 checks it). Port: fixed, deciding
+about 3.04e9. Group 27 confirmed the same defect in the six four-crossing face
+cases of `AdaptiveSkeletonClimbing3.h` (upstream wrong on 62200 of 86605 faces of
+the deviation case by its own mesh; port fixed the same way through
+`facePairing`, deviation case `AdaptiveSkeletonClimbing3.extract.saddlePairing`,
+2000 of 2000 records). Port: fixed, deciding
 by the exact sign of `dg` (BigInt) and keeping upstream's choice wherever it is
 right; deviation case `extract.saddlePairing`, 2000 of 2000 records.
 
@@ -699,7 +709,63 @@ Also in this header (both minor): the guard
 (extensive probing never reached it); and `GetVertices` narrows `Real` box
 corners through `static_cast<float>`.
 
-Issue [#194](https://github.com/gradientspaceai/gtengine-js/issues/194). Port: preserved.
+**Seven more, from the C++ oracle of group 27** (both sides agree bit for bit on
+all of them; every mesh of 14966 extractions was checked vertex by vertex against
+the trilinear interpolant, and closedness was checked on the 3344 level sets that
+stay away from the image border).
+
+*The four-crossing face pairing (result-corrupting; fixed).* The six
+`Get{X,Y,Z}{Min,Max}EdgesS` case-15 bodies pair by `det = f00*f11 - f01*f10`
+alone and with the two pairings swapped, exactly as `AdaptiveSkeletonClimbing2`
+(#544): the face interpolant is bilinear and `dg = det - L*(f00+f11-f01-f10) > 0`
+connects corners 00 and 11, so 10 and 01 must be cut off. Reproduction: the 3^3
+image that is -1 everywhere except 4 at (0,0,0), (1,1,0), (2,2,0), level 0.5,
+depth 1: the face z = 0 of the origin voxel has corners 4, -1, -1, 4 and saddle
+value 1.5 > 0.5, yet upstream cuts around the corners of value 4. Upstream wrong
+on 62200 of 86605 faces of the deviation case. Port: `facePairing` decides by the
+exact sign of `dg` and keeps upstream's choice wherever it agrees.
+
+*Merged boxes crack (result-corrupting; preserved).* A merged box subdivides its
+face polylines only at the zero sub-edges of its own merge-tree nodes, so when
+the boxes on the two sides of a grid plane cut it into different rectangles, an
+edge of one side is not a sub-edge of the other and the two sides triangulate the
+plane with different polylines. Reproduction in the report (a 5^3 image at level
+-7.5, depth 1: the lower side draws (2,0.3,2)-(3.7,1,2)-(3.75,2,2), the upper
+(2,0.3,2)-(3,0.3,2)-(3.75,2,2)). 65 of 3344 closed level sets crack this way;
+every open edge of every one lies on such a plane.
+
+*`depth > N` drops every mergeable leaf (result-corrupting; preserved; the #194
+mechanism one level down).* `Merge` adds a merged child box only at nodes with
+`depth <= 1`; with a user depth `D > N` the parents of the leaves have depth
+`D - N + 1 >= 2`, so a mergeable leaf is neither merged nor added and only leaves
+with a four-crossing face survive. `round(9 - |p - (4,4,4)|^2)` on 9^3, level
+0.5: depth 3 gives 512 boxes and the sphere, depth 4 gives an empty mesh.
+
+*`fixBoundary` fixes every voxel (documentation; preserved).* The comment says
+image boundary voxels may not merge; the leaf branch of `Merge` adds a unit box
+for every leaf when the flag is set, so nothing merges and `depth` has no effect.
+
+*Ear clipping into voxel faces (minor; preserved).* `RemoveTrianglesEC` clips
+the lowest-index degree-2 vertex regardless of geometry; when its two neighbours
+lie on one face the diagonal lies in that face (245 of 2537 four-crossing faces
+of the `closed` case carry all four cuts), boxes on both sides can choose the
+same in-face diagonal (edges on four triangles, 8 meshes), and flat triangles
+both boxes put into their common face are kept once by `MakeUnique`, opening 4
+closed meshes.
+
+*Plus-sign branch points leave holes (result-corrupting; preserved).* A branch
+point is a degree-4 wireframe vertex; the ear clipping only clips degree-2
+vertices, so the triangulation around it is incomplete (24 edges on an odd
+number of triangles in the 5^3 reproduction; 11 closed level sets of the deep
+run). The port's pairing fix inserts the plus sign also where `det != 0` and
+`dg = 0`, and inherits this there.
+
+*`OrientTriangles` is inconsistent on closed meshes (minor; preserved).*
+`GetGradient` evaluates the cell at `trunc(position)`, a neighbouring cell for a
+vertex on a face or edge, so 1052 of 3190 closed 2-manifold meshes come out
+inconsistently oriented (169 with the gradient of the containing cell).
+
+Issue [#194](https://github.com/gradientspaceai/gtengine-js/issues/194). Port: preserved (the face pairing fixed under [#544](https://github.com/gradientspaceai/gtengine-js/issues/544)).
 
 ### `APConversion.h`
 
