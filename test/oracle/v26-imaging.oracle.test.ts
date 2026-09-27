@@ -884,7 +884,11 @@ function countComponents8(dims: readonly number[], a: readonly number[]): number
     return count;
 }
 
-const skeletonStats = { records: 0, componentsChanged: 0, vanished: 0 };
+const skeletonStats = {
+    records: 0, componentsChanged: 0, vanished: 0,
+    // Side -> [records whose foreground is one solid square, of them vanished].
+    squares: {} as Record<string, number[]>
+};
 
 function checkSkeleton(r: SkeletonRecord): string[] {
     const bad: string[] = [];
@@ -894,6 +898,18 @@ function checkSkeleton(r: SkeletonRecord): string[] {
     const after = countComponents8(r.dims, r.output);
     if (before !== after) { ++skeletonStats.componentsChanged; }
     if (before > 0 && after === 0) { ++skeletonStats.vanished; }
+    const ones = r.input.map((v, i) => (v === 1 ? i : -1)).filter((i) => i >= 0).map((i) => coords(i, r.dims));
+    if (ones.length > 0) {
+        const xs = ones.map((c) => c[0]);
+        const ys = ones.map((c) => c[1]);
+        const w = Math.max(...xs) - Math.min(...xs) + 1;
+        const h = Math.max(...ys) - Math.min(...ys) + 1;
+        if (w === h && ones.length === w * h) {
+            const e = (skeletonStats.squares[w] ??= [0, 0]);
+            ++e[0];
+            if (after === 0) { ++e[1]; }
+        }
+    }
     return bad;
 }
 
