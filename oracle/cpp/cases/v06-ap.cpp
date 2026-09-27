@@ -599,6 +599,14 @@ ORACLE_CASE("BSRational.construct.bsnumber.zeroNumerator")
     if (BSN(dv).GetExponent() == 0) { dv = 6.0; }
     double d = io.given(dv);
     BSR r = BSR(BSN(z), BSN(d));
+    // The value is unaffected: equality with zero, order and arithmetic
+    // agree with the canonical zero (emitted first, so they are compared
+    // before the deviating biased exponent).
+    io.outBool(r == BSR(0));
+    io.outBool(BSR(0) == r);
+    io.outBool(r < BSR(1));
+    io.outBool(BSR(-1) < r);
+    OutBSR(io, r + BSR(d));
     OutBSR(io, r);
 }
 

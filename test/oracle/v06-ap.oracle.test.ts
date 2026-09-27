@@ -8,7 +8,8 @@
 // has no word layout of its own, so the words are extracted from the bigint.
 //
 // Every case is exact except BSRational.std.libm, whose std:: overloads call
-// the C math library. Five cases are declared deviations (#95, #168, #280).
+// the C math library. Four cases are declared deviations (#95, #168 twice,
+// #280).
 import { describe } from 'vitest';
 import { APConversion } from '../../src/APConversion.js';
 import { APInterval } from '../../src/APInterval.js';
@@ -513,7 +514,13 @@ describe('oracle: v06-ap', () => {
     family.case('BSRational.construct.bsnumber.zeroNumerator', (io) => {
         const z = io.real();
         const d = io.real();
-        outBSR(io, BSRational.fromBSNumber(B(z), B(d)));
+        const r = BSRational.fromBSNumber(B(z), B(d));
+        io.outBool(r.equals(R(0)));
+        io.outBool(R(0).equals(r));
+        io.outBool(r.lessThan(R(1)));
+        io.outBool(R(-1).lessThan(r));
+        outBSR(io, r.add(R(d)));
+        outBSR(io, r);
     }, { exact: true, deviation: '#168 (UPSTREAM-FINDINGS BSRational.h item 1)' });
 
     family.case('BSRational.construct.string', (io) => {
