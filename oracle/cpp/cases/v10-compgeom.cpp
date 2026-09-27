@@ -1211,13 +1211,24 @@ namespace
     }
 
     // Draw and record the domain rectangle. Every generated point lies in
-    // [-5,5]^2, hence strictly inside.
+    // [-5,5]^2, hence strictly inside. Every other record uses real bounds,
+    // so the supervertex arithmetic of the constructor (xMin - dx,
+    // xMin + 5 * dx, ...) is not exact and GetTriangulation's vertex list
+    // discriminates its evaluation order.
     std::array<double, 4> DomainRectangle(oracle::Ctx& io)
     {
-        double xMin = io.lattice(-10, -6);
-        double yMin = io.lattice(-10, -6);
-        double xMax = io.lattice(6, 10);
-        double yMax = io.lattice(6, 10);
+        if (io.index() % 2 == 0)
+        {
+            double xMin = io.lattice(-10, -6);
+            double yMin = io.lattice(-10, -6);
+            double xMax = io.lattice(6, 10);
+            double yMax = io.lattice(6, 10);
+            return { xMin, yMin, xMax, yMax };
+        }
+        double xMin = io.real(-10.0, -6.0);
+        double yMin = io.real(-10.0, -6.0);
+        double xMax = io.real(6.0, 10.0);
+        double yMax = io.real(6.0, 10.0);
         return { xMin, yMin, xMax, yMax };
     }
 }
@@ -1244,10 +1255,16 @@ ORACLE_CASE("IncrementalDelaunay2.insert")
     EmitHull(io, del);
 }
 
-// Insert, then Remove: positions that are vertices, positions that are not,
-// and positions of the enclosing rectangle are all exercised. The return
-// value of Remove is the vertex index, or invalid when the position is not a
-// vertex of the triangulation.
+// Insert, Remove, then Insert again. Removals hit positions that are
+// vertices, positions that are not vertices and positions already removed.
+// An inserted point is strictly inside the rectangle, so it is never
+// adjacent to a supervertex and its removal always takes
+// RetriangulateInteriorRemovalPolygon; the boundary branch is reached by
+// FinalizeTriangulation's removal of the rectangle corners (the
+// .finalizeTriangulation case). The return value of Remove is the vertex index,
+// or invalid when the position is not a vertex. The re-insertions put half
+// of their points back at a previously inserted (possibly removed) position,
+// which receives a fresh index because mVertices never shrinks.
 ORACLE_CASE("IncrementalDelaunay2.remove")
 {
     int32_t mode = io.index() % 4;
@@ -1281,23 +1298,43 @@ ORACLE_CASE("IncrementalDelaunay2.remove")
         size_t index = del.Remove(p);
         io.outReal(AsIndex(index));
     }
+    int32_t numAfter = io.integer(0, 3);
+    for (int32_t k = 0; k < numAfter; ++k)
+    {
+        Vector2<double> p{ 0.0, 0.0 };
+        if (io.rawInteger(0, 1) != 0)
+        {
+            size_t j = static_cast<size_t>(io.rawInteger(0, n - 1));
+            p = inserted[j];
+        }
+        else
+        {
+            p = RawInsidePoint(io, mode);
+        }
+        io.givenVec<2>(p);
+        size_t index = del.Insert(p);
+        io.outReal(AsIndex(index));
+    }
     io.outInt(del.GetNumVertices());
     io.outInt(del.GetNumTriangles());
     EmitTriangles(io, del);
     EmitHull(io, del);
 }
 
-// GetContainingTriangle, GetTriangle, GetAdjacent and GetTriangulation.
+// GetContainingTriangle (with its whole SearchInfo), GetTriangle,
+// GetAdjacent and GetTriangulation.
 //
-// The SearchInfo path and finalTriangle index are NOT emitted: they are
-// triangle indices in hash-table numbering and the walk starts at triangle 0
-// of that numbering, so both the path and, for a query point outside the
-// hull, the exit edge depend on the order. What is emitted is the outcome
-// (the stored vertex triple of the containing triangle, or -1), which is
-// order independent as long as the containing triangle is unique. Query
-// points are accepted only when they are strictly inside exactly one
-// triangle (a point on a shared edge stops the walk at whichever of the two
-// triangles it reaches first) or strictly outside every triangle.
+// The walk starts at info.initialTriangle, and the default start (triangle 0)
+// is hash-table numbering. As in v09's Delaunay2 cases, the start is chosen
+// in the canonical numbering instead (the triangles sorted by their stored
+// vertex tuple): the record holds the canonical rank of the start, each side
+// maps it to its own index, and the path, finalTriangle and initialTriangle
+// are emitted translated back to canonical ranks. The walk only follows
+// adjacency, which is order independent, so the whole search is comparable,
+// including query points on a shared edge or at a vertex (the walk stops at
+// whichever triangle it reaches first, which is now the same triangle on
+// both sides). Query points: uniform, lattice, an existing vertex, and the
+// exact midpoint of a triangle edge.
 ORACLE_CASE("IncrementalDelaunay2.getContainingTriangle")
 {
     int32_t mode = io.index() % 4;
@@ -1314,10 +1351,11 @@ ORACLE_CASE("IncrementalDelaunay2.getContainingTriangle")
     auto const& tris = del.GetTriangles();
     auto const& verts = del.GetVertices();
 
-    // GetTriangulation: all vertices and all triangles of the graph, the
-    // supervertex triangles included. The triangle keys are sorted tuples
-    // (TriangleKey<true> orders its indices) and the container is a hash map,
-    // so the list is sorted lexicographically on both sides.
+    // GetTriangulation: all vertices (the three supervertices and the four
+    // rectangle corners first) and all triangles of the graph, the
+    // supervertex triangles included. The triangle keys are TriangleKey<true>
+    // tuples and the container is a hash map, so the list is sorted
+    // lexicographically on both sides.
     std::vector<Vector2<double>> tvertices{};
     std::vector<std::array<size_t, 3>> ttriangles{};
     del.GetTriangulation(tvertices, ttriangles);
@@ -1335,43 +1373,64 @@ ORACLE_CASE("IncrementalDelaunay2.getContainingTriangle")
         io.outInt(t[2]);
     }
 
+    size_t const count = tris.size();
+    std::vector<size_t> order(count);
+    std::iota(order.begin(), order.end(), size_t(0));
+    std::sort(order.begin(), order.end(), [&tris](size_t a, size_t b)
+    {
+        return tris[a] < tris[b];
+    });
+    std::vector<size_t> rank(count);
+    for (size_t r = 0; r < count; ++r)
+    {
+        rank[order[r]] = r;
+    }
+    auto asRank = [&rank](size_t t)
+    {
+        return t == gInvalid ? -1.0 : static_cast<double>(rank[t]);
+    };
+
     int32_t const numQueries = 4;
     for (int32_t k = 0; k < numQueries; ++k)
     {
         Vector2<double> q{ 0.0, 0.0 };
-        bool accepted = false;
-        for (int32_t attempt = 0; attempt < 32 && !accepted; ++attempt)
+        int32_t qmode = io.rawInteger(0, 3);
+        if (qmode == 0)
         {
             q[0] = io.raw(-7.0, 7.0);
             q[1] = io.raw(-7.0, 7.0);
-            int32_t inside = 0;
-            for (auto const& t : tris)
-            {
-                int32_t s0 = ExactOrient2(verts[t[0]], verts[t[1]], q);
-                int32_t s1 = ExactOrient2(verts[t[1]], verts[t[2]], q);
-                int32_t s2 = ExactOrient2(verts[t[2]], verts[t[0]], q);
-                if (s0 > 0 && s1 > 0 && s2 > 0)
-                {
-                    ++inside;
-                }
-                else if (s0 >= 0 && s1 >= 0 && s2 >= 0)
-                {
-                    // On the boundary of a triangle: the walk can stop at
-                    // either side of a shared edge.
-                    inside = 2;
-                    break;
-                }
-            }
-            accepted = (inside <= 1);
+        }
+        else if (qmode == 1)
+        {
+            q[0] = static_cast<double>(io.rawInteger(-6, 6));
+            q[1] = static_cast<double>(io.rawInteger(-6, 6));
+        }
+        else
+        {
+            auto const& t = tris[static_cast<size_t>(io.rawInteger(0,
+                static_cast<int32_t>(count) - 1))];
+            size_t j0 = static_cast<size_t>(io.rawInteger(0, 2));
+            Vector2<double> const& a = verts[t[j0]];
+            Vector2<double> const& b = verts[t[(j0 + 1) % 3]];
+            q = (qmode == 2 ? a : Vector2<double>{ 0.5 * (a[0] + b[0]), 0.5 * (a[1] + b[1]) });
         }
         io.givenVec<2>(q);
+        int32_t startRank = io.integer(0, static_cast<int32_t>(count) - 1);
 
         ID2::SearchInfo info{};
+        info.initialTriangle = order[static_cast<size_t>(startRank)];
         size_t t = del.GetContainingTriangle(q, info);
-        // The index itself is hash-table numbering; only whether a
-        // containing triangle was found, and which triangle it is, are
-        // order independent.
-        io.outBool(t != gInvalid);
+        io.outReal(asRank(t));
+        io.outReal(asRank(info.initialTriangle));
+        io.outReal(asRank(info.finalTriangle));
+        io.outInt(info.finalV[0]);
+        io.outInt(info.finalV[1]);
+        io.outInt(info.finalV[2]);
+        io.outInt(info.numPath);
+        for (size_t i = 0; i < info.numPath; ++i)
+        {
+            io.outReal(asRank(info.path[i]));
+        }
         if (t != gInvalid)
         {
             std::array<size_t, 3> triangle{};
@@ -1380,14 +1439,21 @@ ORACLE_CASE("IncrementalDelaunay2.getContainingTriangle")
             io.outInt(triangle[0]);
             io.outInt(triangle[1]);
             io.outInt(triangle[2]);
+            std::array<size_t, 3> adjacent{};
+            bool validAdj = del.GetAdjacent(t, adjacent);
+            io.outBool(validAdj);
+            for (size_t j = 0; j < 3; ++j)
+            {
+                io.outReal(asRank(adjacent[j]));
+            }
         }
     }
 
     // Out-of-range accessors return false.
     std::array<size_t, 3> triangle{}, adjacent{};
-    bool validTriangle = del.GetTriangle(tris.size(), triangle);
+    bool validTriangle = del.GetTriangle(count, triangle);
     io.outBool(validTriangle);
-    bool validAdjacent = del.GetAdjacent(tris.size(), adjacent);
+    bool validAdjacent = del.GetAdjacent(count, adjacent);
     io.outBool(validAdjacent);
 }
 
@@ -1454,6 +1520,74 @@ ORACLE_CASE("IncrementalDelaunay2.finalizeTriangulation")
     io.outReal(AsIndex(insertAfter));
     size_t removeAfter = del.Remove(pts[0]);
     io.outReal(AsIndex(removeAfter));
+}
+
+// Throw parity for the domain preconditions: the constructor asserts
+// xMin < xMax and yMin < yMax, Insert asserts that the position is strictly
+// inside the rectangle, and Remove asserts the same before
+// FinalizeTriangulation (and returns invalid afterwards instead).
+//   mode 0: an empty or inverted rectangle (the constructor throws)
+//   mode 1: Insert of a position on or outside the rectangle (throws)
+//   mode 2: Remove of a position on or outside the rectangle (throws)
+//   mode 3: Remove of the same kind of position after
+//           FinalizeTriangulation (returns invalid, no throw)
+ORACLE_CASE("IncrementalDelaunay2.domainAsserts")
+{
+    int32_t mode = io.index() % 4;
+    double xMin = io.lattice(-4, 0);
+    double yMin = io.lattice(-4, 0);
+    double xMax = 0.0, yMax = 0.0;
+    if (mode == 0)
+    {
+        // One of the two extents is empty or negative.
+        bool flatX = io.boolean();
+        double lo = io.lattice(-4, 0);
+        xMax = flatX ? xMin + lo : xMin + 4.0;
+        yMax = flatX ? yMin + 4.0 : yMin + lo;
+    }
+    else
+    {
+        xMax = xMin + 8.0;
+        yMax = yMin + 8.0;
+    }
+    ID2 del(xMin, yMin, xMax, yMax);
+
+    Vector2<double> inside{ xMin + 3.0, yMin + 5.0 };
+    size_t first = del.Insert(inside);
+
+    // A position on the boundary (a coordinate equal to a bound) or just
+    // outside it.
+    double t = io.lattice(0, 8);
+    int32_t side = io.integer(0, 3);
+    double off = io.lattice(0, 1);
+    Vector2<double> p{ 0.0, 0.0 };
+    if (side == 0) { p = { xMin - off, yMin + t }; }
+    else if (side == 1) { p = { xMax + off, yMin + t }; }
+    else if (side == 2) { p = { xMin + t, yMin - off }; }
+    else { p = { xMin + t, yMax + off }; }
+
+    // A throw record has no outputs at all, so nothing is emitted before
+    // the call that may throw.
+    if (mode == 1)
+    {
+        size_t index = del.Insert(p);
+        io.outReal(AsIndex(first));
+        io.outReal(AsIndex(index));
+    }
+    else if (mode == 2)
+    {
+        size_t index = del.Remove(p);
+        io.outReal(AsIndex(first));
+        io.outReal(AsIndex(index));
+    }
+    else if (mode == 3)
+    {
+        io.outReal(AsIndex(first));
+        bool finalized = del.FinalizeTriangulation();
+        io.outBool(finalized);
+        size_t index = del.Remove(p);
+        io.outReal(AsIndex(index));
+    }
 }
 
 // Deliberate port fix of issue #290: GetHull walks the edge map with an

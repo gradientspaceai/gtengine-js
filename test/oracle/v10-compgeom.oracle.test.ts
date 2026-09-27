@@ -188,6 +188,13 @@ describe('oracle: v10-compgeom', () => {
         }
     }
 
+    function compareTuples(a: readonly number[], b: readonly number[]): number {
+        for (let j = 0; j < 3; ++j) {
+            if (a[j] !== b[j]) { return a[j] - b[j]; }
+        }
+        return 0;
+    }
+
     function emitHull(io: OracleIO, del: IncrementalDelaunay2): void {
         const hull = del.getHull();
         io.outInt(hull.length);
@@ -224,12 +231,19 @@ describe('oracle: v10-compgeom', () => {
         for (let k = 0; k < numRemove; ++k) {
             io.outReal(del.remove(io.vec(2)));
         }
+        const numAfter = io.integer();
+        for (let k = 0; k < numAfter; ++k) {
+            io.outReal(del.insert(io.vec(2)));
+        }
         io.outInt(del.getNumVertices());
         io.outInt(del.getNumTriangles());
         emitTriangles(io, del);
         emitHull(io, del);
     }, { exact: true });
 
+    // The walk starts at a recorded canonical rank (triangles sorted by
+    // their stored vertex tuple), and every triangle index of the SearchInfo
+    // is emitted as a canonical rank; see the C++ case.
     family.case('IncrementalDelaunay2.getContainingTriangle', (io) => {
         const del = makeDelaunay(io);
         const n = io.integer();
@@ -240,12 +254,7 @@ describe('oracle: v10-compgeom', () => {
         const { vertices, triangles } = del.getTriangulation();
         io.outInt(vertices.length);
         for (const v of vertices) { io.outVec(v); }
-        const sorted = triangles.slice().sort((a, b) => {
-            for (let j = 0; j < 3; ++j) {
-                if (a[j] !== b[j]) { return a[j] - b[j]; }
-            }
-            return 0;
-        });
+        const sorted = triangles.slice().sort(compareTuples);
         io.outInt(sorted.length);
         for (const t of sorted) {
             io.outInt(t[0]);
@@ -253,22 +262,45 @@ describe('oracle: v10-compgeom', () => {
             io.outInt(t[2]);
         }
 
+        const tris = del.getTriangles();
+        const order = tris.map((_, i) => i);
+        order.sort((a, b) => compareTuples(tris[a], tris[b]));
+        const rank = new Array<number>(order.length);
+        order.forEach((t, r) => { rank[t] = r; });
+        const asRank = (t: number): number => (t < 0 ? -1 : rank[t]);
+
         for (let k = 0; k < 4; ++k) {
             const q = io.vec(2);
+            const startRank = io.integer();
             const info = new IncrementalDelaunay2SearchInfo();
+            info.initialTriangle = order[startRank];
             const t = del.getContainingTriangle(q, info);
-            io.outBool(t >= 0);
+            io.outReal(asRank(t));
+            io.outReal(asRank(info.initialTriangle));
+            io.outReal(asRank(info.finalTriangle));
+            io.outInt(info.finalV[0]);
+            io.outInt(info.finalV[1]);
+            io.outInt(info.finalV[2]);
+            io.outInt(info.numPath);
+            for (let i = 0; i < info.numPath; ++i) {
+                io.outReal(asRank(info.path[i]));
+            }
             if (t >= 0) {
                 const triangle = del.getTriangle(t);
                 io.outBool(triangle !== null);
                 io.outInt((triangle as number[])[0]);
                 io.outInt((triangle as number[])[1]);
                 io.outInt((triangle as number[])[2]);
+                const adjacent = del.getAdjacent(t);
+                io.outBool(adjacent !== null);
+                for (let j = 0; j < 3; ++j) {
+                    io.outReal(asRank((adjacent as number[])[j]));
+                }
             }
         }
 
-        io.outBool(del.getTriangle(del.getNumTriangles()) !== null);
-        io.outBool(del.getAdjacent(del.getNumTriangles()) !== null);
+        io.outBool(del.getTriangle(tris.length) !== null);
+        io.outBool(del.getAdjacent(tris.length) !== null);
     }, { exact: true });
 
     family.case('IncrementalDelaunay2.finalizeTriangulation', (io) => {
@@ -288,6 +320,46 @@ describe('oracle: v10-compgeom', () => {
         io.outBool(del.finalizeTriangulation());
         io.outReal(del.insert(points[0]));
         io.outReal(del.remove(points[0]));
+    }, { exact: true });
+
+    family.case('IncrementalDelaunay2.domainAsserts', (io) => {
+        const mode = io.index % 4;
+        const xMin = io.real();
+        const yMin = io.real();
+        let xMax = 0;
+        let yMax = 0;
+        if (mode === 0) {
+            const flatX = io.boolean();
+            const lo = io.real();
+            xMax = flatX ? xMin + lo : xMin + 4;
+            yMax = flatX ? yMin + 4 : yMin + lo;
+        } else {
+            xMax = xMin + 8;
+            yMax = yMin + 8;
+        }
+        const del = new IncrementalDelaunay2(xMin, yMin, xMax, yMax);
+        const first = del.insert(Vector.fromArray([xMin + 3, yMin + 5]));
+
+        const t = io.real();
+        const side = io.integer();
+        const off = io.real();
+        const p = side === 0 ? Vector.fromArray([xMin - off, yMin + t])
+            : side === 1 ? Vector.fromArray([xMax + off, yMin + t])
+                : side === 2 ? Vector.fromArray([xMin + t, yMin - off])
+                    : Vector.fromArray([xMin + t, yMax + off]);
+        if (mode === 1) {
+            const index = del.insert(p);
+            io.outReal(first);
+            io.outReal(index);
+        } else if (mode === 2) {
+            const index = del.remove(p);
+            io.outReal(first);
+            io.outReal(index);
+        } else if (mode === 3) {
+            io.outReal(first);
+            io.outBool(del.finalizeTriangulation());
+            io.outReal(del.remove(p));
+        }
     }, { exact: true });
 
     // The port's bounded hull walk throws where upstream's unbounded walk
