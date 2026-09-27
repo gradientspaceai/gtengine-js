@@ -26,10 +26,12 @@
 //    port's sorted order and starts every search at simplex 0 of that order.
 //    Everything else (the triangulation, the exact barycentrics copied from
 //    Delaunay2Mesh<T>::GetBarycentrics, the search itself) is upstream's.
-// IntpSphere2 and IntpVectorField2 build a Delaunay2Mesh<T> internally, so
-// their real classes carry the numbering dependence; each also gets a
-// "sortedMesh" case that replays its constructor over SortedMesh2 and is
-// compared exactly with the port's class.
+// IntpSphere2<T> and IntpVectorField2<T> build a Delaunay2Mesh<T> member
+// before their triangulation exists, and that mesh's constructor asserts
+// dimension 2, so neither class can be constructed (a 'deviation' case each;
+// see the group report). Each gets a "sortedMesh" case that replays its
+// constructor and operator() over SortedMesh2 and is compared exactly with
+// the port's class.
 //
 // One io draw per C++ statement: MSVC evaluates function arguments right to
 // left, so every generated value goes into a named local before it is used.
@@ -1318,6 +1320,7 @@ namespace
         }
 
         size_t GetInvalidIndex() const { return Delaunay3<double>::negOne; }
+        size_t Upstream(size_t r) const { return mOrder[r]; }
 
         size_t GetContainingTetrahedron(Vector3<double> const& P) const
         {
@@ -1359,11 +1362,11 @@ namespace
     // outside point) until it is strictly inside a triangle or outside the
     // hull, where the containing triangle does not depend on the search's
     // start (see the file comment).
-    Vector2<double> RawQuery2(oracle::Ctx& io, Delaunay2<double> const& del, int32_t mode)
+    Vector2<double> RawQuery2(oracle::Ctx& io, SortedMesh2 const& mesh, int32_t mode)
     {
-        auto const& ind = del.GetIndices();
-        auto const* V = del.GetVertices();
-        size_t t = static_cast<size_t>(io.rawInteger(0, static_cast<int32_t>(del.GetNumTriangles()) - 1));
+        int32_t const* ind = mesh.GetIndices();
+        auto const* V = mesh.GetVertices();
+        size_t t = static_cast<size_t>(io.rawInteger(0, static_cast<int32_t>(mesh.GetNumTriangles()) - 1));
         Vector2<double> V0 = V[ind[3 * t]], V1 = V[ind[3 * t + 1]], V2 = V[ind[3 * t + 2]];
         if (mode == 0)
         {
@@ -1395,7 +1398,7 @@ namespace
         for (int32_t attempt = 0; attempt < 32; ++attempt)
         {
             int32_t mode = io.rawInteger(0, 4);
-            Vector2<double> P = RawQuery2(io, del, mode);
+            Vector2<double> P = RawQuery2(io, mesh, mode);
             if (!strictOnly)
             {
                 return io.givenVec(P);
@@ -1411,11 +1414,11 @@ namespace
         return io.givenVec(Vector2<double>{ 20.0, 20.0 });
     }
 
-    Vector3<double> RawQuery3(oracle::Ctx& io, Delaunay3<double> const& del, int32_t mode)
+    Vector3<double> RawQuery3(oracle::Ctx& io, Delaunay3<double> const& del, SortedMesh3 const& mesh, int32_t mode)
     {
         auto const& ind = del.GetIndices();
         auto const* V = del.GetVertices();
-        size_t t = static_cast<size_t>(io.rawInteger(0, static_cast<int32_t>(del.GetNumTetrahedra()) - 1));
+        size_t t = mesh.Upstream(static_cast<size_t>(io.rawInteger(0, static_cast<int32_t>(del.GetNumTetrahedra()) - 1)));
         std::array<Vector3<double>, 4> W{};
         for (size_t j = 0; j < 4; ++j)
         {
@@ -1458,7 +1461,7 @@ namespace
         for (int32_t attempt = 0; attempt < 32; ++attempt)
         {
             int32_t mode = io.rawInteger(0, 5);
-            Vector3<double> P = RawQuery3(io, del, mode);
+            Vector3<double> P = RawQuery3(io, del, mesh, mode);
             if (!strictOnly)
             {
                 return io.givenVec(P);
@@ -1734,25 +1737,14 @@ ORACLE_CASE("IntpQuadraticNonuniform2.fromSpatialDelta.sortedMesh")
     }
 }
 
-ORACLE_CASE("IntpQuadraticNonuniform2.fromSpatialDelta")
-{
-    // The real Delaunay2Mesh<double>: EstimateDerivatives sums the triangle
-    // normals per vertex in upstream's unordered_map triangle order, so the
-    // estimated derivatives (and everything after them) can differ from the
-    // port's sorted-order sums in the last bits. Compared with a tolerance;
-    // the sortedMesh case above is the exact comparison.
-    auto pts = MakePoints2(io, 3, 9);
-    auto F = MakeValues<2>(io, pts);
-    double spatialDelta = MakeSpatialDelta(io);
-    Delaunay2<double> del{};
-    del(pts);
-    Delaunay2Mesh<double> mesh(del);
-    IntpQuadraticNonuniform2<double, Delaunay2Mesh<double>> intp(mesh, F.data(), spatialDelta);
-    for (int32_t q = 0; q < 5; ++q)
-    {
-        EmitQuadratic(io, intp, MakeQuery2(io, del, true));
-    }
-}
+// The spatialDelta constructor over the real Delaunay2Mesh<double> is not a
+// case: EstimateDerivatives sums the triangle normals per vertex in the
+// mesh's triangle order, and upstream's Delaunay2<T> numbering is not even
+// reproducible from run to run (3 of 2000 records changed bits between runs
+// of the same executable; the order comes from pointer-keyed containers in
+// the incremental insertion). Measured against the port it differed by at
+// most 9.1e-15 (scaled) on 450 of 11571 outputs. The sortedMesh case above
+// is the exact comparison of the same code.
 
 namespace
 {
@@ -1988,57 +1980,173 @@ ORACLE_CASE("IntpQuadraticNonuniform2.degenerateTriangle")
 namespace
 {
     // ---- thin-plate splines ------------------------------------------------
-    // Sample coordinates for one axis. Modes (per record): uniform, small
-    // lattice (repeated points make A singular when smooth = 0), and
-    // lattice with one axis constant (#191: a zero coordinate range gives
+    // Sample coordinates for one axis, unrecorded. Modes (per record):
+    // uniform, small lattice (repeated points make A singular when
+    // smooth = 0), and one axis constant (#191: a zero coordinate range gives
     // NaN coordinates when transformToUnitSquare is set).
-    std::vector<double> TPSCoordinates(oracle::Ctx& io, int32_t n, int32_t mode, bool flat)
+    std::vector<double> RawTPSCoordinates(oracle::Ctx& io, int32_t n, int32_t mode, bool flat)
     {
         std::vector<double> c(n);
         double constant = static_cast<double>(io.rawInteger(-2, 2));
         for (int32_t i = 0; i < n; ++i)
         {
-            double v;
             if (flat)
             {
-                v = constant;
+                c[i] = constant;
             }
             else if (mode == 0)
             {
-                v = io.raw(-3.0, 3.0);
+                c[i] = io.raw(-3.0, 3.0);
             }
             else
             {
-                v = static_cast<double>(io.rawInteger(-3, 3));
+                c[i] = static_cast<double>(io.rawInteger(-3, 3));
             }
-            c[i] = io.given(v);
         }
         return c;
     }
 
-    double TPSSmooth(oracle::Ctx& io)
+    std::vector<double> TPSCoordinates(oracle::Ctx& io, int32_t n, int32_t mode, bool flat)
+    {
+        std::vector<double> c = RawTPSCoordinates(io, n, mode, flat);
+        for (double& v : c)
+        {
+            v = io.given(v);
+        }
+        return c;
+    }
+
+    double RawTPSSmooth(oracle::Ctx& io)
     {
         int32_t k = io.rawInteger(0, 3);
-        return io.given(k <= 1 ? 0.0 : (k == 2 ? 0.125 : io.raw(0.001, 2.0)));
+        return (k <= 1 ? 0.0 : (k == 2 ? 0.125 : io.raw(0.001, 2.0)));
+    }
+
+    double TPSSmooth(oracle::Ctx& io)
+    {
+        return io.given(RawTPSSmooth(io));
+    }
+
+    double Norm1(GMatrix<double> const& M)
+    {
+        double best = 0.0;
+        for (int32_t c = 0; c < M.GetNumCols(); ++c)
+        {
+            double sum = 0.0;
+            for (int32_t r = 0; r < M.GetNumRows(); ++r)
+            {
+                sum += std::fabs(M(r, c));
+            }
+            best = std::max(best, sum);
+        }
+        return best;
+    }
+
+    // Conditioning probe for IntpThinPlateSpline2: cond1(A) * cond1(Q) of
+    // the two matrices the constructor inverts, built exactly as upstream
+    // builds them (std::minmax_element, t^2 log t^2, GMatrix Inverse,
+    // MultiplyATB). Infinity when either inverse fails or is not finite.
+    double TPS2Conditioning(std::vector<double> const& X, std::vector<double> const& Y,
+        double smooth, bool transform)
+    {
+        int32_t n = static_cast<int32_t>(X.size());
+        std::vector<double> x(X), y(Y);
+        if (transform)
+        {
+            auto ex = std::minmax_element(X.begin(), X.end());
+            auto ey = std::minmax_element(Y.begin(), Y.end());
+            double xinv = 1.0 / (*ex.second - *ex.first);
+            double yinv = 1.0 / (*ey.second - *ey.first);
+            for (int32_t i = 0; i < n; ++i)
+            {
+                x[i] = (X[i] - *ex.first) * xinv;
+                y[i] = (Y[i] - *ey.first) * yinv;
+            }
+        }
+        GMatrix<double> A(n, n), B(n, 3);
+        for (int32_t r = 0; r < n; ++r)
+        {
+            for (int32_t c = 0; c < n; ++c)
+            {
+                double dx = x[r] - x[c], dy = y[r] - y[c];
+                double t2 = dx * dx + dy * dy;
+                A(r, c) = (r == c ? smooth : (t2 > 0.0 ? t2 * std::log(t2) : 0.0));
+            }
+            B(r, 0) = 1.0;
+            B(r, 1) = x[r];
+            B(r, 2) = y[r];
+        }
+        double const inf = std::numeric_limits<double>::infinity();
+        bool invertible = false;
+        GMatrix<double> invA = Inverse(A, &invertible);
+        if (!invertible)
+        {
+            return inf;
+        }
+        GMatrix<double> Q = MultiplyATB(B, invA) * B;
+        GMatrix<double> invQ = Inverse(Q, &invertible);
+        if (!invertible)
+        {
+            return inf;
+        }
+        double cond = Norm1(A) * Norm1(invA) * Norm1(Q) * Norm1(invQ);
+        return std::isfinite(cond) ? cond : inf;
     }
 }
 
-// std::log in the kernel: the default 1e-12 tolerance (see the replay for
-// the conditioning note). IsInitialized compares exactly.
+// std::log in the kernel, compared with a tolerance. MSVC's log and V8's
+// Math.log differ in the last bit on about 3.6% of the kernel arguments
+// (5594 of 153924 in a 2000-record probe), and the two inverted systems
+// amplify that by their conditioning. With MSVC's log values substituted
+// for Math.log the port reproduces all 2000 probe records bit for bit,
+// invertibility flags included (see the report). The generator therefore
+// accepts only records with cond1(A) * cond1(Q) <= 1e4 (capped rejection,
+// fallback the best-conditioned candidate), where the measured scaled error
+// stays below 1e-12; the replay compares at 1e-11. The flat-axis mode is
+// always transformed and takes the #191 NaN path, which is exact.
 ORACLE_CASE("IntpThinPlateSpline2.evaluate")
 {
     int32_t n = io.integer(3, 8);
     int32_t mode = io.index() % 2;
     bool flatAxis = (io.index() % 7 == 6);
-    auto X = TPSCoordinates(io, n, mode, false);
-    auto Y = TPSCoordinates(io, n, mode, flatAxis);
+    std::vector<double> X, Y;
+    double smooth = 0.0, best = std::numeric_limits<double>::infinity();
+    bool transform = false;
+    for (int32_t attempt = 0; attempt < 64; ++attempt)
+    {
+        auto x = RawTPSCoordinates(io, n, mode, false);
+        auto y = RawTPSCoordinates(io, n, mode, flatAxis);
+        double s = RawTPSSmooth(io);
+        bool tr = (flatAxis || io.rawInteger(0, 1) == 1);
+        double cond = (flatAxis ? 0.0 : TPS2Conditioning(x, y, s, tr));
+        if (attempt == 0 || cond < best)
+        {
+            best = cond;
+            X = x;
+            Y = y;
+            smooth = s;
+            transform = tr;
+        }
+        if (best <= 1e4)
+        {
+            break;
+        }
+    }
+    for (double& v : X)
+    {
+        v = io.given(v);
+    }
+    for (double& v : Y)
+    {
+        v = io.given(v);
+    }
     std::vector<double> F(n);
     for (int32_t i = 0; i < n; ++i)
     {
         F[i] = io.real(-5.0, 5.0);
     }
-    double smooth = TPSSmooth(io);
-    bool transform = io.boolean();
+    smooth = io.given(smooth);
+    io.given(transform ? 1.0 : 0.0);
     IntpThinPlateSpline2<double> tps(n, X.data(), Y.data(), F.data(), smooth, transform);
     io.outBool(tps.IsInitialized());
     for (int32_t i = 0; i < n; ++i)
