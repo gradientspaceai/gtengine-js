@@ -350,6 +350,15 @@ an eigenvalue residual floors it at sqrt(epsilon); use a one-sided method or
 exact rational arithmetic over BigInt for lattice inputs, which is how v38
 found two upstream defects (#513, #514) on which both sides agreed.
 
+MSVC can fold a zero-initialised accumulator's seed away when it inlines the
+upstream function into the case body: `result.fill(0); result[i] += x` became
+`result[i] = x` in the inlined `Slerp<double, 2>` (`mulpd`/`addpd` with no add
+of the seed), which is not value-safe for -0 despite the documented
+`/fp:precise` semantics, while the out-of-line copy of the same function keeps
+the `addsd`. When the sign of zero can reach an output, call upstream through a
+`__declspec(noinline)` wrapper and hold the zero components to bit identity
+(v23: regenerating with the wrappers changed exactly 11 outputs, all -0 to +0).
+
 A group that finds no port defect states its sensitivity: recompute each
 suspect accumulation in the plausible alternative grouping from the recorded
 inputs and count the deep-run records on which it would have differed from

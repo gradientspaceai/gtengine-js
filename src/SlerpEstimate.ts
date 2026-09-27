@@ -27,6 +27,10 @@ function assertInputs(q0: readonly number[], q1: readonly number[], degree: numb
         'Invalid degree.');
 }
 
+// Every result below is accumulated as upstream does, result.fill(0) then
+// result[i] += f[0]*a[i] + f[1]*b[i]; the zero seed turns a -0 combination
+// into +0 (see Slerp.ts; found by the C++ oracle, v23).
+
 // The angle between q0 and q1 is in [0,pi/2].
 export function slerpEstimate(t: number, q0: readonly number[],
     q1: readonly number[], degree: number): number[]
@@ -40,9 +44,9 @@ export function slerpEstimate(t: number, q0: readonly number[],
     }
 
     const f = chebyshevRatioEstimate(t, cosA, degree);
-    const result = new Array<number>(n);
+    const result = new Array<number>(n).fill(0);
     for (let i = 0; i < n; ++i) {
-        result[i] = f[0] * q0[i] + f[1] * q1[i];
+        result[i] += f[0] * q0[i] + f[1] * q1[i];
     }
     return result;
 }
@@ -55,9 +59,9 @@ export function slerpEstimateUsingCosAngle(t: number, q0: readonly number[],
 
     const n = q0.length;
     const f = chebyshevRatioEstimate(t, cosA, degree);
-    const result = new Array<number>(n);
+    const result = new Array<number>(n).fill(0);
     for (let i = 0; i < n; ++i) {
-        result[i] = f[0] * q0[i] + f[1] * q1[i];
+        result[i] += f[0] * q0[i] + f[1] * q1[i];
     }
     return result;
 }
@@ -73,17 +77,17 @@ export function slerpEstimateUsingMidpoint(t: number, q0: readonly number[],
     logAssert(qh.length === q0.length, 'Mismatched dimensions.');
 
     const n = q0.length;
-    const result = new Array<number>(n);
+    const result = new Array<number>(n).fill(0);
     const twoT = 2 * t;
     if (twoT <= 1) {
         const f = chebyshevRatioEstimate(twoT, cosAH, degree);
         for (let i = 0; i < n; ++i) {
-            result[i] = f[0] * q0[i] + f[1] * qh[i];
+            result[i] += f[0] * q0[i] + f[1] * qh[i];
         }
     } else {
         const f = chebyshevRatioEstimate(twoT - 1, cosAH, degree);
         for (let i = 0; i < n; ++i) {
-            result[i] = f[0] * qh[i] + f[1] * q1[i];
+            result[i] += f[0] * qh[i] + f[1] * q1[i];
         }
     }
     return result;

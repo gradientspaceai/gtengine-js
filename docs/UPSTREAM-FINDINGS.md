@@ -71,11 +71,11 @@ Nothing here has been reported upstream before; this document is the report.
 
 ## Counts
 
-- **522 distinct findings** across **167** tracked issues (one issue
+- **523 distinct findings** across **168** tracked issues (one issue
   frequently holds several findings in related files).
-- By severity: **254 result-corrupting**, **16 wrong but
+- By severity: **255 result-corrupting**, **16 wrong but
   recoverable**, **179 minor**, **73 documentation**.
-- By port status: **261 fixed or corrected in the port** (of which 159 are code
+- By port status: **262 fixed or corrected in the port** (of which 160 are code
   fixes with regression tests, 22 are added guards or asserts where upstream has
   undefined behaviour, 64 are comment corrections, 11 are dead-code removals and
   5 are documented deliberate deviations), **251 preserved deliberately**, and
@@ -283,6 +283,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `ETManifoldMesh.h` | `GetBoundaryPolygon` | `std::map::operator[]` inserts a null entry into the map `GetBoundaryPolygons` is iterating | RC | fixed (assert) | [#212](https://github.com/gradientspaceai/gtengine-js/issues/212) |
 | `ETNonmanifoldMesh.h` | `Insert` / `Remove` | a degenerate triangle aliases two edges; `Remove` throws after already erasing the shared edge | RC | preserved | [#179](https://github.com/gradientspaceai/gtengine-js/issues/179) |
 | `ETNonmanifoldMesh.h` | `Insert` comment | "the (bad) triangle will not be part of the mesh" covers only `mTMap` | doc | corrected | [#179](https://github.com/gradientspaceai/gtengine-js/issues/179) |
+| `Exp2Estimate.h`, `ExpEstimate.h` | `Exp2EstimateRR` | `static_cast<int32_t>(floor(x))` is undefined behaviour outside the int32 range; MSVC yields `INT_MIN`, so `x >= 2^31` returns +0 where 2^x overflows to +inf (`ExpEstimateRR` inherits it for `x >= 2^31 ln 2`) | RC | fixed | [#537](https://github.com/gradientspaceai/gtengine-js/issues/537) |
 | `ExtremalQuery3BSP.h` | `InsertArc` | arcs are compared only against node great circles, not the accumulated region; ~1% of icosahedron queries are wrong | RC | preserved | [#290](https://github.com/gradientspaceai/gtengine-js/issues/290) |
 | `ExtremalQuery3BSP.h` | construction | `SortAdjacentTriangles` starts at `*TAdjacent.begin()` of an `unordered_set<Triangle*>`, so the tree, its node count and which queries are answered wrongly depend on heap addresses and differ between constructions of the same polytope | RC | preserved | [#290](https://github.com/gradientspaceai/gtengine-js/issues/290) |
 | `ExtremalQuery3BSP.h` | `GetTreeDepth` | reports the DFS stack high-water mark, not the tree depth | minor | preserved | [#290](https://github.com/gradientspaceai/gtengine-js/issues/290) |
@@ -2179,6 +2180,25 @@ fixed, by restoring the insert-time invariant after the destroyed faces are
 removed.
 
 Issues [#73](https://github.com/gradientspaceai/gtengine-js/issues/73), [#179](https://github.com/gradientspaceai/gtengine-js/issues/179), [#212](https://github.com/gradientspaceai/gtengine-js/issues/212), [#240](https://github.com/gradientspaceai/gtengine-js/issues/240), [#256](https://github.com/gradientspaceai/gtengine-js/issues/256), [#472](https://github.com/gradientspaceai/gtengine-js/issues/472).
+
+### `Exp2Estimate.h`, `ExpEstimate.h`
+
+**`Exp2EstimateRR` converts `floor(x)` to `int32_t` (result-corrupting; found by
+the C++ oracle of group 23).** The function computes
+`int32_t power = static_cast<int32_t>(static_cast<double>(std::floor(x)))` and
+returns `std::ldexp(poly, power)`. The header documents `x` as "any real
+number", but for `floor(x)` outside `[-2^31, 2^31 - 1]` the conversion is
+undefined ([conv.fpint]). MSVC x64 yields `INT_MIN`, so
+`Exp2EstimateRR<double, 3>(3e9)` returns 0 where 2^x overflows to +inf; below
+-2^31 the same conversion happens to give the correct +0. `ExpEstimateRR`
+inherits the defect for `x >= 2^31 ln 2`. Suggested fix: clamp the exponent
+(for example to [-1100, 1100]) before the conversion. Port: keeps the exponent
+as a double and returns +inf (deviation case
+`Exp2Estimate.estimateRR.hugeArgument`, 2000 of 2000 records). The remaining
+estimate cases of the group, every degree of every estimator, are bit-identical
+to the MSVC build on 4.4 million outputs.
+
+Issue [#537](https://github.com/gradientspaceai/gtengine-js/issues/537).
 
 ### `ExtremalQuery3BSP.h`
 
