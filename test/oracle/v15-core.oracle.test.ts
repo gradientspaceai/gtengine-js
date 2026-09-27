@@ -404,8 +404,8 @@ class ReplayExtractor extends CurveExtractor {
     readonly vertices: CurveExtractorVertex[] = [];
     readonly edges: CurveExtractorEdge[] = [];
 
-    constructor() {
-        super(2, 2, [0, 0, 0, 0]);
+    constructor(xBound = 2, yBound = 2) {
+        super(xBound, yBound, new Array<number>(16).fill(0));
     }
 
     addRecordedEdge(e: number[]): void {
@@ -452,6 +452,16 @@ describe('oracle: v15-core', () => {
     }, { exact: true });
 
     family.case('Functions.clamp', (io) => {
+        const x = io.real();
+        const xmin = io.real();
+        const xmax = io.real();
+        io.outReal(F.clamp(x, xmin, xmax));
+    }, { exact: true });
+
+    // Signed-zero ties of clamp; the C++ side compiles Functions.h without
+    // optimization because MSVC /O2 turns the inner conditional into a
+    // minsd that returns x instead of xmax on such ties (see the case file).
+    family.case('Functions.clamp.signedZero', (io) => {
         const x = io.real();
         const xmin = io.real();
         const xmax = io.real();
@@ -572,10 +582,25 @@ describe('oracle: v15-core', () => {
         io.outInt(h);
     }, { exact: true });
 
+    // The inputs include signaling NaNs, so they are read one by one: V8
+    // quiets a signaling NaN stored into a JS double array (io.reals builds
+    // one), which turned fff7ffffffffffff into ffffffffffffffff, whose
+    // 32-bit fold collides with the hash of 0 (deep run, records 1188 and
+    // 1546 of the first version of this replay).
     family.case('HashCombine.equalities', (io) => {
-        const [a, b, c, d] = io.reals(4);
+        const a = io.real();
+        const b = io.real();
+        const c = io.real();
+        const d = io.real();
         io.outBool(hashValue(a, b) === hashValue(c, d));
         io.outBool(hashValue(a) === hashValue(c));
+    }, { exact: true });
+
+    family.case('HashCombine.equalities.signalingNaN', (io) => {
+        const a = io.real();
+        const c = io.real();
+        io.outBool(hashValue(a) === hashValue(c));
+        io.outBool(hashValue(a, c) === hashValue(c, a));
     }, { exact: true });
 
     family.case('HashCombine.hashValue.msvc', (io) => {
@@ -978,6 +1003,38 @@ describe('oracle: v15-core', () => {
         }, { exact: true });
     }
 
+    // The C++ side compiles the checks in with
+    // GTL_VALIDATE_UNIQUE_VERTICES_TRIANGLES; the port's switch is 'validate'.
+    family.case('UniqueVerticesTriangles.validate', (io) => {
+        const op = io.integer();
+        io.boolean(); // the generator mode (valid or unconstrained)
+        const numVertices = io.integer();
+        const inVertices: number[][] = [];
+        for (let i = 0; i < numVertices; ++i) { inVertices.push([i, 0, 0]); }
+        const numIndices = io.integer();
+        const inIndices: number[] = [];
+        for (let i = 0; i < numIndices; ++i) { inIndices.push(io.integer()); }
+        const uvt = new UniqueVerticesTriangles<number[]>();
+        uvt.validate = true;
+        let numOut = 0;
+        let numOutIndices = 0;
+        if (op === 0) {
+            const r = uvt.generateIndexedTriangles(inVertices);
+            numOut = r.vertices.length; numOutIndices = r.indices.length;
+        } else if (op === 1 || op === 2) {
+            const r = op === 1 ? uvt.removeDuplicateVertices(inVertices, inIndices)
+                : uvt.removeUnusedVertices(inVertices, inIndices);
+            numOut = r.vertices.length; numOutIndices = r.indices.length;
+        } else {
+            const r = op === 3 ? uvt.removeDuplicateVerticesTriples(inVertices, toTriples(inIndices))
+                : op === 4 ? uvt.removeUnusedVerticesTriples(inVertices, toTriples(inIndices))
+                    : uvt.generateIndexedTrianglesTriples(inVertices);
+            numOut = r.vertices.length; numOutIndices = 3 * r.triangles.length;
+        }
+        io.outInt(numOut);
+        io.outInt(numOutIndices);
+    }, { exact: true });
+
     family.case('UniqueVerticesTriangles.scalar', (io) => {
         const numVertices = io.integer();
         const inVertices = io.reals(numVertices);
@@ -1036,6 +1093,13 @@ describe('oracle: v15-core', () => {
         io.outBool(e0.equals(e1));
         io.outBool(e0.lessThan(e1));
         io.outBool(e1.lessThan(e0));
+    }, { exact: true });
+
+    family.case('CurveExtractor.invalidBounds', (io) => {
+        const xBound = io.integer();
+        const yBound = io.integer();
+        new ReplayExtractor(xBound, yBound);
+        io.outInt(xBound * yBound);
     }, { exact: true });
 
     family.finish();

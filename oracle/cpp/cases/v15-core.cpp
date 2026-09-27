@@ -14,7 +14,25 @@
 //
 // Where the sign of zero can reach an output the upstream function is called
 // through a __declspec(noinline) wrapper (see ORACLE.md, v23).
+//
+// Functions.h is compiled with optimization off. MSVC 19.44 /O2 compiles
+// clamp's inner conditional (x >= xmax ? xmax : x) to 'minsd xmax, x', which
+// returns x instead of xmax when x and xmax are zeros of opposite sign, so
+// clamp(+0, -2, -0) is +0 where the C++ source says -0 (and
+// clamp(-0, NaN, +0) is -0 where it says +0). The noinline wrapper does not
+// help, because the out-of-line copy is compiled the same way; /fp:strict
+// does not either; /Od and this pragma give the source's value. Measured on
+// the deep run: without the pragma 5 of 2000 Functions.clamp records differ
+// from the source semantics, all of them signed-zero ties, and no other
+// case of the family changes. The standard headers Functions.h includes
+// come first so that the pragma reaches the GTE code alone; no header
+// included by Oracle.h includes Functions.h.
 #define ORACLE_FAMILY "v15-core"
+#include <cmath>
+#include <cstdint>
+#pragma optimize("", off)
+#include <Mathematics/Functions.h>
+#pragma optimize("", on)
 #include "Oracle.h"
 
 // MinHeap keeps its pointer array private; the cases compare the whole
@@ -48,6 +66,10 @@
 #include <Mathematics/TIQuery.h>
 #include <Mathematics/TypeTraits.h>
 #include <Mathematics/UIntegerAP32.h>
+// The precondition checks of UniqueVerticesTriangles are compiled in (the
+// port's 'validate' flag); every main case feeds valid inputs, so they only
+// matter for the UniqueVerticesTriangles.validate throw-parity case.
+#define GTL_VALIDATE_UNIQUE_VERTICES_TRIANGLES
 #include <Mathematics/UniqueVerticesTriangles.h>
 
 #include <algorithm>
@@ -353,6 +375,30 @@ ORACLE_CASE("Functions.clamp")
     double x = io.given(DrawScalar(io));
     double xmin = io.given(DrawScalar(io));
     double xmax = io.given(DrawScalar(io));
+    io.outReal(CallClamp(x, xmin, xmax));
+}
+
+ORACLE_CASE("Functions.clamp.signedZero")
+{
+    // Targeted at the ties the deep run found. Half of the records are the
+    // miscompiled configuration itself: x a zero, xmax the other zero and
+    // xmin below or NaN, so the source returns xmax and 'minsd' returned x
+    // (see the pragma at the top of the file). The other half draw x, xmin
+    // and xmax from {+0, -0, NaN, -1, 1}.
+    static double const special[] = { 0.0, -0.0, std::numeric_limits<double>::quiet_NaN(),
+        -1.0, 1.0 };
+    double rx = special[io.rawInteger(0, 4)];
+    double rmin = special[io.rawInteger(0, 4)];
+    double rmax = special[io.rawInteger(0, 4)];
+    if (io.rawInteger(0, 1) == 0)
+    {
+        rx = (io.rawInteger(0, 1) == 0 ? 0.0 : -0.0);
+        rmax = -rx;
+        rmin = (io.rawInteger(0, 1) == 0 ? -1.0 : std::numeric_limits<double>::quiet_NaN());
+    }
+    double x = io.given(rx);
+    double xmin = io.given(rmin);
+    double xmax = io.given(rmax);
     io.outReal(CallClamp(x, xmin, xmax));
 }
 
@@ -909,6 +955,25 @@ ORACLE_CASE("HashCombine.equalities")
     size_t h3 = HashValue(c);
     io.outBool(h0 == h1);
     io.outBool(h2 == h3);
+}
+
+ORACLE_CASE("HashCombine.equalities.signalingNaN")
+{
+    // Targeted at the deep-run finding: a signaling NaN against its quiet
+    // twin, against the signed zeros, and against itself. MSVC hashes the
+    // raw bits; the port folds them, so the comparison holds only while the
+    // signaling NaN reaches the port unquieted (the replay reads it with
+    // io.real(), not through a JS array).
+    static uint64_t const snans[] = { 0xFFF7FFFFFFFFFFFFull, 0x7FF7FFFFFFFFFFFFull,
+        0x7FF0000000000001ull, 0xFFF0000000000001ull, 0x7FF4000000000000ull };
+    uint64_t sBits = snans[io.rawInteger(0, 4)];
+    int mode = io.rawInteger(0, 3);
+    uint64_t cBits = (mode == 0 ? sBits | 0x0008000000000000ull
+        : (mode == 1 ? 0ull : (mode == 2 ? 0x8000000000000000ull : sBits)));
+    double a = io.given(FromBits(sBits));
+    double c = io.given(FromBits(cBits));
+    io.outBool(HashValue(a) == HashValue(c));
+    io.outBool(HashValue(a, c) == HashValue(c, a));
 }
 
 ORACLE_CASE("HashCombine.hashValue.msvc")
@@ -1969,6 +2034,54 @@ ORACLE_CASE("UniqueVerticesTriangles.removeDuplicateAndUnusedVertices")
     RunUVT(io, UVTOp::both);
 }
 
+ORACLE_CASE("UniqueVerticesTriangles.validate")
+{
+    // Throw parity of the GTL_VALIDATE_UNIQUE_VERTICES_TRIANGLES checks:
+    // empty inputs, vertex counts that are not a multiple of 3, index lists
+    // whose length is not a multiple of 3, indices -1 and numVertices. The
+    // operation is drawn; on success only the output sizes are emitted.
+    // Half of the records are drawn valid, the other half unconstrained.
+    int op = io.integer(0, 5);
+    bool valid = io.boolean();
+    int nv = 0, ni = 0;
+    if (valid)
+    {
+        nv = (op == 0 || op == 5 ? 3 * io.rawInteger(1, 2) : io.rawInteger(1, 7));
+        ni = 3 * io.rawInteger(1, 2);
+    }
+    else
+    {
+        nv = io.rawInteger(0, 7);
+        ni = io.rawInteger(0, 7);
+        if (op >= 3) { ni -= ni % 3; }
+    }
+    size_t numVertices = static_cast<size_t>(io.given(static_cast<double>(nv)));
+    std::vector<Vector3<double>> inVertices(numVertices);
+    for (size_t i = 0; i < numVertices; ++i)
+    {
+        inVertices[i] = { static_cast<double>(i), 0.0, 0.0 };
+    }
+    size_t numIndices = static_cast<size_t>(io.given(static_cast<double>(ni)));
+    std::vector<int32_t> inIndices(numIndices);
+    for (auto& i : inIndices)
+    {
+        int r = (valid ? io.rawInteger(0, nv - 1) : io.rawInteger(-1, nv));
+        i = static_cast<int32_t>(io.given(static_cast<double>(r)));
+    }
+    UniqueVerticesTriangles<Vector3<double>> uvt;
+    std::vector<Vector3<double>> outVertices;
+    std::vector<int32_t> outIndices;
+    std::vector<std::array<int32_t, 3>> outTriangles;
+    if (op == 0) { uvt.GenerateIndexedTriangles(inVertices, outVertices, outIndices); }
+    else if (op == 1) { uvt.RemoveDuplicateVertices(inVertices, inIndices, outVertices, outIndices); }
+    else if (op == 2) { uvt.RemoveUnusedVertices(inVertices, inIndices, outVertices, outIndices); }
+    else if (op == 3) { uvt.RemoveDuplicateVertices(inVertices, ToTriples(inIndices), outVertices, outTriangles); }
+    else if (op == 4) { uvt.RemoveUnusedVertices(inVertices, ToTriples(inIndices), outVertices, outTriangles); }
+    else { uvt.GenerateIndexedTriangles(inVertices, outVertices, outTriangles); }
+    io.outInt(outVertices.size());
+    io.outInt(outIndices.size() + 3 * outTriangles.size());
+}
+
 ORACLE_CASE("UniqueVerticesTriangles.scalar")
 {
     // VertexType = double: std::map<double, int32_t>, -0 and +0 equivalent.
@@ -2014,9 +2127,9 @@ namespace
     public:
         using CurveExtractor<int32_t, double>::Extract;
 
-        ReplayExtractor()
+        ReplayExtractor(int32_t xBound = 2, int32_t yBound = 2)
             :
-            CurveExtractor<int32_t, double>(2, 2, msPixels)
+            CurveExtractor<int32_t, double>(xBound, yBound, msPixels)
         {
         }
 
@@ -2038,12 +2151,12 @@ namespace
         }
 
     private:
-        static int32_t const msPixels[4];
+        static int32_t const msPixels[16];
         std::vector<Vertex> mVertices;
         std::vector<Edge> mEdges;
     };
 
-    int32_t const ReplayExtractor::msPixels[4] = { 0, 0, 0, 0 };
+    int32_t const ReplayExtractor::msPixels[16] = {};
 
     // A rational coordinate numer/denom with numerator and denominator of
     // the same sign (the extractors' invariant): 0..6 over 1..4, in reduced
@@ -2146,4 +2259,15 @@ ORACLE_CASE("CurveExtractor.vertexEdge")
     io.outBool(e0 == e1);
     io.outBool(e0 < e1);
     io.outBool(e1 < e0);
+}
+
+ORACLE_CASE("CurveExtractor.invalidBounds")
+{
+    // The protected constructor's LogAssert(xBound > 1 && yBound > 1 &&
+    // inputPixels != nullptr): throw parity over bounds 0..3 (the pixel
+    // array always holds enough samples, the port's extra length check).
+    int32_t xBound = io.integer(0, 3);
+    int32_t yBound = io.integer(0, 3);
+    ReplayExtractor extractor(xBound, yBound);
+    io.outInt(xBound * yBound);
 }
