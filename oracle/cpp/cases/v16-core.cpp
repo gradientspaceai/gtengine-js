@@ -838,3 +838,211 @@ ORACLE_CASE("PolygonTree.getContainingTriangle.invalidArgument")
     OutIndexOrInvalid(io, r.first);
     OutIndexOrInvalid(io, r.second);
 }
+
+// ================================================================ surface meshes
+
+namespace
+{
+    struct SurfaceMesh
+    {
+        int kind;
+        std::vector<Vector3<double>> vertices;
+        std::vector<int32_t> indices;
+    };
+
+    // Small triangle meshes: 0 tetrahedron, 1 octahedron, 2 cube (closed),
+    // 3 a heightfield grid with random diagonals (open), 4 an octahedron
+    // subdivided once and projected to a sphere of radius R (closed; the
+    // replay checks curvature estimates near 1/R). The closed solids are
+    // scaled by an integer and either kept on the lattice (exact normal
+    // sums, umbilic vertices of the regular octahedron) or perturbed.
+    SurfaceMesh DrawSurfaceMeshRaw(oracle::Ctx& io, int forcedKind)
+    {
+        SurfaceMesh m{};
+        m.kind = (forcedKind >= 0 ? forcedKind : io.rawInteger(0, 4));
+        bool perturb = (io.rawInteger(0, 1) != 0);
+        double scale = static_cast<double>(io.rawInteger(1, 3));
+        auto jitter = [&io, perturb](Vector3<double> const& p)
+        {
+            if (!perturb) { return p; }
+            Vector3<double> q = p;
+            for (int j = 0; j < 3; ++j) { q[j] += io.raw(-0.2, 0.2); }
+            return q;
+        };
+        if (m.kind == 0)
+        {
+            Vector3<double> v[4] = { {1,1,1}, {1,-1,-1}, {-1,1,-1}, {-1,-1,1} };
+            for (auto const& p : v) { m.vertices.push_back(jitter(scale * p)); }
+            m.indices = { 0,1,2, 0,3,1, 0,2,3, 1,3,2 };
+        }
+        else if (m.kind == 1 || m.kind == 4)
+        {
+            Vector3<double> v[6] = { {1,0,0}, {-1,0,0}, {0,1,0}, {0,-1,0}, {0,0,1}, {0,0,-1} };
+            for (auto const& p : v) { m.vertices.push_back(p); }
+            std::vector<int32_t> tri = { 0,2,4, 2,1,4, 1,3,4, 3,0,4, 2,0,5, 1,2,5, 3,1,5, 0,3,5 };
+            if (m.kind == 1) { m.indices = tri; }
+            else
+            {
+                std::map<std::pair<int32_t, int32_t>, int32_t> mid;
+                auto midpoint = [&m, &mid](int32_t a, int32_t b)
+                {
+                    auto key = std::make_pair(std::min(a, b), std::max(a, b));
+                    auto it = mid.find(key);
+                    if (it != mid.end()) { return it->second; }
+                    int32_t k = static_cast<int32_t>(m.vertices.size());
+                    m.vertices.push_back(0.5 * (m.vertices[a] + m.vertices[b]));
+                    mid[key] = k;
+                    return k;
+                };
+                for (size_t t = 0; t < tri.size(); t += 3)
+                {
+                    int32_t a = tri[t], b = tri[t + 1], c = tri[t + 2];
+                    int32_t ab = midpoint(a, b), bc = midpoint(b, c), ca = midpoint(c, a);
+                    int32_t sub[12] = { a,ab,ca, ab,b,bc, ca,bc,c, ab,bc,ca };
+                    m.indices.insert(m.indices.end(), sub, sub + 12);
+                }
+            }
+            double radius = scale * (m.kind == 4 ? io.raw(0.5, 2.0) : 1.0);
+            for (auto& p : m.vertices)
+            {
+                if (m.kind == 4) { Normalize(p); }
+                p = jitter(radius * p);
+            }
+            if (m.kind == 4 && perturb)
+            {
+                // Keep the sphere samples on the sphere (radial jitter only).
+                for (auto& p : m.vertices) { Normalize(p); p = radius * p; }
+            }
+        }
+        else if (m.kind == 2)
+        {
+            for (int i = 0; i < 8; ++i)
+            {
+                Vector3<double> p{ (double)((i & 1) * 2 - 1), (double)(((i >> 1) & 1) * 2 - 1),
+                    (double)(((i >> 2) & 1) * 2 - 1) };
+                m.vertices.push_back(jitter(scale * p));
+            }
+            m.indices = { 0,2,1, 1,2,3, 4,5,6, 5,7,6, 0,1,4, 1,5,4,
+                2,6,3, 3,6,7, 0,4,2, 2,4,6, 1,3,5, 3,7,5 };
+        }
+        else
+        {
+            int rows = io.rawInteger(2, 4), cols = io.rawInteger(2, 4);
+            bool latticeZ = (io.rawInteger(0, 1) != 0);
+            for (int r = 0; r < rows; ++r)
+            {
+                for (int c = 0; c < cols; ++c)
+                {
+                    double z = (latticeZ ? (double)io.rawInteger(-1, 1) : io.raw(-1.0, 1.0));
+                    m.vertices.push_back({ scale * c, scale * r, z });
+                }
+            }
+            for (int r = 0; r + 1 < rows; ++r)
+            {
+                for (int c = 0; c + 1 < cols; ++c)
+                {
+                    int32_t v00 = r * cols + c, v10 = v00 + 1, v01 = v00 + cols, v11 = v01 + 1;
+                    if (io.rawInteger(0, 1) != 0)
+                    {
+                        int32_t t[6] = { v00, v10, v11, v00, v11, v01 };
+                        m.indices.insert(m.indices.end(), t, t + 6);
+                    }
+                    else
+                    {
+                        int32_t t[6] = { v00, v10, v01, v10, v11, v01 };
+                        m.indices.insert(m.indices.end(), t, t + 6);
+                    }
+                }
+            }
+        }
+        return m;
+    }
+
+    SurfaceMesh GivenSurfaceMesh(oracle::Ctx& io, SurfaceMesh const& m)
+    {
+        io.given(static_cast<double>(m.kind));
+        io.given(static_cast<double>(m.vertices.size()));
+        for (auto const& p : m.vertices) { io.givenVec(p); }
+        io.given(static_cast<double>(m.indices.size()));
+        for (int32_t i : m.indices) { io.given(static_cast<double>(i)); }
+        return m;
+    }
+
+    // Arithmetic-only weights, defined identically in the replay, so that
+    // the virtual hooks of MeshSmoother are compared too.
+    class WeightedSmoother : public MeshSmoother<double>
+    {
+    protected:
+        virtual bool VertexInfluenced(size_t i, double t) override
+        {
+            return (i % 3 != 1) || t > 0.75;
+        }
+        virtual double GetTangentWeight(size_t, double t) override
+        {
+            return 0.25 + 0.125 * t;
+        }
+        virtual double GetNormalWeight(size_t i, double t) override
+        {
+            return (i % 2 == 0 ? -0.0625 : 0.03125) * t;
+        }
+    };
+}
+
+ORACLE_CASE("MeshSmoother.update")
+{
+    // Three Update(t) steps (t = 0, 0.5, 1) with the default weights or the
+    // WeightedSmoother hooks. Some records append a vertex that no triangle
+    // references (neighbour count 0: Vector's operator/= sets the mean to
+    // zero). After each step: normals, means and the vertex positions.
+    SurfaceMesh m = DrawSurfaceMeshRaw(io, -1);
+    if (io.rawInteger(0, 3) == 0) { m.vertices.push_back({ io.raw(-1.0, 1.0), 1.5, -0.5 }); }
+    GivenSurfaceMesh(io, m);
+    bool weighted = io.boolean();
+    WeightedSmoother weightedSmoother;
+    MeshSmoother<double> plainSmoother;
+    MeshSmoother<double>& smoother = (weighted ? static_cast<MeshSmoother<double>&>(weightedSmoother) : plainSmoother);
+    std::vector<Vector3<double>> vertices = m.vertices;
+    smoother(vertices, m.indices);
+    io.outInt(smoother.GetNumVertices());
+    io.outInt(smoother.GetNumTriangles());
+    for (size_t c : smoother.GetNeighborCounts()) { io.outInt(c); }
+    for (int step = 0; step < 3; ++step)
+    {
+        smoother.Update(0.5 * step);
+        for (auto const& v : smoother.GetNormals()) { io.outVec(v); }
+        for (auto const& v : smoother.GetMeans()) { io.outVec(v); }
+        for (auto const& v : vertices) { io.outVec(v); }
+    }
+}
+
+ORACLE_CASE("MeshSmoother.invalidInput")
+{
+    // LogAssert(numVertices >= 3 && numTriangles >= 1): throw parity.
+    int numVertices = io.integer(1, 4);
+    int numIndices = io.integer(0, 4);
+    std::vector<Vector3<double>> vertices(static_cast<size_t>(numVertices), Vector3<double>{ 0.0, 0.0, 0.0 });
+    std::vector<int32_t> indices(static_cast<size_t>(numIndices), 0);
+    MeshSmoother<double> smoother;
+    smoother(vertices, indices);
+    io.outInt(smoother.GetNumTriangles());
+}
+
+ORACLE_CASE("MeshCurvature.compute")
+{
+    // Normals, principal curvatures and directions (closed-form 2x2
+    // eigensystem, sqrt only). The singularity threshold is 0 (the
+    // documented default, which never fires: finding #240), 1e-3, or 1e10
+    // (every vertex takes the planar branch). The lattice octahedron has
+    // exact umbilics (finding #412: zero directions).
+    SurfaceMesh m = GivenSurfaceMesh(io, DrawSurfaceMeshRaw(io, -1));
+    int thresholdMode = io.rawInteger(0, 2);
+    double threshold = io.given(thresholdMode == 0 ? 0.0 : (thresholdMode == 1 ? 1e-3 : 1e10));
+    std::vector<uint32_t> indices(m.indices.begin(), m.indices.end());
+    MeshCurvature<double> curvature;
+    curvature(m.vertices, indices, threshold);
+    for (auto const& v : curvature.GetNormals()) { io.outVec(v); }
+    for (double k : curvature.GetMinCurvatures()) { io.outReal(k); }
+    for (double k : curvature.GetMaxCurvatures()) { io.outReal(k); }
+    for (auto const& v : curvature.GetMinDirections()) { io.outVec(v); }
+    for (auto const& v : curvature.GetMaxDirections()) { io.outVec(v); }
+}

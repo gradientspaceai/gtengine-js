@@ -4,6 +4,8 @@ import { CurveExtractorEdge, CurveExtractorVertex } from '../../src/CurveExtract
 import { CurveExtractorSquares } from '../../src/CurveExtractorSquares.js';
 import { CurveExtractorTriangles } from '../../src/CurveExtractorTriangles.js';
 import { IEEEBinary16 } from '../../src/IEEEBinary16.js';
+import { MeshCurvature } from '../../src/MeshCurvature.js';
+import { MeshSmoother } from '../../src/MeshSmoother.js';
 import { PolygonTreeEx, PolygonTreeExNode } from '../../src/PolygonTree.js';
 import { PolygonWindingOrder } from '../../src/PolygonWindingOrder.js';
 import { Vector, add, mul } from '../../src/Vector.js';
@@ -153,6 +155,48 @@ function outHalf(io: OracleIO, h: IEEEBinary16, tol?: number): void {
     io.outReal(h.number, tol);
 }
 
+// ------------------------------------------------------------ PolygonWindingOrder
+
+// Exact simplicity test for an integer polygon: distinct vertices, no two
+// nonadjacent edges touching, no adjacent edges folding back on each other.
+function isSimpleLatticePolygon(polygon: Vector[]): boolean {
+    const n = polygon.length;
+    const x = polygon.map(v => v.get(0)), y = polygon.map(v => v.get(1));
+    const orient = (a: number, b: number, c: number): number =>
+        Math.sign((x[b] - x[a]) * (y[c] - y[a]) - (y[b] - y[a]) * (x[c] - x[a]));
+    const onSegment = (a: number, b: number, c: number): boolean =>
+        Math.min(x[a], x[b]) <= x[c] && x[c] <= Math.max(x[a], x[b])
+        && Math.min(y[a], y[b]) <= y[c] && y[c] <= Math.max(y[a], y[b]);
+    const intersect = (a: number, b: number, c: number, d: number): boolean => {
+        const o1 = orient(a, b, c), o2 = orient(a, b, d);
+        const o3 = orient(c, d, a), o4 = orient(c, d, b);
+        if (o1 * o2 < 0 && o3 * o4 < 0) { return true; }
+        return (o1 === 0 && onSegment(a, b, c)) || (o2 === 0 && onSegment(a, b, d))
+            || (o3 === 0 && onSegment(c, d, a)) || (o4 === 0 && onSegment(c, d, b));
+    };
+    for (let i = 0; i < n; ++i) {
+        for (let j = i + 1; j < n; ++j) {
+            if (x[i] === x[j] && y[i] === y[j]) { return false; }
+        }
+    }
+    for (let i = 0; i < n; ++i) {
+        const i1 = (i + 1) % n;
+        for (let j = i + 1; j < n; ++j) {
+            const j1 = (j + 1) % n;
+            if (j === i1 || i === j1) {
+                // Adjacent edges share one vertex; they must not fold back.
+                const shared = (j === i1 ? i1 : i);
+                const p = (shared === i1 ? i : i1), q = (shared === i1 ? j1 : j);
+                if (orient(shared, p, q) === 0 && (x[p] - x[shared]) * (x[q] - x[shared])
+                    + (y[p] - y[shared]) * (y[q] - y[shared]) > 0) { return false; }
+                continue;
+            }
+            if (intersect(i, i1, j, j1)) { return false; }
+        }
+    }
+    return true;
+}
+
 // ------------------------------------------------------------ PolygonTree
 
 interface TreeDraw {
@@ -200,6 +244,38 @@ function drawTree(io: OracleIO): TreeDraw {
 
 function outIndexOrInvalid(io: OracleIO, i: number): void {
     io.outInt(i === PolygonTreeEx.INVALID ? -1 : i);
+}
+
+// ------------------------------------------------------------ surface meshes
+
+interface SurfaceMesh {
+    kind: number;
+    vertices: Vector[];
+    indices: number[];
+}
+
+function readSurfaceMesh(io: OracleIO): SurfaceMesh {
+    const kind = io.integer();
+    const nv = io.integer();
+    const vertices: Vector[] = [];
+    for (let i = 0; i < nv; ++i) { vertices.push(io.vec(3)); }
+    const ni = io.integer();
+    const indices: number[] = [];
+    for (let i = 0; i < ni; ++i) { indices.push(io.integer()); }
+    return { kind, vertices, indices };
+}
+
+// The replay of the case file's WeightedSmoother.
+class WeightedSmoother extends MeshSmoother {
+    protected override vertexInfluenced(i: number, t: number): boolean {
+        return (i % 3 !== 1) || t > 0.75;
+    }
+    protected override getTangentWeight(_i: number, t: number): number {
+        return 0.25 + 0.125 * t;
+    }
+    protected override getNormalWeight(i: number, t: number): number {
+        return (i % 2 === 0 ? -0.0625 : 0.03125) * t;
+    }
 }
 
 describe('oracle: v16-core', () => {
@@ -383,8 +459,7 @@ describe('oracle: v16-core', () => {
             const p = polygon[ll], a = polygon[(ll + 1) % n], b = polygon[(ll + n - 1) % n];
             const turn = (a.get(0) - p.get(0)) * (b.get(1) - p.get(1))
                 - (a.get(1) - p.get(1)) * (b.get(0) - p.get(0));
-            const distinct = new Set(polygon.map(v => `${v.get(0)},${v.get(1)}`)).size === n;
-            if (turn !== 0 && distinct && area2 !== 0n && (area2 > 0n) !== ccw) {
+            if (turn !== 0 && isSimpleLatticePolygon(polygon) && (area2 > 0n) !== ccw) {
                 throw new Error('winding order disagrees with the shoelace area');
             }
         }
@@ -419,6 +494,64 @@ describe('oracle: v16-core', () => {
             nodeIndices, d.points);
         outIndexOrInvalid(io, r.nIndex);
         outIndexOrInvalid(io, r.tIndex);
+    }, { exact: true });
+
+    // ------------------------------------------------------------ MeshSmoother
+
+    family.case('MeshSmoother.update', (io) => {
+        const m = readSurfaceMesh(io);
+        const weighted = io.boolean();
+        const smoother = weighted ? new WeightedSmoother() : new MeshSmoother();
+        const vertices = m.vertices.map(v => v.clone());
+        smoother.initialize(vertices, m.indices);
+        io.outInt(smoother.getNumVertices());
+        io.outInt(smoother.getNumTriangles());
+        for (const c of smoother.getNeighborCounts()) { io.outInt(c); }
+        for (let step = 0; step < 3; ++step) {
+            smoother.update(0.5 * step);
+            for (const v of smoother.getNormals()) { io.outVec(v); }
+            for (const v of smoother.getMeans()) { io.outVec(v); }
+            for (const v of vertices) { io.outVec(v); }
+        }
+    }, { exact: true });
+
+    family.case('MeshSmoother.invalidInput', (io) => {
+        const numVertices = io.integer();
+        const numIndices = io.integer();
+        const vertices: Vector[] = [];
+        for (let i = 0; i < numVertices; ++i) { vertices.push(new Vector(3)); }
+        const smoother = new MeshSmoother();
+        smoother.initialize(vertices, new Array<number>(numIndices).fill(0));
+        io.outInt(smoother.getNumTriangles());
+    }, { exact: true });
+
+    // ------------------------------------------------------------ MeshCurvature
+
+    family.case('MeshCurvature.compute', (io) => {
+        const m = readSurfaceMesh(io);
+        const threshold = io.real();
+        const curvature = new MeshCurvature();
+        curvature.compute(m.vertices, m.indices, threshold);
+        const kmin = curvature.getMinCurvatures(), kmax = curvature.getMaxCurvatures();
+        // Independent check on the sphere samples of radius R (kind 4) with
+        // the default threshold: the estimates are near 1/R.
+        // Only the unperturbed samples (vertex 0 exactly on the x-axis): the
+        // one-level subdivision is too coarse for tangentially jittered
+        // samples (their estimates range over [0.3/R, 1.9/R]).
+        const unperturbed = m.vertices[0].get(1) === 0 && m.vertices[0].get(2) === 0;
+        if (m.kind === 4 && threshold === 0 && unperturbed) {
+            const r = Math.hypot(m.vertices[0].get(0), m.vertices[0].get(1), m.vertices[0].get(2));
+            for (let i = 0; i < kmin.length; ++i) {
+                if (!(kmin[i] > 0.5 / r && kmax[i] < 1.5 / r && kmin[i] <= kmax[i])) {
+                    throw new Error(`curvature ${kmin[i]}, ${kmax[i]} far from 1/R = ${1 / r}`);
+                }
+            }
+        }
+        for (const v of curvature.getNormals()) { io.outVec(v); }
+        io.outReals(kmin);
+        io.outReals(kmax);
+        for (const v of curvature.getMinDirections()) { io.outVec(v); }
+        for (const v of curvature.getMaxDirections()) { io.outVec(v); }
     }, { exact: true });
 
     family.finish();
