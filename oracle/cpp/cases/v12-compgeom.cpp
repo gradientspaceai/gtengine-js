@@ -256,6 +256,26 @@ namespace
         std::size_t NumVertices() const { return this->mAdjacentPoolLocation.size(); }
         std::size_t MaxSample() const { return this->mMaxSample; }
         auto const& DomainIndex() const { return this->mDomainIndex; }
+
+        // RunHull up to and including RemoveCoplanarTriangleAdjacencies, the
+        // state in which GetExtreme is called.
+        void Prepare(std::vector<Vec3> const& vertices, std::vector<int32_t> const& indices,
+            std::size_t lgMaxSample)
+        {
+            this->GenerateSubdivision(lgMaxSample);
+            VETManifoldMesh mesh{};
+            this->CreateMeshTopology(indices.size() / 3, indices.data(), mesh);
+            ExtractMeshTopologySorted(mesh);
+            ExtractVertexAdjacenciesSorted(mesh);
+            this->ExtractMeshGeometry(vertices.size(), vertices.data());
+            this->RemoveCoplanarTriangleAdjacencies();
+        }
+
+        template <typename Direction, typename Value>
+        std::size_t Extreme(Direction const& direction, Value& dMax)
+        {
+            return this->GetExtreme(direction, dMax);
+        }
         // Floating-point header only (instantiated only there).
         auto const& TVertices() const { return this->mTVertices; }
         auto const& NVertices() const { return this->mNVertices; }
@@ -949,6 +969,626 @@ ORACLE_CASE("MinimumVolumeBox3FloatingPoint.computeHull.canonical")
     OutTopology(io, query);
     OutAlignedFP(io, query);
     OutWinnerFP(io, query);
+    });
+}
+
+namespace
+{
+    // A search direction for GetExtreme. Kind 0: a signed coordinate axis;
+    // kind 1: a lattice direction in [-2,2]^3 (edges and faces of lattice
+    // hulls are often perpendicular to it, so ties are exact); kind 2: a
+    // uniform unit vector; kind 3: the normalized normal of a hull triangle
+    // (upstream's candidate axes are such normals), which makes the whole
+    // face a plateau up to rounding. Nothing is recorded here.
+    Vec3 DrawDirection(oracle::Ctx& io, int32_t kind, std::vector<Vec3> const& vertices,
+        std::vector<int32_t> const& indices)
+    {
+        Vec3 d{ 0.0, 0.0, 0.0 };
+        if (kind == 0)
+        {
+            d[io.rawInteger(0, 2)] = (io.rawInteger(0, 1) == 0 ? -1.0 : 1.0);
+        }
+        else if (kind == 1)
+        {
+            do
+            {
+                for (int32_t j = 0; j < 3; ++j)
+                {
+                    d[j] = static_cast<double>(io.rawInteger(-2, 2));
+                }
+            } while (d[0] == 0.0 && d[1] == 0.0 && d[2] == 0.0);
+        }
+        else if (kind == 2)
+        {
+            double length = 0.0;
+            do
+            {
+                for (int32_t j = 0; j < 3; ++j)
+                {
+                    d[j] = io.raw(-1.0, 1.0);
+                }
+                length = Length(d);
+            } while (length < 0.1 || length > 1.0);
+            Normalize(d);
+        }
+        else
+        {
+            std::size_t t = static_cast<std::size_t>(io.rawInteger(0,
+                static_cast<int32_t>(indices.size() / 3) - 1));
+            Vec3 const& p0 = vertices[indices[3 * t]];
+            Vec3 const& p1 = vertices[indices[3 * t + 1]];
+            Vec3 const& p2 = vertices[indices[3 * t + 2]];
+            d = Cross(p2 - p0, p1 - p0);
+            if (io.rawInteger(0, 1) == 0)
+            {
+                d = -d;
+            }
+            Normalize(d);
+        }
+        return d;
+    }
+
+    // The port's rounding bound (MinimumVolumeBox3FloatingPoint.ts,
+    // climbTolerance): 8 * eps * max_i |d[i]| * max_v L1(mTVertices[v]).
+    double ClimbTolerance(std::vector<Vec3> const& T, Vec3 const& d)
+    {
+        double maxL1 = 0.0;
+        for (auto const& v : T)
+        {
+            maxL1 = std::max(maxL1, std::fabs(v[0]) + std::fabs(v[1]) + std::fabs(v[2]));
+        }
+        double maxD = std::max(std::fabs(d[0]), std::max(std::fabs(d[1]), std::fabs(d[2])));
+        return 8.0 * std::numeric_limits<double>::epsilon() * maxL1 * maxD;
+    }
+
+    // How far upstream's GetExtreme vertex falls short of the exact maximum
+    // of Dot(d, mTVertices[v]): 0 when it is an exact maximizer.
+    double ExtremeShortfall(std::vector<Vec3> const& T, Vec3 const& d, std::size_t vUpstream)
+    {
+        ExactNumber best = ExactDot(d, T[vUpstream]);
+        ExactNumber reached = best;
+        for (auto const& v : T)
+        {
+            ExactNumber value = ExactDot(d, v);
+            if (value > best)
+            {
+                best = value;
+            }
+        }
+        return static_cast<double>(best - reached);
+    }
+}
+
+ORACLE_CASE("MinimumVolumeBox3FloatingPoint.getExtreme")
+{
+    RunWithBigStack([&io]() {
+    // GetExtreme, the hill climb every candidate uses, called directly (via
+    // the Canonical subclass) on a hull mesh after the coplanar merge, in
+    // four directions per record. Restricted to meshes and directions where
+    // upstream's vertex is an exact maximizer (the separator of #426; the
+    // direction is redrawn up to 16 times, the mesh up to 8 times). The
+    // rotated-lattice mode is left to the plateau deviation case.
+    int32_t const modes[4] = { 0, 1, 3, 4 };
+    int32_t mode = modes[io.integer(0, 3)];
+    int32_t n = io.integer(5, 10);
+
+    std::vector<Vec3> vertices{};
+    std::vector<int32_t> indices{};
+    for (int32_t attempt = 0; attempt < 8 && vertices.empty(); ++attempt)
+    {
+        MakeHullMesh(io, DrawCloud(io, mode, n), vertices, indices);
+    }
+    if (vertices.empty())
+    {
+        MakeHullMesh(io, FallbackCloud(), vertices, indices);
+    }
+    GiveMesh(io, vertices, indices);
+
+    CanonicalFP query(0);
+    query.Prepare(vertices, indices, 2);
+    for (int32_t k = 0; k < 4; ++k)
+    {
+        int32_t kind = io.integer(0, 3);
+        Vec3 direction{};
+        for (int32_t attempt = 0; attempt < 16; ++attempt)
+        {
+            direction = DrawDirection(io, kind, vertices, indices);
+            double dMax = 0.0;
+            std::size_t v = query.Extreme(direction, dMax);
+            if (ExtremeShortfall(query.TVertices(), direction, v) == 0.0)
+            {
+                break;
+            }
+        }
+        io.givenVec(direction);
+        double dMax = 0.0;
+        std::size_t vMax = query.Extreme(direction, dMax);
+        io.outInt(IndexOut(vMax));
+        io.outReal(dMax);
+    }
+    });
+}
+
+ORACLE_CASE("MinimumVolumeBox3FloatingPoint.getExtreme.plateau")
+{
+    RunWithBigStack([&io]() {
+    // Deviation (#426): upstream's strict-improvement climb stops at a
+    // vertex that falls short of the exact maximum by more than the rounding
+    // bound, so the port's plateau traversal replaces it. The construction
+    // follows the finding: a lattice box whose FIRST point lies in the
+    // interior of a face (so it becomes hull vertex 0, the climb start),
+    // rotated by 0.03 to 0.3 degrees so that the face is coplanar only up to
+    // rounding and the exact coplanar merge leaves the point in the graph;
+    // the directions are the signed normals of the hull triangles at vertex
+    // 0 and the signed axes of upstream's own winning candidate. Capped at 48
+    // clouds; each record keeps the direction with the largest shortfall.
+    int32_t n = io.integer(6, 10);
+    std::vector<Vec3> bestVertices{};
+    std::vector<int32_t> bestIndices{};
+    Vec3 bestDirection{ 1.0, 0.0, 0.0 };
+    double bestExcess = -1.0;
+    for (int32_t attempt = 0; attempt < 48 && bestExcess <= 0.0; ++attempt)
+    {
+        double sx = static_cast<double>(io.rawInteger(2, 4));
+        double sy = static_cast<double>(io.rawInteger(2, 4));
+        double sz = static_cast<double>(io.rawInteger(1, 4));
+        std::vector<Vec3> points{};
+        points.push_back(Vec3{ static_cast<double>(io.rawInteger(1, static_cast<int32_t>(sx) - 1)),
+            static_cast<double>(io.rawInteger(1, static_cast<int32_t>(sy) - 1)), sz });
+        for (int32_t k = 0; k < 8; ++k)
+        {
+            points.push_back(Vec3{ (k & 1) ? sx : 0.0, (k & 2) ? sy : 0.0, (k & 4) ? sz : 0.0 });
+        }
+        for (int32_t i = 9; i < n; ++i)
+        {
+            points.push_back(Vec3{ static_cast<double>(io.rawInteger(0, static_cast<int32_t>(sx))),
+                static_cast<double>(io.rawInteger(0, static_cast<int32_t>(sy))),
+                static_cast<double>(io.rawInteger(0, static_cast<int32_t>(sz))) });
+        }
+        double angle = io.raw(0.0005, 0.005);
+        double c = std::cos(angle), s = std::sin(angle);
+        int32_t axis = io.rawInteger(0, 1);
+        for (auto& p : points)
+        {
+            double u = p[axis], v = p[2];
+            p[axis] = c * u - s * v;
+            p[2] = s * u + c * v;
+        }
+
+        std::vector<Vec3> vertices{};
+        std::vector<int32_t> indices{};
+        if (!MakeHullMesh(io, points, vertices, indices))
+        {
+            continue;
+        }
+        std::vector<Vec3> directions{};
+        for (std::size_t t = 0; t < indices.size() / 3; ++t)
+        {
+            if (indices[3 * t] == 0 || indices[3 * t + 1] == 0 || indices[3 * t + 2] == 0)
+            {
+                Vec3 const& p0 = vertices[indices[3 * t]];
+                Vec3 const& p1 = vertices[indices[3 * t + 1]];
+                Vec3 const& p2 = vertices[indices[3 * t + 2]];
+                Vec3 normal = Cross(p2 - p0, p1 - p0);
+                Normalize(normal);
+                directions.push_back(normal);
+                directions.push_back(-normal);
+            }
+        }
+        {
+            CanonicalFP run(0);
+            OrientedBox3<double> box{};
+            double volume = 0.0;
+            try
+            {
+                run.RunHull(vertices, indices, 2, box, volume);
+                for (int32_t i = 0; i < 3; ++i)
+                {
+                    Vec3 axis = run.Winner().axis[i];
+                    directions.push_back(axis);
+                    directions.push_back(-axis);
+                }
+            }
+            catch (std::exception const&)
+            {
+            }
+        }
+        CanonicalFP probe(0);
+        probe.Prepare(vertices, indices, 2);
+        for (auto const& direction : directions)
+        {
+            double dMax = 0.0;
+            std::size_t v = probe.Extreme(direction, dMax);
+            double excess = ExtremeShortfall(probe.TVertices(), direction, v)
+                - ClimbTolerance(probe.TVertices(), direction);
+            if (excess > bestExcess)
+            {
+                bestExcess = excess;
+                bestVertices = vertices;
+                bestIndices = indices;
+                bestDirection = direction;
+            }
+        }
+    }
+    if (bestVertices.empty())
+    {
+        MakeHullMesh(io, FallbackCloud(), bestVertices, bestIndices);
+    }
+    GiveMesh(io, bestVertices, bestIndices);
+    io.givenVec(bestDirection);
+    // Diagnostic input, ignored by the replay: 1 when the shortfall of
+    // upstream's vertex exceeds the rounding bound (the port must differ).
+    int32_t found = (bestExcess > 0.0 ? 1 : 0);
+    io.integer(found, found);
+
+    CanonicalFP query(0);
+    query.Prepare(bestVertices, bestIndices, 2);
+    double dMax = 0.0;
+    std::size_t vMax = query.Extreme(bestDirection, dMax);
+    io.outInt(IndexOut(vMax));
+    io.outReal(dMax);
+    });
+}
+
+namespace
+{
+    // The four virtual minimizers are upstream's documented customization
+    // point. This subclass records every call (which minimizer, at which
+    // level-curve processor, with which s/t arguments) and can replace any
+    // of them by a no-op ('disabled' bit mask: 1 MinimizerConstantS, 2
+    // MinimizerConstantT, 4 MinimizerVariableS, 8 MinimizerVariableT), which
+    // checks that the port dispatches through the same overridable methods
+    // from the same processors. Single-threaded (the counters are not
+    // synchronized).
+    class MinimizerProbeFP : public CanonicalFP
+    {
+    public:
+        MinimizerProbeFP(int32_t inDisabled) : CanonicalFP(0), disabled(inDisabled) {}
+
+        int32_t disabled;
+        std::array<std::size_t, 4> calls{};
+        std::array<double, 6> argSum{};
+        std::map<std::size_t, std::size_t> processors{};
+
+    protected:
+        void MinimizerConstantS(Candidate& c, Candidate& mvc) override
+        {
+            ++calls[0];
+            ++processors[c.levelCurveProcessorIndex];
+            if ((disabled & 1) == 0)
+            {
+                CanonicalFP::MinimizerConstantS(c, mvc);
+            }
+        }
+
+        void MinimizerConstantT(Candidate& c, Candidate& mvc) override
+        {
+            ++calls[1];
+            ++processors[c.levelCurveProcessorIndex];
+            if ((disabled & 2) == 0)
+            {
+                CanonicalFP::MinimizerConstantT(c, mvc);
+            }
+        }
+
+        void MinimizerVariableS(double const& sminNumer, double const& smaxNumer,
+            double const& sDenom, Candidate& c, Candidate& mvc) override
+        {
+            ++calls[2];
+            ++processors[c.levelCurveProcessorIndex];
+            argSum[0] += sminNumer;
+            argSum[1] += smaxNumer;
+            argSum[2] += sDenom;
+            if ((disabled & 4) == 0)
+            {
+                CanonicalFP::MinimizerVariableS(sminNumer, smaxNumer, sDenom, c, mvc);
+            }
+        }
+
+        void MinimizerVariableT(double const& tminNumer, double const& tmaxNumer,
+            double const& tDenom, Candidate& c, Candidate& mvc) override
+        {
+            ++calls[3];
+            ++processors[c.levelCurveProcessorIndex];
+            argSum[3] += tminNumer;
+            argSum[4] += tmaxNumer;
+            argSum[5] += tDenom;
+            if ((disabled & 8) == 0)
+            {
+                CanonicalFP::MinimizerVariableT(tminNumer, tmaxNumer, tDenom, c, mvc);
+            }
+        }
+    };
+
+    template <typename Probe>
+    void OutMinimizerCalls(oracle::Ctx& io, Probe const& probe)
+    {
+        for (int32_t i = 0; i < 4; ++i)
+        {
+            io.outInt(static_cast<int32_t>(probe.calls[i]));
+        }
+        for (int32_t i = 0; i < 6; ++i)
+        {
+            io.outReal(static_cast<double>(probe.argSum[i]));
+        }
+        io.outInt(static_cast<int32_t>(probe.processors.size()));
+        for (auto const& element : probe.processors)
+        {
+            io.outInt(static_cast<int32_t>(element.first));
+            io.outInt(static_cast<int32_t>(element.second));
+        }
+    }
+}
+
+ORACLE_CASE("MinimumVolumeBox3FloatingPoint.minimizers")
+{
+    RunWithBigStack([&io]() {
+    // The minimizer overrides (see MinimizerProbeFP) on canonical hull
+    // meshes: the call counts per minimizer, the level-curve processors that
+    // reached them, the sums of the s/t numerators and denominators passed
+    // to the variable minimizers, and the resulting box and winner. Same
+    // exact-support restriction as the main cases, evaluated on the probe
+    // with the same minimizers disabled.
+    int32_t mode = io.integer(0, 4);
+    int32_t lgMaxSample = io.integer(2, 4);
+    int32_t n = io.integer(5, 10);
+    int32_t disabled = io.integer(0, 15);
+
+    std::vector<Vec3> bestVertices{};
+    std::vector<int32_t> bestIndices{};
+    double bestViolation = std::numeric_limits<double>::max();
+    for (int32_t attempt = 0; attempt < 24; ++attempt)
+    {
+        std::vector<Vec3> vertices{};
+        std::vector<int32_t> indices{};
+        if (!MakeHullMesh(io, DrawCloud(io, mode, n), vertices, indices))
+        {
+            continue;
+        }
+        OrientedBox3<double> box{};
+        double volume = 0.0;
+        MinimizerProbeFP probe(disabled);
+        probe.RunHull(vertices, indices, static_cast<std::size_t>(lgMaxSample), box, volume);
+        double violation = ContainmentViolation(box, vertices) / PointScale(vertices);
+        bool sound = SupportsAreExact(probe);
+        if (sound || violation < bestViolation)
+        {
+            bestViolation = violation;
+            bestVertices = vertices;
+            bestIndices = indices;
+        }
+        if (sound)
+        {
+            break;
+        }
+    }
+    if (bestVertices.empty())
+    {
+        MakeHullMesh(io, FallbackCloud(), bestVertices, bestIndices);
+    }
+    GiveMesh(io, bestVertices, bestIndices);
+
+    OrientedBox3<double> box{};
+    double volume = 0.0;
+    MinimizerProbeFP query(disabled);
+    query.RunHull(bestVertices, bestIndices, static_cast<std::size_t>(lgMaxSample), box, volume);
+    OutMinimizerCalls(io, query);
+    OutBox(io, box, volume);
+    OutWinnerFP(io, query);
+    });
+}
+
+namespace
+{
+    // ---- the dimension-2 path (both headers, identical code) -------------
+    //
+    // A coplanar cloud. Mode 0: a lattice plane perpendicular to a
+    // coordinate axis; mode 1: a tilted lattice plane origin + a*d0 + b*d1;
+    // mode 2: an axis-perpendicular plane with uniform in-plane coordinates;
+    // mode 3: an axis-perpendicular plane whose lattice points are rotated
+    // in-plane by the exact Pythagorean rotation (3/5, 4/5) and scaled by 5,
+    // so that the minimum rectangle is tilted and its arithmetic exact.
+    std::vector<Vec3> DrawPlanarCloud(oracle::Ctx& io, int32_t mode, int32_t n)
+    {
+        std::vector<Vec3> points{};
+        if (mode == 1)
+        {
+            Vec3 origin{}, d0{}, d1{};
+            for (int32_t j = 0; j < 3; ++j)
+            {
+                origin[j] = static_cast<double>(io.rawInteger(-3, 3));
+            }
+            do
+            {
+                for (int32_t j = 0; j < 3; ++j)
+                {
+                    d0[j] = static_cast<double>(io.rawInteger(-2, 2));
+                    d1[j] = static_cast<double>(io.rawInteger(-2, 2));
+                }
+            } while (Length(Cross(d0, d1)) == 0.0);
+            for (int32_t i = 0; i < n; ++i)
+            {
+                double a = static_cast<double>(io.rawInteger(-3, 3));
+                double b = static_cast<double>(io.rawInteger(-3, 3));
+                points.push_back(origin + a * d0 + b * d1);
+            }
+            return points;
+        }
+
+        int32_t axis = io.rawInteger(0, 2);
+        int32_t a0 = (axis + 1) % 3, a1 = (axis + 2) % 3;
+        double level = static_cast<double>(io.rawInteger(-3, 3));
+        for (int32_t i = 0; i < n; ++i)
+        {
+            Vec3 p{};
+            p[axis] = level;
+            if (mode == 2)
+            {
+                p[a0] = io.raw(-4.0, 4.0);
+                p[a1] = io.raw(-4.0, 4.0);
+            }
+            else
+            {
+                double u = static_cast<double>(io.rawInteger(-3, 3));
+                double v = static_cast<double>(io.rawInteger(-3, 3));
+                p[a0] = (mode == 3 ? 3.0 * u - 4.0 * v : u);
+                p[a1] = (mode == 3 ? 4.0 * u + 3.0 * v : v);
+            }
+            points.push_back(p);
+        }
+        return points;
+    }
+
+    // The two probes of the dimension-2 path. 'basisSame': upstream's
+    // orthonormal basis (Newell loop from i1 = 1, #352/#355) equals the
+    // port's (loop from i1 = 0) bit for bit. 'rectangleSame': upstream's
+    // MinimumAreaBox2<double, double> rectangle of the projected points
+    // equals MinimumAreaBox2<double, BSRational<UIntegerAP32>>, the exact
+    // instantiation the port implements (bit-identical to it per v11), bit
+    // for bit. Both use upstream's own code; the dimension is 2 on return
+    // true.
+    bool Dimension2Probe(std::vector<Vec3> const& points, bool& basisSame, bool& rectangleSame)
+    {
+        ConvexHull3<double> ch3{};
+        ch3(points.size(), points.data(), 0);
+        if (ch3.GetDimension() != 2)
+        {
+            return false;
+        }
+        auto const& hull = ch3.GetHull();
+        std::array<std::array<Vec3, 3>, 2> basis{};
+        for (std::size_t k = 0; k < 2; ++k)
+        {
+            Vec3 normal = Vec3::Zero();
+            std::size_t numHull = hull.size();
+            for (std::size_t i0 = numHull - 1, i1 = (k == 0 ? 1 : 0); i1 < numHull; i0 = i1++)
+            {
+                normal += Cross(points[hull[i0]], points[hull[i1]]);
+            }
+            basis[k][0] = normal;
+            ComputeOrthogonalComplement(1, basis[k].data());
+        }
+        basisSame = true;
+        for (std::size_t i = 0; i < 3; ++i)
+        {
+            for (int32_t j = 0; j < 3; ++j)
+            {
+                basisSame = basisSame && SameBits(basis[0][i][j], basis[1][i][j]);
+            }
+        }
+
+        Vec3 origin = points[hull[0]];
+        std::vector<Vector2<double>> projection(points.size());
+        for (std::size_t i = 0; i < points.size(); ++i)
+        {
+            Vec3 diff = points[i] - origin;
+            projection[i][0] = Dot(basis[0][1], diff);
+            projection[i][1] = Dot(basis[0][2], diff);
+        }
+        MinimumAreaBox2<double, double> floatBox{};
+        OrientedBox2<double> r0 = floatBox(static_cast<int32_t>(projection.size()),
+            projection.data());
+        MinimumAreaBox2<double, BSRational<UIntegerAP32>> exactBox{};
+        OrientedBox2<double> r1 = exactBox(static_cast<int32_t>(projection.size()),
+            projection.data());
+        rectangleSame = true;
+        for (int32_t i = 0; i < 2; ++i)
+        {
+            rectangleSame = rectangleSame && SameBits(r0.center[i], r1.center[i])
+                && SameBits(r0.extent[i], r1.extent[i]);
+            for (int32_t j = 0; j < 2; ++j)
+            {
+                rectangleSame = rectangleSame && SameBits(r0.axis[i][j], r1.axis[i][j]);
+            }
+        }
+        return true;
+    }
+
+    // The dimension-2 record of either header, through upstream's raw
+    // operator() (overload 1 or 2; nothing on this path depends on a hash
+    // order). 'wantFloatDeviation' selects the deviation generator: basis
+    // equal but rectangle different.
+    template <typename Query>
+    void Dimension2Record(oracle::Ctx& io, bool wantFloatDeviation)
+    {
+        int32_t mode = io.integer(0, 3);
+        int32_t lgMaxSample = io.integer(2, 3);
+        int32_t n = io.integer(4, 9);
+
+        // Capped at 32 draws, each redrawing the whole cloud. The main case
+        // falls back to a fixed tilted lattice rectangle (below), the
+        // deviation case to the last draw whose basis agrees. The diagnostic
+        // input the replay ignores is 1 for an accepted draw, 2 for the
+        // fallback when it passes both probes, 0 otherwise.
+        std::vector<Vec3> best{};
+        int32_t accepted = 0;
+        for (int32_t attempt = 0; attempt < 32 && accepted == 0; ++attempt)
+        {
+            std::vector<Vec3> points = DrawPlanarCloud(io, mode, n);
+            bool basisSame = false, rectangleSame = false;
+            if (!Dimension2Probe(points, basisSame, rectangleSame) || !basisSame)
+            {
+                continue;
+            }
+            if (rectangleSame != wantFloatDeviation)
+            {
+                best = points;
+                accepted = 1;
+            }
+            else if (wantFloatDeviation)
+            {
+                best = points;
+            }
+        }
+        if (best.empty())
+        {
+            // The lattice rectangle (0,0),(2,0),(2,1),(0,1) plus (1,1) mapped
+            // by (u,v) -> (3u-4v, 4u+3v) onto the plane z = 1: both probes
+            // pass (checked by the probe on every deep-run record that uses
+            // it). An axis-aligned rectangle does not do: the floating-point
+            // MinimumAreaBox2 returns a -0 axis component where the exact one
+            // returns +0.
+            best = { Vec3{ 0.0, 0.0, 1.0 }, Vec3{ 6.0, 8.0, 1.0 }, Vec3{ 2.0, 11.0, 1.0 },
+                Vec3{ -4.0, 3.0, 1.0 }, Vec3{ -1.0, 7.0, 1.0 } };
+            bool basisSame = false, rectangleSame = false;
+            Dimension2Probe(best, basisSame, rectangleSame);
+            accepted = (basisSame && rectangleSame ? 2 : 0);
+        }
+        GiveCloud(io, best);
+        io.integer(accepted, accepted);
+
+        OrientedBox3<double> box{};
+        double volume = -1.0;
+        Query query(0);
+        std::size_t dimension = (io.index() % 2 == 0
+            ? query(best.size(), best.data(), static_cast<std::size_t>(lgMaxSample), box, volume)
+            : query(best, static_cast<std::size_t>(lgMaxSample), box, volume));
+        io.outInt(static_cast<int32_t>(dimension));
+        OutBox(io, box, volume);
+    }
+}
+
+ORACLE_CASE("MinimumVolumeBox3FloatingPoint.compute.dimension2")
+{
+    RunWithBigStack([&io]() {
+    // Coplanar clouds on which both deliberate differences of the
+    // dimension-2 path are inert (Dimension2Probe): upstream's Newell basis
+    // equals the corrected one bit for bit (the unclosed loop sums the
+    // Newell normal of the hull polygon with hull[0] removed, which for four
+    // or more hull vertices has the right direction; its normalization then
+    // often agrees, always for an axis-perpendicular plane), and the
+    // floating-point MinimumAreaBox2 rectangle equals the exact one.
+    Dimension2Record<MVB3FP>(io, false);
+    });
+}
+
+ORACLE_CASE("MinimumVolumeBox3FloatingPoint.compute.dimension2.floatComputeType")
+{
+    RunWithBigStack([&io]() {
+    // Deviation (design, inherited from MinimumAreaBox2): the basis agrees,
+    // but upstream's MinimumAreaBox2<T, T> floating-point rectangle differs
+    // from the exact one the port computes.
+    Dimension2Record<MVB3FP>(io, true);
     });
 }
 
