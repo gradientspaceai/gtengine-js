@@ -71,14 +71,14 @@ Nothing here has been reported upstream before; this document is the report.
 
 ## Counts
 
-- **531 distinct findings** across **171** tracked issues (one issue
+- **533 distinct findings** across **172** tracked issues (one issue
   frequently holds several findings in related files).
-- By severity: **256 result-corrupting**, **16 wrong but
-  recoverable**, **183 minor**, **76 documentation**.
-- By port status: **264 fixed or corrected in the port** (of which 161 are code
+- By severity: **257 result-corrupting**, **16 wrong but
+  recoverable**, **184 minor**, **76 documentation**.
+- By port status: **265 fixed or corrected in the port** (of which 162 are code
   fixes with regression tests, 22 are added guards or asserts where upstream has
   undefined behaviour, 65 are comment corrections, 11 are dead-code removals and
-  5 are documented deliberate deviations), **257 preserved deliberately**, and
+  5 are documented deliberate deviations), **258 preserved deliberately**, and
   **10 not ported** (the `GTE_USE_VEC_MAT` branches, dead code that cannot
   compile, and two arbitrary-precision paths).
 - **288 distinct upstream headers** are implicated.
@@ -94,6 +94,8 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 
 | Upstream file | Function / location | Symptom | Sev | Port | Issue |
 | --- | --- | --- | --- | --- | --- |
+| `AdaptiveSkeletonClimbing2.h` | `GetComponents` case 15 (saddle) | pairs the four crossings by the sign of the level-free `det = i00*i11 - i01*i10` and with the two pairings swapped; the bilinear interpolant decides by `dg = det - L*(i00+i11-i01-i10)`, so at level 0 every non-degenerate saddle is paired wrongly | RC | fixed | [#544](https://github.com/gradientspaceai/gtengine-js/issues/544) |
+| `AdaptiveSkeletonClimbing2.h` | `det` | `int64_t det` overflows for `uint32_t` pixels above about 3.04e9 although `uint32_t` is documented as allowed | minor | preserved | [#544](https://github.com/gradientspaceai/gtengine-js/issues/544) |
 | `AdaptiveSkeletonClimbing2.h` | `LinearMergeTree::GetEdge`, `GetRectangle` | `GetEdge` can never return -1, so the `!= -1` guards are dead code | minor | preserved | [#52](https://github.com/gradientspaceai/gtengine-js/issues/52) |
 | `AdaptiveSkeletonClimbing2.h` | constructor comment | comment says `N >= 0` is accepted; the code rejects `N <= 0` | doc | preserved | [#52](https://github.com/gradientspaceai/gtengine-js/issues/52) |
 | `AdaptiveSkeletonClimbing3.h` | root `Merge` call | the root call discards `Merge`'s return, so a whole-image monobox is dropped and the mesh comes back empty | RC | preserved | [#194](https://github.com/gradientspaceai/gtengine-js/issues/194) |
@@ -641,6 +643,30 @@ carries its cause and a concrete reproduction.
 - `FastMarch::GetTimeExtremes` redundantly re-tests one element.
 
 All minor, preserved. Issue [#52](https://github.com/gradientspaceai/gtengine-js/issues/52).
+
+**The saddle cell is paired by the level-free `det`, with the pairings swapped
+(result-corrupting; found by the C++ oracle of group 24).** `GetComponents`
+case 15 joins P0 (xmin) with P2 (ymin) and P1 (xmax) with P3 (ymax) when
+`det = i00*i11 - i01*i10 > 0`, which cuts off corners 00 and 11. For the bilinear
+interpolant and level `L` the decision is the sign of
+`dg = (i00-L)(i11-L) - (i01-L)(i10-L) = det - L*(i00+i11-i01-i10)`: `dg > 0` puts
+the interpolant's saddle value on the side of corners 00 and 11, which are then
+connected through the cell, so it is corners 10 and 01 that must be cut off.
+Upstream is right only when `sign(det) = -sign(dg)`; at level 0, where
+`det = dg` (the only level at which its `det = 0` plus-sign branch is
+meaningful), it is wrong on every non-degenerate saddle. Reproduction: the image
+`10 -1 -1 / -1 10 10 / -1 10 10`, level 0.5, depth 1; the cell has corner values
+10, -1, -1, 10, centre value 4.5 and `det = 99`; upstream returns
+(0, 0.8636)-(0.8636, 0) and (1, 0.1364)-(0.1364, 1), cutting off the positive
+corners, and the first segment crosses (0.43, 0.43) where the interpolant is
+4.6. Both sides agreed bit for bit; the defect showed only in an independent
+topology check. Also minor: `int64_t det` overflows for `uint32_t` pixels above
+about 3.04e9. The same level-free `det` appears in the face cases of
+`AdaptiveSkeletonClimbing3.h` (verify group 27 checks it). Port: fixed, deciding
+by the exact sign of `dg` (BigInt) and keeping upstream's choice wherever it is
+right; deviation case `extract.saddlePairing`, 2000 of 2000 records.
+
+Issue [#544](https://github.com/gradientspaceai/gtengine-js/issues/544).
 
 ### `AdaptiveSkeletonClimbing3.h`
 

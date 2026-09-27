@@ -303,6 +303,13 @@ Every disagreement gets a root cause. In order of likelihood:
    evaluation-order dependence, signed overflow): restrict the generator,
    describe it under "Upstream bug suspects" in the group report.
 
+The strongest instance so far is topological: v24's `AdaptiveSkeletonClimbing2`
+matched upstream bit for bit on every record, and its saddle-cell pairing was
+wrong on every non-degenerate saddle at level 0 (#544); only a check of the
+segments against the bilinear interpolant's saddle value could see it. Give
+every combinatorial output an independent geometric or topological check, not
+only the numeric ones.
+
 Agreement is not correctness. A bit-for-bit match says the port does what
 upstream does, not that either is right: v34's first
 `IntrAreaEllipse2Ellipse2` generator drew left-handed axis frames
