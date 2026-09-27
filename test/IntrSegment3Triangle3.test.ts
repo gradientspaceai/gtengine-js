@@ -268,6 +268,21 @@ describe('IntrSegment3Triangle3 verification', () => {
 
     it('the barycentric coordinates reconstruct the reported point', () => {
         check(fc.tuple(latticeSeg, latticeTri), ([s, t]) => {
+            // A segment lying in the triangle's plane has an exactly zero
+            // direction-normal dot product on the lattice, but the query
+            // normalizes the direction first, so the dot product is a
+            // rounding residue of ~1e-16 and the parallel branch is missed:
+            // the parameter and the barycentrics are then quotients of
+            // residues (seed -1596971980: segment (0,4,-4)-(-3,-1,4) in the
+            // plane x+y+z = 0 of the triangle, reconstruction error 4.95).
+            // That is upstream's behaviour, compared bit for bit by the C++
+            // oracle; skip the parallel configurations here.
+            const dir = sub(s.p[1], s.p[0]);
+            const normal = cross(sub(t.v[1], t.v[0]), sub(t.v[2], t.v[0]));
+            if (Math.abs(dot(dir, normal))
+                <= 1e-12 * Math.sqrt(dot(dir, dir) * dot(normal, normal))) {
+                return;
+            }
             const r = fi.find(s, t);
             if (!r.intersect) {
                 return;

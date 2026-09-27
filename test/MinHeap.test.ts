@@ -337,8 +337,13 @@ describe('MinHeap verification', () => {
                 expect(accepted.length).toBe(Math.min(capacity, values.length));
                 const drained: number[] = [];
                 for (let r = heap.remove(); r !== null; r = heap.remove()) { drained.push(r.value); }
+                // Equal values (0 and -0 compare equal under the heap's
+                // '<' and '<=') can come out in either order, so the
+                // comparison is numeric, not Object.is (seed 394009617:
+                // values [0, -0, 0]).
+                const sorted = accepted.slice().sort((a, b) => a - b);
                 return drained.length === accepted.length
-                    && drained.every((v, i) => Object.is(v, accepted.slice().sort((a, b) => a - b)[i]));
+                    && drained.every((v, i) => v === sorted[i]);
             });
     });
 

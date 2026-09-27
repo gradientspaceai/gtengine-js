@@ -506,6 +506,29 @@ describe('IntrSegment3Cylinder3 verification', () => {
                     rot(c.axis.direction)), c.radius, c.height);
             const g0 = fiq.find(s, c);
             const g1 = fiq.find(s2, c2);
+            // A crossing on the rim (wall and end disk at once) is decided
+            // by round-off after the motion: every candidate hit (a wall
+            // root at the cap plane, a cap hit at the rim radius) passes or
+            // fails its clip by an ulp, so even the intersect flag can flip.
+            // Seed 757741393 had the segment (-5,0,-5)-(0,0,0) passing
+            // exactly through both rim circles of a cylinder of radius 0.25
+            // and height 0.5. The depth guard above does not see a rim
+            // crossing, so skip those here, on whichever side reports one.
+            const grazesRim = (g: typeof g0, cyl: typeof c): boolean => {
+                if (!g.intersect) { return false; }
+                for (let i = 0; i < g.numIntersections; ++i) {
+                    const w = sub(g.point[i], cyl.axis.origin);
+                    const axial = dot(w, cyl.axis.direction);
+                    const q = sub(w, mul(axial, cyl.axis.direction));
+                    const radial = Math.sqrt(dot(q, q));
+                    if (Math.abs(radial - cyl.radius) < 1e-6
+                        && Math.abs(Math.abs(axial) - 0.5 * cyl.height) < 1e-6) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            if (grazesRim(g0, c) || grazesRim(g1, c2)) { return; }
             expect(g1.intersect).toBe(g0.intersect);
             if (!g0.intersect) { return; }
             expect(g1.numIntersections).toBe(g0.numIntersections);
