@@ -439,5 +439,75 @@ describe('oracle: v11-compgeom', () => {
         }
     }, { exact: true, deviation: '#286 (duplicate point drops the next corner)' });
 
+    // ---- MinimumWidthPoints2 ---------------------------------------------
+
+    family.case('MinimumWidthPoints2.compute', (io) => {
+        const useRotatingCalipers = io.boolean();
+        const n = io.integer();
+        const pts = points(io, n, 2);
+        const mwp = new MinimumWidthPoints2();
+        emitBox(io, mwp.compute(pts, useRotatingCalipers));
+    }, { exact: true });
+
+    family.case('MinimumWidthPoints2.computeIndexed', (io) => {
+        const useRotatingCalipers = io.boolean();
+        const n = io.integer();
+        const pts = points(io, n, 2);
+        const numIndices = io.integer();
+        const indices: number[] = [];
+        for (let i = 0; i < numIndices; ++i) {
+            indices.push(io.integer());
+        }
+        const mwp = new MinimumWidthPoints2();
+        emitBox(io, mwp.computeIndexed(pts, indices, useRotatingCalipers));
+    }, { exact: true });
+
+    // Throw parity for the input validation of both overloads.
+    family.case('MinimumWidthPoints2.invalidInputThrows', (io) => {
+        const n = io.integer();
+        const pts = points(io, n, 2);
+        const numIndices = io.integer();
+        const indices: number[] = [];
+        for (let i = 0; i < numIndices; ++i) {
+            indices.push(io.integer());
+        }
+        const mwp = new MinimumWidthPoints2();
+        emitBox(io, io.index % 2 === 0
+            ? mwp.compute(pts, true)
+            : mwp.computeIndexed(pts, indices, true));
+    }, { exact: true });
+
+    // ---- SeparatePoints2 -------------------------------------------------
+
+    // The separating line is emitted only on a true return: upstream leaves
+    // the caller's line holding the last tested candidate on a false return,
+    // while the port returns a default-constructed line there.
+    family.case('SeparatePoints2.compute', (io) => {
+        const n0 = io.integer();
+        const n1 = io.integer();
+        const pts0 = points(io, n0, 2);
+        const pts1 = points(io, n1, 2);
+        const query = new SeparatePoints2();
+        const result = query.compute(pts0, pts1);
+        io.outBool(result.separated);
+        if (result.separated) {
+            io.outVec(result.separatingLine.origin);
+            io.outVec(result.separatingLine.direction);
+        }
+    }, { exact: true });
+
+    // The port evaluates the side of a point relative to a candidate hull
+    // edge with an exact orientation predicate on the unnormalized edge
+    // normal, so a rounded plane constant can no longer report overlapping
+    // point sets as separated.
+    family.case('SeparatePoints2.deviation.roundoff', (io) => {
+        const n0 = io.integer();
+        const n1 = io.integer();
+        const pts0 = points(io, n0, 2);
+        const pts1 = points(io, n1, 2);
+        const query = new SeparatePoints2();
+        io.outBool(query.compute(pts0, pts1).separated);
+    }, { exact: true, deviation: '#328 (round-off in the side tests)' });
+
     family.finish();
 });

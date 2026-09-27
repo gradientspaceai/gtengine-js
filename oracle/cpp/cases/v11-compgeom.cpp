@@ -1519,3 +1519,448 @@ ORACLE_CASE("MinimumAreaBox2.deviation.removeCollinear")
         io.outInt(support[i]);
     }
 }
+
+// ---- MinimumWidthPoints2 -------------------------------------------------
+
+// MinimumWidthPoints2<T> overloads 1 and 2, with both values of
+// useRotatingCalipers so that the rotating-calipers branch (which minimizes
+// an exact BSRational<UIntegerAP32> squared width over the antipodes) and the
+// brute-force branch (which minimizes a floating-point width over the edges)
+// are both covered. All three hull dimensions are reachable; the degenerate
+// branch's opposite frame handedness is an upstream quirk the port preserves
+// verbatim, so it is compared here rather than deviating.
+//
+// The brute-force branch's own duplicate-point corner drop is unreachable
+// (its input is always a ConvexHull2 hull, which has no duplicates), so the
+// port's fix of it is inert and the two implementations are the same
+// computation; the deviation is demonstrated on MinimumAreaBox2, which shares
+// the defect and does reach it through the caller-supplied-polygon path.
+//
+// Ties: the antipode search keeps the first minimum ('sqrWidth < minSqrWidth'
+// over the antipode array, which RotatingCalipers builds deterministically)
+// and the brute-force search keeps the first minimum over the edges in index
+// order, so a square or another tie-rich lattice set resolves identically on
+// both sides.
+ORACLE_CASE("MinimumWidthPoints2.compute")
+{
+    int32_t mode = io.index() % 6;
+    bool useRotatingCalipers = io.boolean();
+    int32_t n = io.integer(3, 10);
+    std::vector<Vector2<double>> pts{};
+    RawBoxPoints2(io, mode, static_cast<size_t>(n), pts);
+    for (size_t i = 0; i < pts.size(); ++i)
+    {
+        io.givenVec<2>(pts[i]);
+    }
+
+    MinimumWidthPoints2<double> mwp{};
+    OrientedBox2<double> box = mwp(pts, useRotatingCalipers);
+    EmitBox2(io, box);
+}
+
+// MinimumWidthPoints2<T> overload 3 with a nonempty index subset, which
+// compacts the selected points and forwards to overload 2. The selection is
+// an arbitrary index list (upstream's precondition is only numIndices >= 3;
+// it recomputes the convex hull of the compacted points anyway), so duplicate
+// and collinear selections are included.
+ORACLE_CASE("MinimumWidthPoints2.computeIndexed")
+{
+    int32_t mode = io.index() % 6;
+    bool useRotatingCalipers = io.boolean();
+    int32_t n = io.integer(3, 10);
+    std::vector<Vector2<double>> pts{};
+    RawBoxPoints2(io, mode, static_cast<size_t>(n), pts);
+    for (size_t i = 0; i < pts.size(); ++i)
+    {
+        io.givenVec<2>(pts[i]);
+    }
+    int32_t numIndices = io.integer(3, 10);
+    std::vector<int32_t> indices(static_cast<size_t>(numIndices));
+    for (size_t i = 0; i < indices.size(); ++i)
+    {
+        indices[i] = io.integer(0, n - 1);
+    }
+
+    MinimumWidthPoints2<double> mwp{};
+    OrientedBox2<double> box = mwp(pts, indices, useRotatingCalipers);
+    EmitBox2(io, box);
+}
+
+// Throw parity for MinimumWidthPoints2's input validation:
+// LogAssert(numPoints >= 3 && points != nullptr) in overloads 1 and 2, and
+// LogAssert(numPoints >= 3 && ((indices == nullptr && numIndices == 0) ||
+// (indices != nullptr && numIndices >= 3))) in overload 3. Every record is a
+// throw record; the generator alternates between too few points and too few
+// indices.
+ORACLE_CASE("MinimumWidthPoints2.invalidInputThrows")
+{
+    bool byCount = (io.index() % 2 == 0);
+    int32_t n = (byCount ? io.integer(1, 2) : io.integer(3, 6));
+    std::vector<Vector2<double>> pts(static_cast<size_t>(n));
+    for (size_t i = 0; i < pts.size(); ++i)
+    {
+        pts[i][0] = io.lattice(-3, 3);
+        pts[i][1] = io.lattice(-3, 3);
+    }
+    // Recorded on both branches so that the record layout is fixed.
+    int32_t numIndices = (byCount ? io.integer(0, 0) : io.integer(1, 2));
+    std::vector<int32_t> indices(static_cast<size_t>(numIndices));
+    for (size_t i = 0; i < indices.size(); ++i)
+    {
+        indices[i] = io.integer(0, n - 1);
+    }
+
+    MinimumWidthPoints2<double> mwp{};
+    OrientedBox2<double> box = (byCount
+        ? mwp(static_cast<int32_t>(pts.size()), pts.data(), true)
+        : mwp(static_cast<int32_t>(pts.size()), pts.data(),
+            static_cast<int32_t>(indices.size()), indices.data(), true));
+    EmitBox2(io, box);
+}
+
+// ---- SeparatePoints2 -----------------------------------------------------
+
+namespace
+{
+    // A verbatim copy of upstream's side classification for one candidate
+    // edge: lineNormal = Perp(Normalize(P1 - P0)),
+    // lineConstant = Dot(lineNormal, P0), and the comparison of
+    // Dot(lineNormal, Q) against lineConstant. Both OnSameSide and WhichSide
+    // use exactly this expression.
+    int32_t UpstreamSide(Vector2<double> const& p0, Vector2<double> const& p1,
+        Vector2<double> const& q)
+    {
+        Vector2<double> direction = p1 - p0;
+        Normalize(direction);
+        Vector2<double> lineNormal = Perp(direction);
+        double lineConstant = Dot(lineNormal, p0);
+        double c0 = Dot(lineNormal, q);
+        return (c0 > lineConstant ? +1 : (c0 < lineConstant ? -1 : 0));
+    }
+
+    // The exact sign of the same quantity. Perp(P1 - P0) = (dy, -dx), so
+    // Dot(Perp(P1-P0), Q - P0) = -DotPerp(P1 - P0, Q - P0), and normalizing
+    // the direction only scales by a positive factor.
+    int32_t ExactSide(Vector2<double> const& p0, Vector2<double> const& p1,
+        Vector2<double> const& q)
+    {
+        return -ExactOrient2(p0, p1, q);
+    }
+
+    std::vector<Vector2<double>> HullPoints(std::vector<Vector2<double>> const& pts,
+        std::vector<int32_t> const& edges)
+    {
+        std::vector<Vector2<double>> hull(edges.size());
+        for (size_t i = 0; i < edges.size(); ++i)
+        {
+            hull[i] = pts[static_cast<size_t>(edges[i])];
+        }
+        return hull;
+    }
+
+    // Accept a record only when every floating-point side classification the
+    // query can perform agrees with the exact one. This is an exact superset
+    // of the inputs on which upstream's control flow equals the port's: when
+    // all per-point signs agree, OnSameSide's return value agrees (it depends
+    // only on whether both a positive and a negative sign occur, which is
+    // order independent) and WhichSide's agrees (it is always called with the
+    // hull that owns the edge, whose vertices are all on the non-positive
+    // side in exact arithmetic, so the first nonzero sign is -1 in either
+    // visiting order). A point set whose hull is 0- or 1-dimensional is
+    // accepted unconditionally: upstream returns false before any side test.
+    bool SeparateSound(std::vector<Vector2<double>> const& pts0,
+        std::vector<Vector2<double>> const& pts1)
+    {
+        ConvexHull2<double> ch0{};
+        ch0(pts0);
+        if (ch0.GetDimension() != 2)
+        {
+            return true;
+        }
+        ConvexHull2<double> ch1{};
+        ch1(pts1);
+        if (ch1.GetDimension() != 2)
+        {
+            return true;
+        }
+
+        std::vector<Vector2<double>> hull0 = HullPoints(pts0, ch0.GetHull());
+        std::vector<Vector2<double>> hull1 = HullPoints(pts1, ch1.GetHull());
+        std::array<std::vector<Vector2<double>> const*, 2> hulls{ &hull0, &hull1 };
+        for (size_t h = 0; h < 2; ++h)
+        {
+            auto const& owner = *hulls[h];
+            size_t numEdges = owner.size();
+            for (size_t j1 = 0, j0 = numEdges - 1; j1 < numEdges; j0 = j1++)
+            {
+                for (size_t k = 0; k < 2; ++k)
+                {
+                    for (auto const& q : *hulls[k])
+                    {
+                        if (UpstreamSide(owner[j0], owner[j1], q)
+                            != ExactSide(owner[j0], owner[j1], q))
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    // The port's algorithm, evaluated with the exact predicate. Used only to
+    // classify a draw for the deviation case.
+    bool ExactSeparate(std::vector<Vector2<double>> const& pts0,
+        std::vector<Vector2<double>> const& pts1)
+    {
+        ConvexHull2<double> ch0{};
+        ch0(pts0);
+        if (ch0.GetDimension() != 2)
+        {
+            return false;
+        }
+        ConvexHull2<double> ch1{};
+        ch1(pts1);
+        if (ch1.GetDimension() != 2)
+        {
+            return false;
+        }
+
+        std::vector<Vector2<double>> hull0 = HullPoints(pts0, ch0.GetHull());
+        std::vector<Vector2<double>> hull1 = HullPoints(pts1, ch1.GetHull());
+        std::array<std::vector<Vector2<double>> const*, 2> hulls{ &hull0, &hull1 };
+        for (size_t h = 0; h < 2; ++h)
+        {
+            auto const& owner = *hulls[h];
+            auto const& other = *hulls[1 - h];
+            size_t numEdges = owner.size();
+            for (size_t j1 = 0, j0 = numEdges - 1; j1 < numEdges; j0 = j1++)
+            {
+                int32_t posSide = 0, negSide = 0;
+                for (auto const& q : other)
+                {
+                    int32_t s = ExactSide(owner[j0], owner[j1], q);
+                    if (s > 0)
+                    {
+                        ++posSide;
+                    }
+                    else if (s < 0)
+                    {
+                        ++negSide;
+                    }
+                }
+                int32_t sideOther = (posSide != 0 && negSide != 0)
+                    ? 0 : (posSide != 0 ? +1 : -1);
+                if (sideOther != 0)
+                {
+                    int32_t sideOwner = 0;
+                    for (auto const& q : owner)
+                    {
+                        int32_t s = ExactSide(owner[j0], owner[j1], q);
+                        if (s != 0)
+                        {
+                            sideOwner = s;
+                            break;
+                        }
+                    }
+                    if (sideOwner * sideOther <= 0)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    // A regular k-gon. The trigonometry runs only in the generator; the
+    // vertices themselves are recorded, so the replay never calls libm.
+    void RawPolygon2(oracle::Ctx& io, size_t k, double cx, double cy,
+        double radius, double phase, std::vector<Vector2<double>>& pts)
+    {
+        (void)io;
+        pts.resize(k);
+        for (size_t i = 0; i < k; ++i)
+        {
+            double angle = phase + 6.283185307179586 * static_cast<double>(i)
+                / static_cast<double>(k);
+            pts[i][0] = cx + radius * std::cos(angle);
+            pts[i][1] = cy + radius * std::sin(angle);
+        }
+    }
+
+    // mode 0: two lattice sets
+    // mode 1: two uniform sets
+    // mode 2: two regular polygons, overlapping or disjoint
+    // mode 3: one of the sets is degenerate (collinear or a repeated point),
+    //         which is the 'GetDimension() != 2' early return
+    void RawSeparatePair(oracle::Ctx& io, int32_t mode, size_t n0, size_t n1,
+        std::vector<Vector2<double>>& pts0, std::vector<Vector2<double>>& pts1)
+    {
+        if (mode == 0 || mode == 1)
+        {
+            RawPoints2(io, mode == 0 ? 1 : 0, n0, pts0);
+            RawPoints2(io, mode == 0 ? 1 : 0, n1, pts1);
+            double shiftX = static_cast<double>(io.rawInteger(-6, 6));
+            double shiftY = static_cast<double>(io.rawInteger(-6, 6));
+            for (size_t i = 0; i < pts1.size(); ++i)
+            {
+                pts1[i][0] += shiftX;
+                pts1[i][1] += shiftY;
+            }
+            return;
+        }
+
+        if (mode == 2)
+        {
+            double c0x = io.raw(-2.0, 2.0);
+            double c0y = io.raw(-2.0, 2.0);
+            double r0 = io.raw(0.5, 2.0);
+            double a0 = io.raw(0.0, 6.283185307179586);
+            RawPolygon2(io, n0, c0x, c0y, r0, a0, pts0);
+            double c1x = io.raw(-3.0, 3.0);
+            double c1y = io.raw(-3.0, 3.0);
+            double r1 = io.raw(0.5, 2.0);
+            double a1 = io.raw(0.0, 6.283185307179586);
+            RawPolygon2(io, n1, c1x, c1y, r1, a1, pts1);
+            return;
+        }
+
+        RawPoints2(io, 1, n0, pts0);
+        double bx = static_cast<double>(io.rawInteger(-3, 3));
+        double by = static_cast<double>(io.rawInteger(-3, 3));
+        bool collinear = (io.rawInteger(0, 1) != 0);
+        pts1.resize(n1);
+        for (size_t i = 0; i < n1; ++i)
+        {
+            double k = (collinear ? static_cast<double>(io.rawInteger(-3, 3)) : 0.0);
+            pts1[i][0] = bx + k;
+            pts1[i][1] = by;
+        }
+    }
+}
+
+// SeparatePoints2<T> on inputs where every floating-point side classification
+// upstream performs agrees with the exact one (see SeparateSound), so the two
+// implementations follow the same control flow and return the same line. The
+// separating line is emitted only when the query returns true: upstream
+// writes 'separatingLine' for every candidate edge it tests and therefore
+// leaves the caller's line holding the last candidate on a false return,
+// while the port returns a default-constructed line there; the upstream
+// documentation promises the field only on a true return.
+ORACLE_CASE("SeparatePoints2.compute")
+{
+    int32_t mode = io.index() % 4;
+    int32_t n0 = io.integer(1, 8);
+    int32_t n1 = io.integer(1, 8);
+    std::vector<Vector2<double>> pts0{}, pts1{};
+    bool accepted = false;
+    for (int32_t attempt = 0; attempt < 64 && !accepted; ++attempt)
+    {
+        pts0.clear();
+        pts1.clear();
+        RawSeparatePair(io, mode, static_cast<size_t>(n0),
+            static_cast<size_t>(n1), pts0, pts1);
+        accepted = SeparateSound(pts0, pts1);
+    }
+    if (!accepted)
+    {
+        // Two axis-aligned lattice squares far apart: every side test is on
+        // exactly representable integers scaled by an axis-aligned unit
+        // normal, so no classification is in doubt.
+        pts0.assign(static_cast<size_t>(n0), Vector2<double>{ 0.0, 0.0 });
+        pts1.assign(static_cast<size_t>(n1), Vector2<double>{ 10.0, 0.0 });
+        for (size_t i = 0; i < pts0.size(); ++i)
+        {
+            pts0[i][0] = static_cast<double>(i % 2);
+            pts0[i][1] = static_cast<double>((i / 2) % 2);
+        }
+        for (size_t i = 0; i < pts1.size(); ++i)
+        {
+            pts1[i][0] = 10.0 + static_cast<double>(i % 2);
+            pts1[i][1] = static_cast<double>((i / 2) % 2);
+        }
+    }
+    for (size_t i = 0; i < pts0.size(); ++i)
+    {
+        io.givenVec<2>(pts0[i]);
+    }
+    for (size_t i = 0; i < pts1.size(); ++i)
+    {
+        io.givenVec<2>(pts1[i]);
+    }
+
+    Line2<double> separatingLine{};
+    SeparatePoints2<double, double> query{};
+    bool separated = query(static_cast<int32_t>(pts0.size()), pts0.data(),
+        static_cast<int32_t>(pts1.size()), pts1.data(), separatingLine);
+    io.outBool(separated);
+    if (separated)
+    {
+        io.outVec(separatingLine.origin);
+        io.outVec(separatingLine.direction);
+    }
+}
+
+// DELIBERATE DEVIATION (#328). OnSameSide and WhichSide compare
+// Dot(Perp(Normalize(P1 - P0)), Q) against the rounded constant
+// Dot(Perp(Normalize(P1 - P0)), P0), so the far endpoint P1 of the hull's own
+// candidate edge can classify as strictly positive by round-off. WhichSide
+// visits the hull vertices starting at the last one, so for the edge
+// <hull[n-1], hull[0]> it sees P0 (exactly on the line) and then P1, and a
+// round-off there makes it return +1 instead of -1; 'side0 * side1 <= 0' then
+// succeeds and two heavily overlapping point sets are reported as separated.
+// The port evaluates the side with an exact orientation predicate on the
+// unnormalized edge normal, which has the same sign in exact arithmetic.
+//
+// The generator draws pairs of regular polygons, keeps only those that
+// overlap in exact arithmetic, and accepts a draw only when upstream reports
+// a separation - that is, only genuinely wrong upstream results.
+ORACLE_CASE("SeparatePoints2.deviation.roundoff")
+{
+    int32_t n0 = io.integer(5, 8);
+    int32_t n1 = io.integer(5, 8);
+    std::vector<Vector2<double>> pts0{}, pts1{};
+    bool accepted = false;
+    for (int32_t attempt = 0; attempt < 512 && !accepted; ++attempt)
+    {
+        double c0x = io.raw(-0.5, 0.5);
+        double c0y = io.raw(-0.5, 0.5);
+        double r0 = io.raw(0.8, 1.8);
+        double a0 = io.raw(0.0, 6.283185307179586);
+        RawPolygon2(io, static_cast<size_t>(n0), c0x, c0y, r0, a0, pts0);
+        double c1x = io.raw(-1.2, 1.2);
+        double c1y = io.raw(-1.2, 1.2);
+        double r1 = io.raw(0.8, 1.8);
+        double a1 = io.raw(0.0, 6.283185307179586);
+        RawPolygon2(io, static_cast<size_t>(n1), c1x, c1y, r1, a1, pts1);
+        if (ExactSeparate(pts0, pts1))
+        {
+            continue;
+        }
+        Line2<double> probeLine{};
+        SeparatePoints2<double, double> probe{};
+        accepted = probe(n0, pts0.data(), n1, pts1.data(), probeLine);
+    }
+    if (!accepted)
+    {
+        // The reproduction recorded in docs/UPSTREAM-FINDINGS.md.
+        RawPolygon2(io, static_cast<size_t>(n0), 0.0, 0.0, 1.0, 0.3, pts0);
+        RawPolygon2(io, static_cast<size_t>(n1), 1.0, 0.5, 1.5, 1.1, pts1);
+    }
+    for (size_t i = 0; i < pts0.size(); ++i)
+    {
+        io.givenVec<2>(pts0[i]);
+    }
+    for (size_t i = 0; i < pts1.size(); ++i)
+    {
+        io.givenVec<2>(pts1[i]);
+    }
+
+    Line2<double> separatingLine{};
+    SeparatePoints2<double, double> query{};
+    bool separated = query(static_cast<int32_t>(pts0.size()), pts0.data(),
+        static_cast<int32_t>(pts1.size()), pts1.data(), separatingLine);
+    io.outBool(separated);
+}
