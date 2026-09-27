@@ -12,11 +12,13 @@
 //
 // - Plain 'number' (the port of float/double/long double) is not arbitrary
 //   precision and supports division.
-// - Arbitrary-precision types (BSNumber, BSRational, QFNumber, ported on top
-//   of bigint) implement the ArbitraryPrecisionNumber marker interface below,
+// - Arbitrary-precision types (BSNumber and BSRational, ported on top of
+//   bigint) implement the ArbitraryPrecisionNumber marker interface below,
 //   declaring 'isArbitraryPrecision: true' and whether they support division
 //   (true for BSRational, false for BSNumber), exactly mirroring the trait
-//   specializations upstream places in their headers.
+//   specializations upstream places in their headers. Upstream's comment also
+//   names QFNumber, but QFNumber.h has no specialization, so both traits are
+//   false for it and the port's QFNumber does not implement the marker.
 //
 // Dependent files that upstream splits into enable_if overloads are ported as
 // a single function/class using these predicates for runtime dispatch, or,

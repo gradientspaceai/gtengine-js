@@ -46,9 +46,11 @@
 //    }
 //
 // Port notes: upstream ValueType requires operators "<" and "<=". The port
-// defaults ValueType to number and compares with "<"; a custom lessThan
-// comparator may be passed for other value types, with "a <= b" derived as
-// "!(b < a)" (equivalent for any strict total order). Upstream out-parameter
+// defaults ValueType to number and compares with the built-in "<" and "<="
+// (not "!(b < a)", which differs from "<=" when a value is NaN); a custom
+// lessThan comparator may be passed for other value types, with "a <= b"
+// derived as "!(b < a)" unless a lessEqual comparator is passed too
+// (equivalent for any strict total order). Upstream out-parameter
 // functions return object literals or null instead: GetMinimum/Remove return
 // { key, value } or null, and Insert returns the Record or null when the
 // heap is full. Records are preallocated by reset(); their key and value are
@@ -74,20 +76,31 @@ export class MinHeap<KeyType, ValueType = number> {
     private mRecords: MinHeapRecord<KeyType, ValueType>[];
     private mPointers: MinHeapRecord<KeyType, ValueType>[];
     private readonly lt: (a: ValueType, b: ValueType) => boolean;
+    private readonly le: (a: ValueType, b: ValueType) => boolean;
 
+    // With no comparators, ValueType is number and the comparisons are the
+    // built-in '<' and '<=' that upstream's double instantiation uses. They
+    // are not interchangeable with '!(b < a)': every comparison with a NaN is
+    // false, so a NaN value sifts differently. A custom lessThan gets
+    // lessEqual = !lessThan(b, a) unless lessEqual is passed as well (the
+    // derivation IncrementalDelaunay2's RPWeight::operator<= uses upstream).
     constructor(maxElements: number = 0,
-        lessThan?: (a: ValueType, b: ValueType) => boolean) {
-        this.lt = lessThan ?? ((a: ValueType, b: ValueType) =>
-            (a as unknown as number) < (b as unknown as number));
+        lessThan?: (a: ValueType, b: ValueType) => boolean,
+        lessEqual?: (a: ValueType, b: ValueType) => boolean) {
+        if (lessThan === undefined) {
+            this.lt = (a: ValueType, b: ValueType) =>
+                (a as unknown as number) < (b as unknown as number);
+            this.le = lessEqual ?? ((a: ValueType, b: ValueType) =>
+                (a as unknown as number) <= (b as unknown as number));
+        } else {
+            const lt = lessThan;
+            this.lt = lt;
+            this.le = lessEqual ?? ((a: ValueType, b: ValueType) => !lt(b, a));
+        }
         this.mNumElements = 0;
         this.mRecords = [];
         this.mPointers = [];
         this.reset(maxElements);
-    }
-
-    // The port of "a <= b", derived from the strict order.
-    private le(a: ValueType, b: ValueType): boolean {
-        return !this.lt(b, a);
     }
 
     // Clear the min-heap so that it has the specified max elements, the
