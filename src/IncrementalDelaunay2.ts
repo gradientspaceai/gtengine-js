@@ -698,6 +698,17 @@ export class IncrementalDelaunay2 {
             logAssert(next !== undefined, 'Expecting to find a hull edge.');
             vNext = next;
         }
+        // The same degenerate edge map can also lead the walk back to its
+        // start before every edge has been visited (three or more collinear
+        // points, starting at one end of the line). Upstream then returns
+        // hull[] with its unwritten tail left at the zeros of the resize, a
+        // "polygon" that contains supervertex 0; the port left holes
+        // (undefined entries) there. Both are garbage, so the port reports
+        // the degenerate triangulation here too. For a nondegenerate
+        // triangulation the hull edges form one cycle and this always holds.
+        logAssert(i + 1 === numEdges,
+            'The Delaunay triangulation is degenerate (the input points are '
+            + 'collinear), so it has no convex hull polygon.');
         return hull;
     }
 

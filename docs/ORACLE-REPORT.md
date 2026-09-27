@@ -9,7 +9,7 @@ upstream GTE code compiled with MSVC; the port replays the same inputs. See
 - compiler MSVC 194435215 x64 /O2 /fp:precise
 - records-per-case 20
 
-**1225 cases, 22020 records, 211103 floating-point outputs compared; 99.66% bit-identical to the C++ build. 1054 cases are bit-identical on every output. 124 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
+**1243 cases, 22300 records, 214635 floating-point outputs compared; 99.67% bit-identical to the C++ build. 1068 cases are bit-identical on every output. 128 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
 
 Discrete outputs (booleans, counts, indices) always compare exactly and are not counted
 in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |port|, |C++|)`.
@@ -23,6 +23,7 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | v04-approximation | 36 | 660 | 6632 | 94.99% | 24 | 4.61e-13 | `ApprTorus3.gaussNewton.initialGuess` |
 | v08-compgeom | 41 | 740 | 6472 | 100.00% | 37 | 0 |  |
 | v09-compgeom | 16 | 220 | 640 | 100.00% | 11 | 0 |  |
+| v10-compgeom | 18 | 280 | 3532 | 100.00% | 14 | 0 |  |
 | v11-compgeom | 23 | 300 | 2571 | 100.00% | 15 | 0 |  |
 | v14-containment | 70 | 1280 | 4492 | 100.00% | 64 | 0 |  |
 | v17-curves | 51 | 1000 | 17627 | 100.00% | 50 | 0 |  |
@@ -74,6 +75,10 @@ every record.
 | v09-compgeom | `Delaunay3.compute.deviation.duplicates` | 20 of 20 | #283 (ProcessedVertex compares the location) |
 | v09-compgeom | `Delaunay3.compute.deviation.epsilon` | 20 of 20 | #391 (hardcoded epsilon = 0 in Delaunay3) |
 | v09-compgeom | `Delaunay3.compute.deviation.numVertices` | 20 of 20 | #283 (GetNumVertices after degenerate input) |
+| v10-compgeom | `RotatingCalipers.computeAntipodes.deviation.duplicate` | 20 of 20 | #286 (RotatingCalipers::CreatePolygon drops the corner after a duplicate) |
+| v10-compgeom | `MinimumAreaCircle2.compute.deviation.trappedFallback` | 20 of 20 | #286 (the trapped-failure fallback bounds only a prefix) |
+| v10-compgeom | `MinimumVolumeSphere3.compute.deviation.trappedFallback` | 20 of 20 | #286 (the trapped-failure fallback bounds only a prefix) |
+| v10-compgeom | `IncrementalDelaunay2.getHull.deviation.collinear` | 10 of 20 | #290 (GetHull on a collinear triangulation: early return padded with 0, or an unbounded walk) |
 | v11-compgeom | `MinimumAreaBox2.deviation.dimension1Extremes` | 15 of 20 | #328 (dimension-1 extreme indices) |
 | v11-compgeom | `MinimumAreaBox2.deviation.staleState` | 20 of 20 | #328 (stale area and support indices) |
 | v11-compgeom | `MinimumAreaBox2.deviation.polygonPoints` | 20 of 20 | #402 (convex-polygon overload never assigns mPoints) |

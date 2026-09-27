@@ -219,9 +219,9 @@ Every disagreement gets a root cause. In order of likelihood:
    MSVC's `std::generate_canonical<double, 53>` over `mt19937` is
    `((g0 >> 11) + (g1 << 21)) * 2^-53`, which truncates where the portable
    `(g0 + g1*2^32) / 2^64` rounds, 2 ulps apart on the first value (v14,
-   the plane jitter of `ContEllipsoid3MinCR`). `std::shuffle` with
-   `std::default_random_engine` is not comparable at all; list such paths
-   under "Not covered". The most productive class so far is the change of
+   the plane jitter of `ContEllipsoid3MinCR`). `std::shuffle` over a
+   default-constructed member engine is comparable by running a private
+   engine in lockstep (below, v10). The most productive class so far is the change of
    basis: `C + c0*a0 + c1*a1 + c2*a2` accumulates left to right,
    `((C + c0*a0) + c1*a1) + c2*a2`, and a port that adds the basis terms
    first differs in the last bits on nearly every record (three of the 19
@@ -364,6 +364,30 @@ fill the stale storage on purpose first (v11 triangulated a set in which point
 `Insert({j, s})` silently inserted `<r, s>`). A read that would touch
 unallocated memory (an empty vector) cannot produce a golden record and is
 listed under "Not covered".
+
+An upstream `std::shuffle(x, mDRE)` with a default-constructed member engine
+can be driven to the port's permutation: run a private
+`std::default_random_engine` in lockstep, shuffling an index array of the same
+length once per call, call the query until the tracked permutation equals the
+port's reproduced permutation (its own generator and Fisher-Yates, part of its
+observable behaviour), and record that call's result. The cost is m! calls on
+average, so cap the unique count (v10 caps it at 6, loop at 20000); every
+input is then comparable, including the tied and cocircular ones a
+"result must not depend on the shuffle" filter throws away, and v10's
+`MinimumVolumeSphere3` association defect only became visible that way.
+
+Check golden determinism. Upstream code that iterates pointer-keyed
+unordered containers (`unordered_set<Triangle*>`) can differ from run to run,
+not only from the port. After `gen`, regenerate and compare; a case whose
+acceptance filter or outputs depend on such an order produces irreproducible
+goldens (v10, `ExtremalQuery3BSP` node counts and its #290 wrong answers).
+
+Throw records carry no outputs: when the C++ record throws, nothing may be
+emitted before the call that throws. Compute first, then emit.
+
+Halving is exact, adding is not: `0.5 * (a + b)` lies exactly on a segment
+only when `a + b` is exact. Use lattice or dyadic coordinates (multiples of
+2^-10) for exact midpoints.
 
 Never loosen a tolerance or narrow a generator to make a disagreement
 disappear without knowing which of these it is.

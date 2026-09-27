@@ -397,6 +397,19 @@ describe('IncrementalDelaunay2', () => {
         // loops forever here, the port reports the condition.
         expect(() => collinear.getHull()).toThrow(/degenerate/);
 
+        // The same degenerate edge map can bring the walk back to its start
+        // before every edge is visited. The MSVC build of upstream returns
+        // [7, 8, 0] here (the tail keeps the zero of the resize, supervertex
+        // 0); the port returned [7, 8, <hole>] before the C++ oracle of
+        // group 10 found it, and now reports the degenerate triangulation.
+        const early = new IncrementalDelaunay2(-6, -8, 6, 6);
+        for (const [x, y] of [[4, 4], [2, 2], [0, 0]]) {
+            early.insert(v2(x, y));
+        }
+        early.finalizeTriangulation();
+        expect(early.getNumTriangles()).toBe(0);
+        expect(() => early.getHull()).toThrow(/degenerate/);
+
         // Duplicates never create new vertices.
         const duplicates = new IncrementalDelaunay2(0, 0, 1, 1);
         const points = [v2(0.2, 0.2), v2(0.8, 0.2), v2(0.5, 0.8)];
