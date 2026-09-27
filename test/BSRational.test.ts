@@ -83,8 +83,15 @@ function expectValid(x: BSRational): void {
     expectValidBSNumber(x.getDenominator());
     // The denominator is always positive.
     expect(x.getDenominator().getSign()).toBe(1);
-    // The denominator is normalized to have exponent zero, i.e. it lies in
-    // the interval [1,2).
+}
+
+// The (BSNumber, BSNumber) constructor, and through it every arithmetic
+// operator, also normalizes the denominator to exponent zero, i.e. into the
+// interval [1,2). The scalar pair constructors (upstream (double, double),
+// (int64_t, int64_t), ...: fromNumber, fromFloat32 and fromBigInt with a
+// denominator) keep the denominator as given (C++ oracle v06).
+function expectNormalized(x: BSRational): void {
+    expectValid(x);
     expect(x.getDenominator().getExponent()).toBe(0);
 }
 
@@ -133,14 +140,22 @@ describe('BSRational: construction', () => {
     });
 
     it('keeps a zero numerator canonical (upstream would corrupt it)', () => {
-        // Upstream unconditionally subtracts the denominator exponent from
-        // the numerator biased exponent, which for a zero numerator makes an
-        // invalid BSNumber; the port guards it.
-        const x = BSRational.fromNumber(0, 1024);
+        // Upstream's (BSNumber, BSNumber) constructor unconditionally
+        // subtracts the denominator exponent from the numerator biased
+        // exponent, which for a zero numerator makes an invalid BSNumber;
+        // the port guards it. (The (double, double) constructor does not
+        // touch the exponents, so BSRational(0.0, 1024.0) is valid upstream
+        // too.)
+        const x = BSRational.fromBSNumber(BSNumber.fromNumber(0), BSNumber.fromNumber(1024));
         expect(x.getSign()).toBe(0);
         expect(x.toNumber()).toBe(0);
-        expectValid(x);
+        expectNormalized(x);
+        expect(x.getNumerator().getBiasedExponent()).toBe(0);
         expect(x.equals(new BSRational())).toBe(true);
+        const y = BSRational.fromNumber(0, 1024);
+        expectValid(y);
+        expect(y.getDenominator().getExponent()).toBe(10);
+        expect(y.equals(new BSRational())).toBe(true);
     });
 
     it('fromBigInt handles integers wider than a double', () => {
@@ -164,12 +179,41 @@ describe('BSRational: construction', () => {
         expect(x.toNumber()).not.toBe(0.1);
     });
 
-    it('normalizes the denominator exponent to zero', () => {
-        // 3 * 2^10 / (5 * 2^20). The denominator exponent must be zero and
-        // the numerator absorbs the difference.
-        const x = BSRational.fromNumber(3 * 1024, 5 * 1048576);
+    it('normalizes the denominator exponent to zero in fromBSNumber only', () => {
+        // 3 * 2^10 / (5 * 2^20). The (BSNumber, BSNumber) constructor makes
+        // the denominator exponent zero and the numerator absorbs the
+        // difference.
+        const x = BSRational.fromBSNumber(BSNumber.fromNumber(3 * 1024),
+            BSNumber.fromNumber(5 * 1048576));
         expect(x.getDenominator().getExponent()).toBe(0);
+        expect(x.getNumerator().getBiasedExponent()).toBe(10 - 22);
         expectExactlyEqual(x, { n: 3n * 1024n, d: 5n * 1048576n });
+
+        // The scalar pair constructors keep the inputs as given, as
+        // upstream's BSRational(double, double), (int64_t, int64_t) and
+        // (float, float) do (C++ oracle v06, BSRational.construct.*):
+        // numerator 3 * 2^10, denominator 5 * 2^20 (exponent 22). The value
+        // and every arithmetic result are the same either way.
+        for (const y of [BSRational.fromNumber(3 * 1024, 5 * 1048576),
+            BSRational.fromBigInt(3n * 1024n, 5n * 1048576n),
+            BSRational.fromFloat32(3 * 1024, 5 * 1048576)]) {
+            expect(y.getNumerator().getBiasedExponent()).toBe(10);
+            expect(y.getDenominator().getBiasedExponent()).toBe(20);
+            expect(y.getDenominator().getExponent()).toBe(22);
+            expectExactlyEqual(y, { n: 3n * 1024n, d: 5n * 1048576n });
+            expect(y.equals(x)).toBe(true);
+            const sum = y.add(BSRational.fromNumber(1, 8));
+            const sumX = x.add(BSRational.fromNumber(1, 8));
+            expect(sum.getNumerator().equals(sumX.getNumerator())).toBe(true);
+            expect(sum.getDenominator().equals(sumX.getDenominator())).toBe(true);
+            expectNormalized(sum);
+        }
+
+        // A negative denominator only moves its sign to the numerator.
+        const z = BSRational.fromNumber(3, -4);
+        expect(z.getNumerator().getSign()).toBe(-1);
+        expect(z.getDenominator().getSign()).toBe(1);
+        expect(z.getDenominator().getExponent()).toBe(2);
     });
 });
 
@@ -222,6 +266,23 @@ describe('BSRational: fromString', () => {
         expect(() => BSRational.fromString('')).toThrow(/A number must be specified/);
         expect(() => BSRational.fromString('+')).toThrow(/Invalid number format/);
         expect(() => BSRational.fromString('1.2a')).toThrow(/Invalid number format/);
+    });
+
+    it('rejects a second sign as upstream does', () => {
+        // Upstream strips one sign and hands the integer part to
+        // BSNumber::ConvertToInteger, which has no sign handling of its own:
+        // "--5" leaves "-5", a multi-character part that does not start with
+        // a nonzero digit, so it asserts. The port used BSNumber.fromString,
+        // which accepts a sign, and returned -5, -2.5, 12, 0.5, 0 and
+        // -37.25 here (C++ oracle v06, BSRational.construct.string).
+        for (const s of ['--5', '+-2.5', '-+12', '++0.5', '-+0', '+-37.25', '--0.', '-+1.']) {
+            expect(() => BSRational.fromString(s), s).toThrow(/Invalid number format/);
+        }
+        // One sign is still accepted, in front of every form.
+        expectExactlyEqual(BSRational.fromString('-5'), { n: -5n, d: 1n });
+        expectExactlyEqual(BSRational.fromString('+2.5'), { n: 5n, d: 2n });
+        expectExactlyEqual(BSRational.fromString('-.5'), { n: -1n, d: 2n });
+        expectExactlyEqual(BSRational.fromString('+12.'), { n: 12n, d: 1n });
     });
 
     it('agrees with exact rational arithmetic for many decimals', () => {

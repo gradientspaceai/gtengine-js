@@ -120,6 +120,31 @@ describe('BSplineGeodesic on a planar patch', () => {
         expect(euclideanPathLength(surface, result.path, result.quantity))
             .toBeCloseTo(total, 6);
     });
+
+    it('returns +0 curvature on a plane for any segment direction', () => {
+        // RiemannianGeodesic's vectors are GVectors upstream, whose Dot
+        // accumulates from the literal 0; Vector.h's Dot starts from the
+        // first product. On a plane every Christoffel symbol is zero, so for
+        // a segment direction with negative components the Vector.h seed
+        // gives qForm1 = -0, hence ratio = +0, acc = (-0, -0) and a
+        // curvature of sqrt(-0) = -0, where upstream returns +0 (C++ oracle
+        // v06, BSplineGeodesic.computeGeodesic). The port built 'diff' and
+        // 'acc' with the base Vector functions and lost the GVector seed.
+        const surface = planePatch(v3(0, 0, 0), v3(1, 0, 0), v3(0, 1, 0));
+        const bg = new BSplineGeodesic(surface);
+        for (const [p0, p1] of [[gv(0.75, 0.75), gv(0.25, 0.25)],
+            [gv(0.25, 0.25), gv(0.75, 0.75)], [gv(0.75, 0.25), gv(0.25, 0.5)]]) {
+            const curvature = bg.computeSegmentCurvature(p0, p1);
+            expect(Object.is(curvature, 0), `${p0.values} -> ${p1.values}`).toBe(true);
+            expect(Object.is(bg.computeTotalCurvature(2, [p0, p1]), 0)).toBe(true);
+        }
+        // The two seeds differ on exactly these values.
+        const acc = Vector.fromArray([-0, -0]);
+        const zero = Vector.fromArray([0, 0]);
+        expect(Object.is(dot(acc, zero), -0)).toBe(true);
+        expect(Object.is(dot(GVector.fromArray([-0, -0]), zero), 0)).toBe(true);
+        expect(Object.is(Math.sqrt(-0), -0)).toBe(true);
+    });
 });
 
 describe('BSplineGeodesic on a curved patch', () => {

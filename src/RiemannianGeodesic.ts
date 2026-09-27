@@ -150,7 +150,7 @@ export abstract class RiemannianGeodesic {
         // The Trapezoid Rule is used for integration of the length integral.
         // The computeMetric function internally modifies mMetric, which means
         // the qForm values are actually varying even though diff does not.
-        const diff = sub(point1, point0);
+        const diff = toGVector(sub(point1, point0));
 
         // Evaluate the integrand at point0.
         this.computeMetric(point0);
@@ -327,7 +327,7 @@ export abstract class RiemannianGeodesic {
         // integral. The computeIntegrand function internally modifies
         // mMetric, which means the curvature values are actually varying even
         // though diff does not.
-        const diff = sub(point1, point0);
+        const diff = toGVector(sub(point1, point0));
 
         // Evaluate the integrand at point0.
         let curvature = this.computeIntegrand(point0, diff);
@@ -383,7 +383,7 @@ export abstract class RiemannianGeodesic {
         const ratio = -qForm1 / qForm0;
 
         // Compute the acceleration.
-        const acc = mul(ratio, der);
+        const acc = toGVector(mul(ratio, der));
         for (let k = 0; k < this.mDimension; ++k) {
             acc.values[k] += dot(der, mulMatrix(this.mChristoffel2[k], der));
         }
