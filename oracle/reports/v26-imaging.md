@@ -83,16 +83,16 @@ face-consistent), and one upstream limitation is documented
   digest. Modes aim at axis-aligned, diagonal, single-point and
   `|dx| = |dy| +- 1` lines, ties between the two largest 3D components (the
   strict `>` selecting the step axis), negative radii and extents, inverted
-  rectangles. Extents stay at most 100 (`4 * a^2 * (1 - y)` overflows
-  `int32_t` beyond about 180).
+  rectangles. Extents stay at most 100, far inside the `int32_t` range of
+  the decision terms (`4 * a^2 * (1 - y)` is of order `4 a^2 b`).
 * **SurfaceExtractorCubes/Tetrahedra:** images of 2..3 voxels per axis
   (full emission when the deduplicated mesh has at most 16 triangles),
   4..6 per axis (digests), and every documented voxel type (`int8_t` to
   `uint32_t`, 32-bit values within 2^20 so that upstream's `int64_t`
   products and the port's doubles are both exact); values small lattice,
   uniform, linear, a quadric, binary and a hyperbolic product; levels from
-  one below the minimum to the maximum (Tetrahedra: 3204 of 10 000 deep
-  records have samples on the level, i.e. the zero-corner cases of
+  one below the minimum to the maximum (Tetrahedra: 3204 of the 6000 deep
+  extraction records have samples on the level, i.e. the zero-corner cases of
   `ProcessTetrahedron`). Each record emits the rational extraction, its
   `MakeUnique`, the real extraction with and without duplicate removal,
   `OrientTriangles` (one bit per triangle) and `ComputeNormals`. The Cubes
@@ -109,8 +109,9 @@ face-consistent), and one upstream limitation is documented
   product (ambiguous faces, 1586 deep records); `MakeUnique` on arbitrary
   vertex lists with duplicates and `-0` against `+0` (the first kept) and on
   the `UniqueVerticesSimplices` preconditions (no vertices, index counts 0, 1,
-  2, an index out of range: 1200 throw records). The signed-zero voxels are
-  called through a `__declspec(noinline)` wrapper.
+  2, an index out of range: 1200 throw records). The per-voxel `Extract`,
+  whose outputs carry signed zeros, is called through a
+  `__declspec(noinline)` wrapper.
 
 ### Independent references (run on the port's outputs of every replayed record)
 
@@ -125,8 +126,9 @@ face-consistent), and one upstream limitation is documented
   equals the city-block distance to the nearest background pixel or the
   exterior, and its maximum and location follow the grass-fire loop;
   `GetL2Distance` equals the exact Euclidean distance transform rounded to
-  float on every deep record (2000 of them with distances between 13 and
-  99: the "exact below 100" claim holds); skeletons are subsets of the input.
+  float on every deep record (in `.large` the maximum distance exceeds 13,
+  31, 49 and 72 on 1272, 371, 116 and 6 of 2000 records, up to 87.7: the
+  "exact below 100" claim holds there); skeletons are subsets of the input.
   Lines: endpoints, one pixel per major-axis step, every minor coordinate
   within 1/2 of the ideal line (exact integers). Circles: every pixel within
   one unit of the radius, the 8-fold symmetry, solid circles contain every
@@ -197,8 +199,9 @@ Preserved findings reached and agreeing bit for bit: #443 (`GetSkeleton`
 on even squares, statistics above), #129 (`DrawLine`'s unused `maxValue`
 assignment; the 3D `Close<N>` does not compile, so the port's
 `close6/18/26` are compared against upstream's offset-list `Close` with the
-same neighbourhoods), #439 (`MakeUnique` keeps rotated duplicates, reached
-through the extractors).
+same neighbourhoods). #439 (`SurfaceExtractor::MakeUnique` keeps rotated
+duplicate triangles) belongs to group 25's base class; `MakeUnique` is
+compared bit for bit here through both extractors.
 
 ## Not covered
 
@@ -208,7 +211,7 @@ through the extractors).
 | `GetComponents`, `ExtractBoundary` output accumulation | upstream appends to (or leaves unchanged) the caller's vectors; the port returns fresh arrays. The cases pass fresh vectors. |
 | `ImageUtility3::Close<N>` | does not compile upstream (#129); compared through the offset-list `Close`. |
 | `FloodFill4/6`, `DrawFloodFill4` with equal foreground and background colours | never terminate (the stack overruns its allocation); excluded by the generators. |
-| `DrawEllipse` extents above about 180, `DrawCircle`/`DrawLine` coordinates near the `int32_t` range | signed overflow in the decision variables, undefined behaviour. |
+| `DrawEllipse` extents above about 800, `DrawCircle`/`DrawLine` coordinates near the `int32_t` range | signed overflow in the decision terms (`4 a^2 b` exceeds 2^31), undefined behaviour. |
 | `GetL2Distance` with distances of 100 or more | outside the documented exactness range. |
 | `SurfaceExtractorCubes/Tetrahedra` with 32-bit voxel values beyond 2^20 | upstream's `int64_t` products can overflow and the port's doubles lose exactness above 2^53 (documented port limit). |
 | `SurfaceExtractorMC` with `T = float` or another `IndexType` | the port has one number type. |
