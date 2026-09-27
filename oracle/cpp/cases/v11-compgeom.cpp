@@ -1520,6 +1520,38 @@ ORACLE_CASE("MinimumAreaBox2.deviation.removeCollinear")
     }
 }
 
+// DESIGN DEVIATION (port note in src/MinimumAreaBox2.ts). Upstream's header
+// says a correct output is guaranteed only for an exact ComputeType and
+// names BSRational<UIntegerAP32>; the port implements only that path. This
+// case runs upstream's floating-point instantiation
+// MinimumAreaBox2<double, double> (whose useRotatingCalipers default is
+// false) against the port's exact computation on the same uniform points, to
+// show what the choice changes: the box is rounded once at the end on the
+// port and at every step on upstream's double path. It is not a defect fix
+// and the main cases compare the matching exact instantiation.
+ORACLE_CASE("MinimumAreaBox2.deviation.floatComputeType")
+{
+    int32_t n = io.integer(3, 10);
+    std::vector<Vector2<double>> pts{};
+    for (int32_t attempt = 0; attempt < 64; ++attempt)
+    {
+        RawPoints2(io, 0, static_cast<size_t>(n), pts);
+        if (HullDimension2(pts) == 2)
+        {
+            break;
+        }
+    }
+    for (size_t i = 0; i < pts.size(); ++i)
+    {
+        io.givenVec<2>(pts[i]);
+    }
+
+    MinimumAreaBox2<double, double> mab{};
+    OrientedBox2<double> box = mab(pts);
+    EmitBox2(io, box);
+    io.outReal(mab.GetArea());
+}
+
 // ---- MinimumWidthPoints2 -------------------------------------------------
 
 // MinimumWidthPoints2<T> overloads 1 and 2, with both values of
@@ -1852,8 +1884,12 @@ namespace
 ORACLE_CASE("SeparatePoints2.compute")
 {
     int32_t mode = io.index() % 4;
-    int32_t n0 = io.integer(1, 8);
-    int32_t n1 = io.integer(1, 8);
+    // Sets of one or two points are always degenerate (the early 'false'
+    // return); they are drawn only in mode 3, the degenerate mode, so that
+    // modes 0-2 spend their records on the side tests.
+    int32_t minCount = (mode == 3 ? 1 : 3);
+    int32_t n0 = io.integer(minCount, 8);
+    int32_t n1 = io.integer(minCount, 8);
     std::vector<Vector2<double>> pts0{}, pts1{};
     bool accepted = false;
     for (int32_t attempt = 0; attempt < 64 && !accepted; ++attempt)

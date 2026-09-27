@@ -439,6 +439,16 @@ describe('oracle: v11-compgeom', () => {
         }
     }, { exact: true, deviation: '#286 (duplicate point drops the next corner)' });
 
+    // The port implements only upstream's exact ComputeType; C++ runs
+    // MinimumAreaBox2<double, double> with its default (brute force) search.
+    family.case('MinimumAreaBox2.deviation.floatComputeType', (io) => {
+        const n = io.integer();
+        const pts = points(io, n, 2);
+        const mab = new MinimumAreaBox2();
+        emitBox(io, mab.compute(pts, false));
+        io.outReal(mab.getArea());
+    }, { exact: true, deviation: 'port note: exact ComputeType only (MinimumAreaBox2.h header)' });
+
     // ---- MinimumWidthPoints2 ---------------------------------------------
 
     family.case('MinimumWidthPoints2.compute', (io) => {
