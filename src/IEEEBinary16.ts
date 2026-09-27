@@ -31,6 +31,11 @@
 //     already owned by other files under the flat library export. The
 //     arithmetic operators return a binary32 result as upstream does; the
 //     ports apply Math.fround so the value matches the C++ float arithmetic.
+//   - The gte:: wrappers atandivpi, atan2divpi, cospi, sinpi, exp10 and
+//     invsqrt call the FLOAT overloads of Functions.h upstream (binary32
+//     constants and products); the ports reproduce that, not the double
+//     overloads. std::ldexp and std::pow keep their C semantics on zero,
+//     infinity, NaN and pow(+-1, ...) (C++ oracle, group 16).
 //   - Convert32To16 and Convert16To32 are private upstream; the port exposes
 //     them as static methods so the bit-level behavior can be tested.
 

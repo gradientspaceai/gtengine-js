@@ -19,6 +19,11 @@
 // edges rather than filling reference parameters. The upstream int64_t
 // arithmetic becomes number arithmetic; the products f * x remain exact for
 // images whose pixel magnitudes and dimensions are far below 2^26.
+//
+// Deliberate fix (found by the C++ oracle, group 16): upstream's '+000' and
+// '00+0' cases (one nonzero corner, at (x,y) or at (x+1,y+1)) emit the two
+// square edges incident to the nonzero corner, which are not on the level
+// set; the port emits the two zero edges (the bodies are swapped upstream).
 
 import {
     CurveExtractor, CurveExtractorEdge, CurveExtractorVertex
