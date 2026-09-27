@@ -927,7 +927,8 @@ namespace
         int32_t numSeeds = io.integer(0, 3);
         std::vector<size_t> seeds(numSeeds);
         for (int32_t k = 0; k < numSeeds; ++k) { seeds[k] = io.integer(0, quantity - 1); }
-        bool perPixel = io.boolean();
+        // The NaN mode always takes the constant-speed constructor.
+        bool perPixel = (allowNaN ? io.given(0.0) != 0.0 : io.boolean());
         if (perPixel)
         {
             std::vector<double> speeds(quantity);
@@ -942,7 +943,8 @@ namespace
         }
         int k = io.rawInteger(0, 9);
         double speed = (k == 0 ? 0.0 : (k == 1 ? -2.0 : (k < 6 ? io.rawInteger(1, 4) * 0.5
-            : (allowNaN && k == 9 ? std::nan("") : io.raw(0.1, 4.0)))));
+            : io.raw(0.1, 4.0))));
+        if (allowNaN) { speed = std::nan(""); }
         io.given(speed);
         return std::make_unique<FastMarch1>(quantity, seeds, speed);
     }
@@ -971,7 +973,10 @@ namespace
 ORACLE_CASE("FastMarch.march1") { FastMarchCase(io, false); }
 
 // A NaN constant speed gives NaN inverse speeds and NaN arrival times in the
-// heap, which is where MinHeap's NaN comparisons matter.
+// heap, where MinHeap's NaN comparisons decide the removal order. Before the
+// MinHeap fix of v15 (#543: a <= b derived as !(b < a)) the deep run of the
+// mixed generator disagreed on 39 of 2000 records; this case now draws the
+// NaN speed on every record.
 ORACLE_CASE("FastMarch.march1.nanSpeed") { FastMarchCase(io, true); }
 
 // SetTime with arbitrary values (both zeros, max and -max, infinities, NaN,
@@ -1456,13 +1461,21 @@ ORACLE_CASE("AdaptiveSkeletonClimbing2.extract.large")
 }
 
 // The constructor's LogError for N <= 0 (N = 0 here; a negative N makes
-// upstream's 1 << N undefined behaviour). N = 1 records extract normally.
+// upstream's 1 << N undefined behaviour). N = 1 records extract a ramp
+// (no saddle cell) normally.
 ORACLE_CASE("AdaptiveSkeletonClimbing2.invalid")
 {
     int32_t N = io.integer(0, 1);
     int const size = (1 << N) + 1;
     std::vector<int64_t> px(static_cast<size_t>(size) * size);
-    for (auto& v : px) { v = static_cast<int64_t>(io.integer(-3, 3)); }
+    int64_t a = io.rawInteger(-3, 3), b = io.rawInteger(-3, 3);
+    for (int y = 0; y < size; ++y)
+    {
+        for (int x = 0; x < size; ++x)
+        {
+            px[x + size * y] = static_cast<int64_t>(io.given(static_cast<double>(a * (x + y) + b)));
+        }
+    }
     std::vector<ASCResult> results = RunASC<int32_t>(N, px, { 0.5 }, { -1 });
     OutASCResults(io, results);
 }

@@ -654,7 +654,9 @@ function ascInvalidCase(io: OracleIO): void {
 // (x or y an integer) where the edge's linear interpolant equals the level
 // to rounding, except the plus-sign branch points; after MakeUnique every
 // vertex on the image border has degree 1 and every interior one degree 2
-// (a branch point 4). Returns the violations found.
+// (a branch point 4); and saddle cells are paired by the interpolant.
+// Returns the violations found.
+let saddleSegmentsChecked = 0;
 function checkASC(pixels: readonly number[], size: number, level: number, r: ASCResult): string[] {
     const bad: string[] = [];
     const f = (x: number, y: number): number => pixels[x + size * y];
@@ -674,6 +676,36 @@ function checkASC(pixels: readonly number[], size: number, level: number, r: ASC
             }
         }
     }
+    // A segment inside a saddle cell (its midpoint in the cell, which is a
+    // 1x1 rectangle: saddle cells never merge) joins crossings on the two
+    // cell edges at one corner and cuts that corner off. It must be a corner
+    // on the other side of the level than the interpolant's saddle value
+    // f(xs, ys), xs = (f00 - f01)/D, ys = (f00 - f10)/D,
+    // D = f00 - f10 - f01 + f11. Plus-sign cells are skipped.
+    for (const [a, b] of r.e) {
+        const p = r.v[a], q = r.v[b];
+        const cx = Math.floor(0.5 * (p[0] + q[0])), cy = Math.floor(0.5 * (p[1] + q[1]));
+        if (cx < 0 || cy < 0 || cx > size - 2 || cy > size - 2) { continue; }
+        const f00 = f(cx, cy), f10 = f(cx + 1, cy), f01 = f(cx, cy + 1), f11 = f(cx + 1, cy + 1);
+        const g = [f00, f10, f01, f11].map((v) => v > level);
+        if (!(g[0] === g[3] && g[1] === g[2] && g[0] !== g[1])) { continue; }
+        const D = f00 - f10 - f01 + f11;
+        const xs = (f00 - f01) / D, ys = (f00 - f10) / D;
+        const saddle = f00 * (1 - xs) * (1 - ys) + f10 * xs * (1 - ys)
+            + f01 * (1 - xs) * ys + f11 * xs * ys;
+        const onVertical = (v: readonly number[]) => Number.isInteger(v[0]);
+        if (Math.abs(saddle - level) <= 1e-9 * Math.max(1, Math.abs(level))
+            || onVertical(p) === onVertical(q)) {
+            continue;
+        }
+        const vertical = onVertical(p) ? p : q, horizontal = onVertical(p) ? q : p;
+        const corner = (vertical[0] - cx) + 2 * (horizontal[1] - cy);
+        if ([f00, f10, f01, f11][corner] > level === saddle > level) {
+            bad.push(`saddle cell (${cx}, ${cy}) at level ${level}: corner ${corner} cut off`);
+        }
+        ++saddleSegmentsChecked;
+    }
+
     const degree = new Array<number>(r.vu.length).fill(0);
     for (const [a, b] of r.eu) { ++degree[a]; ++degree[b]; }
     r.vu.forEach(([x, y], i) => {
@@ -784,7 +816,13 @@ describe('oracle: v24-imaging', () => {
         ascCase(io);
     }, exact);
     family.case('AdaptiveSkeletonClimbing2.extract.saddle', ascCase, exact);
-    family.case('AdaptiveSkeletonClimbing2.extract.saddlePairing', ascCase, exact);
+    // Port fix of the saddle pairing (upstream suspect of this group, see
+    // oracle/reports/v24-imaging.md and the header of
+    // src/AdaptiveSkeletonClimbing2.ts). Every record has a saddle cell on
+    // which upstream contradicts the bilinear interpolant, so every record
+    // deviates; the replay checks the port's pairing on each.
+    family.case('AdaptiveSkeletonClimbing2.extract.saddlePairing', ascCase,
+        { exact: true, deviation: 'v24 report, AdaptiveSkeletonClimbing2 saddle pairing' });
     family.case('AdaptiveSkeletonClimbing2.extract.large', ascLargeCase, exact);
     family.case('AdaptiveSkeletonClimbing2.invalid', ascInvalidCase, exact);
 
@@ -794,6 +832,7 @@ describe('oracle: v24-imaging', () => {
             bad.push(...checkASC(c.pixels, c.size, c.level, c.r));
         }
         expect(ascChecked.length).toBeGreaterThan(0);
+        expect(saddleSegmentsChecked).toBeGreaterThan(0);
         expect(bad.slice(0, 10)).toEqual([]);
     });
 
