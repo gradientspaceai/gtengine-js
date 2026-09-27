@@ -829,17 +829,26 @@ export class MinimumVolumeBox3FloatingPoint {
         // of three terms, |error| <= 3u/(1 - 3u) * sum(|d[i]*v[i]|), rounded
         // up and doubled because two dot products are compared:
         // 8 * eps * max|d[i]| * max(|v[0]| + |v[1]| + |v[2]|). A threshold
-        // larger than the true error only widens the traversal; it cannot
-        // change the answer, because a vertex is accepted as the new maximum
-        // only when its dot product is strictly larger.
+        // larger than the true error only widens the traversal.
+        //
+        // The result of the traversal REPLACES upstream's vertex only when
+        // its dot product exceeds upstream's by more than that bound, which
+        // proves that upstream's vertex is not the maximum in exact
+        // arithmetic (the defect). Otherwise upstream's vertex and dot
+        // product are returned unchanged. The v12 oracle found the
+        // unconfined form: on a plateau that is flat only up to rounding (the
+        // vertices of a hull face, projected onto a rounded face normal) the
+        // traversal took a vertex whose dot product was one ulp larger, a
+        // different support vertex than upstream's with a different exact
+        // projection, so the box centre, extents and volume moved by an ulp
+        // on ordinary uniform point clouds.
+        const vUpstream = vMax, dUpstream = dMax;
         if (this.mClimbStamp === 0x7fffffff) {
             // Keep the stamps representable in the Int32Array.
             this.mClimbVisited.fill(0);
             this.mClimbStamp = 0;
         }
-        const d = direction.values;
-        const epsilon = 8 * Number.EPSILON * this.mMaxVertexL1 *
-            Math.max(Math.abs(d[0]), Math.abs(d[1]), Math.abs(d[2]));
+        const epsilon = this.climbTolerance(direction);
         const stamp = ++this.mClimbStamp;
         const visited = this.mClimbVisited;
         const dots = this.mClimbDot;
@@ -876,7 +885,22 @@ export class MinimumVolumeBox3FloatingPoint {
             }
         }
 
-        return { vMax, dMax };
+        if (dMax - dUpstream > epsilon) {
+            return { vMax, dMax };
+        }
+        return { vMax: vUpstream, dMax: dUpstream };
+    }
+
+    // A bound on the difference between the rounding errors of two dot
+    // products Dot(direction, mTVertices[i]) (see getExtreme). Two such dot
+    // products that differ by more than this differ in the same direction in
+    // exact arithmetic. It has no upstream counterpart; it confines the
+    // port's fixes of #405 and #426 to the inputs where upstream is wrong in
+    // exact arithmetic.
+    protected climbTolerance(direction: Vector): number {
+        const d = direction.values;
+        return 8 * Number.EPSILON * this.mMaxVertexL1 *
+            Math.max(Math.abs(d[0]), Math.abs(d[1]), Math.abs(d[2]));
     }
 
     protected computeVolume(candidate: MinimumVolumeBox3FloatingPointCandidate): void {
@@ -914,15 +938,19 @@ export class MinimumVolumeBox3FloatingPoint {
         //
         // The fix is CONFINED: upstream's index and its dot product are
         // computed first, exactly as upstream writes them, and the hill climb
-        // only replaces them when it finds a STRICTLY smaller projection,
-        // which is precisely the case in which the upstream assumption is
-        // violated. Whenever upstream is sound the port therefore reports
-        // upstream's support index and its bit-identical projection, which
-        // matters because minSupportIndex feeds the exact rational
-        // getMinimumVolumeBox: two vertices with equal double projections can
-        // have different exact ones, so an unconditional replacement moved
-        // the box centre and extents by an ulp on ordinary inputs (found by
-        // the v08 oracle).
+        // only replaces them when it finds a projection smaller by more than
+        // the rounding bound climbTolerance, which proves that the upstream
+        // assumption is violated in exact arithmetic. Whenever upstream is
+        // sound the port therefore reports upstream's support index and its
+        // bit-identical projection, which matters because minSupportIndex
+        // feeds the exact rational getMinimumVolumeBox: two vertices with
+        // (nearly) equal double projections can have different exact ones.
+        // An unconditional replacement moved the box centre and extents by
+        // an ulp on ordinary inputs (found by the v08 oracle), and so did a
+        // replacement on any strictly smaller double projection: the other
+        // vertices of the hull face whose rounded normal is the candidate
+        // axis project one ulp below the edge vertex on ordinary uniform
+        // point clouds (found by the v12 oracle).
         //
         // Dot(-axis, v) is the exact negation of Dot(axis, v): negating each
         // component of the direction negates each product exactly and the
@@ -932,7 +960,7 @@ export class MinimumVolumeBox3FloatingPoint {
         candidate.minSupportIndex[0] = this.mEdges[candidate.edgeIndex[0]].v[0];
         pmin[0] = dot3(candidate.axis[0], this.mTVertices[candidate.minSupportIndex[0]]);
         const e0min = this.getExtreme(Vector.fromArray([-a0[0], -a0[1], -a0[2]]));
-        if (-e0min.dMax < pmin[0]) {
+        if (-e0min.dMax < pmin[0] - this.climbTolerance(candidate.axis[0])) {
             candidate.minSupportIndex[0] = e0min.vMax;
             pmin[0] = -e0min.dMax;
         }
@@ -943,7 +971,7 @@ export class MinimumVolumeBox3FloatingPoint {
         candidate.minSupportIndex[1] = this.mEdges[candidate.edgeIndex[1]].v[0];
         pmin[1] = dot3(candidate.axis[1], this.mTVertices[candidate.minSupportIndex[1]]);
         const e1min = this.getExtreme(Vector.fromArray([-a1[0], -a1[1], -a1[2]]));
-        if (-e1min.dMax < pmin[1]) {
+        if (-e1min.dMax < pmin[1] - this.climbTolerance(candidate.axis[1])) {
             candidate.minSupportIndex[1] = e1min.vMax;
             pmin[1] = -e1min.dMax;
         }
