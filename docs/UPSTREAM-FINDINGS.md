@@ -71,14 +71,14 @@ Nothing here has been reported upstream before; this document is the report.
 
 ## Counts
 
-- **516 distinct findings** across **167** tracked issues (one issue
+- **519 distinct findings** across **167** tracked issues (one issue
   frequently holds several findings in related files).
-- By severity: **250 result-corrupting**, **15 wrong but
-  recoverable**, **178 minor**, **73 documentation**.
-- By port status: **260 fixed or corrected in the port** (of which 158 are code
+- By severity: **251 result-corrupting**, **16 wrong but
+  recoverable**, **179 minor**, **73 documentation**.
+- By port status: **261 fixed or corrected in the port** (of which 159 are code
   fixes with regression tests, 22 are added guards or asserts where upstream has
   undefined behaviour, 64 are comment corrections, 11 are dead-code removals and
-  5 are documented deliberate deviations), **246 preserved deliberately**, and
+  5 are documented deliberate deviations), **248 preserved deliberately**, and
   **10 not ported** (the `GTE_USE_VEC_MAT` branches, dead code that cannot
   compile, and two arbitrary-precision paths).
 - **288 distinct upstream headers** are implicated.
@@ -216,6 +216,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `ConvexHull2.h` | `operator()` | indices are sorted by a comparator on the points, so which index of a duplicated hull vertex survives `std::unique` is unspecified (MSVC is stable only for n <= 32) | minor | preserved | [#277](https://github.com/gradientspaceai/gtengine-js/issues/277) |
 | `ConvexHull2.h` | `GetTangent` | silently returns whatever indices it last held if the bounding loop expires | RC | preserved | [#277](https://github.com/gradientspaceai/gtengine-js/issues/277) |
 | `ConvexHull3.h` | `operator()` | indices are sorted by a comparator on the points, so which index of a duplicated hull vertex survives `std::unique` is unspecified (MSVC is stable only for n <= 32); 3D sibling of the `ConvexHull2.h` note | minor | preserved | [#325](https://github.com/gradientspaceai/gtengine-js/issues/325) |
+| `ConvexHull3.h` | `operator()`, dimension 3 | the hull's triangle and vertex order is seeded from an `unordered_set<Triangle*>`, so it depends on heap addresses and varies between calls in one process (850 of 2000 8-point sets); `SeparatePoints3` then returns a different valid plane on 95 of 2000 | minor | preserved | [#325](https://github.com/gradientspaceai/gtengine-js/issues/325) |
 | `ConvexHull3.h` | `GetHull()` comment | claims `E = T/2` satisfies Euler's formula; for a closed triangle mesh `E = 3T/2` | doc | corrected | [#325](https://github.com/gradientspaceai/gtengine-js/issues/325) |
 | `ConvexHull3.h` | `SelectSplit` | binds scratch-pool slots by const reference and then mutates them | minor | n/a | [#325](https://github.com/gradientspaceai/gtengine-js/issues/325) |
 | `ConvexPolyhedron3.h` | constructor | validates `indices.size() >= 12` but never `% 3 == 0`, unlike `Polyhedron3.h` | minor | preserved | [#175](https://github.com/gradientspaceai/gtengine-js/issues/175) |
@@ -471,10 +472,11 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `MinimumSpanningTree.h` | `ExtractMinimumSpanningTree` | an empty edge list writes `records[0]` on a zero-length vector | RC | fixed | [#74](https://github.com/gradientspaceai/gtengine-js/issues/74) |
 | `MinimumSpanningTree.h` | header comment | describes a spanning tree with one sentinel; a disconnected graph gives a forest | doc | corrected | [#74](https://github.com/gradientspaceai/gtengine-js/issues/74) |
 | `MinimumSpanningTree.h` | back edges | filtered by remapped index before `ConvertToOriginalIndices`, so the reported pairs are unordered in caller labels | doc | preserved | [#472](https://github.com/gradientspaceai/gtengine-js/issues/472) |
-| `MinimumVolumeBox3FloatingPoint.h`, `MinimumVolumeBox3Rational.h` | `ExtractMeshTopology`, `ProcessEdgePair` | the candidate enumeration order is a `std::unordered_map` iteration order and the edge-pair processing is not symmetric, so the box (and the reported minimum volume on ties) is not reproducible: rotating the triangle list changes the rational box on 653 of 2000 meshes | minor | preserved | [#530](https://github.com/gradientspaceai/gtengine-js/issues/530) |
-| `MinimumVolumeBox3FloatingPoint.h` | `ComputeConvexHull`, dimension 2 | the Newell-normal loop drops the wrap-around term; a triangular hull gives an exactly zero normal | RC | fixed | [#352](https://github.com/gradientspaceai/gtengine-js/issues/352) |
+| `MinimumVolumeBox3FloatingPoint.h`, `MinimumVolumeBox3Rational.h` | `ExtractMeshTopology`, `ProcessEdgePair` | the candidate enumeration order is a `std::unordered_map` iteration order and the edge-pair processing is not symmetric, so the box (and the reported minimum volume on ties) is not reproducible: rotating the triangle list changes the rational box on 653 of 2000 meshes, and the reported minimum volume depends on the hash order on 455 (floating point) and 341 (rational) of 2000 hull meshes | minor | preserved | [#530](https://github.com/gradientspaceai/gtengine-js/issues/530) |
+| `MinimumVolumeBox3FloatingPoint.h` | `ComputeConvexHull`, dimension 2 | the Newell-normal loop drops the wrap-around term (for 4 or more hull vertices: the Newell normal of the hull without `hull[0]`, right direction, wrong magnitude); a triangular hull gives an exactly zero normal | RC | fixed | [#352](https://github.com/gradientspaceai/gtengine-js/issues/352) |
 | `MinimumVolumeBox3FloatingPoint.h` | `ComputeVolume` | assumes a hull-edge vertex realises the `axis[0]`/`axis[1]` minima; false in floating point | RC | fixed | [#405](https://github.com/gradientspaceai/gtengine-js/issues/405) |
 | `MinimumVolumeBox3FloatingPoint.h` | `GetExtreme` | the strict-improvement hill climb stalls on a floating-point plateau; degenerate non-containing box | RC | fixed | [#426](https://github.com/gradientspaceai/gtengine-js/issues/426) |
+| `MinimumVolumeBox3FloatingPoint.h`, `MinimumVolumeBox3Rational.h` | `CreateMeshTopology` | resizes `mEdges` but only reserves `mEdgeIndices`, and `ExtractMeshTopology` appends, so a reused functor processes the previous mesh's edge pairs before its own: exact ties resolve differently, and the indices are out of range when the new mesh has fewer edges | RC | fixed | [#352](https://github.com/gradientspaceai/gtengine-js/issues/352), [#355](https://github.com/gradientspaceai/gtengine-js/issues/355) |
 | `MinimumVolumeBox3FloatingPoint.h` | misc | duplicated `axis[2]` computation; compute-type literal in `MinimizerConstantS`; stale level-curve comments | minor | corrected | [#352](https://github.com/gradientspaceai/gtengine-js/issues/352) |
 | `MinimumVolumeBox3Rational.h` | `MinimizerVariableT` (~L1177) | declares `T const&` parameters where the sibling uses `Number const&`; every exact sample is rounded to double | RC | fixed | [#355](https://github.com/gradientspaceai/gtengine-js/issues/355) |
 | `MinimumVolumeBox3Rational.h` | dimension 2 (~L336) | the same Newell wrap-around omission as the floating-point sibling | RC | fixed | [#355](https://github.com/gradientspaceai/gtengine-js/issues/355) |
@@ -594,6 +596,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `Transform.h` | misc | `SetRotation(AxisAngle<3>)` lifts with `w = 1`; dead `Invert3x3`; `mIsUniformScale` never reset; inverted doc | minor | preserved | [#265](https://github.com/gradientspaceai/gtengine-js/issues/265) |
 | `Triangle.h` | comment | "sets the/ vertices" | doc | corrected | [#78](https://github.com/gradientspaceai/gtengine-js/issues/78) |
 | `TriangulateCDT.h` | `RemapPolygonTree` | a later duplicate overwrites the first occurrence's remapping, so a never-passed index is reported | minor | preserved | [#348](https://github.com/gradientspaceai/gtengine-js/issues/348), [#405](https://github.com/gradientspaceai/gtengine-js/issues/405) |
+| `TriangulateCDT.h` | `ClassifyDFS` | throws "Unexpected condition." when a hole shares an edge with its parent polygon and that edge lies on the convex hull | WR | preserved | [#348](https://github.com/gradientspaceai/gtengine-js/issues/348) |
 | `TriangulateCDT.h` | `ConstrainedTriangulate` | re-inserts triangles the graph copy already contains | minor | preserved | [#348](https://github.com/gradientspaceai/gtengine-js/issues/348) |
 | `TriangulateEC.h` | `VertexList::RemoveR` | removing the only reflex vertex leaves `mRLast` set, breaking the class's own emptiness invariant | minor | preserved | [#175](https://github.com/gradientspaceai/gtengine-js/issues/175) |
 | `TriangulateEC.h` | `DoEarClipping` | closes the ear ring without checking `mEFirst != -1` | minor | preserved | [#175](https://github.com/gradientspaceai/gtengine-js/issues/175) |
@@ -1325,6 +1328,15 @@ index 51 under MSVC, index 1 under a stable sort). `MinimumAreaBox2::GetHull()`
 inherits the `ConvexHull2` version (11 of 20 records at 33-60 points). Found by
 the C++ oracle of group 11. Port: stable sort, preserved; the oracle keeps its
 inputs at 32 points or fewer.
+
+**7. The dimension-3 hull order depends on heap addresses (minor, found by the
+C++ oracle of group 13).** The hull construction seeds its walk from an
+`unordered_set<Triangle*>`, so the order of the triangles and vertices that
+`GetHull()` reports depends on pointer hashes and varies between calls within one
+process: on 850 of 2000 random 8-point sets two calls returned different orders
+(the same hull as a set), and `SeparatePoints3`, which takes the first separating
+face it finds, returned a different valid plane on 95 of 2000. Port: deterministic
+(sorted iteration); the oracles compare only order-independent observables.
 
 Issue [#325](https://github.com/gradientspaceai/gtengine-js/issues/325).
 
@@ -3643,8 +3655,11 @@ Issues [#74](https://github.com/gradientspaceai/gtengine-js/issues/74), [#472](h
 term involving `hull[0]` from the cross-product sum. For a coplanar point set
 whose hull is a triangle the sum degenerates to `Cross(P2, P1) + Cross(P1, P2)`,
 which is exactly zero, so the plane normal is exactly zero and the returned box
-is garbage for *every* such input. Port: fixed by starting at `i1 = 0`; the
-regression test fails with the upstream loop.
+is garbage for *every* such input. For four or more hull vertices the sum is the
+Newell normal of the hull polygon without `hull[0]`: the right direction with the
+wrong magnitude, often bit-identical after normalization (C++ oracle of group
+12). Port: fixed by starting at `i1 = 0`; the regression test fails with the
+upstream loop.
 
 **2. `MinimizerVariableT` declares floating-point parameters inside the exact pipeline (Rational file).**
 Lines about 1177-1179 declare `T const& tminNumer, T const& tmaxNumer, T const& tDenom`
@@ -3671,7 +3686,12 @@ zero in exact arithmetic; the residue is `fl(fl(f00-f10) - f00) != -f10`), so
 candidate wins. In 5 of 300 random 9-point integer clouds the box missed a point
 by up to 3.26 on a coordinate range of 10. Port: the two minima use the existing
 `GetExtreme` hill climb, identical when the assumption holds and correct when it
-does not (about 19% slower). The Rational pipeline is unaffected.
+does not (about 19% slower). The Rational pipeline is unaffected. The port's
+replacement is confined to proven violations, a projection beyond the rigorous
+rounding bound `8*eps*max|d|*max L1`: a replacement on any strictly smaller
+double projection fired on the rounding noise of the other vertices of the hull
+face (projected onto the rounded face normal they differ by an ulp) and moved
+the box by ulps on 8 of 20 ordinary uniform clouds (C++ oracle of group 12).
 
 **4. `GetExtreme`'s hill climb stalls on a floating-point plateau (floating-point file).**
 It uses a strict comparison and stalls at a hull vertex lying in the relative
@@ -3689,7 +3709,9 @@ of 3.90 units. Simulating upstream's `ComputeVolume` verbatim reproduces it
 (exact dots). Port: after the upstream climb, flood through vertices within
 `8*eps*max|d|*L1` of the best value, keeping strict improvements; 4500 queries
 over 1500 rotated clouds then show zero containment failures, against 4 without
-the fix.
+the fix. The climb's result replaces upstream's vertex only when its dot product
+exceeds upstream's by more than the same rounding bound, for the reason given
+under 3 (group 12).
 
 **5. Minor and documentation.** `MinimizerConstantS` uses
 `T const half = static_cast<Number>(0.5)` where the siblings use
@@ -3703,6 +3725,17 @@ rational file. All 79 level-curve processors and both 81-entry dispatch tables
 were compared mechanically between the two files with zero semantic differences.
 
 
+**6. A reused functor processes the previous mesh's edge pairs first (both
+files; RC, fixed; found by the C++ oracle of group 12).** `CreateMeshTopology`
+resizes `mEdges` but only `reserve`s `mEdgeIndices`, and `ExtractMeshTopology`
+appends every pair, so a second `operator()` on the same object processes the
+previous mesh's edge pairs, read as indices into the new edges, before its own:
+every minimizer they reach runs again (1994 and 1989 of 2000 records of the v12
+`computeHull.reuse` cases, seen through minimizer overrides), exact ties can
+resolve differently (5 and 2 records changed the box), and when the new mesh has
+fewer edges the indices are out of range. Fix: `mEdgeIndices.clear()`. Port:
+starts from an empty list, a fresh functor's behaviour.
+
 **The result depends on a `std::unordered_map` iteration order (issue
 [#530](https://github.com/gradientspaceai/gtengine-js/issues/530), minor).** `ExtractMeshTopology` numbers edges and triangles by
 iterating `ETManifoldMesh`'s hash maps, `mEdgeIndices` lists every pair in that
@@ -3710,7 +3743,10 @@ numbering, and `ProcessEdgePair` is not symmetric in its two edges, so the winni
 candidate among ties, and hence the box, depends on the standard library. Measured
 by running upstream twice on the same mesh with rotated triangles: the rational
 pipeline reports a different box on 653 of 2000 meshes, volumes move by up to 0.8 %
-(floating point) and several percent (rational). Found by the C++ oracle of group 8.
+(floating point) and several percent (rational). Found by the C++ oracle of group 8;
+group 12 measured the raw `operator()` against an order-pinned replay of the same
+pipeline: the reported minimum volume changes on 455 (floating point) and 341
+(rational) of 2000 hull meshes.
 Port: preserved; the oracle compares a fixed-mesh box exactly and a point-cloud
 box by dimension, flags and a loosely toleranced volume.
 Issues [#352](https://github.com/gradientspaceai/gtengine-js/issues/352), [#355](https://github.com/gradientspaceai/gtengine-js/issues/355), [#405](https://github.com/gradientspaceai/gtengine-js/issues/405), [#426](https://github.com/gradientspaceai/gtengine-js/issues/426).
@@ -4174,6 +4210,16 @@ Coordinates are identical, so output geometry is unaffected.
 contains.
 
 **4. Minor.** `SeparatePoints2` classifies each hull vertex twice redundantly.
+
+**5. `TriangulateCDT::ClassifyDFS` throws on a hole that shares a hull edge with
+its parent (found by the C++ oracle of group 13).** When a hole polygon shares an
+edge with its parent polygon and that edge lies on the convex hull of the points,
+the inside/outside classification reaches a triangle with no neighbour across the
+shared edge and throws "Unexpected condition." instead of classifying the
+triangulation. Example: square (0,0),(6,0),(6,6),(0,6) with the hole
+(0,2),(0,4),(2,3). The input is degenerate (the hole touches the boundary along an
+edge, so the region is not simply connected), which is why it is preserved rather
+than fixed; the port throws identically (throw parity pinned).
 
 Issues [#328](https://github.com/gradientspaceai/gtengine-js/issues/328), [#348](https://github.com/gradientspaceai/gtengine-js/issues/348), [#405](https://github.com/gradientspaceai/gtengine-js/issues/405).
 

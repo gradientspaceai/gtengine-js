@@ -1174,13 +1174,165 @@ describe('MinimumVolumeBox3FloatingPoint: the ComputeVolume fix is confined', ()
         // corrupt upstream's answer on some of the 300 clouds.
         expect(numChanged).toBeGreaterThan(0);
         expect(numDefective).toBeGreaterThan(0);
-        // Measured at the time of writing: 118 of 300 clouds get a different
-        // box because the winning candidate's volume was underestimated by
-        // the defect, and 5 of 300 are visibly broken upstream (the box does
-        // not contain the points). The guard is the exact defective
-        // condition, so the majority of clouds still see upstream's
-        // arithmetic; the previous test checks that per candidate.
+        // Measured with the v08 guard (any strictly smaller double
+        // projection): 118 of 300 clouds got a different box. With the v12
+        // guard (a projection smaller by more than the rounding bound, see
+        // the next describe block) 4 of 300 do, and they include the clouds
+        // that are visibly broken upstream (the box does not contain the
+        // points); the previous test checks the guard per candidate.
         expect(numChanged).toBeLessThan(200);
     }, 180000);
+});
+
+// ---------------------------------------------------------------------------
+// The v12 oracle found that a replacement on any STRICTLY smaller double
+// projection is still too broad: for a candidate axis that is the rounded
+// normal of a hull face, the other vertices of that face project a few ulps
+// below (or above) the vertex upstream picks, so the port reported a
+// different support vertex, and the exact rational box built from it moved
+// by an ulp on 8 of 20 uniform point clouds. The fixes of #405 (the assumed
+// minimum) and #426 (the plateau traversal) now replace upstream's vertex
+// only when the other vertex is beyond a rigorous bound on the rounding
+// error of the two dot products (climbTolerance), which proves that
+// upstream's vertex is not extreme in exact arithmetic.
+// ---------------------------------------------------------------------------
+
+// Upstream's verbatim GetExtreme and ComputeVolume. It counts the support
+// comparisons that are violated in double precision but only within the
+// rounding bound (where the previous guard fired and the current one must
+// not), and the violations beyond the bound (where the fix is meant to act).
+class UpstreamVerbatimBox3 extends MinimumVolumeBox3FloatingPoint {
+    noiseViolations = 0;
+    provenViolations = 0;
+
+    protected override getExtreme(direction: Vector): { vMax: number, dMax: number } {
+        let vMax = this.mVClimbStart;
+        let dMax = dotOf(direction, this.mTVertices[vMax]);
+        for (let i = 0; i < this.mTVertices.length; ++i) {
+            let vLocalMax = vMax, dLocalMax = dMax;
+            const base = this.mAdjacentPoolLocation[vMax];
+            for (let j = 1; j <= this.mAdjacentPool[base]; ++j) {
+                const vCandidate = this.mAdjacentPool[base + j];
+                const dCandidate = dotOf(direction, this.mTVertices[vCandidate]);
+                if (dCandidate > dLocalMax) {
+                    vLocalMax = vCandidate;
+                    dLocalMax = dCandidate;
+                }
+            }
+            if (vMax === vLocalMax) {
+                break;
+            }
+            vMax = vLocalMax;
+            dMax = dLocalMax;
+        }
+        return { vMax, dMax };
+    }
+
+    private classify(axis: Vector, edgeVertex: number): void {
+        // The rounding bound, computed here independently of the port's
+        // climbTolerance so that a mutation of the port cannot move it.
+        let maxL1 = 0;
+        for (const v of this.mTVertices) {
+            maxL1 = Math.max(maxL1,
+                Math.abs(v.values[0]) + Math.abs(v.values[1]) + Math.abs(v.values[2]));
+        }
+        const a = axis.values;
+        const tolerance = 8 * Number.EPSILON * maxL1 *
+            Math.max(Math.abs(a[0]), Math.abs(a[1]), Math.abs(a[2]));
+        const assumed = dotOf(axis, this.mTVertices[edgeVertex]);
+        for (const v of this.mTVertices) {
+            const d = dotOf(axis, v);
+            if (d < assumed - tolerance) {
+                ++this.provenViolations;
+                return;
+            }
+        }
+        for (const v of this.mTVertices) {
+            if (dotOf(axis, v) < assumed) {
+                ++this.noiseViolations;
+                return;
+            }
+        }
+    }
+
+    protected override computeVolume(
+        candidate: MinimumVolumeBox3FloatingPointCandidate): void {
+        candidate.axis[2] = cross(candidate.axis[0], candidate.axis[1]);
+        const pmin = [0, 0, 0], pmax = [0, 0, 0];
+        for (let i = 0; i < 2; ++i) {
+            const edgeVertex = this.mEdges[candidate.edgeIndex[i]].v[0];
+            this.classify(candidate.axis[i], edgeVertex);
+            candidate.minSupportIndex[i] = edgeVertex;
+            pmin[i] = dotOf(candidate.axis[i], this.mTVertices[edgeVertex]);
+            const e = this.getExtreme(candidate.axis[i]);
+            candidate.maxSupportIndex[i] = e.vMax;
+            pmax[i] = e.dMax;
+        }
+        const a2 = candidate.axis[2].values;
+        const e2min = this.getExtreme(Vector.fromArray([-a2[0], -a2[1], -a2[2]]));
+        candidate.minSupportIndex[2] = e2min.vMax;
+        pmin[2] = -e2min.dMax;
+        const e2max = this.getExtreme(candidate.axis[2]);
+        candidate.maxSupportIndex[2] = e2max.vMax;
+        pmax[2] = e2max.dMax;
+        candidate.volume =
+            (pmax[0] - pmin[0]) * (pmax[1] - pmin[1]) * (pmax[2] - pmin[2]) /
+            dotOf(candidate.axis[2], candidate.axis[2]);
+    }
+}
+
+describe('MinimumVolumeBox3FloatingPoint: the fixes act only on proven violations', () => {
+    it('reproduces upstream bit for bit on uniform clouds where no support '
+        + 'comparison is violated beyond the rounding bound', () => {
+        const random = makeRandom(0x0c12a5e5);
+        let compared = 0, noise = 0, changed = 0;
+        for (let trial = 0; trial < 150; ++trial) {
+            const points: Vector[] = [];
+            for (let i = 0; i < 7; ++i) {
+                points.push(V(10 * random() - 5, 10 * random() - 5, 10 * random() - 5));
+            }
+            const upstream = new UpstreamVerbatimBox3();
+            const expected = upstream.compute(points, 3);
+            const actual = new MinimumVolumeBox3FloatingPoint().compute(points, 3);
+            if (expected.dimension !== 3 || upstream.provenViolations > 0) {
+                if (!sameBox(actual, expected)) {
+                    ++changed;
+                }
+                continue;
+            }
+            ++compared;
+            noise += upstream.noiseViolations;
+            expect(sameBox(actual, expected), `trial ${trial}`).toBe(true);
+        }
+        // The regime of the previous, too broad guard is really exercised,
+        // and so is the fix itself (some clouds with a proven violation get
+        // a different box).
+        expect(compared).toBeGreaterThan(50);
+        expect(noise).toBeGreaterThan(0);
+        expect(changed).toBeGreaterThan(0);
+    }, 180000);
+
+    it('keeps upstream\'s vertex for a support comparison violated only by '
+        + 'rounding (the v12 oracle record)', () => {
+        // Record 0 of the first v12 golden: a uniform 6-vertex hull, given
+        // with its triangles, at lgMaxSample 2. With the strict guard the
+        // winner's minSupportIndex was [2, 1] instead of upstream's [1, 5]
+        // and the centre moved by an ulp.
+        const vertices = [
+            V(2.5349332315067787, 2.5876732862859697, -0.5873742537574325),
+            V(-0.7438984579271413, 2.9122646508232855, 1.085877716689028),
+            V(1.524385376833556, -4.106864007559855, 1.688617760161467),
+            V(4.971538691588668, -3.6018242800057, 0.9856630269444295),
+            V(2.0943393710598244, 0.05623911563319872, -0.07188955573113809),
+            V(4.884739940116518, -1.698956212330235, 1.040075583135831)
+        ];
+        const indices = [5, 1, 2, 4, 0, 3, 3, 0, 5, 2, 1, 4, 2, 3, 5, 1, 5, 0, 3, 2, 4, 1, 0, 4];
+        const upstream = new UpstreamVerbatimBox3();
+        const expected = upstream.computeHull(vertices, indices, 2);
+        const actual = new MinimumVolumeBox3FloatingPoint().computeHull(vertices, indices, 2);
+        expect(upstream.provenViolations).toBe(0);
+        expect(upstream.noiseViolations).toBeGreaterThan(0);
+        expect(sameBox({ dimension: 3, ...actual }, { dimension: 3, ...expected })).toBe(true);
+    });
 });
 
