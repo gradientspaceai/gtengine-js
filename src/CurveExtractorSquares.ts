@@ -19,6 +19,11 @@
 // edges rather than filling reference parameters. The upstream int64_t
 // arithmetic becomes number arithmetic; the products f * x remain exact for
 // images whose pixel magnitudes and dimensions are far below 2^26.
+//
+// Deliberate fix (found by the C++ oracle, group 16): upstream's '+000' and
+// '00+0' cases (one nonzero corner, at (x,y) or at (x+1,y+1)) emit the two
+// square edges incident to the nonzero corner, which are not on the level
+// set; the port emits the two zero edges (the bodies are swapped upstream).
 
 import {
     CurveExtractor, CurveExtractorEdge, CurveExtractorVertex
@@ -250,8 +255,15 @@ export class CurveExtractorSquares extends CurveExtractor {
                         this.addEdge(vertices, edges, xp, 1, yn0, d0, x, 1, yn0, d0);
                     } else {
                         // +000
-                        this.addEdge(vertices, edges, x, 1, yp, 1, x, 1, y, 1);
-                        this.addEdge(vertices, edges, x, 1, y, 1, xp, 1, y, 1);
+                        // UPSTREAM DEFECT (fixed here): upstream emits the
+                        // left and bottom edges, (x,yp)-(x,y) and
+                        // (x,y)-(xp,y), which are the two edges incident to
+                        // the one nonzero corner (x,y). The zero set of the
+                        // bilinear interpolant f00*(1-u)*(1-v) is the right
+                        // and top edges. The upstream '+000' and '00+0'
+                        // bodies are swapped; each is the other's answer.
+                        this.addEdge(vertices, edges, xp, 1, y, 1, xp, 1, yp, 1);
+                        this.addEdge(vertices, edges, xp, 1, yp, 1, x, 1, yp, 1);
                     }
                 }
             }
@@ -331,8 +343,12 @@ export class CurveExtractorSquares extends CurveExtractor {
                 this.addEdge(vertices, edges, xn0, d0, y, 1, xn0, d0, yp, 1);
             } else {
                 // 00+0
-                this.addEdge(vertices, edges, xp, 1, y, 1, xp, 1, yp, 1);
-                this.addEdge(vertices, edges, xp, 1, yp, 1, x, 1, yp, 1);
+                // UPSTREAM DEFECT (fixed here): upstream emits the right and
+                // top edges, which meet at the nonzero corner (xp,yp); the
+                // zero set of f11*u*v is the left and bottom edges (see
+                // '+000' above).
+                this.addEdge(vertices, edges, x, 1, yp, 1, x, 1, y, 1);
+                this.addEdge(vertices, edges, x, 1, y, 1, xp, 1, y, 1);
             }
         } else if (f01 !== 0) {
             // Cases 000+ or 000-.

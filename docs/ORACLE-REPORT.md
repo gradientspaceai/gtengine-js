@@ -9,7 +9,7 @@ upstream GTE code compiled with MSVC; the port replays the same inputs. See
 - compiler MSVC 194435215 x64 /O2 /fp:precise
 - records-per-case 20
 
-**1552 cases, 27920 records, 374989 floating-point outputs compared; 99.77% bit-identical to the C++ build. 1337 cases are bit-identical on every output. 156 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
+**1586 cases, 28500 records, 445857 floating-point outputs compared; 99.68% bit-identical to the C++ build. 1364 cases are bit-identical on every output. 161 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
 
 Discrete outputs (booleans, counts, indices) always compare exactly and are not counted
 in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |port|, |C++|)`.
@@ -31,6 +31,7 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | v13-compgeom | 6 | 80 | 33 | 100.00% | 4 | 0 |  |
 | v14-containment | 70 | 1280 | 4492 | 100.00% | 64 | 0 |  |
 | v15-core | 57 | 1060 | 4168 | 99.90% | 52 | 1.11e-16 | `Functions.libm` |
+| v16-core | 34 | 580 | 70868 | 99.23% | 27 | 1.95e-14 | `TubeMesh.libm` |
 | v17-curves | 51 | 1000 | 17627 | 100.00% | 50 | 0 |  |
 | v18-curves | 24 | 460 | 4738 | 99.70% | 18 | 8.35e-14 | `EllipsoidGeodesic.refine.separated` |
 | v19-distance | 43 | 780 | 6976 | 100.00% | 39 | 0 |  |
@@ -119,6 +120,11 @@ every record.
 | v15-core | `Array2.owned.zeroInit` | 20 of 20 | src/Array2.ts constructor NOTE: the owned storage of a generic T is not value-initialized; upstream std::vector<double> reads 0 |
 | v15-core | `MeshStaticManifold2.adjacentTriangles` | 20 of 20 | #66 |
 | v15-core | `MeshStaticManifold3.adjacentTetrahedra` | 20 of 20 | #66 |
+| v16-core | `CurveExtractorSquares.extract.threeZeroCorners` | 20 of 20 | group 16 finding: CurveExtractorSquares +000/00+0 edges swapped |
+| v16-core | `VETNonmanifoldMesh.remove.isolatesVertex` | 20 of 20 | #240 (VETNonmanifoldMesh::Remove inverted assertion) |
+| v16-core | `RevolutionMesh.sphere.indices` | 20 of 20 | #220, #240 (Mesh.h SPHERE pole fan stride and winding) |
+| v16-core | `TubeMesh.closed` | 20 of 20 | #240 (TubeMesh closed-tube fixup stride) |
+| v16-core | `VertexCollapseMesh.doCollapse.invalidLink` | 20 of 20 | #498 (VertexCollapseMesh invalid link triangulation) |
 | v17-curves | `TCBSplineCurve.isConstructed` | 20 of 20 | issue #182: TCBSplineCurve never sets mConstructed |
 | v18-curves | `NaturalSplineCurve.closed.wrapRow.deviation` | 20 of 20 | issue #295: NaturalSplineCurve::CreateClosed writes the wrap-around row with three plain assignments whose columns coincide for numPoints 2 and 3 |
 | v19-distance | `DistRaySegment.compute.3d.deviation` | 20 of 20 | UPSTREAM-FINDINGS DistRaySegment.h, issue #126 |

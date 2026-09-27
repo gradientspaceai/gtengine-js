@@ -31,6 +31,11 @@
 //     already owned by other files under the flat library export. The
 //     arithmetic operators return a binary32 result as upstream does; the
 //     ports apply Math.fround so the value matches the C++ float arithmetic.
+//   - The gte:: wrappers atandivpi, atan2divpi, cospi, sinpi, exp10 and
+//     invsqrt call the FLOAT overloads of Functions.h upstream (binary32
+//     constants and products); the ports reproduce that, not the double
+//     overloads. std::ldexp and std::pow keep their C semantics on zero,
+//     infinity, NaN and pow(+-1, ...) (C++ oracle, group 16).
 //   - Convert32To16 and Convert16To32 are private upstream; the port exposes
 //     them as static methods so the bit-level behavior can be tested.
 
@@ -38,10 +43,14 @@ import {
     IEEEBinary32, IEEEClassification
 } from './IEEEBinary.js';
 import { BitHacks } from './BitHacks.js';
-import {
-    atandivpi, atan2divpi, clamp, cospi, exp10, invsqrt, isign, saturate,
-    sign, sinpi, sqr
-} from './Functions.js';
+import { GTE_C_INV_PI, GTE_C_LN_10, GTE_C_PI } from './Constants.js';
+import { clamp, isign, saturate, sign, sqr } from './Functions.js';
+
+// The binary32 constants of the float overloads of Functions.h,
+// static_cast<float>(GTE_C_*).
+const FLOAT_PI = Math.fround(GTE_C_PI);
+const FLOAT_INV_PI = Math.fround(GTE_C_INV_PI);
+const FLOAT_LN_10 = Math.fround(GTE_C_LN_10);
 
 // Scratch views for converting between binary32 values and their bit
 // patterns.
@@ -614,14 +623,28 @@ export class IEEEBinary16 {
         const exponent = biased - IEEEBinary32.EXPONENT_BIAS + 1;
         return { result: half(value * Math.pow(2, -exponent)), exponent };
     }
+    // std::ldexp returns x itself for zero, infinity and NaN whatever the
+    // exponent. A plain x * 2^exponent computes 0 * inf or inf * 0 = NaN
+    // once 2^exponent overflows or underflows binary64 (|exponent| > 1023).
+    // Every binary16 value times 2^+-300 already overflows or underflows
+    // binary32, so clamping the exponent there keeps the product exact and
+    // the binary32 rounding (Math.fround in half()) correct.
     static ldexp(x: IEEEBinary16, exponent: number): IEEEBinary16 {
-        return half(x.number * Math.pow(2, exponent));
+        const e = Math.max(-300, Math.min(300, exponent));
+        return half(x.number * Math.pow(2, e));
     }
     static log(x: IEEEBinary16): IEEEBinary16 { return half(Math.log(x.number)); }
     static log2(x: IEEEBinary16): IEEEBinary16 { return half(Math.log2(x.number)); }
     static log10(x: IEEEBinary16): IEEEBinary16 { return half(Math.log10(x.number)); }
+    // C's pow and JavaScript's Math.pow differ on two special cases (C99
+    // Annex F, F.10.4.4): pow(+1, y) is 1 for every y including NaN, and
+    // pow(-1, +-inf) is 1; Math.pow returns NaN for both.
     static pow(x: IEEEBinary16, y: IEEEBinary16): IEEEBinary16 {
-        return half(Math.pow(x.number, y.number));
+        const xv = x.number, yv = y.number;
+        if (xv === 1 || (xv === -1 && (yv === Infinity || yv === -Infinity))) {
+            return half(1);
+        }
+        return half(Math.pow(xv, yv));
     }
     static sin(x: IEEEBinary16): IEEEBinary16 { return half(Math.sin(x.number)); }
     static sinh(x: IEEEBinary16): IEEEBinary16 { return half(Math.sinh(x.number)); }
@@ -629,21 +652,40 @@ export class IEEEBinary16 {
     static tan(x: IEEEBinary16): IEEEBinary16 { return half(Math.tan(x.number)); }
     static tanh(x: IEEEBinary16): IEEEBinary16 { return half(Math.tanh(x.number)); }
 
-    // The ports of the gte:: Functions.h overloads for IEEEBinary16.
-    static atandivpi(x: IEEEBinary16): IEEEBinary16 { return half(atandivpi(x.number)); }
+    // The ports of the gte:: Functions.h overloads for IEEEBinary16. Each
+    // upstream wrapper calls the FLOAT overload of Functions.h, which uses
+    // static_cast<float>(GTE_C_*) and binary32 products, not the double
+    // overload: sinpi(x) is std::sin(x * float(pi)) with the product rounded
+    // to binary32, which for |x| near 65504 is off from sin(x * pi) by about
+    // 0.0057. The binary32 products and quotients below are formed exactly
+    // in binary64 (or rounded once more, which is innocuous for +, *, / and
+    // sqrt of binary32 operands) and rounded with Math.fround; the libm
+    // calls are binary64 rounded to binary32 (the std:: wrappers above do
+    // the same).
+    static atandivpi(x: IEEEBinary16): IEEEBinary16 {
+        return half(Math.fround(Math.atan(x.number)) * FLOAT_INV_PI);
+    }
     static atan2divpi(y: IEEEBinary16, x: IEEEBinary16): IEEEBinary16 {
-        return half(atan2divpi(y.number, x.number));
+        return half(Math.fround(Math.atan2(y.number, x.number)) * FLOAT_INV_PI);
     }
     static clamp(x: IEEEBinary16, xmin: IEEEBinary16, xmax: IEEEBinary16): IEEEBinary16 {
         return half(clamp(x.number, xmin.number, xmax.number));
     }
-    static cospi(x: IEEEBinary16): IEEEBinary16 { return half(cospi(x.number)); }
-    static exp10(x: IEEEBinary16): IEEEBinary16 { return half(exp10(x.number)); }
-    static invsqrt(x: IEEEBinary16): IEEEBinary16 { return half(invsqrt(x.number)); }
+    static cospi(x: IEEEBinary16): IEEEBinary16 {
+        return half(Math.cos(Math.fround(x.number * FLOAT_PI)));
+    }
+    static exp10(x: IEEEBinary16): IEEEBinary16 {
+        return half(Math.exp(Math.fround(x.number * FLOAT_LN_10)));
+    }
+    static invsqrt(x: IEEEBinary16): IEEEBinary16 {
+        return half(1 / Math.fround(Math.sqrt(x.number)));
+    }
     static isign(x: IEEEBinary16): number { return isign(x.number); }
     static saturate(x: IEEEBinary16): IEEEBinary16 { return half(saturate(x.number)); }
     static sign(x: IEEEBinary16): IEEEBinary16 { return half(sign(x.number)); }
-    static sinpi(x: IEEEBinary16): IEEEBinary16 { return half(sinpi(x.number)); }
+    static sinpi(x: IEEEBinary16): IEEEBinary16 {
+        return half(Math.sin(Math.fround(x.number * FLOAT_PI)));
+    }
     static sqr(x: IEEEBinary16): IEEEBinary16 { return half(sqr(x.number)); }
 }
 
