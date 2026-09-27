@@ -1716,6 +1716,222 @@ ORACLE_CASE("SurfaceExtractorMC.computeNormals.multiple")
     for (auto const& n : normals) { io.outVec(n); }
 }
 
+// Targeted at the signed-zero records of the deep run of
+// SurfaceExtractorMC.extractVoxel: level -0 or +0, corners -0 or +0 among
+// small lattice values, a nonzero perturbation, so that vertices land on
+// corners with zero numerators of either sign.
+ORACLE_CASE("SurfaceExtractorMC.extractVoxel.signedZero")
+{
+    Image3<double> image(2, 2, 2);
+    MCExtractor mc(image);
+    io.given(3.0);
+    std::array<double, 8> F{};
+    for (int i = 0; i < 8; ++i) { F[i] = DrawMCValue(io, io.rawInteger(0, 1) == 0 ? 3 : 1); }
+    double level = io.given(io.rawInteger(0, 1) == 0 ? 0.0 : -0.0);
+    double perturb = io.given(io.rawInteger(0, 1) == 0 ? 1.0 / 1024.0 : -1.0 / 1024.0);
+    MCExtractor::Mesh mesh;
+    bool valid = CallExtractVoxel(mc, level, perturb, F, mesh);
+    io.outBool(valid);
+    if (!valid) { return; }
+    io.outInt(mesh.topology.numVertices);
+    io.outInt(mesh.topology.numTriangles);
+    std::vector<int64_t> packed;
+    for (int i = 0; i < mesh.topology.numVertices; ++i)
+    {
+        packed.push_back(mesh.topology.vpair[i][0]);
+        packed.push_back(mesh.topology.vpair[i][1]);
+    }
+    for (int i = 0; i < mesh.topology.numTriangles; ++i)
+    {
+        for (int j = 0; j < 3; ++j) { packed.push_back(mesh.topology.itriple[i][j]); }
+    }
+    OutPacked(io, packed, 4);
+    for (int i = 0; i < mesh.topology.numVertices; ++i) { io.outVec(mesh.vertices[i]); }
+}
+
+namespace
+{
+    class MCProbe : public MCExtractor
+    {
+    public:
+        MCProbe(Image3<double> const& image) : MCExtractor(image) {}
+        std::array<double, 3> Grad(std::array<double, 3> const& p) const
+        {
+            Vector3<double> g = GetGradient(Vector3<double>{ p[0], p[1], p[2] });
+            return { g[0], g[1], g[2] };
+        }
+    };
+
+    template <typename T>
+    class CubesProbe : public SurfaceExtractorCubes<T, double>
+    {
+    public:
+        CubesProbe(int32_t d0, int32_t d1, int32_t d2, T const* voxels)
+            : SurfaceExtractorCubes<T, double>(d0, d1, d2, voxels) {}
+        std::array<double, 3> Grad(std::array<double, 3> const& p) { return this->GetGradient(p); }
+    };
+
+    // Whether some triangle's orientation decision differs between the
+    // average gradient sum * (1/3) (SurfaceExtractorMC, Vector3's operator/)
+    // and sum / 3 (SurfaceExtractor's scalar division). Triangles are given
+    // in the order OrientTriangles sees them.
+    template <typename GradFn>
+    bool ThirdsDiffer(GradFn grad, std::vector<std::array<double, 3>> const& xv,
+        std::vector<std::array<int32_t, 3>> const& tris, bool sameDir)
+    {
+        for (auto const& t : tris)
+        {
+            auto const& v0 = xv[t[0]];
+            auto const& v1 = xv[t[1]];
+            auto const& v2 = xv[t[2]];
+            std::array<double, 3> e1, e2, n;
+            for (int k = 0; k < 3; ++k) { e1[k] = v1[k] - v0[k]; e2[k] = v2[k] - v0[k]; }
+            n[0] = e1[1] * e2[2] - e1[2] * e2[1];
+            n[1] = e1[2] * e2[0] - e1[0] * e2[2];
+            n[2] = e1[0] * e2[1] - e1[1] * e2[0];
+            auto g0 = grad(v0);
+            auto g1 = grad(v1);
+            auto g2 = grad(v2);
+            double s[3];
+            for (int k = 0; k < 3; ++k) { s[k] = g0[k] + g1[k] + g2[k]; }
+            double const third = 1.0 / 3.0;
+            double dotA = (s[0] * third) * n[0] + (s[1] * third) * n[1] + (s[2] * third) * n[2];
+            double dotB = (s[0] / 3.0) * n[0] + (s[1] / 3.0) * n[1] + (s[2] / 3.0) * n[2];
+            bool a = (sameDir ? dotA < 0.0 : dotA > 0.0);
+            bool b = (sameDir ? dotB < 0.0 : dotB > 0.0);
+            if (a != b) return true;
+        }
+        return false;
+    }
+
+    // Raw integer points and index triples for the thirds cases.
+    void RawPointsAndTriangles(oracle::Ctx& io, int const* dims, std::vector<std::array<double, 3>>& xv,
+        std::vector<std::array<int32_t, 3>>& tris, bool& sameDir)
+    {
+        xv.assign(io.rawInteger(3, 7), {});
+        for (auto& p : xv)
+        {
+            for (int k = 0; k < 3; ++k) { p[k] = static_cast<double>(io.rawInteger(0, dims[k] - 1)); }
+        }
+        tris.assign(io.rawInteger(1, 6), {});
+        for (auto& t : tris)
+        {
+            for (int j = 0; j < 3; ++j) { t[j] = io.rawInteger(0, static_cast<int>(xv.size()) - 1); }
+        }
+        sameDir = (io.rawInteger(0, 1) == 1);
+    }
+
+    void GivenPointsAndTriangles(oracle::Ctx& io, std::vector<std::array<double, 3>> const& xv,
+        std::vector<std::array<int32_t, 3>> const& tris, bool sameDir)
+    {
+        io.given(static_cast<double>(xv.size()));
+        io.given(1.0);
+        for (auto const& p : xv) { io.given(p[0]); io.given(p[1]); io.given(p[2]); }
+        io.given(static_cast<double>(tris.size()));
+        for (auto const& t : tris) { io.given(t[0]); io.given(t[1]); io.given(t[2]); }
+        io.given(sameDir ? 1.0 : 0.0);
+    }
+}
+
+// Targeted at the orientation records of the deep run (upstream averages
+// the gradients as sum * (1/3)): lattice images and integer points, kept
+// only when some triangle's orientation differs between sum * (1/3) and
+// sum / 3 (at most 256 redraws). Recorded in the layout of
+// SurfaceExtractorMC.orientTriangles.points (point mode 1).
+ORACLE_CASE("SurfaceExtractorMC.orientTriangles.thirds")
+{
+    int dims[3];
+    std::vector<double> values;
+    std::vector<std::array<double, 3>> xv;
+    std::vector<std::array<int32_t, 3>> tris;
+    bool sameDir = true;
+    for (int attempt = 0; attempt < 256; ++attempt)
+    {
+        for (int k = 0; k < 3; ++k) { dims[k] = io.rawInteger(2, 4); }
+        values.assign(static_cast<size_t>(dims[0]) * dims[1] * dims[2], 0.0);
+        for (auto& v : values) { v = static_cast<double>(io.rawInteger(-2, 2)); }
+        RawPointsAndTriangles(io, dims, xv, tris, sameDir);
+        Image3<double> image(dims[0], dims[1], dims[2]);
+        for (size_t i = 0; i < values.size(); ++i) { image[i] = values[i]; }
+        MCProbe probe(image);
+        std::vector<std::array<int32_t, 3>> flat = tris;
+        if (ThirdsDiffer([&](std::array<double, 3> const& p) { return probe.Grad(p); }, xv, flat, sameDir)) break;
+    }
+    for (int k = 0; k < 3; ++k) { io.given(dims[k]); }
+    io.given(1.0);
+    for (double v : values) { io.given(v); }
+    GivenPointsAndTriangles(io, xv, tris, sameDir);
+    Image3<double> image(dims[0], dims[1], dims[2]);
+    for (size_t i = 0; i < values.size(); ++i) { image[i] = values[i]; }
+    std::vector<Vector3<double>> vertices;
+    for (auto const& p : xv) { vertices.push_back(Vector3<double>{ p[0], p[1], p[2] }); }
+    std::vector<int32_t> indices;
+    for (auto const& t : tris) { indices.push_back(t[0]); indices.push_back(t[1]); indices.push_back(t[2]); }
+    MCExtractor mc(image);
+    std::vector<int32_t> oriented = indices;
+    mc.OrientTriangles(vertices, oriented, sameDir);
+    std::vector<int64_t> swapped(tris.size());
+    for (size_t t = 0; t < tris.size(); ++t) { swapped[t] = (oriented[3 * t + 1] != indices[3 * t + 1] ? 1 : 0); }
+    OutPacked(io, swapped, 1);
+    if (tris.size() == 1)
+    {
+        std::vector<Vector3<double>> normals;
+        mc.ComputeNormals(vertices, oriented, normals);
+        for (auto const& n : normals) { io.outVec(n); }
+    }
+}
+
+// Sensitivity of the base class's OrientTriangles (upstream divides the sum
+// by 3): as above, on SurfaceExtractorCubes after Extract, in the layout of
+// SurfaceExtractorCubes.orientTriangles.points (point mode 1).
+ORACLE_CASE("SurfaceExtractorCubes.orientTriangles.thirds")
+{
+    int dims[3];
+    std::vector<int64_t> v;
+    int32_t level = 0;
+    std::vector<std::array<double, 3>> xv;
+    std::vector<std::array<int32_t, 3>> tris;
+    bool sameDir = true;
+    for (int attempt = 0; attempt < 256; ++attempt)
+    {
+        for (int k = 0; k < 3; ++k) { dims[k] = io.rawInteger(2, 4); }
+        v = RawVoxels(io, dims[0], dims[1], dims[2], 1, -20, 20);
+        level = io.rawInteger(-3, 3);
+        RawPointsAndTriangles(io, dims, xv, tris, sameDir);
+        std::vector<int32_t> voxels(v.begin(), v.end());
+        CubesProbe<int32_t> probe(dims[0], dims[1], dims[2], voxels.data());
+        std::vector<CubesProbe<int32_t>::Vertex> rv;
+        std::vector<CubesProbe<int32_t>::Triangle> rt;
+        probe.Extract(level, rv, rt);
+        std::vector<std::array<int32_t, 3>> rotated;
+        for (auto const& t : tris)
+        {
+            CubesProbe<int32_t>::Triangle tri(t[0], t[1], t[2]);
+            rotated.push_back({ tri.v[0], tri.v[1], tri.v[2] });
+        }
+        if (ThirdsDiffer([&](std::array<double, 3> const& p) { return probe.Grad(p); }, xv, rotated, sameDir)) break;
+    }
+    for (int k = 0; k < 3; ++k) { io.given(dims[k]); }
+    GivenVoxels(io, v, -20, 20);
+    io.given(level);
+    GivenPointsAndTriangles(io, xv, tris, sameDir);
+    std::vector<int32_t> voxels(v.begin(), v.end());
+    SurfaceExtractorCubes<int32_t, double> ex(dims[0], dims[1], dims[2], voxels.data());
+    std::vector<SurfaceExtractorCubes<int32_t, double>::Vertex> rv;
+    std::vector<SurfaceExtractorCubes<int32_t, double>::Triangle> rt;
+    ex.Extract(level, rv, rt);
+    std::vector<SurfaceExtractorCubes<int32_t, double>::Triangle> xt;
+    for (auto const& t : tris) { xt.push_back(SurfaceExtractorCubes<int32_t, double>::Triangle(t[0], t[1], t[2])); }
+    auto ot = xt;
+    ex.OrientTriangles(xv, ot, sameDir);
+    std::vector<int64_t> swapped(ot.size());
+    for (size_t t = 0; t < ot.size(); ++t) { swapped[t] = (ot[t].v[1] != xt[t].v[1] ? 1 : 0); }
+    OutPacked(io, swapped, 1);
+    std::vector<std::array<double, 3>> normals;
+    ex.ComputeNormals(xv, ot, normals);
+    for (auto const& n : normals) { io.outReal(n[0]); io.outReal(n[1]); io.outReal(n[2]); }
+}
+
 // ---- SurfaceExtractorTetrahedra ----
 //
 // Levels on sample values are allowed (the zero-corner cases of

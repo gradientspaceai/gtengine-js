@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { Image2 } from '../../src/Image2.js';
 import { Image3 } from '../../src/Image3.js';
+import { MarchingCubes } from '../../src/MarchingCubes.js';
 import { ImageUtility2 } from '../../src/ImageUtility2.js';
 import { ImageUtility3 } from '../../src/ImageUtility3.js';
 import {
@@ -1424,9 +1425,8 @@ function crossingKey(a: number[], b: number[], fa: number, fb: number): string {
 }
 
 const surfaceStats = {
-    cubesSaddleFaces: 0, cubesPlusFaces: 0, openRecords: 0, openWithPlusSign: 0,
-    tetraOpenRecords: 0, tetraZeroRecords: 0, mcClosedChecked: 0, mcAmbiguousRecords: 0,
-    mcAmbiguousOpen: 0
+    cubesSaddleFaces: 0, cubesPlusFaces: 0, cubesFourCrossingRecords: 0, cubesNonManifoldRecords: 0,
+    tetraOpenRecords: 0, tetraZeroRecords: 0, mcOnLevelRecords: 0, mcClosedChecked: 0, mcAmbiguousRecords: 0
 };
 
 // Undirected edge -> number of incident triangles.
@@ -1481,6 +1481,7 @@ function checkSurface(r: SurfaceRecord): string[] {
             return ia !== undefined && ib !== undefined && edges.has(ia < ib ? `${ia},${ib}` : `${ib},${ia}`);
         };
         let plus = false;
+        const saddleCells = new Set<string>();
         for (let axis = 0; axis < 3; ++axis) {
             const u = (axis + 1) % 3;
             const w = (axis + 2) % 3;
@@ -1494,6 +1495,7 @@ function checkSurface(r: SurfaceRecord): string[] {
                 const det = f[0] * f[2] - f[3] * f[1];
                 if (det === 0) { ++surfaceStats.cubesPlusFaces; plus = true; continue; }
                 ++surfaceStats.cubesSaddleFaces;
+                saddleCells.add(`${axis}:${p[axis]}:${[0, 1, 2].filter((j) => j !== axis).map((j) => p[j]).join(',')}`);
                 const P = [0, 1, 2, 3].map((j) => crossingKey(q[j], q[(j + 1) % 4], f[j], f[(j + 1) % 4]));
                 // P[j] lies on the edge from corner j to corner j+1.
                 const ok = det > 0 ? hasEdge(P[0], P[1]) && hasEdge(P[2], P[3])
@@ -1501,10 +1503,20 @@ function checkSurface(r: SurfaceRecord): string[] {
                 if (!ok) { bad.push(`saddle face at ${p} (axis ${axis}) paired against the bilinear saddle`); }
             }
         }
+        // RemoveTriangles ear-clips each voxel's wireframe without geometry
+        // (the lowest-numbered vertex of degree 2 is always the next ear),
+        // so on a voxel with a four-crossing face a fan diagonal can lie in
+        // that face, and the two voxels sharing the face choose their
+        // diagonals independently: edges of three or four triangles and
+        // single-triangle edges inside the image (upstream suspect 3 of the
+        // v26 report, preserved). The mesh is required to be closed only
+        // when no face has four crossings; otherwise the defect is counted.
         const open = openEdges(tris, boundary);
-        if (open > 0) {
-            ++surfaceStats.openRecords;
-            if (plus) { ++surfaceStats.openWithPlusSign; } else { bad.push(`${open} open edges`); }
+        if (saddleCells.size === 0 && !plus) {
+            if (open > 0) { bad.push(`${open} open edges without a four-crossing face`); }
+        } else {
+            ++surfaceStats.cubesFourCrossingRecords;
+            if (open > 0) { ++surfaceStats.cubesNonManifoldRecords; }
         }
     } else {
         r.triangles.forEach((t, i) => {
@@ -1559,15 +1571,20 @@ function checkMCImage(r: MCImageRecord): string[] {
         if (!mcEdgeResidualOk(F(a), F(b), r.level, t)) { bad.push(`vertex ${i} off the level set`); }
     });
     if (r.uniqueIndices.length === 0) { return bad; }
-    // Watertightness where the 15-case table is face-consistent: every
-    // voxel classified (no perturbed value exactly zero) and no face with
-    // alternating corner classes.
+    // Watertightness and consistent orientation of the deduplicated mesh
+    // when no voxel lies on the level.
     const cls = r.image.getPixels().map((f) => {
         let g = f - r.level;
         if (g === 0) { g += r.perturb; }
         return g < 0 ? -1 : g > 0 ? 1 : 0;
     });
-    if (cls.includes(0)) { return bad; }
+    // A voxel on the level (perturbed into a class) puts the vertices of
+    // all its crossing edges on the voxel corner; MakeUnique merges them
+    // and the mesh pinches there, so closedness is not required.
+    if (cls.includes(0) || r.image.getPixels().some((f) => f - r.level === 0)) {
+        ++surfaceStats.mcOnLevelRecords;
+        return bad;
+    }
     let ambiguous = false;
     for (let axis = 0; axis < 3 && !ambiguous; ++axis) {
         const u = (axis + 1) % 3;
@@ -1586,13 +1603,11 @@ function checkMCImage(r: MCImageRecord): string[] {
     const boundary = (a: number, b: number) => [0, 1, 2].some((k) =>
         [0, dims[k] - 1].some((e) => r.unique[a][k] === e && r.unique[b][k] === e));
     const open = openEdges(tris.filter((t) => t[0] !== t[1] && t[1] !== t[2] && t[2] !== t[0]), boundary);
-    if (ambiguous) {
-        ++surfaceStats.mcAmbiguousRecords;
-        if (open > 0) { ++surfaceStats.mcAmbiguousOpen; }
-        return bad;
-    }
+    // The table resolves every ambiguous face by its signs alone (see the
+    // table check below), so the mesh is closed with or without them.
+    if (ambiguous) { ++surfaceStats.mcAmbiguousRecords; }
     ++surfaceStats.mcClosedChecked;
-    if (open > 0) { bad.push(`${open} open edges without an ambiguous face`); }
+    if (open > 0) { bad.push(`${open} open edges${ambiguous ? ' (ambiguous faces)' : ''}`); }
     const directed = new Set<string>();
     for (const t of tris) {
         if (t[0] === t[1] || t[1] === t[2] || t[2] === t[0]) { continue; }
@@ -1603,6 +1618,49 @@ function checkMCImage(r: MCImageRecord): string[] {
         }
     }
     return bad;
+}
+
+// Exhaustive check of the MarchingCubes table used by SurfaceExtractorMC:
+// on every face whose corner classes alternate (192 face instances over the
+// 256 entries), the triangles contain exactly two segments in the face and
+// both cut off the negative corners (F < level). The resolution therefore
+// depends on the face's signs alone, and two voxels sharing a face agree:
+// the table is face-consistent.
+function checkMarchingCubesFaces(): { ambiguous: number, bad: string[] } {
+    const mc = new MarchingCubes();
+    const bad: string[] = [];
+    let ambiguous = 0;
+    for (let entry = 0; entry < 256; ++entry) {
+        const t = mc.getTable(entry);
+        const neg = (k: number) => ((entry >> k) & 1) === 1;
+        for (let a = 0; a < 3; ++a) {
+            for (let side = 0; side < 2; ++side) {
+                const [u, w] = [0, 1, 2].filter((k) => k !== a);
+                const at = (bu: number, bw: number) => (side << a) | (bu << u) | (bw << w);
+                const cyc = [at(0, 0), at(1, 0), at(1, 1), at(0, 1)];
+                const s = cyc.map(neg);
+                if (!(s[0] === s[2] && s[1] === s[3] && s[0] !== s[1])) { continue; }
+                ++ambiguous;
+                const onFace = (i: number) => t.vpair[i].every((k) => ((k >> a) & 1) === side);
+                const cut: number[] = [];
+                for (let tri = 0; tri < t.numTriangles; ++tri) {
+                    const v = t.itriple[tri];
+                    for (let j = 0; j < 3; ++j) {
+                        const p = v[j];
+                        const q = v[(j + 1) % 3];
+                        if (onFace(p) && onFace(q)) {
+                            const shared = t.vpair[p].find((k) => t.vpair[q].includes(k));
+                            cut.push(shared === undefined ? -1 : shared);
+                        }
+                    }
+                }
+                if (cut.length !== 2 || cut.some((k) => k < 0 || !neg(k))) {
+                    bad.push(`entry ${entry}, face ${a}/${side}: cut corners ${cut}`);
+                }
+            }
+        }
+    }
+    return { ambiguous, bad };
 }
 
 function runChecks<T>(records: readonly T[], check: (r: T) => string[]): void {
@@ -1682,6 +1740,9 @@ describe('oracle: v26-imaging', () => {
         (io) => surfaceCase(io, 'cubes', false, -20, 20, true, true),
         { exact: true, deviation: 'v26 report, SurfaceExtractorCubes saddle-face pairing' });
     family.case('SurfaceExtractorCubes.orientTriangles.points', (io) => surfacePointsCase(io, 'cubes'), exact);
+    // Every record's orientation depends on dividing the gradient sum by 3
+    // (upstream) rather than multiplying by 1/3.
+    family.case('SurfaceExtractorCubes.orientTriangles.thirds', (io) => surfacePointsCase(io, 'cubes'), exact);
     family.case('SurfaceExtractor.invalidBounds', invalidBoundsCase, exact);
 
     family.case('SurfaceExtractorMC.extractVoxel', (io) => mcVoxelCase(io, true), exact);
@@ -1696,6 +1757,10 @@ describe('oracle: v26-imaging', () => {
         { exact: true, deviation: '#443 (UPSTREAM-FINDINGS, SurfaceExtractorMC item 1)' });
     family.case('SurfaceExtractorMC.makeUnique', mcMakeUniqueCase, exact);
     family.case('SurfaceExtractorMC.orientTriangles.points', mcPointsCase, exact);
+    // Every record's orientation depends on multiplying the gradient sum by
+    // 1/3 (upstream's Vector3 operator/) rather than dividing by 3.
+    family.case('SurfaceExtractorMC.orientTriangles.thirds', mcPointsCase, exact);
+    family.case('SurfaceExtractorMC.extractVoxel.signedZero', (io) => mcVoxelCase(io, true), exact);
     // Upstream suspect 2 of the v26 report: ComputeNormals uses only the
     // first triangle.
     family.case('SurfaceExtractorMC.computeNormals.multiple', mcNormalsCase,
@@ -1711,6 +1776,12 @@ describe('oracle: v26-imaging', () => {
     // #132: GetGradient's central tetrahedron of odd-parity cubes.
     family.case('SurfaceExtractorTetrahedra.orientTriangles.centralTetra', (io) => surfacePointsCase(io, 'tetra'),
         { exact: true, deviation: '#132 (UPSTREAM-FINDINGS, SurfaceExtractorTetrahedra item 3)' });
+
+    it('the MarchingCubes table resolves every ambiguous face by its signs alone (independent check)', () => {
+        const { ambiguous, bad } = checkMarchingCubesFaces();
+        expect(ambiguous).toBe(192);
+        expect(bad).toEqual([]);
+    });
 
     it('extracted surfaces lie on the level set, pair saddle faces by the bilinear saddle and are closed (independent checks)', () => {
         runChecks(surfaceChecked, checkSurface);

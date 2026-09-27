@@ -592,11 +592,9 @@ describe('SurfaceExtractorMC verification', () => {
     };
 
     it('produces a mesh whose edges are used at most twice', () => {
-        // The marching-cubes table is not face-consistent: two voxels that
-        // share an ambiguous face may pair the four face intersections
-        // differently, which leaves the shared face open (see the pinned
-        // test below). So the extracted mesh is not always closed, but it is
-        // always non-self-overlapping: an edge is never used more than twice.
+        // The table resolves every ambiguous face by its signs alone (it
+        // cuts off the negative corners; see the pinned test below), so two
+        // voxels sharing a face agree and no edge is used more than twice.
         check(fc.tuple(voxelArb, fc.integer({ min: -3, max: 2 })),
             ([values, base]) => {
                 const extractor = new SurfaceExtractorMC(toImage(values));
@@ -614,15 +612,17 @@ describe('SurfaceExtractorMC verification', () => {
             }, 40);
     });
 
-    it('upstream: an ambiguous shared face leaves a hole in the mesh', () => {
+    it('an ambiguous shared face is resolved identically by both voxels', () => {
         // Two voxels share the face x = 1, on which the four corner signs
         // alternate around the face (the classic marching-cubes ambiguity).
-        // Each voxel resolves the face independently, so the four face
-        // intersections are joined by one pairing on the left and by the
-        // other pairing on the right: the shared face is left open. The
-        // cubes and tetrahedra extractors do not have this problem (the
-        // former disambiguates with the bilinear determinant, the latter has
-        // no ambiguous faces at all).
+        // The table resolves every such face by its signs alone: it always
+        // cuts off the negative corners (F < level). The left voxel does so
+        // with two caps and the right one with a tube joining the positive
+        // corners, and the two agree on the shared face, so the face is
+        // closed. (An earlier version of this test counted the 8
+        // single-triangle edges as a hole in the face; they all lie on the
+        // image boundary planes y = 0, y = 1, z = 0 and z = 1. The C++
+        // oracle, v26, checks the whole table and closed meshes.)
         const image = new Image3<number>(3, 2, 2, () => 0);
         for (let z = 0; z < 2; ++z) {
             for (let y = 0; y < 2; ++y) {
@@ -636,11 +636,17 @@ describe('SurfaceExtractorMC verification', () => {
         }
         const extractor = new SurfaceExtractorMC(image);
         const raw = extractor.extract(0.5, 0);
-        const { indices } = extractor.makeUnique(raw.vertices, raw.indices);
+        const { vertices, indices } = extractor.makeUnique(raw.vertices, raw.indices);
         expect(indices.length / 3).toBe(6);
-        const boundary = [...edgeUseCounts(indices).values()]
-            .filter((count) => count === 1).length;
+        const counts = edgeUseCounts(indices);
+        const boundary = [...counts.values()].filter((count) => count === 1).length;
         expect(boundary).toBe(8);
+        for (const [key, count] of counts) {
+            const [a, b] = key.split(/[^0-9]+/).filter((t) => t.length > 0).map(Number);
+            const onImageBoundary = [1, 2].some((k) => [0, 1].some((e) =>
+                vertices[a].values[k] === e && vertices[b].values[k] === e));
+            expect(count === 2 || onImageBoundary).toBe(true);
+        }
     });
 
     it('is stateless: repeated extraction gives identical output', () => {
@@ -749,5 +755,45 @@ describe('SurfaceExtractorMC verification', () => {
             .computeNormals(vertices, indices);
         for (let i = 0; i < 3; ++i) { expect(normals[i].values).toEqual([0, 0, 1]); }
         for (let i = 3; i < 6; ++i) { expect(normals[i].values).toEqual([1, 0, 0]); }
+    });
+
+    it('regression (v26): orientTriangles averages the gradients with the reciprocal of 3', () => {
+        // Upstream writes (g0 + g1 + g2) / 3 on Vector3<T>, and Vector.h's
+        // operator/ multiplies by 1/3. The sums 1.75 and 1.75 + 2^-52 give
+        // equal quotients by 3 but different products with 1/3, so for a
+        // normal (-1, 1, 0) the dot product is 0 with division and positive
+        // with upstream's multiplication, which decides the orientation.
+        class FixedGradient extends SurfaceExtractorMC {
+            protected override getGradient(position: Vector): Vector {
+                return position.values[2] === 0 && position.values[0] === 0
+                    ? Vector.fromArray([1.75, 1.75 + 2 ** -52, 0]) : Vector.fromArray([0, 0, 0]);
+            }
+        }
+        expect(1.75 / 3).toBe((1.75 + 2 ** -52) / 3);
+        expect(1.75 * (1 / 3)).not.toBe((1.75 + 2 ** -52) * (1 / 3));
+        const vertices = [[0, 0, 0], [0, 0, 1], [1, 1, 0]].map((p) => Vector.fromArray(p));
+        const extractor = new FixedGradient(new Image3<number>(2, 2, 2));
+        const against = [0, 1, 2];
+        extractor.orientTriangles(vertices, against, false);
+        expect(against).toEqual([0, 2, 1]);
+        const along = [0, 1, 2];
+        extractor.orientTriangles(vertices, along, true);
+        expect(along).toEqual([0, 1, 2]);
+    });
+
+    it('regression (v26): at level -0 the vertex keeps the zero sign of upstream', () => {
+        // Upstream computes F[j0] / (F[j0] - F[j1]); the port's level shift
+        // F[j0] - level turns -0 - (-0) into +0, so at level -0 it evaluates
+        // upstream's expression (upstream is correct at level 0).
+        const extractor = new SurfaceExtractorMC(new Image3<number>(2, 2, 2));
+        const F = [-0, 1, 1, 1, 1, 1, 1, 1];
+        const { valid, mesh } = extractor.extractVoxel(-0, -1 / 1024, F);
+        expect(valid).toBe(true);
+        expect(mesh.topology.numVertices).toBe(3);
+        // Every vertex lies on an edge from corner 0: its coordinate along
+        // the edge is -0 / (-0 - 1) = +0 and the others are 0.
+        for (let i = 0; i < 3; ++i) {
+            for (const c of mesh.vertices[i].values) { expect(Object.is(c, 0)).toBe(true); }
+        }
     });
 });
