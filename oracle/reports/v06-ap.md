@@ -213,6 +213,7 @@ for bit, so the checks were run on the port's objects), outside the harness:
 | `GTE_BINARY_SCIENTIFIC_SHOW_DOUBLE` (`mValue`) | Debug macro, not defined in the reference build. |
 | `BSRational(int32_t)` / `(int64_t)` with `INT32_MIN` / `INT64_MIN` | `BSNumber` evaluates `-number` (signed overflow, v05 suspect 2); excluded. |
 | `BSRational(char const*)` | Delegates to `BSRational(std::string)`, covered. |
+| `BSRational::SetSign(+-1)` on a zero rational | Creates an invalid number whose conversion reads integer words that do not exist; `SetSign` is covered on nonzero values. |
 | `APInterval<BSNumber>`, `APConversion<Rational>` for other types | The port implements the `BSRational` instantiation only (header comments); `QFN2` is a dead alias. |
 | `APInterval` arithmetic with a sentinel as the left operand of a product, or in a sum | Upstream's `UIntegerALU32::Mul` reads word 0 of the sentinel's empty word array (undefined behaviour; an access violation, not an exception), so no golden record can be produced; `Reals() * s`, `Reals() + v` and `(u / [0, b]) / v` are therefore not generated (suspect 3). |
 | `GTE_THROW_ON_INVALID_APINTERVAL` | Not defined in the reference build; the port's `throwOnInvalid` flag stays false. |
