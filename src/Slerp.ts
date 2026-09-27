@@ -43,6 +43,12 @@ function assertDimensions(q0: readonly number[], q1: readonly number[]): void {
     logAssert(q0.length === q1.length, 'Mismatched dimensions.');
 }
 
+// Every result below is accumulated as upstream does, result.fill(0) then
+// result[i] += f[0]*a[i] + f[1]*b[i]. The zero seed is part of the
+// computation: 0 + (-0) is +0, so a component whose two products are both
+// -0 (a[i] and b[i] both -0) is +0 in upstream and was -0 in a port that
+// assigned the combination directly (found by the C++ oracle, v23).
+
 // The angle between q0 and q1 is in [0,pi).
 export function slerp(t: number, q0: readonly number[], q1: readonly number[]): number[] {
     assertDimensions(q0, q1);
@@ -54,9 +60,9 @@ export function slerp(t: number, q0: readonly number[], q1: readonly number[]): 
     }
 
     const f = chebyshevRatiosUsingCosAngle(t, cosA);
-    const result = new Array<number>(n);
+    const result = new Array<number>(n).fill(0);
     for (let i = 0; i < n; ++i) {
-        result[i] = f[0] * q0[i] + f[1] * q1[i];
+        result[i] += f[0] * q0[i] + f[1] * q1[i];
     }
     return result;
 }
@@ -69,9 +75,9 @@ export function slerpUsingCosAngle(t: number, q0: readonly number[],
 
     const n = q0.length;
     const f = chebyshevRatiosUsingCosAngle(t, cosA);
-    const result = new Array<number>(n);
+    const result = new Array<number>(n).fill(0);
     for (let i = 0; i < n; ++i) {
-        result[i] = f[0] * q0[i] + f[1] * q1[i];
+        result[i] += f[0] * q0[i] + f[1] * q1[i];
     }
     return result;
 }
@@ -86,17 +92,17 @@ export function slerpUsingMidpoint(t: number, q0: readonly number[],
     logAssert(qh.length === q0.length, 'Mismatched dimensions.');
 
     const n = q0.length;
-    const result = new Array<number>(n);
+    const result = new Array<number>(n).fill(0);
     const twoT = 2 * t;
     if (twoT <= 1) {
         const f = chebyshevRatiosUsingCosAngle(twoT, cosAH);
         for (let i = 0; i < n; ++i) {
-            result[i] = f[0] * q0[i] + f[1] * qh[i];
+            result[i] += f[0] * q0[i] + f[1] * qh[i];
         }
     } else {
         const f = chebyshevRatiosUsingCosAngle(twoT - 1, cosAH);
         for (let i = 0; i < n; ++i) {
-            result[i] = f[0] * qh[i] + f[1] * q1[i];
+            result[i] += f[0] * qh[i] + f[1] * q1[i];
         }
     }
     return result;

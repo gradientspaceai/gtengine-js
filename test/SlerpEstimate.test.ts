@@ -430,3 +430,23 @@ describe('SlerpEstimate verification', () => {
             [1, 0, 0], 1, 4)).toThrow('Mismatched dimensions.');
     });
 });
+
+// Upstream accumulates result.fill(0); result[i] += f0*q0[i] + f1*q1[i], so
+// a slot whose two products are both -0 is +0; the port returned -0 (found by
+// the C++ oracle, v23-estimates).
+describe('slerpEstimate zero-seeded accumulation (C++ oracle v23)', () => {
+    it('returns +0 where both inputs are -0, for every degree and overload', () => {
+        const q0 = [0, -1, -0, -0];
+        const q1 = [-0, 0, -0, -1];
+        for (const d of DEGREES) {
+            for (const t of [0, 0.25, 1]) {
+                const results = [slerpEstimate(t, q0, q1, d),
+                    slerpEstimateUsingCosAngle(t, q0, q1, 0, d),
+                    slerpEstimateUsingMidpoint(t, q0, q1, q0, 1, d)];
+                for (const r of results) { expect(Object.is(r[2], 0)).toBe(true); }
+                const f = chebyshevRatioEstimate(t, 0, d);
+                expect(Object.is(f[0] * q0[2] + f[1] * q1[2], -0)).toBe(true);
+            }
+        }
+    });
+});

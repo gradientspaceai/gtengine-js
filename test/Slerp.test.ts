@@ -447,3 +447,32 @@ describe('Slerp verification', () => {
             .toThrow('Mismatched dimensions.');
     });
 });
+
+// Upstream accumulates result.fill(0); result[i] += f0*q0[i] + f1*q1[i]. The
+// zero seed turns a -0 combination (both products -0) into +0; the port
+// assigned the combination directly and returned -0 (found by the C++
+// oracle, v23-estimates).
+describe('slerp zero-seeded accumulation (C++ oracle v23)', () => {
+    const nz = -0;
+    const direct = (t: number, a: number[], b: number[], c: number): number[] => {
+        const f = chebyshevRatiosUsingCosAngle(t, c);
+        return a.map((v, i) => f[0] * v + f[1] * b[i]);
+    };
+
+    it('returns +0 where both inputs are -0, in both branches and every overload', () => {
+        // Angle 0 (dot = 1, the exact branch) and angle pi/2 (the acos branch).
+        const cases: [number[], number[], number][] = [
+            [[nz, -1, nz, nz], [nz, -1, nz, nz], 1],
+            [[0, -1, nz, nz], [nz, 0, nz, -1], 0]
+        ];
+        for (const [q0, q1, c] of cases) {
+            for (const t of [0, 0.125, 0.9394973502667157]) {
+                const results = [slerp(t, q0, q1), slerpUsingCosAngle(t, q0, q1, c),
+                    slerpUsingMidpoint(0.5 * t, q0, q1, q1, 1)];
+                for (const r of results) { expect(Object.is(r[2], 0)).toBe(true); }
+                // Assigning the combination directly gives -0 in that slot.
+                expect(Object.is(direct(t, q0, q1, c)[2], -0)).toBe(true);
+            }
+        }
+    });
+});
