@@ -11,6 +11,7 @@ import { MeshDescription, MeshTopology } from '../../src/Mesh.js';
 import { RevolutionMesh } from '../../src/RevolutionMesh.js';
 import { TubeMesh } from '../../src/TubeMesh.js';
 import { VertexAttribute } from '../../src/VertexAttribute.js';
+import { VertexCollapseMesh } from '../../src/VertexCollapseMesh.js';
 import { ETNonmanifoldMesh } from '../../src/ETNonmanifoldMesh.js';
 import { ImplicitSurface3 } from '../../src/ImplicitSurface3.js';
 import { TriangleKey } from '../../src/TriangleKey.js';
@@ -489,6 +490,52 @@ function runTube(io: OracleIO, closed: boolean, what: number): void {
     emitMesh(io, mesh.getDescription(), b, what);
 }
 
+// ------------------------------------------------------------ VertexCollapseMesh
+
+function sortedKeys(keys: TriangleKey[]): number[][] {
+    const out = keys.map(k => [k.V[0], k.V[1], k.V[2]]);
+    out.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
+    return out;
+}
+
+function emitKeys(io: OracleIO, keys: number[][]): void {
+    io.outInt(keys.length);
+    for (const k of keys) { for (const v of k) { io.outInt(v); } }
+}
+
+// The replay of RunCollapses/EmitCollapses: collapse until doCollapse
+// reports false or 64 steps, then emit. With 'weights', the weight of every
+// vertex left in the heap after each step, by vertex index (the private heap
+// records of the port, read for the comparison only).
+function runCollapses(io: OracleIO, vcm: VertexCollapseMesh, weights: boolean): void {
+    const steps: { r: ReturnType<VertexCollapseMesh['doCollapse']>, w: [number, number][] }[] = [];
+    for (let step = 0; step < 64; ++step) {
+        const r = vcm.doCollapse();
+        const w: [number, number][] = [];
+        if (weights) {
+            const records = (vcm as unknown as {
+                mHeapRecords: Map<number, { value: number }>
+            }).mHeapRecords;
+            for (const [k, rec] of records) { w.push([k, rec.value]); }
+            w.sort((a, b) => a[0] - b[0]);
+        }
+        steps.push({ r, w });
+        if (!r.collapsed) { break; }
+    }
+    io.outInt(steps.length);
+    for (const { r, w } of steps) {
+        io.outBool(r.collapsed);
+        io.outInt(r.vertex);
+        emitKeys(io, sortedKeys(r.removed));
+        emitKeys(io, r.inserted.map(k => [k.V[0], k.V[1], k.V[2]]));
+        if (weights) {
+            io.outInt(w.length);
+            for (const [k, v] of w) { io.outInt(k); io.outReal(v); }
+        }
+    }
+    emitKeys(io, sortedKeys(vcm.getMesh().getTriangleKeys()));
+}
+
 describe('oracle: v16-core', () => {
     const family = new OracleFamily('v16-core');
 
@@ -910,6 +957,37 @@ describe('oracle: v16-core', () => {
 
     // cos/sin of arbitrary column angles (MSVC runtime against V8).
     family.case('TubeMesh.libm', (io) => runTube(io, false, 15));
+
+    // ------------------------------------------------------------ VertexCollapseMesh
+
+    family.case('VertexCollapseMesh.doCollapse', (io) => {
+        const m = readSurfaceMesh(io);
+        runCollapses(io, new VertexCollapseMesh(m.vertices, m.indices), false);
+    }, { exact: true });
+
+    family.case('VertexCollapseMesh.doCollapse.canonical', (io) => {
+        const m = readSurfaceMesh(io);
+        runCollapses(io, new VertexCollapseMesh(m.vertices, m.indices), true);
+    }, { exact: true });
+
+    // Every record meets an invalid link triangulation (#498): upstream
+    // corrupts the mesh and stops (or throws); the port defers the vertex.
+    family.case('VertexCollapseMesh.doCollapse.invalidLink', (io) => {
+        const m = readSurfaceMesh(io);
+        runCollapses(io, new VertexCollapseMesh(m.vertices, m.indices), true);
+    }, { exact: true, deviation: '#498 (VertexCollapseMesh invalid link triangulation)' });
+
+    family.case('VertexCollapseMesh.invalidInput', (io) => {
+        const mode = io.integer();
+        const numPositions = (mode === 0 ? 0 : io.integer());
+        const numIndices = io.integer();
+        const positions: Vector[] = [];
+        for (let i = 0; i < numPositions; ++i) { positions.push(new Vector(3)); }
+        const vcm = new VertexCollapseMesh(positions, new Array<number>(numIndices).fill(0));
+        const r = vcm.doCollapse();
+        io.outBool(r.collapsed);
+        io.outInt(r.vertex);
+    }, { exact: true });
 
     family.finish();
 });

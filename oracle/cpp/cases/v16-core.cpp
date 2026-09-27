@@ -856,11 +856,11 @@ namespace
     // replay checks curvature estimates near 1/R). The closed solids are
     // scaled by an integer and either kept on the lattice (exact normal
     // sums, umbilic vertices of the regular octahedron) or perturbed.
-    SurfaceMesh DrawSurfaceMeshRaw(oracle::Ctx& io, int forcedKind)
+    SurfaceMesh DrawSurfaceMeshRaw(oracle::Ctx& io, int forcedKind, bool forcePerturb = false)
     {
         SurfaceMesh m{};
         m.kind = (forcedKind >= 0 ? forcedKind : io.rawInteger(0, 4));
-        bool perturb = (io.rawInteger(0, 1) != 0);
+        bool perturb = (io.rawInteger(0, 1) != 0) || forcePerturb;
         double scale = static_cast<double>(io.rawInteger(1, 3));
         auto jitter = [&io, perturb](Vector3<double> const& p)
         {
@@ -1702,4 +1702,450 @@ ORACLE_CASE("TubeMesh.libm")
     // Any column count 3..40, reals compared with the default tolerance
     // 1e-12 (cos/sin of the column angles); counts, flags, indices exact.
     RunTube(io, false, false, 15);
+}
+
+// ================================================================ VertexCollapseMesh
+//
+// VertexCollapseMesh sits on VETManifoldMesh, whose vertex map and per-vertex
+// adjacency sets are unordered (unordered_map<int32_t, ...>,
+// unordered_set<Triangle*>, unordered_set<int32_t>). Their iteration order
+// decides (a) the order in which the constructor inserts the vertices into
+// the min-heap (which vertex wins a tie of weights), (b) the accumulation
+// order of ComputeWeight's sums (the weights and vertex normals in the last
+// bits) and (c) the order of Record::removed. The port iterates in sorted
+// order (vertices by index, triangles by TriangleKey<true>, adjacent
+// vertices ascending). Two kinds of case:
+//   - doCollapse: the unmodified upstream class on meshes with real
+//     coordinates (no exact ties), comparing the discrete outputs only
+//     (collapsed vertex, sorted removed keys, inserted keys, final mesh);
+//   - canonical: upstream's own TriangulateLink and Collapsed driven by a
+//     replay of its constructor heap and DoCollapse with the port's sorted
+//     iteration (the v12 Canonical<Base> precedent), so ties and every
+//     weight are compared bit for bit, lattice meshes included.
+
+namespace
+{
+    using VCM = VertexCollapseMesh<double>;
+    using VCVertex = VCM::VCVertex;
+
+    std::vector<std::array<int32_t, 3>> SortedKeys(std::vector<TriangleKey<true>> const& keys)
+    {
+        std::vector<std::array<int32_t, 3>> out;
+        for (auto const& k : keys) { out.push_back({ k.V[0], k.V[1], k.V[2] }); }
+        std::sort(out.begin(), out.end());
+        return out;
+    }
+
+    void EmitKeys(oracle::Ctx& io, std::vector<std::array<int32_t, 3>> const& keys)
+    {
+        io.outInt(keys.size());
+        for (auto const& k : keys) { for (int32_t v : k) { io.outInt(v); } }
+    }
+
+    void EmitMeshKeys(oracle::Ctx& io, ETManifoldMesh const& mesh)
+    {
+        std::vector<TriangleKey<true>> keys;
+        for (auto const& t : mesh.GetTriangles()) { keys.push_back(t.first); }
+        EmitKeys(io, SortedKeys(keys));
+    }
+
+    // ComputeWeight with the port's iteration order.
+    double CanonicalWeight(VCVertex* vertex, Vector3<double> const* positions)
+    {
+        std::vector<ETManifoldMesh::Triangle*> tris(vertex->TAdjacent.begin(), vertex->TAdjacent.end());
+        std::sort(tris.begin(), tris.end(), [](ETManifoldMesh::Triangle* a, ETManifoldMesh::Triangle* b)
+        {
+            return TriangleKey<true>(a->V[0], a->V[1], a->V[2]) < TriangleKey<true>(b->V[0], b->V[1], b->V[2]);
+        });
+        std::vector<int32_t> adj(vertex->VAdjacent.begin(), vertex->VAdjacent.end());
+        std::sort(adj.begin(), adj.end());
+        double weight = 0.0;
+        vertex->normal = { 0.0, 0.0, 0.0 };
+        for (auto tri : tris)
+        {
+            Vector3<double> E0 = positions[tri->V[1]] - positions[tri->V[0]];
+            Vector3<double> E1 = positions[tri->V[2]] - positions[tri->V[0]];
+            Vector3<double> N = Cross(E0, E1);
+            vertex->normal += N;
+            weight += Length(N);
+        }
+        Normalize(vertex->normal);
+        for (int32_t index : adj)
+        {
+            Vector3<double> diff = positions[index] - positions[vertex->V];
+            weight += std::fabs(Dot(vertex->normal, diff));
+        }
+        return weight;
+    }
+
+    // The port's precondition check of the fixed Collapsed (#498): the
+    // inserted triangles form a triangulation of the link polygon.
+    bool IsLinkTriangulation(std::vector<TriangleKey<true>> const& inserted,
+        std::vector<int32_t> const& link)
+    {
+        size_t n = link.size();
+        if (inserted.size() + 2 != n) { return false; }
+        std::map<std::pair<int32_t, int32_t>, int> count;
+        for (auto const& t : inserted)
+        {
+            for (int k0 = 2, k1 = 0; k1 < 3; k0 = k1++)
+            {
+                ++count[{ std::min(t.V[k0], t.V[k1]), std::max(t.V[k0], t.V[k1]) }];
+            }
+        }
+        for (size_t i0 = n - 1, i1 = 0; i1 < n; i0 = i1++)
+        {
+            auto key = std::make_pair(std::min(link[i0], link[i1]), std::max(link[i0], link[i1]));
+            auto it = count.find(key);
+            if (it == count.end() || it->second != 1) { return false; }
+            count.erase(it);
+        }
+        for (auto const& c : count) { if (c.second != 2) { return false; } }
+        return true;
+    }
+}
+
+namespace
+{
+    // Upstream's VertexCollapseMesh with the heap rebuilt in vertex-index
+    // order and DoCollapse replayed with CanonicalWeight. TriangulateLink and
+    // Collapsed are upstream's own. 'invalidLink' reports a step on which
+    // upstream's triangulation of the link is not a triangulation (#498).
+    class CanonicalCollapse
+    {
+    public:
+        CanonicalCollapse(std::vector<Vector3<double>> const& positions, std::vector<int32_t> const& indices)
+            :
+            mVCM(static_cast<int32_t>(positions.size()), positions.data(),
+                static_cast<int32_t>(indices.size()), indices.data())
+        {
+            if (mVCM.mNumPositions == 0) { return; }
+            auto const& vmap = mVCM.mMesh.GetVertices();
+            std::vector<int32_t> order;
+            for (auto const& v : vmap) { order.push_back(v.first); }
+            std::sort(order.begin(), order.end());
+            mVCM.mMinHeap.Reset(static_cast<int32_t>(order.size()));
+            mVCM.mHeapRecords.clear();
+            for (int32_t v : order)
+            {
+                auto vertex = static_cast<VCVertex*>(vmap.find(v)->second.get());
+                double weight = (vertex->isBoundary ? std::numeric_limits<double>::max()
+                    : CanonicalWeight(vertex, mVCM.mPositions));
+                auto record = mVCM.mMinHeap.Insert(v, weight);
+                mVCM.mHeapRecords.insert(std::make_pair(v, record));
+            }
+        }
+
+        // The body of upstream's DoCollapse with CanonicalWeight.
+        bool DoCollapse(VCM::Record& record, bool& invalidLink)
+        {
+            auto& m = mVCM;
+            record.vertex = 0x80000000;
+            record.removed.clear();
+            record.inserted.clear();
+            if (m.mNumPositions == 0) { return false; }
+            while (m.mMinHeap.GetNumElements() > 0)
+            {
+                int32_t v = -1;
+                double weight = std::numeric_limits<double>::max();
+                m.mMinHeap.GetMinimum(v, weight);
+                if (weight == std::numeric_limits<double>::max()) { return false; }
+                auto const& vmap = m.mMesh.GetVertices();
+                auto velement = vmap.find(v);
+                if (velement == vmap.end()) { return false; }
+                auto vertex = static_cast<VCVertex*>(velement->second.get());
+                std::vector<TriangleKey<true>> removed, inserted;
+                std::vector<int32_t> linkVertices;
+                int32_t result = m.TriangulateLink(vertex, removed, inserted, linkVertices);
+                if (result == VCM::VCM_UNEXPECTED_ERROR) { return false; }
+                if (result == VCM::VCM_ALLOWED)
+                {
+                    // The defect is observable when the triangulation is
+                    // invalid AND Collapsed goes on to modify the mesh; an
+                    // invalid triangulation whose repeated edges already
+                    // carry two triangles is deferred by upstream's own
+                    // diagonal test, exactly as the port defers it.
+                    bool valid = IsLinkTriangulation(inserted, linkVertices);
+                    result = m.Collapsed(removed, inserted, linkVertices);
+                    if (!valid && result != VCM::VCM_DEFERRED) { invalidLink = true; }
+                    if (result == VCM::VCM_UNEXPECTED_ERROR) { return false; }
+                    if (result == VCM::VCM_ALLOWED)
+                    {
+                        m.mMinHeap.Remove(v, weight);
+                        m.mHeapRecords.erase(v);
+                        for (auto vlink : linkVertices)
+                        {
+                            velement = vmap.find(vlink);
+                            if (velement == vmap.end()) { return false; }
+                            vertex = static_cast<VCVertex*>(velement->second.get());
+                            if (!vertex->isBoundary)
+                            {
+                                auto iter = m.mHeapRecords.find(vlink);
+                                if (iter == m.mHeapRecords.end()) { return false; }
+                                weight = CanonicalWeight(vertex, m.mPositions);
+                                m.mMinHeap.Update(iter->second, weight);
+                            }
+                        }
+                        record.vertex = v;
+                        record.removed = std::move(removed);
+                        record.inserted = std::move(inserted);
+                        return true;
+                    }
+                }
+                auto iter = m.mHeapRecords.find(v);
+                if (iter == m.mHeapRecords.end()) { return false; }
+                m.mMinHeap.Update(iter->second, std::numeric_limits<double>::max());
+            }
+            return false;
+        }
+
+        // The weight of every vertex still in the heap, by vertex index.
+        void EmitWeights(oracle::Ctx& io) const
+        {
+            io.outInt(mVCM.mHeapRecords.size());
+            for (auto const& r : mVCM.mHeapRecords)
+            {
+                io.outInt(r.first);
+                io.outReal(r.second->value);
+            }
+        }
+
+        VCM mVCM;
+    };
+
+    // Collapse until DoCollapse returns false or 64 steps. The steps are
+    // recorded first and emitted afterwards (a throw record carries no
+    // outputs).
+    struct CollapseStep
+    {
+        bool collapsed;
+        int32_t vertex;
+        std::vector<std::array<int32_t, 3>> removed, inserted;
+        std::vector<std::pair<int32_t, double>> weights;
+    };
+
+    struct CollapseRun
+    {
+        std::vector<CollapseStep> steps;
+        bool anyInvalid = false;
+    };
+
+    template <typename Driver>
+    CollapseRun RunCollapses(Driver& driver)
+    {
+        CollapseRun run;
+        for (int step = 0; step < 64; ++step)
+        {
+            VCM::Record record;
+            bool invalidLink = false;
+            CollapseStep s{};
+            if constexpr (std::is_same<Driver, CanonicalCollapse>::value)
+            {
+                s.collapsed = driver.DoCollapse(record, invalidLink);
+                for (auto const& r : driver.mVCM.mHeapRecords) { s.weights.push_back({ r.first, r.second->value }); }
+            }
+            else
+            {
+                s.collapsed = driver.DoCollapse(record);
+            }
+            run.anyInvalid = run.anyInvalid || invalidLink;
+            s.vertex = record.vertex;
+            s.removed = SortedKeys(record.removed);
+            for (auto const& k : record.inserted) { s.inserted.push_back({ k.V[0], k.V[1], k.V[2] }); }
+            run.steps.push_back(s);
+            if (!s.collapsed) { break; }
+        }
+        return run;
+    }
+
+    void EmitCollapses(oracle::Ctx& io, CollapseRun const& run, bool weights)
+    {
+        io.outInt(run.steps.size());
+        for (auto const& s : run.steps)
+        {
+            io.outBool(s.collapsed);
+            io.outInt(s.vertex);
+            EmitKeys(io, s.removed);
+            EmitKeys(io, s.inserted);
+            if (weights)
+            {
+                io.outInt(s.weights.size());
+                for (auto const& w : s.weights) { io.outInt(w.first); io.outReal(w.second); }
+            }
+        }
+    }
+}
+
+namespace
+{
+    // A heightfield grid of rows x cols vertices at (c, r, z) with random
+    // diagonals. zMode: 0 real z in [-0.5, 0.5]; 1 z in {-1, 0, 1};
+    // 2 flat (z = 0) except two vertices with real z (collinear links, the
+    // #498 configuration).
+    SurfaceMesh DrawCollapseGrid(oracle::Ctx& io, int zMode)
+    {
+        SurfaceMesh m{};
+        m.kind = 3;
+        int rows = io.rawInteger(3, 6), cols = io.rawInteger(3, 6);
+        for (int r = 0; r < rows; ++r)
+        {
+            for (int c = 0; c < cols; ++c)
+            {
+                double z = 0.0;
+                if (zMode == 0) { z = io.raw(-0.5, 0.5); }
+                else if (zMode == 1) { z = static_cast<double>(io.rawInteger(-1, 1)); }
+                m.vertices.push_back({ static_cast<double>(c), static_cast<double>(r), z });
+            }
+        }
+        if (zMode == 2)
+        {
+            for (int k = 0; k < 2; ++k)
+            {
+                size_t i = static_cast<size_t>(io.rawInteger(0, rows * cols - 1));
+                m.vertices[i][2] = io.raw(-1.0, 1.0);
+            }
+        }
+        for (int r = 0; r + 1 < rows; ++r)
+        {
+            for (int c = 0; c + 1 < cols; ++c)
+            {
+                int32_t v00 = r * cols + c, v10 = v00 + 1, v01 = v00 + cols, v11 = v01 + 1;
+                bool diag = (io.rawInteger(0, 1) != 0);
+                if (diag)
+                {
+                    int32_t t[6] = { v00, v10, v11, v00, v11, v01 };
+                    m.indices.insert(m.indices.end(), t, t + 6);
+                }
+                else
+                {
+                    int32_t t[6] = { v00, v10, v01, v10, v11, v01 };
+                    m.indices.insert(m.indices.end(), t, t + 6);
+                }
+            }
+        }
+        return m;
+    }
+
+    // The mesh of finding #498: a flat 6x6 grid with two raised vertices,
+    // whose 16th collapse meets an invalid link triangulation.
+    SurfaceMesh Finding498Mesh()
+    {
+        SurfaceMesh m{};
+        m.kind = 3;
+        for (int r = 0; r < 6; ++r)
+        {
+            for (int c = 0; c < 6; ++c) { m.vertices.push_back({ (double)c, (double)r, 0.0 }); }
+        }
+        m.vertices[1][2] = 0.5999999330626311;
+        m.vertices[4][2] = -0.10950932320884953;
+        for (int r = 0; r + 1 < 6; ++r)
+        {
+            for (int c = 0; c + 1 < 6; ++c)
+            {
+                int32_t v00 = r * 6 + c, v10 = v00 + 1, v01 = v00 + 6, v11 = v01 + 1;
+                int32_t t[6] = { v00, v10, v11, v00, v11, v01 };
+                m.indices.insert(m.indices.end(), t, t + 6);
+            }
+        }
+        return m;
+    }
+
+    bool ProbeInvalidLink(SurfaceMesh const& m)
+    {
+        CanonicalCollapse probe(m.vertices, m.indices);
+        try { return RunCollapses(probe).anyInvalid; }
+        catch (std::exception const&) { return true; }
+    }
+}
+
+ORACLE_CASE("VertexCollapseMesh.doCollapse")
+{
+    // The unmodified upstream class (unordered iteration) on meshes with
+    // real coordinates: heightfield grids and perturbed closed solids.
+    // Discrete outputs only: per step the result, the vertex, the removed
+    // keys (sorted: their order is unordered_set order upstream) and the
+    // inserted keys; the final mesh as sorted keys.
+    SurfaceMesh m{};
+    for (int attempt = 0; attempt < 16; ++attempt)
+    {
+        m = (io.rawInteger(0, 1) == 0 ? DrawCollapseGrid(io, 0) : DrawSurfaceMeshRaw(io, 4, true));
+        if (!ProbeInvalidLink(m)) { break; }
+    }
+    GivenSurfaceMesh(io, m);
+    VCM vcm(static_cast<int32_t>(m.vertices.size()), m.vertices.data(),
+        static_cast<int32_t>(m.indices.size()), m.indices.data());
+    CollapseRun run = RunCollapses(vcm);
+    EmitCollapses(io, run, false);
+    EmitMeshKeys(io, vcm.GetMesh());
+}
+
+ORACLE_CASE("VertexCollapseMesh.doCollapse.canonical")
+{
+    // Upstream's TriangulateLink and Collapsed under the canonical-order
+    // driver: real and lattice heightfields (exact weight ties, collinear
+    // links, deferred vertices) and closed solids. Per step also the weight
+    // of every vertex left in the heap (bit for bit). Restricted to meshes
+    // on which no step meets an invalid link triangulation (#498, probed
+    // with the same driver; see the deviation case), redrawn at most 16
+    // times, then a real-z grid.
+    SurfaceMesh m{};
+    for (int attempt = 0; ; ++attempt)
+    {
+        int mode = (attempt < 16 ? io.rawInteger(0, 3) : 0);
+        if (mode == 0) { m = DrawCollapseGrid(io, 0); }
+        else if (mode == 1) { m = DrawCollapseGrid(io, 1); }
+        else if (mode == 2) { m = DrawSurfaceMeshRaw(io, io.rawInteger(0, 2)); }
+        else { m = DrawSurfaceMeshRaw(io, 4); }
+        if (!ProbeInvalidLink(m)) { break; }
+        if (attempt >= 48) { break; }
+    }
+    GivenSurfaceMesh(io, m);
+    CanonicalCollapse driver(m.vertices, m.indices);
+    CollapseRun run = RunCollapses(driver);
+    EmitCollapses(io, run, true);
+    EmitMeshKeys(io, driver.mVCM.GetMesh());
+}
+
+ORACLE_CASE("VertexCollapseMesh.doCollapse.invalidLink")
+{
+    // Deliberate port fix (#498): when TriangulateEC returns an invalid
+    // triangulation of a link with collinear vertices, upstream removes the
+    // old fan, inserts the invalid triangles and reports failure with the
+    // mesh corrupted (or throws on a nonmanifold insertion); the port defers
+    // the vertex before touching the mesh. Every record contains such a
+    // step: the #498 mesh itself on every fourth record, otherwise flat
+    // grids with two raised vertices or lattice grids, redrawn until the
+    // probe finds one (at most 64 times, then the #498 mesh).
+    SurfaceMesh m = Finding498Mesh();
+    if (io.index() % 4 != 0)
+    {
+        for (int attempt = 0; attempt < 64; ++attempt)
+        {
+            SurfaceMesh c = DrawCollapseGrid(io, io.rawInteger(1, 2));
+            if (ProbeInvalidLink(c)) { m = c; break; }
+        }
+    }
+    GivenSurfaceMesh(io, m);
+    CanonicalCollapse driver(m.vertices, m.indices);
+    CollapseRun run = RunCollapses(driver);
+    EmitCollapses(io, run, true);
+    EmitMeshKeys(io, driver.mVCM.GetMesh());
+}
+
+ORACLE_CASE("VertexCollapseMesh.invalidInput")
+{
+    // No positions or fewer than three indices: the constructor leaves
+    // mNumPositions = 0 and DoCollapse returns false with the vertex
+    // 0x80000000 (INT32_MIN on MSVC; implementation-defined before C++20,
+    // finding #295).
+    int mode = io.integer(0, 1);
+    int numPositions = (mode == 0 ? 0 : io.integer(1, 4));
+    int numIndices = (mode == 0 ? io.integer(0, 5) : io.integer(0, 2));
+    std::vector<Vector3<double>> positions(static_cast<size_t>(numPositions), Vector3<double>{ 0.0, 0.0, 0.0 });
+    std::vector<int32_t> indices(static_cast<size_t>(numIndices), 0);
+    VCM vcm(numPositions, positions.empty() ? nullptr : positions.data(), numIndices,
+        indices.empty() ? nullptr : indices.data());
+    VCM::Record record;
+    io.outBool(vcm.DoCollapse(record));
+    io.outInt(record.vertex);
 }
