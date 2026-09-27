@@ -420,3 +420,45 @@ describe('MinHeap verification', () => {
         expect(drained).toEqual([5, 10, 20]);
     });
 });
+
+// Regression (C++ oracle, group 15, MinHeap.sequence.nan): upstream's
+// MinHeap<KeyType, double> compares with the built-in '<' and '<=', and
+// every comparison with a NaN is false. The port derived 'a <= b' as
+// '!(b < a)', which is true when either operand is NaN, so a NaN stopped
+// sifting where upstream's keeps moving. Expected orders are the MSVC
+// build's (they follow from '<=' being false for NaN).
+describe('MinHeap with NaN values (C++ oracle v15)', () => {
+    it('Insert sifts a NaN to the root: parent <= NaN is false', () => {
+        const heap = new MinHeap<number, number>(4);
+        heap.insert(0, 1);
+        heap.insert(1, Number.NaN);
+        expect(heap.getMinimum()!.key).toBe(1);
+        heap.insert(2, 0.5);
+        // NaN <= 0.5 is false as well, so 0.5 replaces the NaN at the root.
+        expect(heap.getMinimum()!.key).toBe(2);
+    });
+
+    it('Remove moves the last record down past a NaN child', () => {
+        const heap = new MinHeap<number, number>(4);
+        heap.insert(0, 1);
+        heap.insert(1, 2);
+        heap.insert(2, 3);
+        heap.insert(3, Number.NaN);
+        // After the inserts the NaN (inserted last) sits at the root.
+        expect(heap.getMinimum()!.key).toBe(3);
+        const r = heap.remove()!;
+        expect(r.key).toBe(3);
+        expect(Number.isNaN(r.value)).toBe(true);
+        const drained: number[] = [];
+        for (let x = heap.remove(); x !== null; x = heap.remove()) { drained.push(x.key); }
+        expect(drained).toEqual([0, 1, 2]);
+    });
+
+    it('a custom lessThan keeps lessEqual = !lessThan(b, a)', () => {
+        const heap = new MinHeap<number, { w: number }>(3, (a, b) => a.w < b.w);
+        heap.insert(0, { w: 1 });
+        heap.insert(1, { w: Number.NaN });
+        // !(1 < NaN) is true, so the NaN stays a leaf with the derived '<='.
+        expect(heap.getMinimum()!.key).toBe(0);
+    });
+});

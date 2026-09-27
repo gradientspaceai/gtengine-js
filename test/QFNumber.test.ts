@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { check, fc } from './helpers/arbitraries.js';
 import { QFNumber, type QFCoefficient } from '../src/QFNumber.js';
+import { hasDivisionOperator, isArbitraryPrecision } from '../src/TypeTraits.js';
 
 // Numeric evaluation of a quadratic field number (recursively for nested
 // coefficients), used as an independent cross-check.
@@ -63,10 +64,13 @@ describe('QFNumber construction', () => {
         expect((q.x[0] as QFNumber).x[0]).toBe(1);
     });
 
-    it('implements the ArbitraryPrecisionNumber marker with division', () => {
+    // Upstream specializes neither trait for QFNumber<T, N>, so both are
+    // false (measured on the MSVC build by the v15-core oracle case
+    // TypeTraits.traits); the port used to report (true, true).
+    it('is neither arbitrary precision nor a division type, as upstream\'s traits', () => {
         const q = new QFNumber(1, 1, 2);
-        expect(q.isArbitraryPrecision).toBe(true);
-        expect(q.hasDivisionOperator).toBe(true);
+        expect(isArbitraryPrecision(q)).toBe(false);
+        expect(hasDivisionOperator(q)).toBe(false);
     });
 });
 

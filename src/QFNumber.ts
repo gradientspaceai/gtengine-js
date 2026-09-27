@@ -34,9 +34,13 @@
 // q = q.add(v) and so on. C++ assignment copies by value; use clone() where
 // a copy is needed.
 //
-// Upstream marks QFNumber as arbitrary precision in TypeTraits.h, so the
-// class implements the ArbitraryPrecisionNumber marker interface. Division
-// is supported (hasDivisionOperator is true) for the number-based path.
+// Upstream specializes neither is_arbitrary_precision nor
+// has_division_operator for QFNumber (TypeTraits.h's comment lists QFNumber
+// as arbitrary precision, but QFNumber.h never adds the specialization), so
+// both traits are false for every QFNumber<T, N>; the C++ oracle of group
+// 15 (TypeTraits.traits) confirms it. The class therefore does not
+// implement the ArbitraryPrecisionNumber marker, and isArbitraryPrecision(q)
+// and hasDivisionOperator(q) are false, as upstream.
 //
 // The upstream macro GTE_ASSERT_ON_QFNUMBER_MISMATCHED_D (disabled by
 // default) is ported as the static flag QFNumber.assertOnMismatchedD: set it
@@ -45,7 +49,6 @@
 // value d.
 
 import { logAssert, logError } from './Logger.js';
-import type { ArbitraryPrecisionNumber } from './TypeTraits.js';
 
 // A coefficient of a quadratic field number: 'number' at recursion depth
 // N = 1, a nested QFNumber at depth N >= 2.
@@ -145,16 +148,11 @@ function cGreaterThanEqual(a: QFCoefficient, b: QFCoefficient): boolean {
 
 // Arithmetic for quadratic fields. The quadratic field number is
 // x[0] + x[1] * sqrt(d).
-export class QFNumber implements ArbitraryPrecisionNumber {
+export class QFNumber {
     // Port of the upstream macro GTE_ASSERT_ON_QFNUMBER_MISMATCHED_D:
     // enable to trap arithmetic operations and comparisons on two quadratic
     // field numbers that do not share the same value d.
     static assertOnMismatchedD = false;
-
-    // Arbitrary-precision marker (upstream TypeTraits.h marks QFNumber as
-    // arbitrary precision; the number-based path supports division).
-    readonly isArbitraryPrecision = true as const;
-    readonly hasDivisionOperator: boolean = true;
 
     // The quadratic field number is x[0] + x[1] * sqrt(d).
     x: [QFCoefficient, QFCoefficient];

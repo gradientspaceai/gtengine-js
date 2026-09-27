@@ -675,3 +675,38 @@ describe('IEEEBinary verification', () => {
         });
     });
 });
+
+// Regression (C++ oracle, group 15, IEEEBinary64.setEncoding): upstream's
+// SetEncoding shifts and ORs in uint64_t, so fields outside their documented
+// ranges wrap modulo 2^64 or spill into the neighbouring field. The port
+// built an unbounded bigint (an "encoding" of 2^64 and more). Expected
+// values are the MSVC build's; IEEEBinary32 already wrapped via '>>> 0'.
+describe('IEEEBinary setEncoding with out-of-range fields (C++ oracle v15)', () => {
+    it('binary64 wraps the sign and biased fields modulo 2^64', () => {
+        // sign 2: bit 64 falls off; sign 3: only bit 63 survives.
+        expect(IEEEBinary64.fromParts(2, 0, 5n).encoding).toBe(5n);
+        expect(IEEEBinary64.fromParts(3, 1, 0n).encoding)
+            .toBe(0x8000000000000000n | (1n << 52n));
+        // biased 4096 = 2^12: bit 64 falls off; 4095 sets the sign bit too.
+        expect(IEEEBinary64.fromParts(0, 4096, 7n).encoding).toBe(7n);
+        expect(IEEEBinary64.fromParts(0, 4095, 0n).encoding).toBe(0xFFF0000000000000n);
+        // A trailing field wider than 52 bits ORs into the exponent and sign.
+        expect(IEEEBinary64.fromParts(0, 0, 0xFFFFFFFFFFFFFFFFn).encoding)
+            .toBe(0xFFFFFFFFFFFFFFFFn);
+        expect(IEEEBinary64.fromParts(1, 2047, 0x0010000000000001n).encoding)
+            .toBe(0xFFF0000000000001n);
+        // In-range fields are unchanged.
+        expect(IEEEBinary64.fromParts(1, 1023, 0x8000000000000n).encoding)
+            .toBe(0xBFF8000000000000n);
+    });
+
+    it('binary64 and binary32 agree on the wrap of a 32-bit pattern pair', () => {
+        for (const [s, b] of [[2, 0], [5, 300], [1, 256], [7, 0xFFFFFFFF]]) {
+            const e32 = IEEEBinary32.fromParts(s, b, 0).encoding;
+            const e64 = IEEEBinary64.fromParts(s, b, 0n).encoding;
+            expect(e32).toBe(((s << 31) | (b << 23)) >>> 0);
+            expect(e64).toBe(BigInt.asUintN(64, (BigInt(s) << 63n) | (BigInt(b) << 52n)));
+            expect(e64 < (1n << 64n)).toBe(true);
+        }
+    });
+});

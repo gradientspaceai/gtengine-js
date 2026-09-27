@@ -506,7 +506,12 @@ export class IEEEBinary64 {
     }
 
     setEncoding(sign: number, biased: number, trailing: bigint): void {
-        this.encoding = (BigInt(sign) << 63n) | (BigInt(biased) << 52n) | trailing;
+        // Upstream shifts and ORs in uint64_t, so a field outside its
+        // documented range wraps modulo 2^64 or spills into its neighbour;
+        // asUintN reproduces the wrap (bigint shifts do not overflow), as
+        // '>>> 0' does for IEEEBinary32.
+        this.encoding = BigInt.asUintN(64,
+            (BigInt(sign) << 63n) | (BigInt(biased) << 52n) | trailing);
     }
 
     getEncoding(): { sign: number, biased: number, trailing: bigint } {
