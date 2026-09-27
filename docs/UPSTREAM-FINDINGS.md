@@ -71,14 +71,14 @@ Nothing here has been reported upstream before; this document is the report.
 
 ## Counts
 
-- **526 distinct findings** across **169** tracked issues (one issue
+- **531 distinct findings** across **171** tracked issues (one issue
   frequently holds several findings in related files).
-- By severity: **255 result-corrupting**, **16 wrong but
-  recoverable**, **180 minor**, **75 documentation**.
-- By port status: **262 fixed or corrected in the port** (of which 160 are code
+- By severity: **256 result-corrupting**, **16 wrong but
+  recoverable**, **183 minor**, **76 documentation**.
+- By port status: **264 fixed or corrected in the port** (of which 161 are code
   fixes with regression tests, 22 are added guards or asserts where upstream has
-  undefined behaviour, 64 are comment corrections, 11 are dead-code removals and
-  5 are documented deliberate deviations), **254 preserved deliberately**, and
+  undefined behaviour, 65 are comment corrections, 11 are dead-code removals and
+  5 are documented deliberate deviations), **257 preserved deliberately**, and
   **10 not ported** (the `GTE_USE_VEC_MAT` branches, dead code that cannot
   compile, and two arbitrary-precision paths).
 - **288 distinct upstream headers** are implicated.
@@ -193,6 +193,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `ConstrainedDelaunay2.h` | `operator()` | `mInsertedEdges` is never cleared, so a reused object inherits stale edge keys | RC | fixed | [#325](https://github.com/gradientspaceai/gtengine-js/issues/325) |
 | `ConstrainedDelaunay2.h` | `Insert` | reads `duplicates[edge[i]]` before range-checking `edge[i]` | RC | fixed | [#325](https://github.com/gradientspaceai/gtengine-js/issues/325) |
 | `ConstrainedDelaunay2.h` | `Retriangulate` | the strip fill is not constrained-Delaunay; nothing says so | doc | preserved | [#325](https://github.com/gradientspaceai/gtengine-js/issues/325) |
+| `Constants.h` | `GTE_C_INV_SQRT_2`, `GTE_C_INV_LN_10` | the literals truncate the 17-digit expansion instead of rounding it, one ulp below the correctly rounded doubles; the other 13 constants are correctly rounded | minor | preserved | [#541](https://github.com/gradientspaceai/gtengine-js/issues/541) |
 | `ContAlignedBox.h` | `MergeContainers` | the `bool` return is vestigial (only `true` is possible) | minor | preserved | [#106](https://github.com/gradientspaceai/gtengine-js/issues/106) |
 | `ContAlignedBox2Arc2.h` | `GetContainer` | `0 < numPoints && numPoints <= 6` is always true; trailing `return false` unreachable | minor | dropped | [#174](https://github.com/gradientspaceai/gtengine-js/issues/174) |
 | `ContCircle2.h`, `ContSphere3.h` | `GetContainer` | reads `points[0]` and divides by `numPoints` before any count check | RC | fixed (throws) | [#106](https://github.com/gradientspaceai/gtengine-js/issues/106) |
@@ -230,6 +231,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `Delaunay2.h` | `GetNumVertices` | returns 0 after degenerate input while `GetVertices` still returns the caller's pointer | RC | fixed | [#277](https://github.com/gradientspaceai/gtengine-js/issues/277) |
 | `Delaunay2.h` | `GetContainingTriangle` comment | "inside all four edges" is a 3D copy-paste | doc | corrected | [#277](https://github.com/gradientspaceai/gtengine-js/issues/277) |
 | `Delaunay2.h`, `Delaunay3.h` | non-void functions | fall off the end after a bare `LogError` | minor | preserved | [#277](https://github.com/gradientspaceai/gtengine-js/issues/277), [#283](https://github.com/gradientspaceai/gtengine-js/issues/283) |
+| `Delaunay2.h` | triangle numbering | `TrianglePtrSet` is an `unordered_set<Triangle*>`, so the triangle order (`GetIndices`, `Delaunay2Mesh` numbering, the default `GetContainingTriangle` start) depends on heap addresses; `IntpQuadraticNonuniform2`'s spatial-delta constructor, which sums normals in that order, varies in the last bits between runs (3 of 2000 records) | minor | preserved | [#277](https://github.com/gradientspaceai/gtengine-js/issues/277) |
 | `Delaunay2.h` | deprecated `Update` | comments out its own `LogError` diagnostic | minor | n/a | [#277](https://github.com/gradientspaceai/gtengine-js/issues/277) |
 | `Delaunay2.h` (L907), `Delaunay3.h` (L978) | `IntrinsicsVector2/3` construction | hardcoded `epsilon = 0` misclassifies exactly collinear or coplanar input | RC | fixed | [#391](https://github.com/gradientspaceai/gtengine-js/issues/391) |
 | `Delaunay3.h` | `ProcessedVertex` (~L1486) | hashes and compares `location`, so duplicate detection can never match | RC | fixed | [#283](https://github.com/gradientspaceai/gtengine-js/issues/283) |
@@ -348,13 +350,14 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `IntpBSplineUniform.h` | `ComputeBlendingMatrix` | dead local `sm1` with a comment claiming it is used | minor | dropped | [#135](https://github.com/gradientspaceai/gtengine-js/issues/135) |
 | `IntpLinearNonuniform2.h`, `IntpLinearNonuniform3.h` | `operator()` | `GetIndices`' failure flag is discarded and the zero-initialised index tuple is used | RC | deviates | [#135](https://github.com/gradientspaceai/gtengine-js/issues/135) |
 | `IntpQuadraticNonuniform2.h` | all mesh accessors | every failure flag is discarded; zero index triples blend unrelated samples | RC | fixed | [#337](https://github.com/gradientspaceai/gtengine-js/issues/337) |
-| `IntpQuadraticNonuniform2.h` | `ProcessTriangles` | ignores `Inscribe`'s failure return; a degenerate triangle gets centre (0,0) | minor | preserved | [#337](https://github.com/gradientspaceai/gtengine-js/issues/337) |
+| `IntpQuadraticNonuniform2.h` | `ProcessTriangles` | ignores `Inscribe`'s failure return; a collinear triangle keeps the perimeter-weighted point `Inscribe` stores before failing, and only a zero-perimeter triangle gets centre (0,0) | minor | preserved | [#337](https://github.com/gradientspaceai/gtengine-js/issues/337) |
 | `IntpQuadraticNonuniform2.h` | `operator()` fallback | consults barycentrics even when `ComputeBarycentrics` failed; a degenerate subtriangle always wins | RC | preserved | [#337](https://github.com/gradientspaceai/gtengine-js/issues/337) |
 | `IntpQuadraticNonuniform2.h` | `ComputeCoefficients` | unguarded divisions; stale "circumscribing circle" comment | minor | preserved | [#337](https://github.com/gradientspaceai/gtengine-js/issues/337) |
+| `IntpSphere2.h`, `IntpVectorField2.h` | constructors | `mMesh(mDelaunay)` in the member initializer list runs `Delaunay2Mesh`'s dimension-2 assert before the body computes the triangulation, so every construction throws "Invalid Delaunay dimension." (the deprecated specializations too) | RC | fixed | [#542](https://github.com/gradientspaceai/gtengine-js/issues/542) |
 | `IntpThinPlateSpline2.h`, `IntpThinPlateSpline3.h` | WARNING comment (L14-15) | the invariance claim is wrong in both directions | doc | corrected | [#191](https://github.com/gradientspaceai/gtengine-js/issues/191) |
 | `IntpThinPlateSpline2.h`, `IntpThinPlateSpline3.h` | domain transform | unguarded division by a zero coordinate range gives NaN coordinates | minor | preserved | [#191](https://github.com/gradientspaceai/gtengine-js/issues/191) |
 | `IntpThinPlateSpline2.h`, `IntpThinPlateSpline3.h` | `ComputeFunctional` | discontinuous at `lambda = 0`; values are not comparable across smoothing settings | minor | preserved | [#191](https://github.com/gradientspaceai/gtengine-js/issues/191) |
-| `IntpVectorField2.h` | `operator()` | the `&&` short-circuit leaves `output[1]` stale when the x-interpolation fails | RC | fixed | [#337](https://github.com/gradientspaceai/gtengine-js/issues/337) |
+| `IntpVectorField2.h` | `operator()` | the `&&` short-circuit skips the y-interpolation when the x-interpolation fails; the x-interpolation fails before writing, so both components of `output` stay stale | RC | fixed | [#337](https://github.com/gradientspaceai/gtengine-js/issues/337) |
 | `IntrAlignedBox3Cone3.h` | `BoxFullyInConeSlab` | stale adjacency bits survive into a later clipping query on the same object; false negatives | RC | fixed | [#301](https://github.com/gradientspaceai/gtengine-js/issues/301) |
 | `IntrAlignedBox3Cone3.h`, `IntrOrientedBox3Cone3.h` | header TODO | still written for the retired `maxHeight = max()` infinite-cone representation | doc | preserved | [#334](https://github.com/gradientspaceai/gtengine-js/issues/334) |
 | `IntrAlignedBox3OrientedBox3.h` vs `IntrOrientedBox3OrientedBox3.h` | parallel-pair cutoff | one file uses `>= cutoff`, the other `> cutoff`, for the same separating-axis algorithm | minor | preserved | [#450](https://github.com/gradientspaceai/gtengine-js/issues/450) |
@@ -462,6 +465,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `MeshStaticManifold2.h` | `GetAdjacentTriangles` | returns the neighbour across the edge opposite `v0`, not the queried edge; documented case 3 is unreachable | RC | fixed | [#66](https://github.com/gradientspaceai/gtengine-js/issues/66), [#361](https://github.com/gradientspaceai/gtengine-js/issues/361) |
 | `MeshStaticManifold3.h` | `GetAdjacentTetrahedra` | reads the 2D tuple indices on a 5-wide record, returning a vertex index as a tetrahedron index | RC | fixed | [#66](https://github.com/gradientspaceai/gtengine-js/issues/66), [#361](https://github.com/gradientspaceai/gtengine-js/issues/361) |
 | `MeshStaticManifold2.h` | `GetComponents` comment | describes a `range[]` output the function does not have | doc | corrected | [#361](https://github.com/gradientspaceai/gtengine-js/issues/361) |
+| `MinHeap.h` | `Update` | on a record `Remove` already returned, sifts it back into the live range and pushes a live record out; nothing forbids passing a removed record | minor | preserved | [#541](https://github.com/gradientspaceai/gtengine-js/issues/541) |
 | `MinimalCycleBasis.h` | detach-time `DepthFirstSearch` | visited flags persist between searches, flattening nested cycle forests at depth >= 2 | RC | fixed | [#310](https://github.com/gradientspaceai/gtengine-js/issues/310) |
 | `MinimalCycleBasis.h` | `GetClockwiseMost` | the non-convex branch uses `< 0` where five siblings and the published pseudocode use `<= 0` | minor | preserved | [#310](https://github.com/gradientspaceai/gtengine-js/issues/310) |
 | `MinimalCycleBasis.h` | `Extract`, `ExtractConnectedComponents` | isolated vertices go unreported and a lone-edge component is reported as nothing | minor | preserved | [#310](https://github.com/gradientspaceai/gtengine-js/issues/310) |
@@ -609,6 +613,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `TriangulateEC.h` | `DoEarClipping` | closes the ear ring without checking `mEFirst != -1` | minor | preserved | [#175](https://github.com/gradientspaceai/gtengine-js/issues/175) |
 | `TubeMesh.h` | `UpdatePositions` | the closed-tube fixup uses the `numCols` stride and stops one vertex short, cracking the seam | RC | fixed | [#240](https://github.com/gradientspaceai/gtengine-js/issues/240) |
 | `TubeMesh.h` | ring sampling | rings have only `numCols - 1` distinct angles; a closed tube drops the last ring | minor | preserved | [#240](https://github.com/gradientspaceai/gtengine-js/issues/240) |
+| `TypeTraits.h` | comment | says `is_arbitrary_precision` is true for `QFNumber`, but `QFNumber.h` specializes neither trait, so both are false for every `QFNumber<T, N>` and `IsAPType` dispatch takes the floating-point path | doc | corrected | [#541](https://github.com/gradientspaceai/gtengine-js/issues/541) |
 | `UIntegerALU32.h` | `RoundUp` comment | the return value is the trailing-zero shift count, not the 0/1 carry the comments imply | doc | corrected | [#96](https://github.com/gradientspaceai/gtengine-js/issues/96) |
 | `UnsymmetricEigenvalues.h` | eigenvalue packing | the loop bound drops `A(N-1,N-1)` when the last row decouples as a 1x1 block | RC | fixed | [#42](https://github.com/gradientspaceai/gtengine-js/issues/42) |
 | `UnsymmetricEigenvalues.h` | `FrancisQRStep` | no exceptional shift, so the iteration can cycle on a well-separated real spectrum | RC | preserved | [#476](https://github.com/gradientspaceai/gtengine-js/issues/476) |
@@ -1394,6 +1399,35 @@ face it finds, returned a different valid plane on 95 of 2000. Port: determinist
 
 Issue [#325](https://github.com/gradientspaceai/gtengine-js/issues/325).
 
+### `Constants.h`, `MinHeap.h`, `TypeTraits.h`
+
+Three core findings of the C++ oracle of group 15, all reproduced bit for bit on
+both sides.
+
+**1. Two constants are one ulp below the correctly rounded double (minor).**
+`GTE_C_INV_SQRT_2 = 0.7071067811865475` and `GTE_C_INV_LN_10 = 0.43429448190325176`
+truncate the 17-digit expansion instead of rounding it; the correctly rounded
+doubles are `0.7071067811865476` (`std::numbers::sqrt2 / 2`, JavaScript's
+`Math.SQRT1_2`) and `0.4342944819032518`. The other 13 `GTE_C_*` constants are
+correctly rounded (checked against 180-digit references). Port: preserved.
+
+**2. `MinHeap::Update` on a removed record corrupts the heap (minor, API hazard).**
+The record `Remove` returned still sits in the pointer array past the live range;
+`Update` sifts it back into the live range and pushes a live record out. Insert
+1, 2, 3; `Remove` (returns 1); `Update(record1, 0)` puts 0 at the root and loses
+the 2 for good (the next two `Remove` calls return 0 and 3). Nothing in the
+header forbids passing a removed record. Port: preserved.
+
+**3. `TypeTraits.h`'s comment lists `QFNumber` as arbitrary precision, but nothing
+specializes the trait (doc).** `QFNumber.h` specializes neither
+`_is_arbitrary_precision_internal` nor `_has_division_operator_internal`, so
+`is_arbitrary_precision<QFNumber<T, N>>` and `has_division_operator<...>` are
+false for every instantiation (measured on MSVC for `QFNumber<double, 1>` and
+`QFNumber<BSRational, 1>`); `IsAPType` dispatch takes the floating-point path.
+Port: had followed the comment (true/true); now follows the code.
+
+Issue [#541](https://github.com/gradientspaceai/gtengine-js/issues/541).
+
 ### `ContAlignedBox.h`, `ContAlignedBox2Arc2.h`, `ContCircle2.h`, `ContCone.h`, `ContPointInPolygon2.h`, `ContSphere3.h`
 
 - `ContCircle2::GetContainer` and `ContSphere3::GetContainer` execute
@@ -1715,6 +1749,15 @@ deprecated `Delaunay2<InputType, ComputeType>::Update` comments out its own
 comments: "inside all four edges" in the 2D `GetContainingTriangle`;
 "constructed by the call to IntrinsicsVector2{T}" in `Delaunay3.h` (~L1021),
 which should read `IntrinsicsVector3<T>`.
+
+**The triangle order depends on heap addresses (minor; C++ oracle of group 29).**
+`TrianglePtrSet` is a `std::unordered_set<Triangle*>`, so the order in which
+`GetIndices` lists triangles, in which `Delaunay2Mesh` numbers them, and the
+default start of `GetContainingTriangle` depend on pointer hashes and are not
+stable between runs. `IntpQuadraticNonuniform2`'s spatial-delta constructor sums
+vertex normals in that order and varies in the last bits from run to run (3 of
+2000 records). The same class as the `ConvexHull3` and `ExtremalQuery3BSP`
+findings. Port: sorted `TriangleKey` order, deterministic.
 
 Issues [#277](https://github.com/gradientspaceai/gtengine-js/issues/277), [#283](https://github.com/gradientspaceai/gtengine-js/issues/283), [#391](https://github.com/gradientspaceai/gtengine-js/issues/391).
 
@@ -2643,7 +2686,8 @@ coordinate `xIndex - ix` keeps its out-of-range value.
 
 **Consequences.** Trilinear and bilinear extrapolate linearly below the minimum;
 above the maximum they accidentally hold the boundary value, because the
-collapsed stencil's blend weights sum to 1. Tricubic and bicubic extrapolate an
+collapsed stencil's blend weights sum to 1 (and `IntpTrilinear3`'s derivatives
+are exactly 0 at `x == xMax`, where the clamped cell collapses to one sample). Tricubic and bicubic extrapolate an
 unbounded cubic on both sides, and far outside the domain even a constant field
 is destroyed by round-off (weights reach about 1e7 and cancellation fails).
 Reproduction: for `f = x + 2y` on `[0,2]^2`, `IntpBilinear2(-3, 1)` returns `-1`
@@ -2677,7 +2721,9 @@ Issue [#69](https://github.com/gradientspaceai/gtengine-js/issues/69). Port: pre
 - `ComputePowers` overruns its buffer for degree 0: `resize(degree+1)` is
   followed by an unconditional `powerDSDT[1] = dsdt;`, and `GetKey` later reads
   `[1]`. Degree 0 is clearly meant to work, since `ComputeBlendingMatrix`
-  special-cases it.
+  special-cases it. On MSVC x64 the overrun is fatal: constructing a degree-0
+  `IntpBSplineUniform` terminates the process with 0xC0000374 (heap corruption),
+  so the C++ oracle of group 29 could record no golden for it.
 - Latent out-of-range read extracting `A`: `Q[k][col]` runs `col = 0..degree`,
   but `Q[k]` comes from `Polynomial1` arithmetic that calls
   `EliminateLeadingZeros`.
@@ -2703,18 +2749,35 @@ corner of the `[0,1]^3` cube, so a degenerate subtriangle always wins the
 fallback and yields `F = 0` with a `1/0` gradient. Preserved, since skipping
 invalid candidates would leave the selector outside its intended 1..6 range.
 
-**3. `IntpVectorField2::operator()`'s `&&` short-circuit leaves a half-written output.**
-A failed x-interpolation skips the y-query, so `output[1]` retains the caller's
-stale value while `output[0]` may already be overwritten. Port: fixed.
+**3. `IntpVectorField2::operator()`'s `&&` short-circuit leaves the output stale.**
+A failed x-interpolation skips the y-query. Correction from the C++ oracle of
+group 29: the x-interpolation fails before it writes, so both components of
+`output` retain the caller's stale values (there is no half-write); `true` is
+still not returned. Port: fixed.
 
-**4-5 (minor).** `ProcessTriangles` ignores `Inscribe`'s failure return, so a
-degenerate triangle silently receives centre `(0, 0)` (Delaunay input contains no
-degenerate triangles). `ComputeCoefficients` and `ComputeCrossEdgeIntersections`
+**4-5 (minor).** `ProcessTriangles` ignores `Inscribe`'s failure return. Corrected
+by the C++ oracle of group 29: `Inscribe` stores the perimeter-weighted point
+`len21*v0 + len20*v1 + len10*v2` before it tests the radius, so a collinear
+triangle keeps that centre and only a zero-perimeter triangle keeps `(0, 0)`
+(Delaunay input contains no degenerate triangles; a duck-typed mesh can). The
+port had returned `(0, 0)` for every degenerate triangle, which moved the
+neighbouring cross-edge points and Bezier coefficients by up to 0.67 scaled; it
+now reproduces `Inscribe`'s centre. `ComputeCoefficients` and `ComputeCrossEdgeIntersections`
 divide by `alpha`/`beta`/`gamma` and `invDet` unguarded; `ComputeCoefficients`'
 comment says "circumscribing circle" where the code uses the inscribed-circle
 centre.
 
-Issue [#337](https://github.com/gradientspaceai/gtengine-js/issues/337).
+**6. `IntpSphere2` and `IntpVectorField2` can never be constructed (result-corrupting;
+found by the C++ oracle of group 29).** Both declare `Delaunay2<T> mDelaunay;`
+followed by the mesh member and initialize `mMesh(mDelaunay)` in the initializer
+list, but the triangulation `mDelaunay(...)` runs only in the constructor body.
+`Delaunay2Mesh<T>`'s constructor asserts `GetDimension() == 2`, and a
+default-constructed `Delaunay2<T>` has dimension 0, so every construction throws
+"Invalid Delaunay dimension." (2000 of 2000 MSVC records for each class; the
+deprecated specializations have the same order and assert). Port: builds the
+triangulation first.
+
+Issues [#337](https://github.com/gradientspaceai/gtengine-js/issues/337), [#542](https://github.com/gradientspaceai/gtengine-js/issues/542).
 
 ### `IntpThinPlateSpline2.h`, `IntpThinPlateSpline3.h`
 

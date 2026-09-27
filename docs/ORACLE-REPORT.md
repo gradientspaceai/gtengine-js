@@ -9,7 +9,7 @@ upstream GTE code compiled with MSVC; the port replays the same inputs. See
 - compiler MSVC 194435215 x64 /O2 /fp:precise
 - records-per-case 20
 
-**1426 cases, 25640 records, 342445 floating-point outputs compared; 99.76% bit-identical to the C++ build. 1225 cases are bit-identical on every output. 144 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
+**1519 cases, 27300 records, 365960 floating-point outputs compared; 99.76% bit-identical to the C++ build. 1306 cases are bit-identical on every output. 154 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
 
 Discrete outputs (booleans, counts, indices) always compare exactly and are not counted
 in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |port|, |C++|)`.
@@ -30,6 +30,7 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | v12-compgeom | 18 | 240 | 5080 | 100.00% | 12 | 0 |  |
 | v13-compgeom | 6 | 80 | 33 | 100.00% | 4 | 0 |  |
 | v14-containment | 70 | 1280 | 4492 | 100.00% | 64 | 0 |  |
+| v15-core | 57 | 1060 | 4168 | 99.90% | 52 | 1.11e-16 | `Functions.libm` |
 | v17-curves | 51 | 1000 | 17627 | 100.00% | 50 | 0 |  |
 | v18-curves | 24 | 460 | 4738 | 99.70% | 18 | 8.35e-14 | `EllipsoidGeodesic.refine.separated` |
 | v19-distance | 43 | 780 | 6976 | 100.00% | 39 | 0 |  |
@@ -38,6 +39,7 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | v22-distance | 28 | 460 | 4448 | 98.25% | 21 | 3.44e-15 | `DistCircle3Circle3.compute.identityRotation` |
 | v23-estimates | 52 | 1020 | 46176 | 99.89% | 43 | 3.96e-16 | `ChebyshevRatio.ratioUsingCosAngle` |
 | v28-interpolation | 31 | 580 | 32713 | 100.00% | 29 | 0 |  |
+| v29-interpolation | 36 | 600 | 19347 | 99.67% | 29 | 4.72e-14 | `IntpThinPlateSpline2.evaluate` |
 | v30-intersection | 61 | 1200 | 1684 | 100.00% | 60 | 0 |  |
 | v31-intersection | 61 | 1100 | 2644 | 99.36% | 54 | 3.70e-14 | `IntrLine3Torus3.find` |
 | v32-intersection | 64 | 1100 | 3683 | 99.54% | 53 | 9.06e-14 | `IntrEllipse2Ellipse2.find` |
@@ -112,6 +114,10 @@ every record.
 | v14-containment | `ContPointInPolyhedron3.contains.convex0QuadDeviation` | 8 of 20 | docs/UPSTREAM-FINDINGS.md ContPointInPolyhedron3.h, issue #343 |
 | v14-containment | `ContPointInPolyhedron3.contains.convex12QuadDeviation` | 7 of 20 | docs/UPSTREAM-FINDINGS.md ContPointInPolyhedron3.h, issue #343 |
 | v14-containment | `ContPointInPolyhedron3.contains.simple1QuadDeviation` | 8 of 20 | docs/UPSTREAM-FINDINGS.md ContPointInPolyhedron3.h, issue #343 |
+| v15-core | `HashCombine.hashValue.msvc` | 20 of 20 | porting-status.json HashCombine.h: 32-bit seeds and the port's own std::hash<double> stand-in; no C++ library's hash values are reproduced |
+| v15-core | `Array2.owned.zeroInit` | 20 of 20 | src/Array2.ts constructor NOTE: the owned storage of a generic T is not value-initialized; upstream std::vector<double> reads 0 |
+| v15-core | `MeshStaticManifold2.adjacentTriangles` | 20 of 20 | #66 |
+| v15-core | `MeshStaticManifold3.adjacentTetrahedra` | 20 of 20 | #66 |
 | v17-curves | `TCBSplineCurve.isConstructed` | 20 of 20 | issue #182: TCBSplineCurve never sets mConstructed |
 | v18-curves | `NaturalSplineCurve.closed.wrapRow.deviation` | 20 of 20 | issue #295: NaturalSplineCurve::CreateClosed writes the wrap-around row with three plain assignments whose columns coincide for numPoints 2 and 3 |
 | v19-distance | `DistRaySegment.compute.3d.deviation` | 20 of 20 | UPSTREAM-FINDINGS DistRaySegment.h, issue #126 |
@@ -136,6 +142,12 @@ every record.
 | v23-estimates | `Exp2Estimate.estimateRR.hugeArgument` | 20 of 20 | v23 report: Exp2EstimateRR int32_t conversion of floor(x) >= 2^31 |
 | v28-interpolation | `IntpAkimaUniform2.evaluate.maxBoundary` | 18 of 20 | #58: max-boundary FXY stencils have the wrong sign |
 | v28-interpolation | `IntpAkimaUniform3.evaluate.maxBoundary` | 20 of 20 | #58: max-boundary mixed-derivative stencils have the wrong sign |
+| v29-interpolation | `IntpLinearNonuniform2.deviation.getIndices` | 17 of 20 | #135 (IntpLinearNonuniform2 discards the GetIndices failure flag) |
+| v29-interpolation | `IntpLinearNonuniform3.deviation.getIndices` | 19 of 20 | #135 (IntpLinearNonuniform3 discards the GetIndices failure flag) |
+| v29-interpolation | `IntpQuadraticNonuniform2.deviation.meshFlags` | 19 of 20 | #337 (IntpQuadraticNonuniform2 discards every mesh-accessor failure flag) |
+| v29-interpolation | `IntpSphere2.deviation.constructorThrows` | 20 of 20 | v29 finding: IntpSphere2<T> constructs Delaunay2Mesh<T> before the triangulation |
+| v29-interpolation | `IntpVectorField2.deviation.constructorThrows` | 20 of 20 | v29 finding: IntpVectorField2<T> constructs Delaunay2Mesh<T> before the triangulation |
+| v29-interpolation | `IntpVectorField2.deviation.staleOutput` | 20 of 20 | #337 (IntpVectorField2 leaves the caller output stale on failure) |
 | v30-intersection | `IntrIntervals.findDynamic.leftApproachDeviation` | 20 of 20 | UPSTREAM-FINDINGS IntrIntervals.h dynamic FIQuery (#62) |
 | v31-intersection | `IntrOrientedBox2Sector2.test.clipDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrOrientedBox2Sector2.h boundary clipping; issue #200 |
 | v31-intersection | `IntrHalfspace3Cylinder3.test.rootDeviation` | 20 of 20 | docs/UPSTREAM-FINDINGS.md IntrHalfspace3Cylinder3.h root computation; issue #197 |

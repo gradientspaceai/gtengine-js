@@ -358,6 +358,17 @@ of the seed), which is not value-safe for -0 despite the documented
 the `addsd`. When the sign of zero can reach an output, call upstream through a
 `__declspec(noinline)` wrapper and hold the zero components to bit identity
 (v23: regenerating with the wrappers changed exactly 11 outputs, all -0 to +0).
+MSVC /O2 (also with /fp:strict) compiles `gte::clamp`'s `x >= xmax ? xmax : x`
+to `minsd`, which returns the wrong zero on a signed-zero tie
+(`clamp(+0, -2, -0)` gives +0 where the source says -0), and a noinline wrapper
+does not help: include `Functions.h` between `#pragma optimize("", off)` and
+`#pragma optimize("", on)` when that tie can reach an output (v15; regenerating
+with and without the pragma changed exactly the 5 signed-zero clamp records).
+Other families' goldens were generated at /O2 and carry that behaviour where the
+tie is reachable (the double-routed `clamp` overloads of BSNumber/BSRational can
+reach it; `DistLine2AlignedBox2` cannot). And `io.reals()` stores into a JS
+double array, on which V8 quiets signaling NaNs; read NaN-payload inputs one at a
+time with `io.real()` (v15, `HashCombine`).
 
 A group that finds no port defect states its sensitivity: recompute each
 suspect accumulation in the plausible alternative grouping from the recorded
