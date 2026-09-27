@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { InscribedFixedAspectRectInQuad } from '../src/InscribedFixedAspectRectInQuad.js';
 import type { InscribedFixedAspectRectInQuadResult } from '../src/InscribedFixedAspectRectInQuad.js';
-import { Vector } from '../src/Vector.js';
+import { Vector, dot } from '../src/Vector.js';
+import { cross as cross3 } from '../src/Vector3.js';
+import { GTE_C_INV_HALF_PI, GTE_C_TWO_PI } from '../src/Constants.js';
 import { check, expectClose, fc, scaled } from './helpers/arbitraries.js';
 
 const v2 = (x: number, y: number): Vector => Vector.fromArray([x, y]);
@@ -338,7 +340,7 @@ const convexQuad = fc.record({
         return v2(radii[k] * Math.cos(t) + tx, radii[k] * Math.sin(t) + ty);
     });
     return { quad, aspectRatio };
-}).filter(({ quad }) => {
+}).filter(({ quad, aspectRatio }) => {
     // Strictly convex, counterclockwise, and not too thin (the reference LP
     // and the algorithm both lose accuracy on slivers).
     for (let i = 0; i < 4; ++i) {
@@ -349,7 +351,7 @@ const convexQuad = fc.record({
     }
     // Skip the configurations whose constraint planes are coplanar; that
     // limitation is pinned by its own test below.
-    return isSolvableByUpstream(quad);
+    return isSolvableByUpstream(quad, aspectRatio);
 });
 
 // Run the query, tolerating the two configurations the upstream solver cannot
@@ -375,7 +377,7 @@ function executeOrDegenerate(quad: Vector[], aspectRatio: number):
 //      round-off can report it as empty for both pairings ("Unexpected
 //      interval intersection type").
 function degenerateForUpstream(quad: Vector[], r: number): boolean {
-    if (!isSolvableByUpstream(quad)) { return true; }
+    if (!isSolvableByUpstream(quad, r)) { return true; }
     const { width, origins } = referenceOptimum(quad, r);
     if (!Number.isFinite(width) || origins.length === 0) { return true; }
     const x = [origins[0][0], origins[0][1], width];
@@ -412,13 +414,46 @@ function upstreamConstraints(quad: Vector[], r: number): LinearConstraint[] {
 // quadrant boundary, so a translation or a scaling can round the normal to the
 // other side and change the answer of this predicate; callers re-test the
 // transformed quad.
-function isSolvableByUpstream(quad: Vector[]): boolean {
+//
+// The quadrant test is not the whole story: the case planes of adjacent
+// quadrants meet along a line (j = 2 and j = 3 share (0, y, y/r), for
+// example), so an edge normal whose x or y component is zero up to round-off
+// lies in two case planes at once. The constraint it produces is then
+// coplanar with the two constraints of the neighbouring quadrant even though
+// the quadrant indices differ, and the alpha of the first pairing evaluates
+// to exactly zero (CI seed -692292652: edge <(5 deg), (175 deg)> at equal
+// radii has n0 = -8.9e-16, and its j = 3 normal (n0, n1, n1/r) rounds to the
+// j = 2 form). So the predicate also evaluates the alphas exactly as the
+// solver does, with the same cross and dot, and reports the quad unsolvable
+// when one vanishes in either pairing.
+function isSolvableByUpstream(quad: Vector[], r: number): boolean {
     const q = normalQuadrants(quad);
-    return !((q[0] === q[1] && q[1] === q[2]) || (q[0] === q[2] && q[2] === q[3]));
+    if ((q[0] === q[1] && q[1] === q[2]) || (q[0] === q[2] && q[2] === q[3])) {
+        return false;
+    }
+    const c = upstreamConstraints(quad, r).map(constraint =>
+        Vector.fromArray(constraint.a));
+    return !alphaVanishes(c, 0, 2, 1, 3) && !alphaVanishes(c, 1, 3, 0, 2);
 }
 
-// The quadrant index floor(2*angle/pi) of each inner edge normal, the value
-// upstream uses to pick the binding rectangle corner for that edge.
+// Whether the solver's checks on the line of constraint planes p0 and p1
+// fail: the planes are parallel, or the alpha of constraint k0 or k1 is
+// exactly zero. Same cross and dot as the solver, so the round-off is the
+// solver's round-off.
+function alphaVanishes(c: Vector[], p0: number, p1: number,
+    k0: number, k1: number): boolean {
+    const direction = cross3(c[p0], c[p1]);
+    if (direction.values[0] === 0 && direction.values[1] === 0
+        && direction.values[2] === 0) {
+        return true;
+    }
+    return dot(c[k0], direction) === 0 || dot(c[k1], direction) === 0;
+}
+
+// The quadrant index floor(angle * GTE_C_INV_HALF_PI) of each inner edge
+// normal, the value upstream uses to pick the binding rectangle corner for
+// that edge, computed with the solver's constants and operation order so that
+// a normal on a quadrant boundary lands on the same side here.
 function normalQuadrants(quad: Vector[]): number[] {
     const quadrants: number[] = [];
     for (let i = 0; i < 4; ++i) {
@@ -427,8 +462,8 @@ function normalQuadrants(quad: Vector[]): number[] {
         const n0 = V.values[1] - W.values[1];
         const n1 = W.values[0] - V.values[0];
         let angle = Math.atan2(n1, n0);
-        if (angle < 0) { angle += 2 * Math.PI; }
-        quadrants.push(Math.floor((2 * angle) / Math.PI) + 0);   // avoid -0
+        if (angle < 0) { angle += GTE_C_TWO_PI; }
+        quadrants.push(Math.floor(GTE_C_INV_HALF_PI * angle) + 0);   // avoid -0
     }
     return quadrants;
 }
@@ -583,7 +618,7 @@ describe('InscribedFixedAspectRectInQuad verification', () => {
         }
         // The constraint planes are independent, so this is not the coplanar
         // failure mode pinned above.
-        expect(isSolvableByUpstream(quad)).toBe(true);
+        expect(isSolvableByUpstream(quad, 0.46875)).toBe(true);
         expect(() => InscribedFixedAspectRectInQuad.execute(quad, 0.46875))
             .toThrow('Unexpected interval intersection type.');
         // The linear program is feasible and bounded: the optimum exists and

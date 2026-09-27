@@ -250,10 +250,23 @@ export function expectVectorClose(a: Vector, b: Vector, abs = 1e-9, rel = 1e-9):
     for (let i = 0; i < a.size; ++i) { expectClose(a.get(i), b.get(i), abs, rel); }
 }
 
-/** Run a fast-check property with the project defaults (deterministic count). */
+/**
+ * Run a fast-check property with the project defaults (deterministic count).
+ * To replay a failure reported by CI, set FC_SEED (and optionally FC_PATH) in
+ * the environment: `FC_SEED=-692292652 npx vitest run test/X.test.ts`. The
+ * seed reproduces the run; the path replays the shrunk counterexample only
+ * while the arbitrary is unchanged.
+ */
 export function check<T>(arb: fc.Arbitrary<T>, predicate: (t: T) => void | boolean,
     numRuns = 200): void {
-    fc.assert(fc.property(arb, predicate), { numRuns });
+    const params: fc.Parameters<[T]> = { numRuns };
+    const seed = process.env['FC_SEED'];
+    if (seed !== undefined && seed !== '') {
+        params.seed = Number(seed);
+        const path = process.env['FC_PATH'];
+        if (path !== undefined && path !== '') { params.path = path; }
+    }
+    fc.assert(fc.property(arb, predicate), params);
 }
 
 export { fc };
