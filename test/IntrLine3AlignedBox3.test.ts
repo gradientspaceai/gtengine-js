@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { AlignedBox } from '../src/AlignedBox.js';
 import { Line } from '../src/Line.js';
+import { DistLine3AlignedBox3 } from '../src/DistLine3AlignedBox3.js';
 import { Vector, normalize } from '../src/Vector.js';
 import {
     IntrLine3AlignedBox3TI,
@@ -238,7 +239,33 @@ describe('IntrLine3AlignedBox3 verification', () => {
 
     it('TI and FI agree on intersect', () => {
         check(fc.tuple(lineArb, boxArb), ([l, b]) => {
-            expect(fi.find(l, b).intersect).toBe(ti.test(l, b).intersect);
+            const a = fi.find(l, b);
+            // The two queries use different arithmetic (separating axes
+            // against a clip), so a line within round-off of grazing the box
+            // can legitimately get different answers: CI seed 94143410 had
+            // the line y = x and a box whose corner (4 - 3e-15, 4 - 1e-15)
+            // misses the line by 2e-15. Skip the grazing configurations,
+            // measured as the interior margin of the chord midpoint when FI
+            // reports a hit and as the line-box distance when it does not.
+            let scale = 1;
+            for (let i = 0; i < 3; ++i) {
+                scale += Math.abs(b.min.values[i]) + Math.abs(b.max.values[i]);
+            }
+            let margin: number;
+            if (a.intersect) {
+                const tMid = 0.5 * (a.parameter[0] + a.parameter[1]);
+                margin = Infinity;
+                for (let i = 0; i < 3; ++i) {
+                    const m = l.origin.values[i] + tMid * l.direction.values[i];
+                    margin = Math.min(margin, m - b.min.values[i], b.max.values[i] - m);
+                }
+            } else {
+                margin = new DistLine3AlignedBox3().compute(l, b).distance;
+            }
+            if (margin <= 1e-6 * scale) {
+                return;
+            }
+            expect(ti.test(l, b).intersect).toBe(a.intersect);
         });
     });
 
