@@ -1,7 +1,7 @@
 ---
 name: verifier
 description: Independently re-verifies a group of ported gtengine-js files against upstream GTE headers, adds fast-check property tests, fixes port defects, opens one PR per group per VERIFYING.md.
-model: opus
+model: claude-opus-5-5
 effort: high
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: porter
 description: Ports batches of GTE Mathematics C++ headers to TypeScript per PORTING.md. Used by the orchestrator for all port-batch work.
-model: opus
+model: claude-opus-5-5
 effort: medium
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: oracle
 description: Differentially tests one verify group of gtengine-js against the upstream GTE C++ code compiled with MSVC, per ORACLE.md. Writes C++ oracle cases and TypeScript replays, root-causes every disagreement, fixes port defects, pushes one branch per group.
-model: opus
+model: claude-opus-5-5
 effort: high
 ---
 
