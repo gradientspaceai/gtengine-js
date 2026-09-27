@@ -9,7 +9,7 @@ upstream GTE code compiled with MSVC; the port replays the same inputs. See
 - compiler MSVC 194435215 x64 /O2 /fp:precise
 - records-per-case 20
 
-**1586 cases, 28500 records, 445857 floating-point outputs compared; 99.68% bit-identical to the C++ build. 1364 cases are bit-identical on every output. 161 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
+**1611 cases, 28960 records, 450966 floating-point outputs compared; 99.68% bit-identical to the C++ build. 1385 cases are bit-identical on every output. 163 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
 
 Discrete outputs (booleans, counts, indices) always compare exactly and are not counted
 in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |port|, |C++|)`.
@@ -40,6 +40,7 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | v22-distance | 28 | 460 | 4448 | 98.25% | 21 | 3.44e-15 | `DistCircle3Circle3.compute.identityRotation` |
 | v23-estimates | 52 | 1020 | 46176 | 99.89% | 43 | 3.96e-16 | `ChebyshevRatio.ratioUsingCosAngle` |
 | v24-imaging | 33 | 620 | 9029 | 100.00% | 31 | 0 |  |
+| v25-imaging | 25 | 460 | 5109 | 99.43% | 21 | 2.22e-16 | `GradientAnisotropic3.update` |
 | v28-interpolation | 31 | 580 | 32713 | 100.00% | 29 | 0 |  |
 | v29-interpolation | 36 | 600 | 19347 | 99.67% | 29 | 4.72e-14 | `IntpThinPlateSpline2.evaluate` |
 | v30-intersection | 61 | 1200 | 1684 | 100.00% | 60 | 0 |  |
@@ -149,6 +150,8 @@ every record.
 | v23-estimates | `Exp2Estimate.estimateRR.hugeArgument` | 20 of 20 | v23 report: Exp2EstimateRR int32_t conversion of floor(x) >= 2^31 |
 | v24-imaging | `Image2.neighborhoods.wrap` | 20 of 20 | #64 (UPSTREAM-FINDINGS, Image2.h/Image3.h size_t wrap) |
 | v24-imaging | `AdaptiveSkeletonClimbing2.extract.saddlePairing` | 20 of 20 | v24 report, AdaptiveSkeletonClimbing2 saddle pairing |
+| v25-imaging | `Image3.neighborhoods.wrap` | 20 of 20 | #64 (size_t neighbour coordinates wrap at the xmin/ymin/zmin faces) |
+| v25-imaging | `FastMarch3.faces` | 20 of 20 | #121 (upstream leaves the six boundary faces unmarked) |
 | v28-interpolation | `IntpAkimaUniform2.evaluate.maxBoundary` | 18 of 20 | #58: max-boundary FXY stencils have the wrong sign |
 | v28-interpolation | `IntpAkimaUniform3.evaluate.maxBoundary` | 20 of 20 | #58: max-boundary mixed-derivative stencils have the wrong sign |
 | v29-interpolation | `IntpLinearNonuniform2.deviation.getIndices` | 17 of 20 | #135 (IntpLinearNonuniform2 discards the GetIndices failure flag) |
