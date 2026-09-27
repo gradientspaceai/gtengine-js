@@ -71,14 +71,14 @@ Nothing here has been reported upstream before; this document is the report.
 
 ## Counts
 
-- **511 distinct findings** across **167** tracked issues (one issue
+- **512 distinct findings** across **167** tracked issues (one issue
   frequently holds several findings in related files).
 - By severity: **248 result-corrupting**, **15 wrong but
-  recoverable**, **175 minor**, **73 documentation**.
+  recoverable**, **176 minor**, **73 documentation**.
 - By port status: **259 fixed or corrected in the port** (of which 157 are code
   fixes with regression tests, 22 are added guards or asserts where upstream has
   undefined behaviour, 64 are comment corrections, 11 are dead-code removals and
-  5 are documented deliberate deviations), **242 preserved deliberately**, and
+  5 are documented deliberate deviations), **243 preserved deliberately**, and
   **10 not ported** (the `GTE_USE_VEC_MAT` branches, dead code that cannot
   compile, and two arbitrary-precision paths).
 - **288 distinct upstream headers** are implicated.
@@ -213,6 +213,7 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `ConvertCoordinates.h` | 3D example comment | a 4-tuple used as a 3D basis vector; the snippet declares `cs`/`sn` then uses `c`/`s` | doc | corrected | [#160](https://github.com/gradientspaceai/gtengine-js/issues/160) |
 | `ConvexHull2.h` | `operator()` | indices are sorted by a comparator on the points, so which index of a duplicated hull vertex survives `std::unique` is unspecified (MSVC is stable only for n <= 32) | minor | preserved | [#277](https://github.com/gradientspaceai/gtengine-js/issues/277) |
 | `ConvexHull2.h` | `GetTangent` | silently returns whatever indices it last held if the bounding loop expires | RC | preserved | [#277](https://github.com/gradientspaceai/gtengine-js/issues/277) |
+| `ConvexHull3.h` | `operator()` | indices are sorted by a comparator on the points, so which index of a duplicated hull vertex survives `std::unique` is unspecified (MSVC is stable only for n <= 32); 3D sibling of the `ConvexHull2.h` note | minor | preserved | [#325](https://github.com/gradientspaceai/gtengine-js/issues/325) |
 | `ConvexHull3.h` | `GetHull()` comment | claims `E = T/2` satisfies Euler's formula; for a closed triangle mesh `E = 3T/2` | doc | corrected | [#325](https://github.com/gradientspaceai/gtengine-js/issues/325) |
 | `ConvexHull3.h` | `SelectSplit` | binds scratch-pool slots by const reference and then mutates them | minor | n/a | [#325](https://github.com/gradientspaceai/gtengine-js/issues/325) |
 | `ConvexPolyhedron3.h` | constructor | validates `indices.size() >= 12` but never `% 3 == 0`, unlike `Polyhedron3.h` | minor | preserved | [#175](https://github.com/gradientspaceai/gtengine-js/issues/175) |
@@ -1271,7 +1272,12 @@ Only the substituted values are asserted, so an out-of-range input index is
 undefined behaviour the assert cannot catch. The deprecated specialization has
 the mirror-image flaw: it checks the raw indices but never substitutes
 duplicates, so a duplicate vertex index trips "Failed to find vertex in graph."
-Port: raw indices validated first.
+After a dimension-0/1 `operator()`, `mDuplicates` is empty, so `Insert`
+dereferences unallocated memory (a null pointer on a fresh functor). The C++
+oracle of group 11 made the read deterministic by first triangulating a set in
+which point `j` repeats point `r`, then a shorter prefix: `mDuplicates` keeps the
+stale element `[j] = r` and `Insert({j, s})` silently inserts the unrelated edge
+`<r, s>`. Port: raw indices validated first, and dimension 2 asserted first.
 
 **3. `ConstrainedDelaunay2<T>::Retriangulate` is not Delaunay inside the strip.**
 The strip is filled by a minimum-pseudosquared-distance bisection rather than
@@ -1287,6 +1293,19 @@ hull: `8 - 18 + 12 = 2`, not `8 - 6 + 12 = 14`).
 scratch pool and then mutates those pool slots inside the candidate loop, relying
 on the references to observe the mutation. Correct, but invisible at the call
 site.
+
+**6. `ConvexHull3::operator()` names a duplicated hull vertex by an unspecified
+index (minor).** The 3D sibling of the `ConvexHull2` note under #277: the index
+array is sorted by `lessThanPoints` and deduplicated by `std::unique` with
+`equalPoints`, so repeated points are equivalent and which index survives into
+`GetVertices()`/`GetHull()` is unspecified. Invisible at 32 points or fewer
+(MSVC's insertion sort is stable there); on 13 of 20 lattice sets of 33-60
+points in [-2,2]^3 MSVC reports different indices from a stable sort while the
+vertices and faces are identical by coordinates (57 points: vertex (1,2,1) is
+index 51 under MSVC, index 1 under a stable sort). `MinimumAreaBox2::GetHull()`
+inherits the `ConvexHull2` version (11 of 20 records at 33-60 points). Found by
+the C++ oracle of group 11. Port: stable sort, preserved; the oracle keeps its
+inputs at 32 points or fewer.
 
 Issue [#325](https://github.com/gradientspaceai/gtengine-js/issues/325).
 
