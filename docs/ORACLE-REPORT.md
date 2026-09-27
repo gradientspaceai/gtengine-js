@@ -9,7 +9,7 @@ upstream GTE code compiled with MSVC; the port replays the same inputs. See
 - compiler MSVC 194435215 x64 /O2 /fp:precise
 - records-per-case 20
 
-**1302 cases, 23300 records, 241402 floating-point outputs compared; 99.70% bit-identical to the C++ build. 1117 cases are bit-identical on every output. 137 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
+**1343 cases, 24040 records, 263556 floating-point outputs compared; 99.71% bit-identical to the C++ build. 1153 cases are bit-identical on every output. 141 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
 
 Discrete outputs (booleans, counts, indices) always compare exactly and are not counted
 in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |port|, |C++|)`.
@@ -22,6 +22,7 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | v03-approximation | 75 | 1400 | 10644 | 100.00% | 70 | 0 |  |
 | v04-approximation | 36 | 660 | 6632 | 94.99% | 24 | 4.61e-13 | `ApprTorus3.gaussNewton.initialGuess` |
 | v05-ap | 35 | 680 | 21654 | 99.91% | 33 | 2.11e-16 | `BSNumber.std.libm` |
+| v06-ap | 41 | 740 | 22154 | 99.88% | 36 | 2.16e-16 | `BSRational.std.libm` |
 | v08-compgeom | 41 | 740 | 6472 | 100.00% | 37 | 0 |  |
 | v09-compgeom | 16 | 220 | 640 | 100.00% | 11 | 0 |  |
 | v10-compgeom | 18 | 280 | 3532 | 100.00% | 14 | 0 |  |
@@ -70,6 +71,10 @@ every record.
 | v04-approximation | `ApprCone3.levenbergMarquardt.staleResidual.deviation` | 14 of 20 | issue #261: LevenbergMarquardtMinimizer::DoIteration builds -J^T*F from the residual at the previously rejected candidate |
 | v04-approximation | `ApprCone3EllipseAndPoints.fit.deviation` | 9 of 20 | issue #349: ComputeCone divides by the ellipse extent a without validating it |
 | v05-ap | `BSNumber.construct.string.singleChar` | 20 of 20 | #95 (ConvertToInteger validates one-character strings) |
+| v06-ap | `BSRational.construct.bsnumber.zeroNumerator` | 20 of 20 | #168 (UPSTREAM-FINDINGS BSRational.h item 1) |
+| v06-ap | `BSRational.construct.string.zero` | 20 of 20 | #168 (UPSTREAM-FINDINGS BSRational.h item 2) |
+| v06-ap | `BSRational.construct.string.singleChar` | 20 of 20 | #95 (UPSTREAM-FINDINGS BSNumber.h) |
+| v06-ap | `APConversion.estimateAmB.bisectionExhausted` | 20 of 20 | #280 (UPSTREAM-FINDINGS APConversion.h item 1) |
 | v08-compgeom | `MinimumVolumeBox3FloatingPoint.compute.coplanar` | 12 of 20 | #352 (dimension-2 Newell normal loop drops the wrap-around term) |
 | v08-compgeom | `MinimumVolumeBox3FloatingPoint.compute.nonContaining` | 14 of 20 | #405 (ComputeVolume axis minima) and #426 (GetExtreme plateau) |
 | v08-compgeom | `MinimumVolumeBox3Rational.compute.variableT` | 6 of 20 | #355 (MinimizerVariableT rounds its exact parameters to double) |

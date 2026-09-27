@@ -71,19 +71,19 @@ Nothing here has been reported upstream before; this document is the report.
 
 ## Counts
 
-- **519 distinct findings** across **167** tracked issues (one issue
+- **522 distinct findings** across **167** tracked issues (one issue
   frequently holds several findings in related files).
-- By severity: **251 result-corrupting**, **16 wrong but
+- By severity: **254 result-corrupting**, **16 wrong but
   recoverable**, **179 minor**, **73 documentation**.
 - By port status: **261 fixed or corrected in the port** (of which 159 are code
   fixes with regression tests, 22 are added guards or asserts where upstream has
   undefined behaviour, 64 are comment corrections, 11 are dead-code removals and
-  5 are documented deliberate deviations), **248 preserved deliberately**, and
+  5 are documented deliberate deviations), **251 preserved deliberately**, and
   **10 not ported** (the `GTE_USE_VEC_MAT` branches, dead code that cannot
   compile, and two arbitrary-precision paths).
 - **288 distinct upstream headers** are implicated.
 
-Nine claims made during the porting pass were later corrected, sharpened or
+Eleven claims made during the porting pass were later corrected, sharpened or
 withdrawn by the verification pass; they are listed in
 [Claims withdrawn or corrected](#claims-withdrawn-or-corrected) and the
 corrected form is what appears above.
@@ -101,11 +101,12 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `AdaptiveSkeletonClimbing3.h` | `GetVertices` | narrows `Real` box corners through `static_cast<float>` | minor | preserved | [#194](https://github.com/gradientspaceai/gtengine-js/issues/194) |
 | `AlignedBox.h` | `GetVertices` comment | typos "whern", `vertex[i][d = max[d]` | doc | corrected | [#78](https://github.com/gradientspaceai/gtengine-js/issues/78) |
 | `AlignedBoxBV.h` | `GetSplittingAxis` | dead store `maxExtent = extents[2]` | minor | dropped | [#268](https://github.com/gradientspaceai/gtengine-js/issues/268) |
-| `APConversion.h` | `EstimateAmB` | `tMinSqr`/`tMaxSqr` are not recomputed in the bisection rounding branch, so the Newton bound on exhaustion uses a stale square | RC | fixed | [#280](https://github.com/gradientspaceai/gtengine-js/issues/280) |
+| `APConversion.h` | `EstimateAmB` | when the bisection runs out of iterations, Newton starts outside its basin (and, in the rounding branch, with a stale square) and the returned bracket can miss `a - b` | RC | fixed | [#280](https://github.com/gradientspaceai/gtengine-js/issues/280) |
 | `APConversion.h` | `EstimateAmB` | undocumented `aSqr >= bSqr` precondition; otherwise the bracket is inverted | doc | preserved | [#280](https://github.com/gradientspaceai/gtengine-js/issues/280) |
 | `APConversion.h` | `EstimateSqrt` | `EstimateSqrt(0)` returns `[0, 5e-324]`, violating the documented strict lower bound; no negative-input guard | minor | preserved | [#280](https://github.com/gradientspaceai/gtengine-js/issues/280) |
 | `APConversion.h` | header comment | `r^2 - 7*r^2 + 1 = 0` should read `r^2 - 7*r + 1 = 0` | doc | corrected | [#280](https://github.com/gradientspaceai/gtengine-js/issues/280) |
 | `APInterval.h` | `SetSign(+-2)` sentinels | the infinity sentinels violate the `BSNumber` invariant and compare smaller than finite values of the same sign | RC | preserved | [#280](https://github.com/gradientspaceai/gtengine-js/issues/280) |
+| `APInterval.h` | sentinel arithmetic | the infinite sentinels have an empty word array and `UIntegerALU32::Mul` reads word 0 of its left operand, so `Reals() * x` and the division of an infinite interval segfault | RC | n/a | [#280](https://github.com/gradientspaceai/gtengine-js/issues/280) |
 | `APInterval.h` | `operator/` | divisor `[0,0]` throws instead of returning the documented `Reals()` | WR | preserved | [#280](https://github.com/gradientspaceai/gtengine-js/issues/280) |
 | `APInterval.h` | `QFN2` | dead alias | minor | n/a | [#280](https://github.com/gradientspaceai/gtengine-js/issues/280) |
 | `ApprCircle2.h`, `ApprSphere3.h` | `FitUsingLengths` comment | the `initialCenterIsAverage` description is inverted relative to the code | doc | corrected | [#92](https://github.com/gradientspaceai/gtengine-js/issues/92) |
@@ -164,13 +165,15 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `BSNumber.h` | `BSNumber(int32_t)`, `BSNumber(int64_t)` | evaluate `-number`, signed overflow for `INT32_MIN` / `INT64_MIN` | minor | n/a | [#95](https://github.com/gradientspaceai/gtengine-js/issues/95) |
 | `BSNumber.h` | `ConvertToInteger` | the format asserts sit inside `if (number.size() > 1)`, so one-character garbage is accepted | RC | fixed | [#95](https://github.com/gradientspaceai/gtengine-js/issues/95) |
 | `BSPPolygon2.h` | `operator&`, `operator-` | `Finalize()` asserts a nonempty edge list, so an empty intersection throws | WR | preserved | [#169](https://github.com/gradientspaceai/gtengine-js/issues/169) |
+| `BSPPolygon2.h` | `operator&`, `operator\|`, `operator-`, `operator^` | intersection points are recomputed separately along each split edge, so one point becomes several nearly equal doubles joined by edges shorter than 1e-15 and the rebuilt tree misclassifies 0.7-3.2% of far query points | RC | preserved | [#169](https://github.com/gradientspaceai/gtengine-js/issues/169) |
 | `BSPPolygon2.h` | `SplitEdge` | `std::map::insert` is a silent no-op on an existing key, leaving an edge index unmapped | RC | preserved | [#169](https://github.com/gradientspaceai/gtengine-js/issues/169) |
 | `BSPPolygon2.h`, `BSPTree2.h` | class comments | the two point-classification sign conventions contradict; `BSPTree2`'s is inverted | doc | corrected | [#388](https://github.com/gradientspaceai/gtengine-js/issues/388) |
 | `BSPrecision.h` | `operator+` | pairs one operand's `maxExponent` with the other's `minExponent`; under-estimates `maxBits` for mixed sets and is asymmetric | RC | preserved | [#366](https://github.com/gradientspaceai/gtengine-js/issues/366) |
-| `BSplineReduction.h` | Gram matrix | `Integration::Romberg` is applied across knots, giving ~1e-3 entry error | RC | preserved | [#169](https://github.com/gradientspaceai/gtengine-js/issues/169) |
+| `BSplineReduction.h` | Gram matrix | `Integration::Romberg` is applied across knots, giving ~1e-3 entry error; the controls are off by up to 0.137 of the control scale against the exact L2 projection | RC | preserved | [#169](https://github.com/gradientspaceai/gtengine-js/issues/169) |
 | `BSplineSurface.h` | header comment (L10-18) | stale copy-pasted comment describing `BSplineReduction` | doc | dropped | [#96](https://github.com/gradientspaceai/gtengine-js/issues/96) |
-| `BSRational.h` | two-`BSNumber` constructor | the unconditional exponent adjustment produces an invalid zero encoding | RC | fixed | [#168](https://github.com/gradientspaceai/gtengine-js/issues/168) |
-| `BSRational.h` | string constructor | unconditional `SetSign(sign)` yields an invalid negative zero for `-0.0` | RC | fixed | [#168](https://github.com/gradientspaceai/gtengine-js/issues/168) |
+| `BSRational.h` | `operator double/float`, `Convert(r, mode, ...)` | round to 53/24 bits in the requested mode, then round again to nearest onto the subnormal grid or to infinity: 1 ulp off in the subnormal range, directed modes return the wrong side (`FE_UPWARD` of a tiny positive gives 0, `FE_TOWARDZERO` can exceed x, `FE_DOWNWARD` past the largest finite gives +inf) | RC | preserved | [#168](https://github.com/gradientspaceai/gtengine-js/issues/168) |
+| `BSRational.h` | two-`BSNumber` constructor | the unconditional exponent adjustment produces an invalid zero encoding (visible only through `GetNumerator`; the value compares equal to zero; not reachable from the scalar-pair constructors) | RC | fixed | [#168](https://github.com/gradientspaceai/gtengine-js/issues/168) |
+| `BSRational.h` | string constructor | unconditional `SetSign(sign)` gives every zero-valued string (`"0"`, `"0.0"`, `".0"`, `"+0"`, `"-0.0"`) an invalid signed zero | RC | fixed | [#168](https://github.com/gradientspaceai/gtengine-js/issues/168) |
 | `BSRational.h` | string constructor | the `x.` branch is unreachable | minor | dropped | [#168](https://github.com/gradientspaceai/gtengine-js/issues/168) |
 | `BVTree.h` | `SplitPoints` | the tree depends on the unspecified element order of `std::nth_element`; on tied projections even the left/right membership is unspecified (MSVC is stable only for n <= 32) | minor | preserved | [#527](https://github.com/gradientspaceai/gtengine-js/issues/527) |
 | `BVTree.h` | `GetLeafIndices` | a leaf is never tested against its own bounding volume, only its parent's | minor | preserved | [#103](https://github.com/gradientspaceai/gtengine-js/issues/103) |
@@ -673,6 +676,19 @@ internally consistent path.
 **Suggested fix.** Recompute `tMinSqr`/`tMaxSqr` wherever `tMin`/`tMax` are
 assigned in that branch. Port: fixed.
 
+**Correction (C++ oracle of group 6).** The stale square is a symptom, not the
+cause. Each block bisects until `t` lies in the basin in which Newton's method
+converges monotonically to `a - b`; when the bisection runs out of iterations
+upstream still runs Newton, now from outside the basin, and can return a bracket
+that misses `a - b` with no stale square involved: `aSqr = 701408733`,
+`bSqr = 102334155`, precision 100, maxIterations 1 returns `[t, t]` with
+`t > a - b` (3 of 1826 ordinary oracle records). Recomputing the square leaves
+755 of 2000 exhausted-bisection brackets wrong. The bisection bracket itself is
+always valid. Port: runs upstream's code unchanged and returns the bisection
+bracket exactly when the bisection ran out, `aSqr >= bSqr`, and the returned
+bracket provably misses `a - b` (exact rational comparison); after that every
+bracket of 2000 + 1826 records is valid.
+
 **2-4 (minor/doc, preserved).** `EstimateAmB` has an undocumented
 `aSqr >= bSqr` precondition (otherwise the zero-clamp produces the inverted
 bracket `[max, min]`); `EstimateSqrt(0)` returns `[0, 5e-324]`, violating the
@@ -1049,7 +1065,18 @@ classification as `(-1 inside, 0 on polygon, +1 outside)`; `BSPTree2::PointLocat
 states `(-1 outside, 0 on, +1 inside)`. With the negative-side interior
 convention the class comment is correct and the `BSPTree2` comment is inverted.
 
-Issues [#169](https://github.com/gradientspaceai/gtengine-js/issues/169), [#388](https://github.com/gradientspaceai/gtengine-js/issues/388). Port: preserved (items 1-2), documentation corrected (item 3).
+**4. The Boolean results misclassify far points (found by the C++ oracle of
+group 6).** Intersection points are recomputed separately along each split edge,
+so the same point becomes several nearly equal doubles joined by edges shorter
+than 1e-15, and the BSP tree rebuilt from the result splits the plane wrongly.
+Example: P the diamond (-3,-3),(0,0),(-3,3),(-6,0), Q the hexagon
+(-9,-6),(-3,-2),(-1,2),(-7,6),(-9,6),(-7,4): `P & Q` has the vertices
+(-3.6,-2.4) and (-3.5999999999999996,-2.4000000000000004), and `PointLocation`
+reports (100,0) inside. Over 2000 records per operator, 0.7 to 3.2 % of
+off-boundary query points are misclassified for `&`, `|`, `-` and `^`; negation
+is never wrong. Port: preserved (bit-identical).
+
+Issues [#169](https://github.com/gradientspaceai/gtengine-js/issues/169), [#388](https://github.com/gradientspaceai/gtengine-js/issues/388). Port: preserved (items 1-2, 4), documentation corrected (item 3).
 
 ### `BSPrecision.h`
 
@@ -1094,7 +1121,10 @@ error.
 **Reproduction.** A straight degree-1 spline, which lies exactly in the output
 space, is reproduced only to ~1e-2, and the rows of `A^-1 B` sum to 1 only to
 that accuracy. A per-knot-span Gauss or Romberg integration, where the integrand
-is polynomial on each span, recovers the exact controls to 1e-5.
+is polynomial on each span, recovers the exact controls to 1e-5. Measured by the
+C++ oracle of group 6 against the exact L2 projection: the controls are off by up
+to 0.137 of the control scale, and by at least 1e-2 on 486 of 1290 reduced
+records.
 
 Issue [#169](https://github.com/gradientspaceai/gtengine-js/issues/169). Port: preserved, with the accuracy documented in the header.
 
@@ -1113,6 +1143,26 @@ yields an invalid negative zero (same class as the `BSNumber` finding above).
 **3. The string constructor's `x.` branch is dead.** `decimal < fpNumber.size()`
 is always true when `find` succeeded, so the branch is never taken; the `x.y`
 branch produces the same result.
+
+**Corrections (C++ oracle of group 6).** Item 1 is not reachable from
+`BSRational(0.0, 1024.0)`: the scalar-pair constructors only move the sign of a
+negative denominator and never touch exponents, and neither is it reachable from
+arithmetic. The invalid zero compares equal to zero and does not disturb
+arithmetic; only `GetNumerator` shows it. Item 2 covers every zero-valued string,
+not only `-0.0`: `"0"`, `"0.0"`, `".0"` and `"+0"` get sign +1.
+
+**4. The conversions to double and float round twice (found by the C++ oracle
+of group 6).** `Convert(r, mode, double&)`, `Convert(r, mode, float&)` and
+`operator double/float` round to 53 or 24 bits in the requested mode and then
+round again, to nearest, onto the subnormal grid or to infinity. `operator double`
+is 1 ulp off in the binary64 subnormal range (x = 1.0773 * 2^-1055 returns bits
+`...89e36` instead of `...89e37`); `FE_UPWARD` of a positive x < 2^-1075 returns
+0 and `FE_DOWNWARD` of a negative one returns -0; `FE_TOWARDZERO` of
+1.99999809 * 2^-145 to float returns 2^-144, larger than x; past the largest finite
+value `FE_DOWNWARD`/`FE_TOWARDZERO` return +inf for positive x. 14 to 115 wrong-side
+results per mode and range out of 2000 records. `APConversion`, the only upstream
+caller of the directed conversions, converts values in [1/2, 2), where they are
+correct. Port: preserved (bit-identical).
 
 Issue [#168](https://github.com/gradientspaceai/gtengine-js/issues/168). Port: items 1 and 2 fixed (guarded on a nonzero numerator, matching the `BSNumber` guard), item 3 dropped.
 
@@ -4832,6 +4882,21 @@ the corrected form is what appears above.
    measurement and 70 of 396 in an independent re-implementation
    ([#348](https://github.com/gradientspaceai/gtengine-js/issues/348)); both
    measure the same upstream algorithm on different random samples.
+
+10. **`APConversion::EstimateAmB`'s wrong brackets are not caused by the stale
+   square.** The C++ oracle of group 6 showed that recomputing the square leaves
+   755 of 2000 exhausted-bisection brackets wrong, and that upstream returns
+   wrong brackets with no stale square at all: the cause is Newton's method
+   starting outside its basin when the bisection runs out of iterations. The
+   port's fix was replaced (see the `APConversion.h` section;
+   [#280](https://github.com/gradientspaceai/gtengine-js/issues/280)).
+
+11. **`BSRational`'s invalid zero is narrower, and its signed-zero strings
+   broader, than first reported.** The two-`BSNumber` constructor's invalid zero
+   is not reachable from `BSRational(0.0, 1024.0)` or from arithmetic and does
+   not affect comparisons or arithmetic; the string constructor gives every
+   zero-valued string, not only `-0.0`, an invalid signed zero
+   ([#168](https://github.com/gradientspaceai/gtengine-js/issues/168)).
 
 Two items were investigated and found **not** to be defects, and are recorded
 here so they are not re-reported: `ApprEllipseByArcs::UpdateMatrix` uses `a[i]`
