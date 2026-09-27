@@ -552,9 +552,12 @@ describe('AdaptiveSkeletonClimbing3', () => {
     it('adds a face branch point for the plus-sign configuration (det = 0)', () => {
         // The z = 0 face of the box at the origin has the corner values
         // f00 = f11 = 2 and f01 = f10 = -2, so all four face edges are
-        // crossed and f00 * f11 - f01 * f10 = 0. Upstream then inserts a
-        // branch point at the center of the plus sign rather than choosing
-        // one of the two hyperbolic pairings.
+        // crossed and f00 * f11 - f01 * f10 = 0. At level 0 the bilinear
+        // interpolant's saddle value det / (f00 + f11 - f01 - f10) is on the
+        // level, and a branch point at the center of the plus sign is
+        // inserted rather than one of the two hyperbolic pairings. (At any
+        // other level the port pairs by the interpolant; see the #544 test
+        // below.)
         const N = 1;
         const size = 3;
         const voxels = makeImage(N, (x, y, z) => {
@@ -565,7 +568,7 @@ describe('AdaptiveSkeletonClimbing3', () => {
         });
 
         const asc = new AdaptiveSkeletonClimbing3(N, voxels);
-        const result = asc.extract(0.5, N);
+        const result = asc.extract(0, N);
         asc.makeUnique(result.vertices, result.triangles);
         checkIndices(result.vertices, result.triangles);
 
@@ -580,11 +583,139 @@ describe('AdaptiveSkeletonClimbing3', () => {
         for (const b of branch) {
             expect(b[2]).toBe(0);
         }
-        // The voxel at the origin crosses x at 0 + (0.5 - 2) / (-2 - 2) and
-        // y at the same fraction.
+        // The voxel at the origin crosses x at 0 + (0 - 2) / (-2 - 2) and y
+        // at the same fraction.
         const keys = branch.map((b) => b.join(','));
-        expect(keys).toContain([0.375, 0.375, 0].join(','));
-        expect(checkVerticesOnLevelSet(voxels, size, 0.5, result.vertices)).toBe(4);
+        expect(keys).toContain([0.5, 0.5, 0].join(','));
+        expect(checkVerticesOnLevelSet(voxels, size, 0, result.vertices)).toBe(4);
+
+        // At level 0.5 the saddle value 0 is below the level, so the corners
+        // of value 2 are cut off and there is no branch point (upstream
+        // keeps the plus sign there, since det = 0 ignores the level).
+        const off = asc.extract(0.5, N);
+        asc.makeUnique(off.vertices, off.triangles);
+        expect(countCompositeVertices(off.vertices)).toBe(0);
+    });
+
+    // The mesh edges between the four crossings of the unit face in the
+    // plane k = c with the cell (i, j) in the two other coordinates (u, v)
+    // (in upstream's order: (y, z), (x, z), (x, y)): which of the four
+    // corners are cut off, and whether a branch point inside the face is
+    // adjacent to all four crossings.
+    function faceCuts(voxels: number[], size: number, level: number, vertices: Vertex[],
+        triangles: TriangleKey[], k: number, c: number, i: number, j: number) {
+        const ku = k === 0 ? 1 : 0, kv = k === 2 ? 1 : 2;
+        const F = (u: number, v: number): number => {
+            const q = [0, 0, 0];
+            q[k] = c; q[ku] = u; q[kv] = v;
+            return voxels[q[0] + size * (q[1] + size * q[2])];
+        };
+        const at = (ku2: number, u: number, v: number, f0: number, f1: number): number => {
+            const q = [0, 0, 0];
+            q[k] = c; q[ku] = u; q[kv] = v;
+            q[ku2] += (level - f0) / (f1 - f0);
+            return vertices.findIndex((p) => p[0] === q[0] && p[1] === q[1] && p[2] === q[2]);
+        };
+        const ev0 = at(ku, i, j, F(i, j), F(i + 1, j));
+        const ev1 = at(ku, i, j + 1, F(i, j + 1), F(i + 1, j + 1));
+        const eu0 = at(kv, i, j, F(i, j), F(i, j + 1));
+        const eu1 = at(kv, i + 1, j, F(i + 1, j), F(i + 1, j + 1));
+        const edges = new Set<string>();
+        const adjacent = vertices.map(() => new Set<number>());
+        for (const t of triangles) {
+            for (let m = 0; m < 3; ++m) {
+                const a = t.V[m], b = t.V[(m + 1) % 3];
+                edges.add(`${Math.min(a, b)},${Math.max(a, b)}`);
+                adjacent[a].add(b);
+                adjacent[b].add(a);
+            }
+        }
+        const has = (a: number, b: number): boolean =>
+            a >= 0 && b >= 0 && edges.has(`${Math.min(a, b)},${Math.max(a, b)}`);
+        const branch = [...adjacent[ev0] ?? []].some((m) => vertices[m][k] === c
+            && adjacent[ev1].has(m) && adjacent[eu0].has(m) && adjacent[eu1].has(m));
+        return {
+            found: ev0 >= 0 && ev1 >= 0 && eu0 >= 0 && eu1 >= 0,
+            cut00: has(ev0, eu0), cut11: has(ev1, eu1), cut10: has(ev0, eu1), cut01: has(ev1, eu0),
+            branch
+        };
+    }
+
+    it('pairs a four-crossing face by the trilinear interpolant, not by the level-free determinant (#544 in 3-D)', () => {
+        // The z = 0 face of the voxel at the origin has corners f00 = f11 = 4
+        // and f10 = f01 = -1, det = f00*f11 - f01*f10 = 15 and
+        // S = f00 + f11 - f01 - f10 = 10; the bilinear interpolant's saddle
+        // value is det / S = 1.5. Upstream pairs by sign(det) alone and cuts
+        // off corners 00 and 11 for det > 0 at every level. At level 0.5 the
+        // saddle is above the level, so the two corners of value 4 are
+        // connected through the face and it is the corners 10 and 01 that
+        // must be cut off (dg = det - L*S = 10 > 0); at level 2.5
+        // (dg = -10 < 0) upstream's choice is right and is kept. The C++
+        // oracle pins this image as record 0 of the v27 saddlePairing and
+        // saddle cases: at level 0.5 upstream's mesh has the two cuts around
+        // the corners of value 4 and neither cut around a corner of value -1.
+        const N = 1;
+        const size = 3;
+        const voxels = makeImage(N, (x, y, z) => (z === 0 && x === y ? 4 : -1));
+        const asc = new AdaptiveSkeletonClimbing3(N, voxels);
+        const low = asc.extract(0.5, N);
+        asc.makeUnique(low.vertices, low.triangles);
+        const f = faceCuts(voxels, size, 0.5, low.vertices, low.triangles, 2, 0, 0, 0);
+        expect(f.found).toBe(true);
+        expect(f.branch).toBe(false);
+        expect([f.cut10, f.cut01]).toEqual([true, true]);
+        // The ear clipping of the voxel removes the two vertical-edge
+        // vertices first; their diagonals are the other two cuts, so the face
+        // also carries the flat quadrilateral of the four crossings.
+        expect([f.cut00, f.cut11]).toEqual([true, true]);
+        const high = asc.extract(2.5, N);
+        asc.makeUnique(high.vertices, high.triangles);
+        const g = faceCuts(voxels, size, 2.5, high.vertices, high.triangles, 2, 0, 0, 0);
+        expect(g).toEqual({ found: true, cut00: true, cut11: true, cut10: false, cut01: false, branch: false });
+    });
+
+    it('puts a branch point where the face saddle is on the level although det != 0 (#544 in 3-D)', () => {
+        // F = x + y + z - 2yz: the x = 0 face of the voxel at the origin has
+        // corners f00 = 0, f10 = 1, f01 = 1, f11 = 0 (in (y, z)), det = -1,
+        // S = -2, and the saddle value det / S = 0.5 is the level. Upstream
+        // pairs by det < 0; the interpolant's level set on the face is the
+        // plus sign y = 0.5, z = 0.5, which the port inserts.
+        const N = 1;
+        const size = 3;
+        const voxels = makeImage(N, (x, y, z) => x + y + z - 2 * y * z);
+        const asc = new AdaptiveSkeletonClimbing3(N, voxels);
+        const { vertices, triangles } = asc.extract(0.5, N);
+        asc.makeUnique(vertices, triangles);
+        const f = faceCuts(voxels, size, 0.5, vertices, triangles, 0, 0, 0, 0);
+        expect(f.found).toBe(true);
+        expect(f.branch).toBe(true);
+        expect(vertices.map((p) => p.join(','))).toContain('0,0.5,0.5');
+    });
+
+    it('decides the face pairing exactly for large voxel values (#544 in 3-D)', () => {
+        // Corners 1e9 + 2, 1e9, 1e9 - 1, 1e9 + 1 around level 1e9 + 0.5:
+        // dg = (1.5)(0.5) - (-1.5)(-0.5) = 0 exactly, so the face gets the
+        // plus-sign branch point. det = 4e9 + 2 is exact in int64/bigint but
+        // not as a difference of the rounded double products (1e18 + ...),
+        // and a double evaluation of det - L*S would not be zero.
+        const N = 1;
+        const size = 3;
+        const base = 1e9;
+        const voxels = makeImage(N, (x, y, z) => {
+            if (z !== 0 || x > 1 || y > 1) {
+                return base - 5;
+            }
+            return base + [2, 0, -1, 1][x + 2 * y];
+        });
+        const f00 = base + 2, f10 = base, f01 = base - 1, f11 = base + 1;
+        expect(f00 * f11 - f01 * f10).not.toBe(4 * base + 2);
+        const asc = new AdaptiveSkeletonClimbing3(N, voxels);
+        const level = base + 0.5;
+        const { vertices, triangles } = asc.extract(level, N);
+        asc.makeUnique(vertices, triangles);
+        const f = faceCuts(voxels, size, level, vertices, triangles, 2, 0, 0, 0);
+        expect(f.found).toBe(true);
+        expect(f.branch).toBe(true);
     });
 
     it('produces well-formed meshes for randomized blob images', () => {
@@ -681,6 +812,77 @@ describe('AdaptiveSkeletonClimbing3', () => {
         const result = asc.extract(3.5, 1);
         expect(asc.getNumBoxes()).toBe(8);
         expect(result.triangles.length).toBe(8);
+    });
+
+    it('drops every mergeable leaf when depth > N (upstream behavior, preserved)', () => {
+        // The same mechanism one level below the root (found by the C++
+        // oracle, group 27): a leaf that could merge returns true and is
+        // added by its parent, but a parent whose depth is >= 2 neither
+        // merges nor adds. At depth N + 1 the parents of the leaves have
+        // depth 2, so only the leaves that cannot merge (a face with four
+        // crossings) remain. A sphere has none, and its mesh is empty; at
+        // depth N it is the full-resolution surface. Both sides agree bit
+        // for bit on 2000 deep-run records per case.
+        const N = 3;
+        const voxels = makeSphereImage(N, 4, 3, 1);
+        const asc = new AdaptiveSkeletonClimbing3(N, voxels);
+        const full = asc.extract(0.5, N);
+        expect(full.triangles.length).toBeGreaterThan(0);
+        expect(asc.getNumBoxes()).toBe(512);
+        const dropped = asc.extract(0.5, N + 1);
+        expect(asc.getNumBoxes()).toBe(0);
+        expect(dropped.triangles.length).toBe(0);
+        // With fixBoundary every leaf adds itself (on the image boundary or
+        // not), so nothing is dropped and nothing merges at any depth.
+        const fixed = new AdaptiveSkeletonClimbing3(N, voxels, true);
+        for (const depth of [-1, 0, N + 1]) {
+            const r = fixed.extract(0.5, depth);
+            expect(fixed.getNumBoxes()).toBe(512);
+            expect(r.triangles.length).toBe(full.triangles.length);
+        }
+    });
+
+    it('cracks where merged boxes cut a common face into different rectangles (upstream behavior, preserved)', () => {
+        // Found by the C++ oracle (group 27), both sides agree bit for bit.
+        // A 3x3x3 interior block in a border of -9, level -7.5: the level set
+        // is closed, but at depth 1 the boxes below the plane z = 2 are
+        // 2x1x2 (x 2..4, y 0..1 and y 1..2) and those above are 1x2x2
+        // (x 2..3 and x 3..4, y 0..2). Each side subdivides its face only at
+        // the zero sub-edges of its own merge-tree nodes, so the two sides
+        // triangulate the plane with different polylines,
+        // (2, 0.3)-(3.7, 1)-(3.75, 2) below and (2, 0.3)-(3, 0.3)-(3.75, 2)
+        // above, and the four edges are each used by one triangle only.
+        const N = 2;
+        const size = 5;
+        const block = [
+            [[8, -6, -3], [6, 5, -8], [3, 5, 8]],
+            [[8, -4, -4], [5, -4, -3], [1, 6, 0]],
+            [[3, -8, 4], [-5, -6, 1], [1, 7, 1]]
+        ];
+        const voxels = makeImage(N, (x, y, z) =>
+            (x === 0 || y === 0 || z === 0 || x === size - 1 || y === size - 1 || z === size - 1)
+                ? -9 : block[z - 1][y - 1][x - 1]);
+        const asc = new AdaptiveSkeletonClimbing3(N, voxels);
+        const open = (depth: number): string[] => {
+            const { vertices, triangles } = asc.extract(-7.5, depth);
+            asc.makeUnique(vertices, triangles);
+            const once: string[] = [];
+            for (const [key, n] of edgeUseCounts(triangles)) {
+                if (n === 1) {
+                    const [a, b] = key.split('-').map(Number);
+                    once.push([vertices[a], vertices[b]].map((p) => p.join(' ')).sort().join(' / '));
+                }
+            }
+            return once.sort();
+        };
+        expect(open(1)).toEqual([
+            '2 0.3 2 / 3 0.3 2',
+            '2 0.3 2 / 3.7 1 2',
+            '3 0.3 2 / 3.75 2 2',
+            '3.7 1 2 / 3.75 2 2'
+        ]);
+        // At depth N every box is a voxel and the mesh is closed.
+        expect(open(N)).toEqual([]);
     });
 });
 

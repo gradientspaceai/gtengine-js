@@ -9,7 +9,7 @@ upstream GTE code compiled with MSVC; the port replays the same inputs. See
 - compiler MSVC 194435215 x64 /O2 /fp:precise
 - records-per-case 20
 
-**1666 cases, 29920 records, 459155 floating-point outputs compared; 99.68% bit-identical to the C++ build. 1433 cases are bit-identical on every output. 170 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
+**1676 cases, 30100 records, 465473 floating-point outputs compared; 99.69% bit-identical to the C++ build. 1442 cases are bit-identical on every output. 171 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
 
 Discrete outputs (booleans, counts, indices) always compare exactly and are not counted
 in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |port|, |C++|)`.
@@ -42,6 +42,7 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | v24-imaging | 33 | 620 | 9029 | 100.00% | 31 | 0 |  |
 | v25-imaging | 25 | 460 | 5109 | 99.43% | 21 | 2.22e-16 | `GradientAnisotropic3.update` |
 | v26-imaging | 55 | 960 | 8189 | 100.00% | 48 | 0 |  |
+| v27-imaging | 10 | 180 | 6318 | 100.00% | 9 | 0 |  |
 | v28-interpolation | 31 | 580 | 32713 | 100.00% | 29 | 0 |  |
 | v29-interpolation | 36 | 600 | 19347 | 99.67% | 29 | 4.72e-14 | `IntpThinPlateSpline2.evaluate` |
 | v30-intersection | 61 | 1200 | 1684 | 100.00% | 60 | 0 |  |
@@ -160,6 +161,7 @@ every record.
 | v26-imaging | `SurfaceExtractorMC.extract.level` | 11 of 20 | #443 (UPSTREAM-FINDINGS, SurfaceExtractorMC item 1) |
 | v26-imaging | `SurfaceExtractorMC.computeNormals.multiple` | 12 of 20 | v26 report, SurfaceExtractorMC ComputeNormals triangle pointer |
 | v26-imaging | `SurfaceExtractorTetrahedra.orientTriangles.centralTetra` | 20 of 20 | #132 (UPSTREAM-FINDINGS, SurfaceExtractorTetrahedra item 3) |
+| v27-imaging | `AdaptiveSkeletonClimbing3.extract.saddlePairing` | 20 of 20 | #544 (3-D face cases), v27 report |
 | v28-interpolation | `IntpAkimaUniform2.evaluate.maxBoundary` | 18 of 20 | #58: max-boundary FXY stencils have the wrong sign |
 | v28-interpolation | `IntpAkimaUniform3.evaluate.maxBoundary` | 20 of 20 | #58: max-boundary mixed-derivative stencils have the wrong sign |
 | v29-interpolation | `IntpLinearNonuniform2.deviation.getIndices` | 17 of 20 | #135 (IntpLinearNonuniform2 discards the GetIndices failure flag) |
