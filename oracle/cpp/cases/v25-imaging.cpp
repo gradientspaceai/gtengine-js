@@ -228,6 +228,13 @@ ORACLE_CASE("Image3.access")
         int32_t r = io.integer(-2, static_cast<int32_t>(numPixels) + 1);
         Image<double> const& base = image;
         io.outReal(base.Get(static_cast<size_t>(static_cast<int64_t>(r))));
+        // Writes through the clamping Get (the port's setClamped).
+        double w0 = io.real(-5.0, 5.0);
+        image.Get(x, y, z) = w0;
+        io.outReal(image.Get(coord));
+        double w1 = io.real(-5.0, 5.0);
+        image.Get(coord) = w1;
+        io.outReal(image.Get(x, y, z));
     }
 }
 
@@ -1203,7 +1210,11 @@ ORACLE_CASE("FastMarch2.march")
     std::vector<char> all(m->GetQuantity(), 1);
     OutMarch2Constants(io, *m);
     OutMarchState(io, *m, all);
-    int32_t maxIter = io.integer(0, 2 * static_cast<int32_t>(m->GetQuantity()));
+    // The repro records run to completion (the replay checks #439's raised
+    // time of pixel (2,2)).
+    int32_t const q = static_cast<int32_t>(m->GetQuantity());
+    int32_t maxIter = static_cast<int32_t>(io.index() % 10 == 9 ? io.given(2 * q)
+        : io.integer(0, 2 * q));
     March(io, *m, maxIter, [](size_t) { return false; });
     OutMarchState(io, *m, all);
 }
@@ -1293,43 +1304,54 @@ namespace
     }
 }
 
-// Per-voxel speeds with every face voxel (exactly one coordinate on the
-// boundary) given a nonpositive speed, so upstream's missing face marking
-// (#121) is invisible and the whole state is comparable; bounds 1..5,
-// seeds anywhere, the three per-voxel speed mixes; up to 2q removals.
-ORACLE_CASE("FastMarch3.march")
+namespace
 {
-    int32_t xB = io.integer(1, 5);
-    int32_t yB = io.integer(1, 5);
-    int32_t zB = io.integer(1, 5);
-    int32_t q = xB * yB * zB;
-    double dx = DrawSpacing(io);
-    double dy = DrawSpacing(io);
-    double dz = DrawSpacing(io);
-    std::vector<size_t> seeds = DrawSeeds3(io, xB, yB, zB, 0, false);
-    bool contrast = io.boolean();
-    std::vector<double> speeds(q);
-    for (int32_t i = 0; i < q; ++i)
+    // Per-voxel speeds with every face voxel (exactly one coordinate on the
+    // boundary) given a nonpositive speed, so upstream's missing face
+    // marking (#121) is invisible and the whole state is comparable.
+    void March3Case(oracle::Ctx& io, int32_t minB, bool alwaysContrast)
     {
-        if (NumExtremes(i, xB, yB, zB) == 1)
+        int32_t xB = io.integer(minB, 5);
+        int32_t yB = io.integer(minB, 5);
+        int32_t zB = io.integer(minB, 5);
+        int32_t q = xB * yB * zB;
+        double dx = DrawSpacing(io);
+        double dy = DrawSpacing(io);
+        double dz = DrawSpacing(io);
+        std::vector<size_t> seeds = DrawSeeds3(io, xB, yB, zB, alwaysContrast ? 1 : 0, alwaysContrast);
+        bool contrast = (alwaysContrast ? io.given(1.0) != 0.0 : io.boolean());
+        std::vector<double> speeds(q);
+        for (int32_t i = 0; i < q; ++i)
         {
-            int k = io.rawInteger(0, 2);
-            speeds[i] = io.given(k == 0 ? 0.0 : (k == 1 ? -1.0 : std::nan("")));
+            if (NumExtremes(i, xB, yB, zB) == 1)
+            {
+                int k = io.rawInteger(0, 2);
+                speeds[i] = io.given(k == 0 ? 0.0 : (k == 1 ? -1.0 : std::nan("")));
+            }
+            else
+            {
+                speeds[i] = DrawPixelSpeed(io, contrast);
+            }
         }
-        else
-        {
-            speeds[i] = DrawPixelSpeed(io, contrast);
-        }
+        auto m = std::make_unique<March3>(static_cast<size_t>(xB), static_cast<size_t>(yB),
+            static_cast<size_t>(zB), dx, dy, dz, seeds, speeds);
+        std::vector<char> all(q, 1);
+        OutMarch3Constants(io, *m);
+        OutMarchState(io, *m, all);
+        int32_t maxIter = io.integer(0, 2 * q);
+        March(io, *m, maxIter, [](size_t) { return false; });
+        OutMarchState(io, *m, all);
     }
-    auto m = std::make_unique<March3>(static_cast<size_t>(xB), static_cast<size_t>(yB),
-        static_cast<size_t>(zB), dx, dy, dz, seeds, speeds);
-    std::vector<char> all(q, 1);
-    OutMarch3Constants(io, *m);
-    OutMarchState(io, *m, all);
-    int32_t maxIter = io.integer(0, 2 * q);
-    March(io, *m, maxIter, [](size_t) { return false; });
-    OutMarchState(io, *m, all);
 }
+
+// Bounds 1..5, seeds anywhere, the three per-voxel speed mixes; up to 2q
+// removals.
+ORACLE_CASE("FastMarch3.march") { March3Case(io, 1, false); }
+
+// Bounds 4..5 and the high-contrast speeds (0.25 and 4) on every record:
+// the three-term negative-discriminant fallback (#439) in the committed
+// goldens.
+ORACLE_CASE("FastMarch3.march.contrast") { March3Case(io, 4, true); }
 
 // The constant-speed constructor, where upstream leaves the face voxels far
 // (#121). Seeds strictly inside; the march stops before removing a voxel
@@ -1478,9 +1500,27 @@ namespace
             }
             r.rv.push_back(SE::Vertex(n[0], d[0], n[1], d[1], n[2], d[2]));
         }
+        // A third of the triangles (after the first) rotate an earlier one
+        // through rationally equal vertices, so MakeUnique meets rotated
+        // duplicates (#439, preserved).
+        auto equivalent = [&](int32_t i)
+        {
+            std::vector<int32_t> same;
+            for (int32_t j = 0; j < numVertices; ++j) { if (r.rv[j] == r.rv[i]) { same.push_back(j); } }
+            return same[io.rawInteger(0, static_cast<int32_t>(same.size()) - 1)];
+        };
         int32_t numTriangles = io.integer(0, 10);
         for (int32_t t = 0; t < numTriangles; ++t)
         {
+            if (t > 0 && io.rawInteger(0, 2) == 0)
+            {
+                auto const& e = r.rt[io.rawInteger(0, t - 1)].v;
+                int32_t v0 = static_cast<int32_t>(io.given(equivalent(e[1])));
+                int32_t v1 = static_cast<int32_t>(io.given(equivalent(e[2])));
+                int32_t v2 = static_cast<int32_t>(io.given(equivalent(e[0])));
+                r.rt.push_back(SE::Triangle(v0, v1, v2));
+                continue;
+            }
             int32_t v0 = io.integer(0, numVertices - 1);
             int32_t v1 = io.integer(0, numVertices - 1);
             int32_t v2 = io.integer(0, numVertices - 1);

@@ -122,6 +122,10 @@ function image3AccessCase(io: OracleIO): void {
         io.outInt(c[2]);
         const r = io.integer();
         io.outReal(image.getClamped(r));
+        image.setClamped(x, y, z, io.real());
+        io.outReal(image.getClamped([x, y, z]));
+        image.setClamped([x, y, z], io.real());
+        io.outReal(image.getClamped(x, y, z));
     }
 }
 
@@ -781,6 +785,9 @@ function march(io: OracleIO, m: FastMarch, maxIter: number, stop: (key: number) 
     io.outInt(-1);
 }
 
+// Set by drawMarch2 when the inputs are exactly the #439 reproduction.
+let isRepro439 = false;
+
 function drawMarch2(io: OracleIO): FastMarch2 {
     const xB = io.integer();
     const yB = io.integer();
@@ -790,8 +797,11 @@ function drawMarch2(io: OracleIO): FastMarch2 {
     const seeds: number[] = [];
     for (let k = 0; k < numSeeds; ++k) { seeds.push(io.integer()); }
     const speedMode = io.integer();
+    isRepro439 = false;
     if (speedMode === 0) {
-        return new CountingMarch2(xB, yB, dx, dy, seeds, io.real());
+        const speed = io.real();
+        isRepro439 = xB === 6 && yB === 4 && seeds.join() === '16,13' && speed === 0.5;
+        return new CountingMarch2(xB, yB, dx, dy, seeds, speed);
     }
     const speeds: number[] = [];
     for (let i = 0; i < xB * yB; ++i) { speeds.push(io.real()); }
@@ -807,13 +817,26 @@ function outMarch2Constants(io: OracleIO, m: FastMarch2): void {
     io.outInt(m.index(m.getXBound() - 1, m.getYBound() - 1));
 }
 
+// Independent check of #439 (preserved) on the repro records (6x4, speed
+// 1/2, seeds (4,2) and (1,2)): pixel (2,2), a 4-neighbour of a seed, starts
+// at the correct time 2 and ends at 2 * (1 + sqrt(2)/2) after the march
+// (the negative-discriminant fallback raised it).
+let repro439Checked = 0;
 function fastMarch2Case(io: OracleIO): void {
     const m = drawMarch2(io);
     const all = new Array<boolean>(m.getQuantity()).fill(true);
     outMarch2Constants(io, m);
     outMarchState(io, m, all);
-    march(io, m, io.integer(), () => false, true);
+    const repro = isRepro439;
+    const t0 = m.getTime(14);
+    const maxIter = io.integer();
+    march(io, m, maxIter, () => false, true);
     outMarchState(io, m, all);
+    if (repro && maxIter === 48) {
+        expect(t0).toBe(2);
+        expect(Math.abs(m.getTime(14) - (2 + Math.SQRT2))).toBeLessThan(1e-15);
+        ++repro439Checked;
+    }
 }
 
 function fastMarch2AccessorsCase(io: OracleIO): void {
@@ -865,10 +888,10 @@ function readSeeds3(io: OracleIO, xB: number, yB: number, interior: boolean): nu
     return seeds;
 }
 
-function fastMarch3Case(io: OracleIO): void {
+function fastMarch3Case(io: OracleIO, contrastCase: boolean): void {
     const xB = io.integer(), yB = io.integer(), zB = io.integer();
     const dx = io.real(), dy = io.real(), dz = io.real();
-    const seeds = readSeeds3(io, xB, yB, false);
+    const seeds = readSeeds3(io, xB, yB, contrastCase);
     io.boolean();  // the speed mix (recorded for the generator only)
     const speeds: number[] = [];
     for (let i = 0; i < xB * yB * zB; ++i) { speeds.push(io.real()); }
@@ -1185,7 +1208,8 @@ describe('oracle: v25-imaging', () => {
 
     family.case('FastMarch2.march', fastMarch2Case, exact);
     family.case('FastMarch2.accessors', fastMarch2AccessorsCase, exact);
-    family.case('FastMarch3.march', fastMarch3Case, exact);
+    family.case('FastMarch3.march', (io) => fastMarch3Case(io, false), exact);
+    family.case('FastMarch3.march.contrast', (io) => fastMarch3Case(io, true), exact);
     family.case('FastMarch3.march.constantSpeed', fastMarch3ConstantCase, exact);
     family.case('FastMarch3.faces', fastMarch3FacesCase,
         { exact: true, deviation: '#121 (upstream leaves the six boundary faces unmarked)' });
@@ -1205,11 +1229,12 @@ describe('oracle: v25-imaging', () => {
 
     it('independent references were exercised', () => {
         console.log('v25 references', JSON.stringify({ refs, branches, marchRefs,
-            makeUniqueChecked, makeUniqueRotatedDuplicates, tetraChecked }));
+            makeUniqueChecked, makeUniqueRotatedDuplicates, tetraChecked, repro439Checked }));
         expect(refs.blurSumChecked).toBeGreaterThan(0);
         expect(refs.flowPlanarChecked).toBeGreaterThan(0);
         expect(makeUniqueChecked).toBeGreaterThan(0);
         expect(tetraChecked).toBeGreaterThan(0);
+        expect(repro439Checked).toBeGreaterThan(0);
         expect(branches.one).toBeGreaterThan(0);
         expect(branches.twoPos).toBeGreaterThan(0);
         expect(branches.twoNeg).toBeGreaterThan(0);
