@@ -1,17 +1,17 @@
 # Verify group 29 (interpolation) against the MSVC build of upstream GTE
 
-Family `v29-interpolation`, 35 cases, 20 golden records each
-(`oracle/golden/v29-interpolation.txt`, 814 KB). 28 cases are declared
+Family `v29-interpolation`, 36 cases, 20 golden records each
+(`oracle/golden/v29-interpolation.txt`, 822 KB). 29 cases are declared
 `{ exact: true }`, 2 carry a tolerance because upstream calls the C math
 library, 5 are `deviation` cases.
 
-Deep run: `npm run oracle:deep -- 2000 v29-interpolation` - 70000 records
-(15482 of them C++ throws), **all 36 tests pass** (35 cases plus the
+Deep run: `npm run oracle:deep -- 2000 v29-interpolation` - 72000 records
+(15482 of them C++ throws), **all 37 tests pass** (36 cases plus the
 "every golden case has a replay" check), replay 53 s. Over the deep run every
-real output of every `exact` case was bit-identical (about 1.9 million real
-outputs); the two tolerance cases had 4.7k and 152 inexact outputs, with the
-maxima listed below. Goldens are reproducible: three generations of 2000
-records per case were byte-identical.
+real output of every `exact` case was bit-identical (1910276 real outputs);
+the two tolerance cases had 4655 and 152 inexact outputs, with the maxima
+listed below. Goldens are reproducible: three generations of 2000 records per
+case were byte-identical.
 
 The group's headers are `IntpTricubic3.h`, `IntpTrilinear3.h`,
 `IntpAkimaNonuniform1.h`, `IntpAkimaUniform1.h` (and through them the public
@@ -28,6 +28,7 @@ surface of `IntpAkima1.h`), `IntpBSplineUniform.h`,
 | | `IntpTrilinear3.construct.invalid` (bounds 0..3, spacing positive / 0 / -0 / negative / NaN) | exact, throw parity | pass, 1938 throws |
 | `IntpTricubic3.h` | `IntpTricubic3.evaluate` (Catmull-Rom and B-spline blending; accessors; value; all 64 order triples in {0..3}^3 plus orders 4 and -1) | exact | pass, 290000 reals |
 | | `IntpTricubic3.construct.invalid` | exact, throw parity | pass, 1947 throws |
+| `IntpTrilinear3.h`, `IntpTricubic3.h` | `IntpTrilinear3.evaluate.signedZeroSamples` (every sample +0 or -0, so the zero seeds of `P`, `Q`, `R` and `result` decide the sign; each derivative emitted from an inlined and from a `__declspec(noinline)` call, per the v23 seed-folding lesson; both agree, all outputs +0) | exact | pass, 36000 reals |
 | `IntpAkimaUniform1.h`, `IntpAkima1.h` | `IntpAkimaUniform1.evaluate` (`GetQuantity`, `GetXMin`, `GetXMax`, `GetXSpacing`; every polynomial coefficient through a subclass that exposes the protected `mPoly`; `operator()(x)` and `operator()(order,x)` for orders -1..4 at 5 queries: nodes, dyadic in-cell points, both ends, -0, outside (clamped)) | exact | pass, 112392 reals |
 | | `IntpAkimaUniform1.construct.invalid` (quantity 0..4, spacing 0 / -0 / negative) | exact, throw parity | pass, 1678 throws |
 | `IntpAkimaNonuniform1.h`, `IntpAkima1.h` | `IntpAkimaNonuniform1.evaluate` (the same outputs; nodes on integer, dyadic and uniform increments, 3..8 samples) | exact | pass, 109748 reals |
@@ -46,7 +47,7 @@ surface of `IntpAkima1.h`), `IntpBSplineUniform.h`,
 | | `IntpQuadraticNonuniform2.deviation.meshFlags` | deviation (#337) | 1940 of 2000 deviate |
 | `IntpThinPlateSpline2.h` | `IntpThinPlateSpline2.evaluate` (`IsInitialized`, `operator()` at every sample and at 3 other points, `ComputeFunctional`; smoothing 0 and > 0; with and without the unit-square transform; a flat axis, #191) | tolerance 1e-11 (`std::log`, see below) | pass, max scaled error 7.96e-13 |
 | | `IntpThinPlateSpline2.construct.invalid` (fewer than 3 points, negative smoothing) | exact, throw parity | pass, 1488 throws |
-| `IntpThinPlateSpline3.h` | `IntpThinPlateSpline3.evaluate` (the same outputs; kernel `-|t|`) | exact | pass, 20048 reals |
+| `IntpThinPlateSpline3.h` | `IntpThinPlateSpline3.evaluate` (the same outputs; kernel `-|t|`; every 5th record has all samples -0, so the zero-seeded sums decide the signs) | exact | pass, 20048 reals |
 | | `IntpThinPlateSpline3.construct.invalid` | exact, throw parity | pass, 1588 throws |
 | `IntpSphere2.h` | `IntpSphere2.getSphericalCoordinates` (unit vectors, exactly the poles, just inside the poles, non-unit vectors with abs(z) >= 1) | tolerance 1e-12 (`std::atan2`, `std::acos`) | pass, 3848 of 4000 bit-identical, max 2.2e-16 |
 | | `IntpSphere2.evaluate.sortedMesh` (the constructor and `operator()` replayed over the sorted mesh, compared with the port's class) | exact | pass |

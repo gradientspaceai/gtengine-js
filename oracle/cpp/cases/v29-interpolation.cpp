@@ -325,6 +325,49 @@ ORACLE_CASE("IntpTrilinear3.construct.invalid")
     io.outReal(intp(g.min[0] + 0.25, g.min[1] + 0.5, g.min[2] + 0.75));
 }
 
+namespace
+{
+    // Out-of-line calls: MSVC has folded a zero-initialised accumulator's
+    // seed away when inlining (v23, Slerp). Each value below is emitted both
+    // from the inlined call and from the noinline one.
+    __declspec(noinline) double NoInline(IntpTrilinear3<double> const& t, int32_t xo, int32_t yo,
+        int32_t zo, double x, double y, double z)
+    {
+        return t(xo, yo, zo, x, y, z);
+    }
+
+    __declspec(noinline) double NoInline(IntpTricubic3<double> const& t, int32_t xo, int32_t yo,
+        int32_t zo, double x, double y, double z)
+    {
+        return t(xo, yo, zo, x, y, z);
+    }
+}
+
+// All samples -0 (or +0): every term of the tensor-product sums is a signed
+// zero, so the result's sign is decided by the accumulator seed 'result =
+// (Real)0' (0 + -0 = +0) and by P/Q/R's zero seeds.
+ORACLE_CASE("IntpTrilinear3.evaluate.signedZeroSamples")
+{
+    double s = (io.rawInteger(0, 3) == 0 ? 0.0 : -0.0);
+    double sample = io.given(s);
+    std::vector<double> F(64, sample);
+    bool catmullRom = io.boolean();
+    double x = GridQuery(io, 4, 0.0, 1.0);
+    double y = GridQuery(io, 4, 0.0, 1.0);
+    double z = GridQuery(io, 4, 0.0, 1.0);
+    IntpTrilinear3<double> tl(4, 4, 4, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, F.data());
+    IntpTricubic3<double> tc(4, 4, 4, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, F.data(), catmullRom);
+    io.outReal(tl(x, y, z));
+    io.outReal(tc(x, y, z));
+    for (int32_t o = 0; o <= 3; ++o)
+    {
+        io.outReal(tl(o % 2, o / 2, 0, x, y, z));
+        io.outReal(NoInline(tl, o % 2, o / 2, 0, x, y, z));
+        io.outReal(tc(o, 3 - o, o % 2, x, y, z));
+        io.outReal(NoInline(tc, o, 3 - o, o % 2, x, y, z));
+    }
+}
+
 ORACLE_CASE("IntpTricubic3.construct.invalid")
 {
     Grid3 g = MakeInvalidGrid3(io, 2, 5);
@@ -2171,10 +2214,13 @@ ORACLE_CASE("IntpThinPlateSpline3.evaluate")
     auto X = TPSCoordinates(io, n, mode, false);
     auto Y = TPSCoordinates(io, n, mode, false);
     auto Z = TPSCoordinates(io, n, mode, flatAxis);
+    // Every 5th record has all samples -0: the zero-seeded accumulations of
+    // prod, mB, mA, the evaluation and the functional then decide the signs.
+    bool zeroSamples = (io.index() % 5 == 4);
     std::vector<double> F(n);
     for (int32_t i = 0; i < n; ++i)
     {
-        F[i] = io.real(-5.0, 5.0);
+        F[i] = (zeroSamples ? io.given(-0.0) : io.real(-5.0, 5.0));
     }
     double smooth = TPSSmooth(io);
     bool transform = io.boolean();

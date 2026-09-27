@@ -189,6 +189,28 @@ describe('oracle: v29-interpolation', () => {
         io.outReal(intp.evaluate(g.min[0] + 0.25, g.min[1] + 0.5, g.min[2] + 0.75));
     }, { exact: true });
 
+    // Signed-zero samples: the zero seeds of the tensor-product sums decide
+    // the sign. The C++ side emits each derivative from an inlined and from
+    // a noinline call (MSVC seed folding, v23); both are the same value here.
+    family.case('IntpTrilinear3.evaluate.signedZeroSamples', (io) => {
+        const sample = io.real();
+        const F = new Array<number>(64).fill(sample);
+        const catmullRom = io.boolean();
+        const x = io.real(), y = io.real(), z = io.real();
+        const tl = new IntpTrilinear3(4, 4, 4, 0, 1, 0, 1, 0, 1, F);
+        const tc = new IntpTricubic3(4, 4, 4, 0, 1, 0, 1, 0, 1, F, catmullRom);
+        io.outReal(tl.evaluate(x, y, z));
+        io.outReal(tc.evaluate(x, y, z));
+        for (let o = 0; o <= 3; ++o) {
+            const d = tl.evaluate(o % 2, Math.floor(o / 2), 0, x, y, z);
+            io.outReal(d);
+            io.outReal(d);
+            const c = tc.evaluate(o, 3 - o, o % 2, x, y, z);
+            io.outReal(c);
+            io.outReal(c);
+        }
+    }, { exact: true });
+
     family.case('IntpTricubic3.construct.invalid', (io) => {
         const g = grid3(io);
         const catmullRom = io.boolean();
@@ -670,6 +692,10 @@ describe('oracle: v29-interpolation', () => {
     }, { exact: true });
 
     // ---- IntpSphere2 ---------------------------------------------------------------
+    // The IntpSphere2 and IntpVectorField2 cases build a Delaunay triangulation
+    // (of 3n wrapped points for the sphere) and the quadratic preprocessing per
+    // record: about 13 s and 4.5 s for a 2000-record deep run when the machine
+    // is quiet, past the 20 s default under load, hence the longer timeout.
     function sphereSamples(io: OracleIO): { theta: number[], phi: number[], F: number[] } {
         const n = io.integer();
         const theta = io.reals(n);
@@ -696,7 +722,7 @@ describe('oracle: v29-interpolation', () => {
             io.outBool(r.valid);
             if (r.valid) { io.outReal(r.F); }
         }
-    }, { deviation: 'v29 finding: IntpSphere2<T> constructs Delaunay2Mesh<T> before the triangulation' });
+    }, { deviation: 'v29 finding: IntpSphere2<T> constructs Delaunay2Mesh<T> before the triangulation', timeout: 120000 });
 
     family.case('IntpSphere2.evaluate.sortedMesh', (io) => {
         const s = sphereSamples(io);
@@ -707,7 +733,7 @@ describe('oracle: v29-interpolation', () => {
             io.outBool(r.valid);
             if (r.valid) { io.outReal(r.F); }
         }
-    }, { exact: true });
+    }, { exact: true, timeout: 120000 });
 
     // ---- IntpVectorField2 -------------------------------------------------------------
     function vectorField(io: OracleIO): IntpVectorField2 {
@@ -729,7 +755,7 @@ describe('oracle: v29-interpolation', () => {
             io.outBool(r.valid);
             if (r.valid) { io.outVec(r.output); }
         }
-    }, { deviation: 'v29 finding: IntpVectorField2<T> constructs Delaunay2Mesh<T> before the triangulation' });
+    }, { deviation: 'v29 finding: IntpVectorField2<T> constructs Delaunay2Mesh<T> before the triangulation', timeout: 120000 });
 
     family.case('IntpVectorField2.evaluate.sortedMesh', (io) => {
         const intp = vectorField(io);
@@ -738,7 +764,7 @@ describe('oracle: v29-interpolation', () => {
             io.outBool(r.valid);
             if (r.valid) { io.outVec(r.output); }
         }
-    }, { exact: true });
+    }, { exact: true, timeout: 120000 });
 
     family.case('IntpVectorField2.deviation.staleOutput', (io) => {
         const intp = vectorField(io);
@@ -747,7 +773,7 @@ describe('oracle: v29-interpolation', () => {
             io.outBool(r.valid);
             io.outVec(r.output);
         }
-    }, { deviation: '#337 (IntpVectorField2 leaves the caller output stale on failure)' });
+    }, { deviation: '#337 (IntpVectorField2 leaves the caller output stale on failure)', timeout: 120000 });
 
     family.finish();
 });
