@@ -156,8 +156,8 @@ namespace
         std::vector<ASC3Triangle> t, tu, to;
         std::vector<std::array<double, 3>> normals;
         // SaddleCheck on (vu, tu): faces checked, faces contradicting the
-        // interpolant.
-        std::array<int32_t, 2> saddle{ 0, 0 };
+        // interpolant, ambiguous faces.
+        std::array<int32_t, 3> saddle{ 0, 0, 0 };
     };
 
     void OutResult(oracle::Ctx& io, ASC3Result const& r)
@@ -171,6 +171,7 @@ namespace
         OutNormals(io, r.normals);
         io.outInt(r.saddle[0]);
         io.outInt(r.saddle[1]);
+        io.outInt(r.saddle[2]);
     }
 
     template <typename T>
@@ -375,12 +376,16 @@ namespace
     // (10-11) are located in the mesh by their coordinates, computed as
     // upstream's Get*Interp does. dg > 0 requires the mesh edges
     // E_v0-E_u1 and E_v1-E_u0 (corners 10 and 01 cut off), dg < 0 the edges
-    // E_v0-E_u0 and E_v1-E_u1, dg = 0 a vertex adjacent to all four.
-    // Returns {faces checked, faces contradicting the interpolant}.
-    std::array<int32_t, 2> SaddleCheck(std::vector<int64_t> const& px, int size, double level,
+    // E_v0-E_u0 and E_v1-E_u1, and both that no vertex inside the face is
+    // adjacent to all four (a plus-sign branch point); dg = 0 requires such
+    // a vertex. A face with all four cuts is ambiguous: the ear clipping of
+    // a box can put a diagonal into a face, and the diagonals complete the
+    // other pairing (upstream does this on sound faces too). Returns
+    // {faces checked, faces contradicting the interpolant, ambiguous faces}.
+    std::array<int32_t, 3> SaddleCheck(std::vector<int64_t> const& px, int size, double level,
         std::vector<ASC3Vertex> const& vu, std::vector<ASC3Triangle> const& tu)
     {
-        std::array<int32_t, 2> result{ 0, 0 };
+        std::array<int32_t, 3> result{ 0, 0, 0 };
         if (!std::isfinite(level)) { return result; }
         std::map<ASC3Vertex, int32_t> index;
         for (size_t i = 0; i < vu.size(); ++i) { index.emplace(vu[i], static_cast<int32_t>(i)); }
@@ -437,23 +442,29 @@ namespace
                         int32_t eu1 = crossing(kv, j, g10, g11, 1, 0);
                         int64_t det = f00 * f11 - f01 * f10;
                         int sdg = (ASCNumber(det) - ASCNumber(level) * ASCNumber(f00 + f11 - f01 - f10)).GetSign();
-                        bool right;
-                        if (sdg > 0) { right = hasEdge(ev0, eu1) && hasEdge(ev1, eu0); }
-                        else if (sdg < 0) { right = hasEdge(ev0, eu0) && hasEdge(ev1, eu1); }
-                        else
+                        bool branch = false;
+                        if (ev0 >= 0 && ev1 >= 0 && eu0 >= 0 && eu1 >= 0)
                         {
-                            right = false;
-                            if (ev0 >= 0 && ev1 >= 0 && eu0 >= 0 && eu1 >= 0)
+                            for (int32_t c : adjacent[ev0])
                             {
-                                for (int32_t c : adjacent[ev0])
-                                {
-                                    right = right || (adjacent[ev1].count(c) > 0
-                                        && adjacent[eu0].count(c) > 0 && adjacent[eu1].count(c) > 0);
-                                }
+                                ASC3Vertex const& q = vu[c];
+                                branch = branch || (q[axis] == a && i < q[ku] && q[ku] < i + 1
+                                    && j < q[kv] && q[kv] < j + 1 && adjacent[ev1].count(c) > 0
+                                    && adjacent[eu0].count(c) > 0 && adjacent[eu1].count(c) > 0);
                             }
                         }
+                        bool cut00 = hasEdge(ev0, eu0), cut11 = hasEdge(ev1, eu1);
+                        bool cut10 = hasEdge(ev0, eu1), cut01 = hasEdge(ev1, eu0);
                         ++result[0];
-                        if (!right) { ++result[1]; }
+                        if (sdg != 0 && !branch && cut00 && cut11 && cut10 && cut01)
+                        {
+                            ++result[2];
+                        }
+                        else if (sdg > 0 ? branch || !(cut10 && cut01) :
+                            (sdg < 0 ? branch || !(cut00 && cut11) : !branch))
+                        {
+                            ++result[1];
+                        }
                     }
                 }
             }
@@ -775,18 +786,73 @@ namespace
 // triangles per record). Upstream-sound face pairings only (capped
 // rejection over formula and level; fallback: a paraboloid bowl, which has
 // no four-crossing face).
-ORACLE_CASE("AdaptiveSkeletonClimbing3.extract.large")
+namespace
 {
-    int32_t N = static_cast<int32_t>(io.given(io.rawInteger(3, 5)));
-    int const size = (1 << N) + 1;
-    int64_t kind = 0;
-    std::array<int64_t, 12> p{};
-    std::vector<int64_t> px(static_cast<size_t>(size) * size * size);
-    double level = 0.0;
-    bool sound = false;
-    for (int attempt = 0; attempt < 32 && !sound; ++attempt)
+    // All border voxels on one side of the level (the level set does not
+    // reach the image border) and at least one voxel on the other side.
+    bool Interior(std::vector<int64_t> const& px, int size, double level)
     {
-        RawLargeParameters(io, size, kind, p);
+        int sides = 0, all = 0;
+        for (int z = 0; z < size; ++z)
+        {
+            for (int y = 0; y < size; ++y)
+            {
+                for (int x = 0; x < size; ++x)
+                {
+                    int side = (static_cast<double>(px[x + size * (y + size * z)]) > level ? 1 : 2);
+                    all |= side;
+                    if (x == 0 || y == 0 || z == 0 || x == size - 1 || y == size - 1 || z == size - 1)
+                    {
+                        sides |= side;
+                    }
+                }
+            }
+        }
+        return sides != 3 && all == 3;
+    }
+
+    void LargeCase(oracle::Ctx& io, bool interior)
+    {
+        int32_t N = static_cast<int32_t>(io.given(interior ? io.rawInteger(3, 4) : io.rawInteger(3, 5)));
+        int const size = (1 << N) + 1;
+        int64_t kind = 0;
+        std::array<int64_t, 12> p{};
+        std::vector<int64_t> px(static_cast<size_t>(size) * size * size);
+        double level = 0.0;
+        bool sound = false;
+        for (int attempt = 0; attempt < (interior ? 64 : 32) && !sound; ++attempt)
+        {
+            RawLargeParameters(io, size, kind, p);
+            if (interior)
+            {
+                for (int k = 9; k < 12; ++k) { p[k] = io.rawInteger(size / 4, 3 * size / 4); }
+            }
+            for (int z = 0; z < size; ++z)
+            {
+                for (int y = 0; y < size; ++y)
+                {
+                    for (int x = 0; x < size; ++x) { px[x + size * (y + size * z)] = LargeVoxel(kind, p, x, y, z); }
+                }
+            }
+            auto mm = std::minmax_element(px.begin(), px.end());
+            double lo = static_cast<double>(*mm.first), hi = static_cast<double>(*mm.second);
+            int levelMode = io.rawInteger(0, 9);
+            level = (levelMode < 7 ? std::floor(io.raw(lo, hi)) + 0.5
+                : (levelMode < 9 ? std::floor(io.raw(lo, hi + 1.0)) : io.raw(lo, hi)));
+            sound = CountFaces(px, size, level)[1] == 0 && (!interior || Interior(px, size, level));
+        }
+        if (!sound)
+        {
+            kind = 0;
+            p = { 1, 1, 1, 0, 0, 0, 0, 0, 0, size / 2, size / 2, size / 2 };
+            level = static_cast<double>((size / 4) * (size / 4)) + 0.5;
+        }
+        io.given(static_cast<double>(kind));
+        for (auto v : p) { io.given(static_cast<double>(v)); }
+        io.given(level);
+        std::vector<int32_t> depths{ io.integer(-2, N + 1) };
+        bool fixBoundary = (io.integer(0, 5) == 0);
+        std::vector<bool> sameDirs{ io.boolean() };
         for (int z = 0; z < size; ++z)
         {
             for (int y = 0; y < size; ++y)
@@ -794,32 +860,65 @@ ORACLE_CASE("AdaptiveSkeletonClimbing3.extract.large")
                 for (int x = 0; x < size; ++x) { px[x + size * (y + size * z)] = LargeVoxel(kind, p, x, y, z); }
             }
         }
-        auto mm = std::minmax_element(px.begin(), px.end());
-        double lo = static_cast<double>(*mm.first), hi = static_cast<double>(*mm.second);
-        int levelMode = io.rawInteger(0, 9);
-        level = (levelMode < 7 ? std::floor(io.raw(lo, hi)) + 0.5
-            : (levelMode < 9 ? std::floor(io.raw(lo, hi + 1.0)) : io.raw(lo, hi)));
-        sound = CountFaces(px, size, level)[1] == 0;
+        std::vector<ASC3Result> results = RunASC<int32_t>(N, px, fixBoundary, { level }, depths, sameDirs);
+        OutResult(io, results[0]);
     }
-    if (!sound)
+}
+
+ORACLE_CASE("AdaptiveSkeletonClimbing3.extract.large") { LargeCase(io, false); }
+
+// The large case restricted to level sets that do not reach the image
+// border (centers in the middle half, rejection on the border voxels): the
+// mesh is expected to be closed, which the replay checks.
+ORACLE_CASE("AdaptiveSkeletonClimbing3.extract.closedLarge") { LargeCase(io, true); }
+
+// Level sets that do not reach the image border on 3^3 and 5^3 images: a
+// constant border of value -sgn*(R+1) around random or checkerboard interior
+// values in [-R, R] (isolated voxels, saddles, tunnels), levels between and
+// (one in five) on the interior values. Upstream-sound face pairings only
+// (capped rejection; fallback: a single interior voxel 5 in a border of -1,
+// level 0.5). The layout is that of ASCCase.
+ORACLE_CASE("AdaptiveSkeletonClimbing3.extract.closed")
+{
+    int32_t N = DrawN(io);
+    int const size = (1 << N) + 1;
+    bool fixBoundary = (io.integer(0, 3) == 0);
+    io.integer(1, 1);  // the number of extractions
+    std::vector<int64_t> px(static_cast<size_t>(size) * size * size);
+    double level = 0.0;
+    bool ok = false;
+    for (int attempt = 0; attempt < 64 && !ok; ++attempt)
     {
-        kind = 0;
-        p = { 1, 1, 1, 0, 0, 0, 0, 0, 0, size / 2, size / 2, size / 2 };
-        level = static_cast<double>(size) + 0.5;
+        int64_t R = io.rawInteger(1, 9);
+        int64_t sgn = (io.rawInteger(0, 1) == 0 ? 1 : -1);
+        int mode = io.rawInteger(0, 1);
+        for (int z = 0; z < size; ++z)
+        {
+            for (int y = 0; y < size; ++y)
+            {
+                for (int x = 0; x < size; ++x)
+                {
+                    bool border = (x == 0 || y == 0 || z == 0 || x == size - 1 || y == size - 1 || z == size - 1);
+                    int64_t v = (mode == 0 ? io.rawInteger(-R, R)
+                        : ((x + y + z) % 2 == 0 ? 1 : -1) * io.rawInteger(1, R));
+                    px[x + size * (y + size * z)] = (border ? -sgn * (R + 1) : v);
+                }
+            }
+        }
+        level = (io.rawInteger(0, 4) == 0 ? std::floor(io.raw(-static_cast<double>(R), R + 1.0))
+            : std::floor(io.raw(-R - 0.5, R + 0.5)) + 0.5);
+        ok = CountFaces(px, size, level)[1] == 0 && Interior(px, size, level);
     }
-    io.given(static_cast<double>(kind));
-    for (auto v : p) { io.given(static_cast<double>(v)); }
+    if (!ok)
+    {
+        std::fill(px.begin(), px.end(), -1);
+        px[1 + size * (1 + size * 1)] = 5;
+        level = 0.5;
+    }
+    for (auto v : px) { io.given(static_cast<double>(v)); }
     io.given(level);
     std::vector<int32_t> depths{ io.integer(-2, N + 1) };
-    bool fixBoundary = (io.integer(0, 5) == 0);
     std::vector<bool> sameDirs{ io.boolean() };
-    for (int z = 0; z < size; ++z)
-    {
-        for (int y = 0; y < size; ++y)
-        {
-            for (int x = 0; x < size; ++x) { px[x + size * (y + size * z)] = LargeVoxel(kind, p, x, y, z); }
-        }
-    }
     std::vector<ASC3Result> results = RunASC<int32_t>(N, px, fixBoundary, { level }, depths, sameDirs);
     OutResult(io, results[0]);
 }
@@ -951,18 +1050,27 @@ ORACLE_CASE("AdaptiveSkeletonClimbing3.invalid")
     int32_t N = io.integer(0, 1);
     bool useNull = io.boolean();
     int const size = (1 << N) + 1;
-    std::vector<int32_t> voxels(static_cast<size_t>(size) * size * size);
-    int64_t a = io.rawInteger(-3, 3), b = io.rawInteger(-3, 3);
-    for (int z = 0; z < size; ++z)
+    // a (x + y + z) + b y z, with (a, b) redrawn (at most 16 times, then
+    // b = 0) until upstream's face pairing is sound at level 0.5: the image
+    // 0, 1; 1, 0 of a = 1, b = -2 has a face saddle exactly on the level,
+    // where the port's pairing deviates (saddlePairing covers that).
+    std::vector<int64_t> px(static_cast<size_t>(size) * size * size);
+    for (int attempt = 0; attempt < 17; ++attempt)
     {
-        for (int y = 0; y < size; ++y)
+        int64_t a = io.rawInteger(-3, 3), b = (attempt < 16 ? io.rawInteger(-3, 3) : 0);
+        for (int z = 0; z < size; ++z)
         {
-            for (int x = 0; x < size; ++x)
+            for (int y = 0; y < size; ++y)
             {
-                voxels[x + size * (y + size * z)] = static_cast<int32_t>(
-                    io.given(static_cast<double>(a * (x + y + z) + b * y * z)));
+                for (int x = 0; x < size; ++x) { px[x + size * (y + size * z)] = a * (x + y + z) + b * y * z; }
             }
         }
+        if (CountFaces(px, size, 0.5)[1] == 0) { break; }
+    }
+    std::vector<int32_t> voxels(px.size());
+    for (size_t i = 0; i < px.size(); ++i)
+    {
+        voxels[i] = static_cast<int32_t>(io.given(static_cast<double>(px[i])));
     }
     AdaptiveSkeletonClimbing3<int32_t, double> asc(N, useNull ? nullptr : voxels.data());
     std::vector<ASC3Vertex> v;

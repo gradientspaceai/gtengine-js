@@ -103,7 +103,7 @@ interface ASC3Result {
     tu: TriangleKey[];
     to: TriangleKey[];
     normals: Vertex[];
-    saddle: [number, number];
+    saddle: [number, number, number];
 }
 
 function outResult(io: OracleIO, r: ASC3Result): void {
@@ -116,11 +116,13 @@ function outResult(io: OracleIO, r: ASC3Result): void {
     outVertices(io, r.normals);
     io.outInt(r.saddle[0]);
     io.outInt(r.saddle[1]);
+    io.outInt(r.saddle[2]);
 }
 
 // Extractions whose outputs the independent checks examine.
 interface Checked {
-    tag: string, voxels: number[], N: number, level: number, depth: number, r: ASC3Result
+    tag: string, voxels: number[], N: number, fixBoundary: boolean, level: number, depth: number,
+    r: ASC3Result
 }
 const checked: Checked[] = [];
 // The case whose records are being replayed (set by the case wrappers).
@@ -176,10 +178,14 @@ function saddleSign(f00: number, f10: number, f01: number, f11: number, level: n
 // The independent face-saddle check (SaddleCheck in the case file): every
 // four-crossing unit face (finite level, no corner on the level) must be
 // cut the way the trilinear interpolant restricted to the face (bilinear)
-// is cut. Returns [faces checked, faces contradicting the interpolant].
+// is cut: the two cuts of its pairing present and no branch point inside the
+// face, or, where its saddle value is the level, a branch point adjacent to
+// all four crossings. A face with all four cuts (ear-clipping diagonals in
+// the face completing the other pairing) is ambiguous. Returns [faces
+// checked, faces contradicting the interpolant, ambiguous faces].
 function saddleCheck(voxels: readonly number[], size: number, level: number,
-    vu: readonly Vertex[], tu: readonly TriangleKey[]): [number, number] {
-    const result: [number, number] = [0, 0];
+    vu: readonly Vertex[], tu: readonly TriangleKey[]): [number, number, number] {
+    const result: [number, number, number] = [0, 0, 0];
     if (!Number.isFinite(level)) { return result; }
     const key = (p: readonly number[]): string => `${p[0]},${p[1]},${p[2]}`;
     const index = new Map<string, number>();
@@ -224,18 +230,21 @@ function saddleCheck(voxels: readonly number[], size: number, level: number,
                     const eu0 = crossing(kv, j, f00, f01, 0, 0);
                     const eu1 = crossing(kv, j, f10, f11, 1, 0);
                     const sdg = saddleSign(f00, f10, f01, f11, level);
-                    let right: boolean;
-                    if (sdg > 0) {
-                        right = hasEdge(ev0, eu1) && hasEdge(ev1, eu0);
-                    } else if (sdg < 0) {
-                        right = hasEdge(ev0, eu0) && hasEdge(ev1, eu1);
-                    } else {
-                        right = ev0 >= 0 && ev1 >= 0 && eu0 >= 0 && eu1 >= 0
-                            && [...adjacent[ev0]].some((c) => adjacent[ev1].has(c)
-                                && adjacent[eu0].has(c) && adjacent[eu1].has(c));
-                    }
+                    // A plus-sign branch point: a vertex inside the face
+                    // adjacent to all four.
+                    const branch = ev0 >= 0 && ev1 >= 0 && eu0 >= 0 && eu1 >= 0
+                        && [...adjacent[ev0]].some((c) => vu[c][axis] === a
+                            && i < vu[c][ku] && vu[c][ku] < i + 1 && j < vu[c][kv] && vu[c][kv] < j + 1
+                            && adjacent[ev1].has(c) && adjacent[eu0].has(c) && adjacent[eu1].has(c));
+                    const cut00 = hasEdge(ev0, eu0), cut11 = hasEdge(ev1, eu1);
+                    const cut10 = hasEdge(ev0, eu1), cut01 = hasEdge(ev1, eu0);
                     ++result[0];
-                    if (!right) { ++result[1]; }
+                    if (sdg !== 0 && !branch && cut00 && cut11 && cut10 && cut01) {
+                        ++result[2];
+                    } else if (sdg > 0 ? branch || !(cut10 && cut01)
+                        : (sdg < 0 ? branch || !(cut00 && cut11) : !branch)) {
+                        ++result[1];
+                    }
                 }
             }
         }
@@ -259,7 +268,7 @@ function runASC(N: number, voxels: number[], fixBoundary: boolean, levels: reado
         const saddle = saddleCheck(voxels, (1 << N) + 1, levels[k], vu, tu);
         const r = { boxes, v: vertices, t: triangles, vu, tu, to, normals, saddle };
         results.push(r);
-        checked.push({ tag: currentTag, voxels, N, level: levels[k], depth: depths[k], r });
+        checked.push({ tag: currentTag, voxels, N, fixBoundary, level: levels[k], depth: depths[k], r });
     }
     return results;
 }
@@ -422,11 +431,33 @@ interface CheckStats {
     branchPoints: number;
     centroids: number;
     degenerate: number;
-    closedMeshes: number;
+    // Meshes whose level set reaches the image border.
     openMeshes: number;
-    notClosed: string[];
-    orientedMeshes: number;
-    misoriented: string[];
+    // Interior level sets: closed (mod 2) meshes, and the open ones by cause.
+    closedMeshes: number;
+    // Open interior meshes at depth < N whose every border edge lies where
+    // the boxes on the two sides of a grid plane cut it into different
+    // rectangles (see faceMismatch).
+    cracked: number;
+    // Open interior meshes with a plus-sign branch point.
+    openAtBranchPoints: number;
+    // Open interior meshes at depth > N (see droppedLeaves).
+    openDroppedLeaves: number;
+    // Meshes with an edge on more than two triangles.
+    nonManifold: number;
+    // Closed interior meshes that MakeUnique opens (it keeps one of two
+    // coincident triangles that two boxes put into their common face).
+    openedByMakeUnique: number;
+    // Extractions at depth > N without fixBoundary: every box is a unit box
+    // with a four-crossing face (the mergeable leaves were dropped).
+    droppedLeaves: number;
+    // Closed 2-manifold unique meshes, their triangles, and those that
+    // OrientTriangles leaves inconsistently oriented (with the number of
+    // directed edges traversed twice).
+    manifoldMeshes: number;
+    manifoldTriangles: number;
+    misoriented: number;
+    misorientedEdges: number;
     bad: string[];
 }
 
@@ -449,9 +480,24 @@ function checkExtraction(c: Checked, stats: CheckStats): void {
     ++stats.extractions;
     const where = `N=${N} level=${level} depth=${c.depth}`;
     const merged = r.boxes.filter((b) => b[3] > 1 || b[4] > 1 || b[5] > 1);
+    if (c.depth > N && !c.fixBoundary) {
+        // Every leaf that could merge returned true to a parent whose depth
+        // is >= 2, which neither merges nor adds it (the #194 mechanism one
+        // level below the root): only the unmergeable leaves remain.
+        if (r.boxes.every((b) => b[3] === 1 && b[4] === 1 && b[5] === 1 && hasFourCrossingFace(b, F, level))) {
+            ++stats.droppedLeaves;
+        } else {
+            stats.bad.push(`${where}: depth > N keeps a box that is not an unmergeable leaf`);
+        }
+    }
+    let branch = false;
     for (const p of r.vu) {
         if (onCrossedEdge(p, F, size, level)) { ++stats.edgeVertices; continue; }
-        if (isBranchPoint(p, F, size, level)) { ++stats.branchPoints; continue; }
+        if (isBranchPoint(p, F, size, level)) {
+            ++stats.branchPoints;
+            branch = true;
+            continue;
+        }
         if (merged.some((b) => [0, 1, 2].every((k) => b[k] < p[k] && p[k] < b[k] + b[k + 3]))) {
             ++stats.centroids;
             continue;
@@ -467,22 +513,6 @@ function checkExtraction(c: Checked, stats: CheckStats): void {
         if (n.every((x) => x === 0n)) { ++stats.degenerate; }
     }
     if (r.tu.length === 0) { return; }
-    // Undirected and directed edge uses.
-    const undirected = new Map<string, number>();
-    const directed = new Map<string, number>();
-    for (const t of r.tu) {
-        for (let k = 0; k < 3; ++k) {
-            const a = t.V[k], b = t.V[(k + 1) % 3];
-            const key = `${Math.min(a, b)},${Math.max(a, b)}`;
-            undirected.set(key, (undirected.get(key) ?? 0) + 1);
-        }
-    }
-    for (const t of r.to) {
-        for (let k = 0; k < 3; ++k) {
-            const key = `${t.V[k]},${t.V[(k + 1) % 3]}`;
-            directed.set(key, (directed.get(key) ?? 0) + 1);
-        }
-    }
     let borderSides = 0;
     for (let z = 0; z < size; ++z) {
         for (let y = 0; y < size; ++y) {
@@ -493,25 +523,123 @@ function checkExtraction(c: Checked, stats: CheckStats): void {
             }
         }
     }
-    if (borderSides !== 3) {
-        const counts = [...undirected.values()];
-        if (counts.every((n) => n === 2)) {
-            ++stats.closedMeshes;
-        } else {
-            stats.notClosed.push(`${where}: edge uses ${[...new Set(counts)].join('/')}`);
+    if (borderSides === 3) {
+        ++stats.openMeshes;
+        return;
+    }
+    // Undirected edge uses over the raw triangles (every box's triangles,
+    // before MakeUnique drops coincident copies: a triangle that the ear
+    // clippings of the two boxes on either side of a face both put into
+    // that face is a flat double cover, which cancels only when both copies
+    // are counted), with vertices identified by their coordinates as
+    // MakeUnique does.
+    const vertexIndex = new Map<string, number>();
+    r.vu.forEach((p, i) => { vertexIndex.set(`${p[0]},${p[1]},${p[2]}`, i); });
+    const undirected = edgeUses(r.t.map((t) =>
+        t.V.map((i) => vertexIndex.get(`${r.v[i][0]},${r.v[i][1]},${r.v[i][2]}`)!)));
+    const counts = [...undirected.values()];
+    if (counts.some((n) => n > 2)) { ++stats.nonManifold; }
+    // Closed as a mod-2 cycle: no edge on an odd number of triangles (an edge
+    // on four triangles is a pinch where the ear clippings of two boxes put
+    // the same diagonal into their common face).
+    if (counts.every((n) => n % 2 === 0)) {
+        ++stats.closedMeshes;
+        const unique = [...edgeUses(r.tu.map((t) => [...t.V])).values()];
+        if (unique.some((n) => n % 2 !== 0)) {
+            ++stats.openedByMakeUnique;
+        } else if (unique.every((n) => n === 2)) {
+            // A closed 2-manifold: after OrientTriangles every edge should be
+            // traversed once in each direction.
+            const directed = new Map<string, number>();
+            for (const t of r.to) {
+                for (let k = 0; k < 3; ++k) {
+                    const key = `${t.V[k]},${t.V[(k + 1) % 3]}`;
+                    directed.set(key, (directed.get(key) ?? 0) + 1);
+                }
+            }
+            const flipped = [...directed.keys()].filter((key) => directed.get(key) !== 1).length;
+            ++stats.manifoldMeshes;
+            stats.manifoldTriangles += r.to.length;
+            if (flipped > 0) {
+                ++stats.misoriented;
+                stats.misorientedEdges += flipped;
+            }
         }
-        const flipped = [...directed.keys()].filter((key) => {
-            const [a, b] = key.split(',');
-            return directed.get(key) !== 1 || directed.get(`${b},${a}`) !== 1;
+    } else if (branch) {
+        // A plus-sign branch point makes a vertex of degree 4 in the box
+        // wireframe, which the ear clipping (degree-2 vertices only) does
+        // not fully triangulate.
+        ++stats.openAtBranchPoints;
+    } else if (c.depth > N && !c.fixBoundary) {
+        ++stats.openDroppedLeaves;
+    } else if (c.depth < N && !c.fixBoundary) {
+        // Merged boxes: every border edge must be a face-partition mismatch.
+        const unexplained = [...undirected].filter(([key, n]) => {
+            const [a, b] = key.split(',').map(Number);
+            return n % 2 !== 0 && !(n === 1 && faceMismatch(r.vu[a], r.vu[b], r.boxes));
         });
-        if (flipped.length === 0) {
-            ++stats.orientedMeshes;
+        if (unexplained.length === 0) {
+            ++stats.cracked;
         } else {
-            stats.misoriented.push(`${where}: ${flipped.length} directed edges`);
+            stats.bad.push(`${where}: ${unexplained.length} unexplained border edges`);
         }
     } else {
-        ++stats.openMeshes;
+        // Unit boxes only (depth = N or fixBoundary): the mesh must be closed.
+        stats.bad.push(`${where}: open mesh from unit boxes`);
     }
+}
+
+function edgeUses(triangles: readonly (readonly number[])[]): Map<string, number> {
+    const uses = new Map<string, number>();
+    for (const t of triangles) {
+        for (let k = 0; k < 3; ++k) {
+            const a = t[k], b = t[(k + 1) % 3];
+            const key = `${Math.min(a, b)},${Math.max(a, b)}`;
+            uses.set(key, (uses.get(key) ?? 0) + 1);
+        }
+    }
+    return uses;
+}
+
+// One of the six faces of the unit box b has all four edges crossed.
+function hasFourCrossingFace(b: Box, F: (q: readonly number[]) => number, level: number): boolean {
+    for (let axis = 0; axis < 3; ++axis) {
+        const ku = axis === 0 ? 1 : 0, kv = axis === 2 ? 1 : 2;
+        for (const side of [0, 1]) {
+            const g = [[0, 0], [1, 0], [0, 1], [1, 1]].map(([du, dv]) => {
+                const q = [b[0], b[1], b[2]];
+                q[axis] += side;
+                q[ku] += du;
+                q[kv] += dv;
+                return F(q) > level;
+            });
+            if (g[0] === g[3] && g[1] === g[2] && g[0] !== g[1]) { return true; }
+        }
+    }
+    return false;
+}
+
+// The mesh edge p-q lies in a grid plane k = c where the box faces on the
+// two sides of the plane that contain its midpoint are different
+// rectangles: the two sides then tessellate the plane with different
+// polylines (a crack between merged boxes).
+function faceMismatch(p: Vertex, q: Vertex, boxes: readonly Box[]): boolean {
+    for (let k = 0; k < 3; ++k) {
+        if (p[k] !== q[k] || !Number.isInteger(p[k])) { continue; }
+        const c = p[k];
+        const mid = [0.5 * (p[0] + q[0]), 0.5 * (p[1] + q[1]), 0.5 * (p[2] + q[2])];
+        const others = [0, 1, 2].filter((m) => m !== k);
+        const faces = (lower: boolean): string[] => boxes
+            .filter((b) => (lower ? b[k] + b[k + 3] : b[k]) === c
+                && others.every((m) => b[m] <= mid[m] && mid[m] <= b[m] + b[m + 3]))
+            .map((b) => others.map((m) => `${b[m]}+${b[m + 3]}`).join(','));
+        const below = faces(true), above = faces(false);
+        if (below.length > 0 && above.length > 0
+            && !(below.length === above.length && below.every((f) => above.includes(f)))) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // (a) of checkExtraction: p lies on a unit grid edge whose end values
@@ -586,56 +714,64 @@ describe('oracle: v27-imaging', () => {
         { exact: true, deviation: '#544 (3-D face cases), v27 report' });
     family.case('AdaptiveSkeletonClimbing3.extract.large', tagged('large', largeCase),
         { exact: true, timeout: 600000 });
+    family.case('AdaptiveSkeletonClimbing3.extract.closedLarge', tagged('closedLarge', largeCase),
+        { exact: true, timeout: 600000 });
+    family.case('AdaptiveSkeletonClimbing3.extract.closed', tagged('closed', ascCase), exact);
     family.case('AdaptiveSkeletonClimbing3.extract.rootMonobox', tagged('rootMonobox', ascCase), exact);
     family.case('AdaptiveSkeletonClimbing3.meshOps', meshOpsCase, exact);
     family.case('AdaptiveSkeletonClimbing3.invalid', invalidCase, exact);
 
+    // Runs after the cases above (vitest runs the tests of a file in order)
+    // over every extraction they replayed. V27_STATS=<file> writes the
+    // statistics quoted in the group report.
     it('AdaptiveSkeletonClimbing3 meshes against the trilinear interpolant (independent checks)', () => {
         const stats: CheckStats = {
             extractions: 0, edgeVertices: 0, branchPoints: 0, centroids: 0, degenerate: 0,
-            closedMeshes: 0, openMeshes: 0, notClosed: [], orientedMeshes: 0, misoriented: [], bad: []
+            openMeshes: 0, closedMeshes: 0, cracked: 0, openAtBranchPoints: 0, openDroppedLeaves: 0,
+            nonManifold: 0, openedByMakeUnique: 0, droppedLeaves: 0, manifoldMeshes: 0,
+            manifoldTriangles: 0, misoriented: 0, misorientedEdges: 0, bad: []
         };
-        const faces = new Map<string, [number, number]>();
-        let rootDropped = 0;
-        let firstBad: unknown;
-        const byDepth = new Map<string, number[]>();
+        // The port's face-saddle check per case: [faces checked, wrong,
+        // ambiguous].
+        const faces = new Map<string, [number, number, number]>();
+        let rootMonobox = 0, rootDropped = 0;
         for (const c of checked) {
-            const f = faces.get(c.tag) ?? [0, 0];
+            const f = faces.get(c.tag) ?? [0, 0, 0];
             f[0] += c.r.saddle[0];
             f[1] += c.r.saddle[1];
+            f[2] += c.r.saddle[2];
             faces.set(c.tag, f);
-            const size = (1 << c.N) + 1;
-            const sample = c.voxels.includes(c.level);
             if (c.tag === 'rootMonobox') {
-                // The level set is not empty (the level is strictly inside
-                // the voxel range of a monotone image), the mesh is.
+                // #194: the level set is not empty (the level is strictly
+                // inside the voxel range of a monotone image), the mesh is.
+                ++rootMonobox;
                 const crossed = c.voxels.some((v) => v > c.level) && c.voxels.some((v) => v <= c.level);
                 if (crossed && c.r.tu.length === 0 && c.r.boxes.length === 0) { ++rootDropped; }
             }
-            if (!Number.isFinite(c.level) || sample) { continue; }
-            const before = stats.notClosed.length;
-            const badBefore = stats.bad.length;
-            checkExtraction(c, stats);
-            if (firstBad === undefined && stats.bad.length > badBefore) {
-                firstBad = { tag: c.tag, voxels: c.voxels, level: c.level, depth: c.depth, boxes: c.r.boxes, vu: c.r.vu,
-                    tu: c.r.tu.map((t) => [...t.V]) };
+            // The documented precondition: a level that is no voxel value.
+            if (Number.isFinite(c.level) && !c.voxels.includes(c.level)) {
+                checkExtraction(c, stats);
             }
-            const key = c.depth > c.N ? 'depth>N' : (c.depth <= 0 ? 'depth<=0' : 'depth1..N');
-            const d = byDepth.get(key) ?? [0, 0];
-            d[0] += 1;
-            d[1] += stats.notClosed.length - before;
-            byDepth.set(key, d);
-            void size;
         }
-        const report = JSON.stringify({
-            ...stats, notClosed: stats.notClosed.length, misoriented: stats.misoriented.length,
-            bad: stats.bad.length, faces: Object.fromEntries(faces), rootDropped,
-            byDepth: Object.fromEntries(byDepth), negativeInterpolations,
-            notClosedSample: stats.notClosed.slice(0, 5), misorientedSample: stats.misoriented.slice(0, 5),
-            badSample: stats.bad.slice(0, 5), firstBad
-        }, null, 1);
-        if (process.env['V27_STATS'] !== undefined) { writeFileSync(process.env['V27_STATS'], report); }
-    });
+        const report = { ...stats, bad: stats.bad.length, faces: Object.fromEntries(faces),
+            rootMonobox, rootDropped, negativeInterpolations };
+        if (process.env['V27_STATS'] !== undefined) {
+            writeFileSync(process.env['V27_STATS'], JSON.stringify(report, null, 1));
+        }
+        expect(stats.bad.slice(0, 10)).toEqual([]);
+        expect(stats.degenerate).toBe(0);
+        for (const [tag, [numFaces, wrong]] of faces) {
+            expect(wrong, `${tag}: faces paired against the interpolant`).toBe(0);
+            if (tag === 'saddle' || tag === 'saddlePairing') { expect(numFaces).toBeGreaterThan(0); }
+        }
+        expect(rootDropped).toBe(rootMonobox);
+        expect(negativeInterpolations).toBe(0);
+        expect(stats.edgeVertices).toBeGreaterThan(0);
+        expect(stats.branchPoints).toBeGreaterThan(0);
+        expect(stats.centroids).toBeGreaterThan(0);
+        expect(stats.closedMeshes).toBeGreaterThan(0);
+        expect(stats.droppedLeaves).toBeGreaterThan(0);
+    }, 600000);
 
     family.finish();
 });
