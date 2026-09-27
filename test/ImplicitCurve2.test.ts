@@ -308,7 +308,12 @@ describe('ImplicitCurve2 verification', () => {
                 noDefaultInfinity: true })), ([a, b, x, y]) => {
             const curve = new ScaledEllipse2(a, b, 1);
             const p = Vector.fromArray([x, y]);
-            const h = 1e-5;
+            // F is quadratic, so the central differences below are exact up
+            // to round-off, and the round-off of the second differences is
+            // eps * |F| / h^2: with h = 1e-5 and F ~ 30 (small semi-axis,
+            // large coordinate) that is 3e-4, above the tolerance (seed
+            // -1849335546). A larger step only reduces it.
+            const h = 1e-3;
             const at = (dx: number, dy: number): number =>
                 curve.f(Vector.fromArray([x + dx, y + dy]));
             const g = curve.getGradient(p);
