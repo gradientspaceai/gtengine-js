@@ -215,8 +215,21 @@ describe('DistLine3OrientedBox3 verification', () => {
         check(fc.tuple(lineArb, boxArb), ([ln, b]) => {
             const r = query.compute(ln, b);
             expectClose(r.distance, Math.sqrt(r.sqrDistance), 1e-12, 1e-12);
+            // The canonical-box query accumulates the squared distance
+            // incrementally while clamping to faces and edges, so a line
+            // that nearly grazes the box loses about half the mantissa: the
+            // reported distance is accurate to about sqrt(eps) times the
+            // coordinate scale (seed 667689449: a zero-extent box 1.7e-7
+            // from the line at scale 8.7 reported 1.69e-7 against a
+            // closest-pair separation of 6.7e-8). The comparison of the
+            // reported distance with the closest pair allows for that.
+            let scale = 1;
+            for (let i = 0; i < 3; ++i) {
+                scale = Math.max(scale, Math.abs(ln.origin.values[i]),
+                    Math.abs(b.center.values[i]) + b.extent.values[i]);
+            }
             expectClose(length(sub(r.closest[0], r.closest[1])), r.distance,
-                1e-7, 1e-7);
+                Math.max(1e-7, 4 * Math.sqrt(Number.EPSILON) * scale), 1e-7);
             const delta = sub(r.closest[1], b.center);
             for (let i = 0; i < 3; ++i) {
                 expect(Math.abs(dot(b.axis[i], delta)))
@@ -271,8 +284,20 @@ describe('DistLine3OrientedBox3 verification', () => {
             const r1 = query.compute(movedLine, movedBox);
             // Only the distance is compared: ties in the closest pair (the
             // header returns just one of infinitely many) are not required to
-            // correspond under the motion.
-            expectClose(r0.distance, r1.distance, 1e-9, 1e-9);
+            // correspond under the motion. A distance much smaller than the
+            // configuration is the residual of a cancellation between
+            // quantities of the configuration's size, with round-off about
+            // eps * scale^2 / distance: CI seed 667689449 had a zero-extent
+            // box 1.7e-5 from the line at scale 8.7, where that is 1e-9.
+            let scale = 1;
+            for (let i = 0; i < 3; ++i) {
+                scale = Math.max(scale, Math.abs(ln.origin.values[i]),
+                    Math.abs(b.center.values[i]) + b.extent.values[i]);
+            }
+            const conditioning = 32 * Number.EPSILON * scale * scale
+                / Math.max(r0.distance, Number.EPSILON * scale);
+            expectClose(r0.distance, r1.distance,
+                Math.max(1e-9, conditioning), 1e-9);
         });
     });
 });
