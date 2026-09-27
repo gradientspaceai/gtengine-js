@@ -362,11 +362,10 @@ describe('oracle: v10-compgeom', () => {
         }
     }, { exact: true });
 
-    // The port's bounded hull walk throws where upstream's unbounded walk
-    // runs off the end of hull[] (issue #290). The C++ side runs a verbatim
-    // copy of upstream's walk with a step cap and emits the prefix upstream
-    // would write, so every record whose edges do not form a closed cycle is
-    // a disagreement.
+    // The port throws where upstream's hull walk returns to its start early
+    // (a hull[] padded with supervertex 0) or runs off the end of hull[]
+    // (issue #290). The C++ side calls the real GetHull when that is safe
+    // and emits the replica's prefix when it is not; see the C++ case.
     family.case('IncrementalDelaunay2.getHull.deviation.collinear', (io) => {
         const del = makeDelaunay(io);
         const n = io.integer();
@@ -375,8 +374,11 @@ describe('oracle: v10-compgeom', () => {
         }
         io.outBool(del.finalizeTriangulation());
         io.outInt(del.getNumTriangles());
-        emitHull(io, del);
-    }, { deviation: '#290 (GetHull walks an open edge path out of bounds)' });
+        const hull = del.getHull();
+        io.outBool(false);
+        io.outInt(hull.length);
+        for (const v of hull) { io.outInt(v); }
+    }, { deviation: '#290 (GetHull on a collinear triangulation: early return padded with 0, or an unbounded walk)' });
 
     family.finish();
 });

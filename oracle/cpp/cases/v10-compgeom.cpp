@@ -55,6 +55,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <cstdint>
 #include <cstring>
 #include <exception>
@@ -1609,20 +1610,26 @@ ORACLE_CASE("IncrementalDelaunay2.domainAsserts")
 }
 
 // Deliberate port fix of issue #290: GetHull walks the edge map with an
-// unbounded while (vNext != vStart) loop that writes into hull[], which was
+// unbounded while (vNext != vStart) loop that writes into hull[], which is
 // sized to the number of edges. For a finalized triangulation whose input
 // points are collinear there are no Delaunay triangles at all, yet the
 // triangles sharing a supervertex still contribute edges, and those edges
-// form a path ending in a 2-cycle rather than a closed polygon. Upstream
-// then loops forever and writes past the end of the vector - undefined
-// behaviour that cannot be executed inside the generator.
-//
-// The case therefore runs a VERBATIM COPY of upstream's edge collection
-// (GetGraph() exposes everything it reads) followed by upstream's walk with
-// a step cap, and emits the number of edges and the prefix of hull[] that
-// upstream would write before it runs off the end. The port's getHull()
-// detects the open walk and throws, so every record of this case is a
-// disagreement: that is the demonstration of the fix.
+// do not form one cycle through all of them. Two outcomes:
+//  * the walk returns to its start early (three or more collinear points
+//    with the start at one end): upstream returns hull[] with numEdges
+//    entries, the unwritten tail left at the zeros of the resize, i.e. a
+//    "polygon" containing supervertex 0;
+//  * the walk enters a 2-cycle that avoids the start: upstream loops forever
+//    and writes past the end of hull[] - undefined behaviour that cannot be
+//    executed inside the generator.
+// The port throws in both situations (the degenerate triangulation has no
+// convex hull polygon). The case runs a verbatim copy of upstream's edge
+// collection (GetGraph() exposes everything it reads) and upstream's walk as
+// a probe, calls the real GetHull when that is safe and emits the replica's
+// prefix when it is not; see below. Records with one or two distinct points
+// are the residue on which both sides agree: no edge at all (upstream would
+// dereference edges.begin() of an empty map; the replica and the port both
+// report an empty hull) or a 2-cycle through both edges (upstream is sound).
 ORACLE_CASE("IncrementalDelaunay2.getHull.deviation.collinear")
 {
     auto rect = DomainRectangle(io);
@@ -1644,10 +1651,17 @@ ORACLE_CASE("IncrementalDelaunay2.getHull.deviation.collinear")
         dy = 2;
     }
 
+    // Keep every point in [-5,5]^2, strictly inside every domain rectangle
+    // (a point on the rectangle would make Insert throw and the record would
+    // test nothing).
+    int32_t const reach = std::max(std::abs(bx), std::abs(by));
+    int32_t const step = std::max(std::abs(dx), std::abs(dy));
+    int32_t const kMax = (5 - reach) / step;
+
     ID2 del(rect[0], rect[1], rect[2], rect[3]);
     for (int32_t i = 0; i < n; ++i)
     {
-        double k = static_cast<double>(io.rawInteger(-2, 2));
+        double k = static_cast<double>(io.rawInteger(-kMax, kMax));
         Vector2<double> p{ static_cast<double>(bx) + k * static_cast<double>(dx),
             static_cast<double>(by) + k * static_cast<double>(dy) };
         io.givenVec<2>(p);
@@ -1691,31 +1705,58 @@ ORACLE_CASE("IncrementalDelaunay2.getHull.deviation.collinear")
         // undefined behaviour and cannot be executed. The port returns an
         // empty hull, and so does this record: those records agree and the
         // defect is only described in the group report.
+        io.outBool(false);
         io.outInt(0);
         return;
     }
 
-    // Upstream's walk, with a step cap in place of the unbounded loop. The
-    // LogAssert below is upstream's own; the cap replaces the out-of-bounds
-    // write that follows when the edges do not form a closed cycle through
-    // the smallest key, and the emitted prefix is what upstream writes
-    // before it overruns hull[].
+    // Upstream's walk as a probe, bounded by the size of hull[]. Upstream
+    // writes hull[++i] for every step, and hull[] has numEdges entries, so
+    // the call is safe exactly when the walk returns to vStart within
+    // numEdges - 1 steps (or its LogAssert fires first, which is an ordinary
+    // exception). Then the REAL upstream GetHull is called and its output is
+    // emitted verbatim: the numEdges entries of hull[], where the entries
+    // after an early return to vStart keep the zeros of the resize (a
+    // supervertex index, i.e. garbage). Otherwise upstream overruns hull[]
+    // and never terminates, which cannot be executed, and the record emits
+    // the replica's prefix: what upstream writes up to the end of hull[].
+    size_t const numEdges = edges.size();
     auto eIter = edges.begin();
     size_t vStart = eIter->first;
     size_t vNext = eIter->second;
-    std::vector<size_t> hull{ vStart };
-    size_t const cap = edges.size() + 4;
-    while (vNext != vStart && hull.size() < cap)
+    std::vector<size_t> prefix{ vStart };
+    bool overrun = false;
+    while (vNext != vStart)
     {
-        hull.push_back(vNext);
+        if (prefix.size() == numEdges)
+        {
+            overrun = true;
+            break;
+        }
+        prefix.push_back(vNext);
         auto it = edges.find(vNext);
         LogAssert(it != edges.end(), "Expecting to find a hull edge.");
         vNext = it->second;
     }
-    io.outInt(hull.size());
-    for (auto v : hull)
+
+    io.outBool(overrun);
+    if (overrun)
     {
-        io.outInt(v);
+        io.outInt(prefix.size());
+        for (auto v : prefix)
+        {
+            io.outInt(v);
+        }
+    }
+    else
+    {
+        std::vector<size_t> hull{};
+        del.GetHull(hull);
+        io.outInt(hull.size());
+        for (auto v : hull)
+        {
+            io.outInt(v);
+        }
     }
 }
 
