@@ -52,6 +52,10 @@ describe('oracle: v10-compgeom', () => {
         emitAntipodes(io, readPoints(io, 2));
     }, { deviation: '#286 (RotatingCalipers::CreatePolygon drops the corner after a duplicate)' });
 
+    family.case('RotatingCalipers.computeAntipodes.collinearThrows', (io) => {
+        emitAntipodes(io, readPoints(io, 2));
+    }, { exact: true });
+
     // ---- MinimumAreaCircle2 / MinimumVolumeSphere3 -----------------------
 
     // The C++ side makes upstream run the port's own shuffle permutation (a
