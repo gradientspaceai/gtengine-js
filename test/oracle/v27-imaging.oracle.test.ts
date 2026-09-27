@@ -458,6 +458,9 @@ interface CheckStats {
     manifoldTriangles: number;
     misoriented: number;
     misorientedEdges: number;
+    // The same meshes oriented with the gradient of the cell that contains
+    // each triangle (not the cell at trunc(vertex)), inconsistent ones.
+    misorientedOwnCell: number;
     bad: string[];
 }
 
@@ -564,6 +567,7 @@ function checkExtraction(c: Checked, stats: CheckStats): void {
                 ++stats.misoriented;
                 stats.misorientedEdges += flipped;
             }
+            if (!orientedInOwnCell(r.vu, r.tu, F, level)) { ++stats.misorientedOwnCell; }
         }
     } else if (branch) {
         // A plus-sign branch point makes a vertex of degree 4 in the box
@@ -587,6 +591,40 @@ function checkExtraction(c: Checked, stats: CheckStats): void {
         // Unit boxes only (depth = N or fixBoundary): the mesh must be closed.
         stats.bad.push(`${where}: open mesh from unit boxes`);
     }
+}
+
+// OrientTriangles' rule (orient each triangle by the sign of its normal
+// against the average trilinear gradient at its vertices), except that the
+// gradient is taken in the unit cell containing the triangle's centroid;
+// true when the result is consistently oriented.
+function orientedInOwnCell(vu: readonly Vertex[], tu: readonly TriangleKey[],
+    F: (q: readonly number[]) => number, level: number): boolean {
+    void level;
+    const directed = new Map<string, number>();
+    for (const t of tu) {
+        const p = t.V.map((i) => vu[i]);
+        const cell = [0, 1, 2].map((m) => Math.floor((p[0][m] + p[1][m] + p[2][m]) / 3));
+        const f = (dx: number, dy: number, dz: number): number => F([cell[0] + dx, cell[1] + dy, cell[2] + dz]);
+        const grad = [0, 0, 0];
+        for (const q of p) {
+            const [x, y, z] = [q[0] - cell[0], q[1] - cell[1], q[2] - cell[2]];
+            grad[0] += (1 - y) * (1 - z) * (f(1, 0, 0) - f(0, 0, 0)) + y * (1 - z) * (f(1, 1, 0) - f(0, 1, 0))
+                + (1 - y) * z * (f(1, 0, 1) - f(0, 0, 1)) + y * z * (f(1, 1, 1) - f(0, 1, 1));
+            grad[1] += (1 - x) * (1 - z) * (f(0, 1, 0) - f(0, 0, 0)) + x * (1 - z) * (f(1, 1, 0) - f(1, 0, 0))
+                + (1 - x) * z * (f(0, 1, 1) - f(0, 0, 1)) + x * z * (f(1, 1, 1) - f(1, 0, 1));
+            grad[2] += (1 - x) * (1 - y) * (f(0, 0, 1) - f(0, 0, 0)) + x * (1 - y) * (f(1, 0, 1) - f(1, 0, 0))
+                + (1 - x) * y * (f(0, 1, 1) - f(0, 1, 0)) + x * y * (f(1, 1, 1) - f(1, 1, 0));
+        }
+        const e1 = [0, 1, 2].map((m) => p[1][m] - p[0][m]), e2 = [0, 1, 2].map((m) => p[2][m] - p[0][m]);
+        const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+        const flip = grad[0] * n[0] + grad[1] * n[1] + grad[2] * n[2] < 0;
+        const v = flip ? [t.V[0], t.V[2], t.V[1]] : [...t.V];
+        for (let k = 0; k < 3; ++k) {
+            const key = `${v[k]},${v[(k + 1) % 3]}`;
+            directed.set(key, (directed.get(key) ?? 0) + 1);
+        }
+    }
+    return [...directed.values()].every((n) => n === 1);
 }
 
 function edgeUses(triangles: readonly (readonly number[])[]): Map<string, number> {
@@ -640,6 +678,44 @@ function faceMismatch(p: Vertex, q: Vertex, boxes: readonly Box[]): boolean {
         }
     }
     return false;
+}
+
+// Sensitivity (ORACLE.md): the extractions on which a plausible
+// alternative evaluation would have differed from the compared output.
+// Get*Interp as x + (L - f0) * (1 / (f1 - f0)) instead of
+// x + (L - f0) / (f1 - f0), and ComputeNormals' normal[i] /= length as a
+// multiplication by 1 / length. Returns [edge vertices recomputed, vertices
+// that differ, 1 when the normals differ].
+function sensitivity(c: Checked): [number, number, number] {
+    const { voxels, N, level, r } = c;
+    const size = (1 << N) + 1;
+    let numVertices = 0, numDiffer = 0;
+    for (const p of r.vu) {
+        const ints = [0, 1, 2].filter((m) => Number.isInteger(p[m]));
+        if (ints.length !== 2) { continue; }
+        const k = [0, 1, 2].find((m) => !ints.includes(m))!;
+        const a = Math.floor(p[k]);
+        const q = [p[0], p[1], p[2]];
+        q[k] = a;
+        const f0 = voxels[q[0] + size * (q[1] + size * q[2])];
+        q[k] = a + 1;
+        const f1 = voxels[q[0] + size * (q[1] + size * q[2])];
+        if (a + (level - f0) / (f1 - f0) !== p[k]) { continue; }
+        ++numVertices;
+        if (a + (level - f0) * (1 / (f1 - f0)) !== p[k]) { ++numDiffer; }
+    }
+    const normals = r.vu.map(() => [0, 0, 0]);
+    for (const t of r.to) {
+        const [v0, v1, v2] = t.V.map((i) => r.vu[i]);
+        const e1 = [0, 1, 2].map((m) => v1[m] - v0[m]), e2 = [0, 1, 2].map((m) => v2[m] - v0[m]);
+        const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+        for (const i of t.V) { for (let m = 0; m < 3; ++m) { normals[i][m] += n[m]; } }
+    }
+    const normalsDiffer = normals.some((n, i) => {
+        const length = Math.sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        return length > 0 && n.some((x, m) => !Object.is(x * (1 / length), r.normals[i][m]));
+    });
+    return [numVertices, numDiffer, normalsDiffer ? 1 : 0];
 }
 
 // (a) of checkExtraction: p lies on a unit grid edge whose end values
@@ -729,12 +805,15 @@ describe('oracle: v27-imaging', () => {
             extractions: 0, edgeVertices: 0, branchPoints: 0, centroids: 0, degenerate: 0,
             openMeshes: 0, closedMeshes: 0, cracked: 0, openAtBranchPoints: 0, openDroppedLeaves: 0,
             nonManifold: 0, openedByMakeUnique: 0, droppedLeaves: 0, manifoldMeshes: 0,
-            manifoldTriangles: 0, misoriented: 0, misorientedEdges: 0, bad: []
+            manifoldTriangles: 0, misoriented: 0, misorientedEdges: 0, misorientedOwnCell: 0, bad: []
         };
         // The port's face-saddle check per case: [faces checked, wrong,
         // ambiguous].
         const faces = new Map<string, [number, number, number]>();
         let rootMonobox = 0, rootDropped = 0;
+        // Sensitivity: [vertices, differing vertices, extractions with a
+        // differing vertex, extractions with differing normals].
+        const sens = [0, 0, 0, 0];
         for (const c of checked) {
             const f = faces.get(c.tag) ?? [0, 0, 0];
             f[0] += c.r.saddle[0];
@@ -751,10 +830,15 @@ describe('oracle: v27-imaging', () => {
             // The documented precondition: a level that is no voxel value.
             if (Number.isFinite(c.level) && !c.voxels.includes(c.level)) {
                 checkExtraction(c, stats);
+                const [nv, nd, nn] = sensitivity(c);
+                sens[0] += nv;
+                sens[1] += nd;
+                sens[2] += nd > 0 ? 1 : 0;
+                sens[3] += nn;
             }
         }
         const report = { ...stats, bad: stats.bad.length, faces: Object.fromEntries(faces),
-            rootMonobox, rootDropped, negativeInterpolations };
+            rootMonobox, rootDropped, negativeInterpolations, sensitivity: sens };
         if (process.env['V27_STATS'] !== undefined) {
             writeFileSync(process.env['V27_STATS'], JSON.stringify(report, null, 1));
         }

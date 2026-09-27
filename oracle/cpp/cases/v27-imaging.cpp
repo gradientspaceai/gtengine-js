@@ -651,16 +651,17 @@ namespace
     // wantDefect = false: at least one four-crossing face and upstream sound
     // on all of them. wantDefect = true: at least one face where upstream's
     // pairing contradicts the interpolant. Capped at 256 attempts; the
-    // fallbacks are a fixed image (every voxel -1 except 4 on the diagonal
-    // x = y of the z = 0 layer, faces 4, -1; -1, 4 with det = 15, S = 10),
-    // sound at level 2.5 and defective at level 0.5.
+    // fallbacks, and record 0 of both cases (a pinned reproduction), are a
+    // fixed image (every voxel -1 except 4 on the diagonal x = y of the
+    // z = 0 layer, faces 4, -1; -1, 4 with det = 15, S = 10, saddle value
+    // 1.5), sound at level 2.5 and defective at level 0.5.
     void DrawSaddleImage(oracle::Ctx& io, bool wantDefect, int32_t& N,
         std::vector<int64_t>& px, double& level)
     {
         N = static_cast<int32_t>(io.given(io.index() % 4 == 3 ? 2 : 1));
         int const size = (1 << N) + 1;
         bool ok = false;
-        for (int attempt = 0; attempt < 256 && !ok; ++attempt)
+        for (int attempt = 0; attempt < 256 && !ok && io.index() != 0; ++attempt)
         {
             RawSaddleImage(io, size, px, level);
             auto count = CountFaces(px, size, level);
@@ -668,6 +669,7 @@ namespace
         }
         if (!ok)
         {
+            px.assign(static_cast<size_t>(size) * size * size, 0);
             for (int z = 0; z < size; ++z)
             {
                 for (int y = 0; y < size; ++y)
@@ -688,11 +690,12 @@ namespace
         std::vector<int64_t> px;
         double level = 0.0;
         DrawSaddleImage(io, wantDefect, N, px, level);
-        bool fixBoundary = (io.integer(0, 3) == 0);
+        // Record 0 (the pinned reproduction): no fixBoundary, depth N.
+        bool fixBoundary = (io.index() == 0 ? io.integer(1, 1) : io.integer(0, 3)) == 0;
         io.integer(1, 1);  // the number of extractions, the layout of ASCCase
         for (auto v : px) { io.given(static_cast<double>(v)); }
         io.given(level);
-        std::vector<int32_t> depths{ io.integer(-2, N + 1) };
+        std::vector<int32_t> depths{ io.index() == 0 ? io.integer(N, N) : io.integer(-2, N + 1) };
         std::vector<bool> sameDirs{ io.boolean() };
         std::vector<ASC3Result> results = RunASC<int32_t>(N, px, fixBoundary, { level }, depths, sameDirs);
         OutResult(io, results[0]);
