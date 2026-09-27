@@ -71,19 +71,19 @@ Nothing here has been reported upstream before; this document is the report.
 
 ## Counts
 
-- **537 distinct findings** across **173** tracked issues (one issue
+- **541 distinct findings** across **174** tracked issues (one issue
   frequently holds several findings in related files).
-- By severity: **260 result-corrupting**, **16 wrong but
-  recoverable**, **185 minor**, **76 documentation**.
-- By port status: **267 fixed or corrected in the port** (of which 164 are code
+- By severity: **261 result-corrupting**, **16 wrong but
+  recoverable**, **188 minor**, **76 documentation**.
+- By port status: **269 fixed or corrected in the port** (of which 166 are code
   fixes with regression tests, 22 are added guards or asserts where upstream has
   undefined behaviour, 65 are comment corrections, 11 are dead-code removals and
-  5 are documented deliberate deviations), **260 preserved deliberately**, and
+  5 are documented deliberate deviations), **262 preserved deliberately**, and
   **10 not ported** (the `GTE_USE_VEC_MAT` branches, dead code that cannot
   compile, and two arbitrary-precision paths).
 - **288 distinct upstream headers** are implicated.
 
-Eleven claims made during the porting pass were later corrected, sharpened or
+Twelve claims made during the porting pass were later corrected, sharpened or
 withdrawn by the verification pass; they are listed in
 [Claims withdrawn or corrected](#claims-withdrawn-or-corrected) and the
 corrected form is what appears above.
@@ -330,6 +330,8 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `ImageUtility2.h` | `GetSkeleton` | solid even-sided squares skeletonise to nothing | RC | preserved | [#443](https://github.com/gradientspaceai/gtengine-js/issues/443) |
 | `ImageUtility2.h` | `DrawLine` | never updates `maxValue` in its `dy > maxValue` branch | minor | preserved | [#129](https://github.com/gradientspaceai/gtengine-js/issues/129) |
 | `ImageUtility2.h`, `ImageUtility3.h` | neighbourhood helpers | read neighbours with no range test, relying wholly on the zero-boundary precondition | minor | preserved | [#129](https://github.com/gradientspaceai/gtengine-js/issues/129) |
+| `ImageUtility2.h` | `GetL1Distance` | reports a maximum distance of 1 at (0,0) for an image with no foreground | minor | preserved | [#129](https://github.com/gradientspaceai/gtengine-js/issues/129) |
+| `ImageUtility3.h` | offset-list `Dilate` | lacks the `numNeighbors > 0` assertion that the 2D functions, 3D `Erode` and 3D `GetComponents` have (an empty list returns a copy) | minor | preserved | [#129](https://github.com/gradientspaceai/gtengine-js/issues/129) |
 | `ImageUtility3.h` | `Dilate` | the innermost loop starts at `i0 = 1`, so `x = 0` voxels never act as dilation sources | RC | fixed | [#129](https://github.com/gradientspaceai/gtengine-js/issues/129) |
 | `ImageUtility3.h` | `Close<N>` | uncompilable dead code (2D static_assert, nonexistent two-argument `Image3` constructor) | minor | fixed | [#129](https://github.com/gradientspaceai/gtengine-js/issues/129) |
 | `IncrementalDelaunay2.h` | `GetHull` | dereferences `edges.begin()` on an empty edge map | RC | fixed | [#290](https://github.com/gradientspaceai/gtengine-js/issues/290) |
@@ -591,8 +593,11 @@ Issue links point at <https://github.com/gradientspaceai/gtengine-js/issues>. "P
 | `StaticVETManifoldMesh2.h` | `GetAdjacentTriangles` | the reversed-direction fallback returns R then L without swapping; documented case 3 unreachable | RC | fixed | [#66](https://github.com/gradientspaceai/gtengine-js/issues/66), [#472](https://github.com/gradientspaceai/gtengine-js/issues/472) |
 | `StaticVTSManifoldMesh3.h` | `GetAdjacentTetrahedra` | the same missing swap after `SortFace` | RC | fixed | [#66](https://github.com/gradientspaceai/gtengine-js/issues/66), [#472](https://github.com/gradientspaceai/gtengine-js/issues/472) |
 | `SurfaceExtractor.h` | `MakeUnique` | keeps rotated duplicate triangles and emits non-canonical rotations | minor | preserved | [#439](https://github.com/gradientspaceai/gtengine-js/issues/439) |
+| `SurfaceExtractorCubes.h` | `Get{X,Y,Z}{Min,Max}Edges` case 15 | the `det > 0` and `det < 0` bodies are swapped in all six functions: the face saddle has the sign of `det * f00`, so `det > 0` connects `f00` and `f11`, but upstream joins the crossings next to `f00` and next to `f11`; wrong on every saddle face with nonzero `det` (3D sibling of #544) | RC | fixed | [#549](https://github.com/gradientspaceai/gtengine-js/issues/549) |
+| `SurfaceExtractorCubes.h` | `VETable::RemoveTriangles` | geometry-free ear clipping always takes the lowest-numbered degree-2 vertex, so a fan diagonal can lie inside a four-crossing face and the two voxels sharing it choose independently: edges of 3 or 4 triangles (443 of 4399 records) | minor | preserved | [#549](https://github.com/gradientspaceai/gtengine-js/issues/549) |
+| `SurfaceExtractorMC.h` | `ComputeNormals` | the triangle pointer is never advanced, so the first triangle's normal is accumulated `numTriangles` times at its three vertices and every other vertex gets the zero normal | RC | fixed | [#443](https://github.com/gradientspaceai/gtengine-js/issues/443) |
 | `SurfaceExtractorMC.h` | `Extract` | the edge interpolation omits `level`; vertices are misplaced for any nonzero level | RC | fixed | [#443](https://github.com/gradientspaceai/gtengine-js/issues/443) |
-| `SurfaceExtractorMC.h` | 15-case table | not face-consistent: a shared face with alternating signs is resolved differently by each voxel | RC | preserved | [#443](https://github.com/gradientspaceai/gtengine-js/issues/443) |
+| `SurfaceExtractorMC.h` | 15-case table | WITHDRAWN: the table is face-consistent (each of its 192 ambiguous face instances cuts off the negative corners, so adjacent voxels agree); the 3x2x2 example's single-triangle edges lie on the image boundary | n/a | withdrawn | [#443](https://github.com/gradientspaceai/gtengine-js/issues/443) |
 | `SurfaceExtractorTetrahedra.h` | `GetGradient` (~L296) | the odd-parity branch condition `dx + dy + dz >= 0` is unconditionally true; the plane is at 2 | RC | fixed | [#132](https://github.com/gradientspaceai/gtengine-js/issues/132) |
 | `SWInterval.h` | outward rounding | `std::nextafter(value, +-max)` pulls an infinite bound back to `+-MAX_VALUE`, destroying enclosure | RC | preserved | [#50](https://github.com/gradientspaceai/gtengine-js/issues/50), [#367](https://github.com/gradientspaceai/gtengine-js/issues/367) |
 | `SymmetricEigensolver.h` | `ComputePermutation` | `std::sort` is unstable, so for tied eigenvalues the order, and which eigenvector `GetEigenvector(i)` returns, is unspecified (it happens to be stable for n <= 32 with MSVC, which uses insertion sort there) | minor | fixed | [#478](https://github.com/gradientspaceai/gtengine-js/issues/478) |
@@ -4533,7 +4538,44 @@ reduced state. Issue [#517](https://github.com/gradientspaceai/gtengine-js/issue
 
 Issues [#42](https://github.com/gradientspaceai/gtengine-js/issues/42), [#80](https://github.com/gradientspaceai/gtengine-js/issues/80), [#379](https://github.com/gradientspaceai/gtengine-js/issues/379), [#476](https://github.com/gradientspaceai/gtengine-js/issues/476), [#478](https://github.com/gradientspaceai/gtengine-js/issues/478).
 
+### `SurfaceExtractorCubes.h`
+
+**1. The saddle-face pairing is inverted (result-corrupting; found by the C++
+oracle of group 26).** In `Get{X,Y,Z}{Min,Max}Edges` case 15 (all four edges of
+the face crossed, `det = f00*f11 - f01*f10` nonzero) the `det > 0` and `det < 0`
+bodies are swapped in all six functions. The bilinear saddle value of the face is
+`det / (f00 + f11 - f01 - f10)`, and in the alternating-sign configuration the
+denominator has the sign of `f00`, so the saddle has the sign of `det * f00`: for
+`det > 0` the corners `f00` and `f11` are connected through the saddle and the
+curves must cut off `f10` and `f01`, but upstream joins the two crossings next to
+`f00` and the two next to `f11` (and the reverse for `det < 0`). Wrong on every
+saddle face with nonzero determinant; the 3D sibling of #544. Reproduction: the
+2x2x2 image with 3 at (0,0,0) and (0,1,1), 0 elsewhere, level 0: face x = 0 has
+shifted values 5, -1, 5, -1 and centre value 2, yet upstream returns two caps
+around the positive corners whose chord through (0, 0.4167, 0.4167) passes where
+the interpolant is 2.08. Adjacent voxels make the same choice on a shared face,
+so the mesh stays closed and only its topology is wrong (all 4285 saddle faces of
+the deep run). Both sides agreed bit for bit. Port: fixed by swapping the branches
+(deviation case `extract.saddle`, 2000 of 2000 records; two unit tests that had
+encoded upstream's behaviour corrected).
+
+**2. `VETable::RemoveTriangles` clips ears without geometry (minor, preserved).**
+`Remove` always takes the lowest-numbered degree-2 vertex as the next ear, so on
+a voxel with a four-crossing face a fan diagonal can lie inside that face; the
+two voxels sharing the face choose independently, and the mesh then has edges
+shared by 3 or 4 triangles and single-triangle edges inside the image (443 of
+4399 such records). Upstream's own pairing has the same problem.
+
+Issue [#549](https://github.com/gradientspaceai/gtengine-js/issues/549).
+
 ### `SurfaceExtractorMC.h`, `SurfaceExtractorTetrahedra.h`, `TetrahedraRasterizer.h`
+
+**`SurfaceExtractorMC::ComputeNormals` never advances its triangle pointer
+(result-corrupting; C++ oracle of group 26).** The loop reads `indices.data()`
+every iteration without the `triangle += 3` that `OrientTriangles` has, so the
+first triangle's normal is added `numTriangles` times at its three vertices and
+every other vertex gets the zero normal. Port: iterates over every triangle
+(deviation case `computeNormals.multiple`, 1432 of 2000 records).
 
 **`MultiThreadedRasterizer` has a data race (result-corrupting, undefined
 behaviour; C++ oracle of group 25).** The threads store plain `int32_t` values
@@ -4551,7 +4593,12 @@ otherwise vertices are misplaced and can leave the voxel. Port: shifts only the
 numerators and keeps the unperturbed `F`, so `perturb` still affects only the
 sign classification.
 
-**2. The marching-cubes table is not face-consistent (preserved).** A shared face
+**2. WITHDRAWN by the C++ oracle of group 26: the marching-cubes table IS
+face-consistent.** An exhaustive check of the 256-entry table shows that each of
+its 192 ambiguous face instances is resolved by cutting off the negative corners
+(`F < level`), so adjacent voxels agree and the mesh is closed; the 3x2x2
+example's 8 single-triangle edges all lie on the image boundary. The fixed rule
+is a disambiguation, not a hole. The original claim follows. A shared face
 with alternating corner signs is resolved differently by each voxel, leaving a
 hole; the minimal 3x2x2 case produces 6 triangles with 8 boundary edges. This is
 inherent to the 15-case table; the sibling extractors are unaffected. (The
@@ -5098,6 +5145,14 @@ the corrected form is what appears above.
    not affect comparisons or arithmetic; the string constructor gives every
    zero-valued string, not only `-0.0`, an invalid signed zero
    ([#168](https://github.com/gradientspaceai/gtengine-js/issues/168)).
+
+12. **The marching-cubes table is face-consistent after all.** Issue
+   [#443](https://github.com/gradientspaceai/gtengine-js/issues/443) item 2
+   claimed a shared face with alternating signs is resolved differently by each
+   voxel. The C++ oracle of group 26 checked all 256 entries: every one of the
+   192 ambiguous face instances cuts off the negative corners, so adjacent
+   voxels agree; the 3x2x2 example's single-triangle edges lie on the image
+   boundary. Withdrawn.
 
 Two items were investigated and found **not** to be defects, and are recorded
 here so they are not re-reported: `ApprEllipseByArcs::UpdateMatrix` uses `a[i]`

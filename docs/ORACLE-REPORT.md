@@ -9,7 +9,7 @@ upstream GTE code compiled with MSVC; the port replays the same inputs. See
 - compiler MSVC 194435215 x64 /O2 /fp:precise
 - records-per-case 20
 
-**1611 cases, 28960 records, 450966 floating-point outputs compared; 99.68% bit-identical to the C++ build. 1385 cases are bit-identical on every output. 163 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
+**1666 cases, 29920 records, 459155 floating-point outputs compared; 99.68% bit-identical to the C++ build. 1433 cases are bit-identical on every output. 170 further cases demonstrate deliberate fixes of upstream defects and 0 are skipped.**
 
 Discrete outputs (booleans, counts, indices) always compare exactly and are not counted
 in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |port|, |C++|)`.
@@ -41,6 +41,7 @@ in the floating-point columns. "max scaled error" is `|port - C++| / max(1, |por
 | v23-estimates | 52 | 1020 | 46176 | 99.89% | 43 | 3.96e-16 | `ChebyshevRatio.ratioUsingCosAngle` |
 | v24-imaging | 33 | 620 | 9029 | 100.00% | 31 | 0 |  |
 | v25-imaging | 25 | 460 | 5109 | 99.43% | 21 | 2.22e-16 | `GradientAnisotropic3.update` |
+| v26-imaging | 55 | 960 | 8189 | 100.00% | 48 | 0 |  |
 | v28-interpolation | 31 | 580 | 32713 | 100.00% | 29 | 0 |  |
 | v29-interpolation | 36 | 600 | 19347 | 99.67% | 29 | 4.72e-14 | `IntpThinPlateSpline2.evaluate` |
 | v30-intersection | 61 | 1200 | 1684 | 100.00% | 60 | 0 |  |
@@ -152,6 +153,13 @@ every record.
 | v24-imaging | `AdaptiveSkeletonClimbing2.extract.saddlePairing` | 20 of 20 | v24 report, AdaptiveSkeletonClimbing2 saddle pairing |
 | v25-imaging | `Image3.neighborhoods.wrap` | 20 of 20 | #64 (size_t neighbour coordinates wrap at the xmin/ymin/zmin faces) |
 | v25-imaging | `FastMarch3.faces` | 20 of 20 | #121 (upstream leaves the six boundary faces unmarked) |
+| v26-imaging | `ImageUtility2.drawEllipse.zeroExtents` | 20 of 20 | #443 (UPSTREAM-FINDINGS, ImageUtility2 item 3) |
+| v26-imaging | `ImageUtility3.morphology.xmin` | 2 of 20 | #129 (UPSTREAM-FINDINGS, ImageUtility3 item 1) |
+| v26-imaging | `SurfaceExtractorCubes.extract.saddle` | 20 of 20 | v26 report, SurfaceExtractorCubes saddle-face pairing |
+| v26-imaging | `SurfaceExtractorMC.extractVoxel.level` | 10 of 20 | #443 (UPSTREAM-FINDINGS, SurfaceExtractorMC item 1) |
+| v26-imaging | `SurfaceExtractorMC.extract.level` | 11 of 20 | #443 (UPSTREAM-FINDINGS, SurfaceExtractorMC item 1) |
+| v26-imaging | `SurfaceExtractorMC.computeNormals.multiple` | 12 of 20 | v26 report, SurfaceExtractorMC ComputeNormals triangle pointer |
+| v26-imaging | `SurfaceExtractorTetrahedra.orientTriangles.centralTetra` | 20 of 20 | #132 (UPSTREAM-FINDINGS, SurfaceExtractorTetrahedra item 3) |
 | v28-interpolation | `IntpAkimaUniform2.evaluate.maxBoundary` | 18 of 20 | #58: max-boundary FXY stencils have the wrong sign |
 | v28-interpolation | `IntpAkimaUniform3.evaluate.maxBoundary` | 20 of 20 | #58: max-boundary mixed-derivative stencils have the wrong sign |
 | v29-interpolation | `IntpLinearNonuniform2.deviation.getIndices` | 17 of 20 | #135 (IntpLinearNonuniform2 discards the GetIndices failure flag) |
