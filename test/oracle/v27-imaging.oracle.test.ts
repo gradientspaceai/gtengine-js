@@ -1,6 +1,7 @@
 // Replays oracle/cpp/cases/v27-imaging.cpp (AdaptiveSkeletonClimbing3).
 // Keep the two files in the same order. Every case is arithmetic-only
 // (+ - * /, sqrt, floor, truncating conversions) and compared bit for bit.
+import { writeFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
     AdaptiveSkeletonClimbing3,
@@ -118,8 +119,28 @@ function outResult(io: OracleIO, r: ASC3Result): void {
 }
 
 // Extractions whose outputs the independent checks examine.
-interface Checked { voxels: number[], N: number, level: number, depth: number, r: ASC3Result }
+interface Checked {
+    tag: string, voxels: number[], N: number, level: number, depth: number, r: ASC3Result
+}
 const checked: Checked[] = [];
+// The case whose records are being replayed (set by the case wrappers).
+let currentTag = '';
+
+// GetZeroBase can return -1 for a CFG_MULT node that HasZeroSubedge admits,
+// and Get*EdgesM would then interpolate at grid coordinate -1 (#194, latent).
+// Count the interpolations at a negative coordinate the replays perform.
+let negativeInterpolations = 0;
+{
+    const proto = AdaptiveSkeletonClimbing3.prototype as unknown as
+        Record<string, (x: number, y: number, z: number) => number>;
+    for (const name of ['getXInterp', 'getYInterp', 'getZInterp']) {
+        const original = proto[name];
+        proto[name] = function (this: unknown, x: number, y: number, z: number): number {
+            if (x < 0 || y < 0 || z < 0) { ++negativeInterpolations; }
+            return original.call(this, x, y, z);
+        };
+    }
+}
 
 // A finite double as m * 2^e with integer m (exact).
 function decompose(x: number): { m: bigint, e: number } {
@@ -238,7 +259,7 @@ function runASC(N: number, voxels: number[], fixBoundary: boolean, levels: reado
         const saddle = saddleCheck(voxels, (1 << N) + 1, levels[k], vu, tu);
         const r = { boxes, v: vertices, t: triangles, vu, tu, to, normals, saddle };
         results.push(r);
-        checked.push({ voxels, N, level: levels[k], depth: depths[k], r });
+        checked.push({ tag: currentTag, voxels, N, level: levels[k], depth: depths[k], r });
     }
     return results;
 }
@@ -383,18 +404,238 @@ function invalidCase(io: OracleIO): void {
     outTriangles(io, triangles);
 }
 
+// ---- independent checks of the extractions (exact arithmetic) ----
+
+// x as the integer x * 2^-E for E <= the exponent of every x passed.
+function scaled(x: number, E: number): bigint {
+    const { m, e } = decompose(x);
+    return m << BigInt(e - E);
+}
+
+function minExponent(xs: readonly number[]): number {
+    return Math.min(...xs.map((x) => decompose(x).e));
+}
+
+interface CheckStats {
+    extractions: number;
+    edgeVertices: number;
+    branchPoints: number;
+    centroids: number;
+    degenerate: number;
+    closedMeshes: number;
+    openMeshes: number;
+    notClosed: string[];
+    orientedMeshes: number;
+    misoriented: string[];
+    bad: string[];
+}
+
+// Checks one extraction; the level must be finite and differ from every
+// voxel value (the documented precondition). Every vertex of the unique mesh
+// is (a) on a unit grid edge whose end values straddle the level, within
+// (a + 4) 2^-53 of the exact root a + (L - f0)/(f1 - f0) (the rounding of
+// L - f0, the quotient and the sum; checked exactly), or (b) a plus-sign
+// branch point: on a four-crossing unit face whose bilinear saddle value is
+// exactly the level, at (the u of the v = 0 crossing, the v of the u = 0
+// crossing), or (c) a fan centroid strictly inside a merged box. No
+// triangle is degenerate (exact cross product). When the level set does not
+// reach the image border (all border voxels on one side) every mesh edge is
+// shared by exactly two triangles and, after OrientTriangles, traversed in
+// opposite directions by them.
+function checkExtraction(c: Checked, stats: CheckStats): void {
+    const { voxels, N, level, r } = c;
+    const size = (1 << N) + 1;
+    const F = (q: readonly number[]): number => voxels[q[0] + size * (q[1] + size * q[2])];
+    ++stats.extractions;
+    const where = `N=${N} level=${level} depth=${c.depth}`;
+    const merged = r.boxes.filter((b) => b[3] > 1 || b[4] > 1 || b[5] > 1);
+    for (const p of r.vu) {
+        if (onCrossedEdge(p, F, size, level)) { ++stats.edgeVertices; continue; }
+        if (isBranchPoint(p, F, size, level)) { ++stats.branchPoints; continue; }
+        if (merged.some((b) => [0, 1, 2].every((k) => b[k] < p[k] && p[k] < b[k] + b[k + 3]))) {
+            ++stats.centroids;
+            continue;
+        }
+        stats.bad.push(`${where}: vertex (${p.join(', ')}) is on no crossed edge, no saddle face, in no merged box`);
+    }
+    for (const t of r.tu) {
+        const a = r.vu[t.V[0]], b = r.vu[t.V[1]], d = r.vu[t.V[2]];
+        const E = minExponent([...a, ...b, ...d]);
+        const e1 = [0, 1, 2].map((k) => scaled(b[k], E) - scaled(a[k], E));
+        const e2 = [0, 1, 2].map((k) => scaled(d[k], E) - scaled(a[k], E));
+        const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+        if (n.every((x) => x === 0n)) { ++stats.degenerate; }
+    }
+    if (r.tu.length === 0) { return; }
+    // Undirected and directed edge uses.
+    const undirected = new Map<string, number>();
+    const directed = new Map<string, number>();
+    for (const t of r.tu) {
+        for (let k = 0; k < 3; ++k) {
+            const a = t.V[k], b = t.V[(k + 1) % 3];
+            const key = `${Math.min(a, b)},${Math.max(a, b)}`;
+            undirected.set(key, (undirected.get(key) ?? 0) + 1);
+        }
+    }
+    for (const t of r.to) {
+        for (let k = 0; k < 3; ++k) {
+            const key = `${t.V[k]},${t.V[(k + 1) % 3]}`;
+            directed.set(key, (directed.get(key) ?? 0) + 1);
+        }
+    }
+    let borderSides = 0;
+    for (let z = 0; z < size; ++z) {
+        for (let y = 0; y < size; ++y) {
+            for (let x = 0; x < size; ++x) {
+                if ([x, y, z].some((q) => q === 0 || q === size - 1)) {
+                    borderSides |= F([x, y, z]) > level ? 1 : 2;
+                }
+            }
+        }
+    }
+    if (borderSides !== 3) {
+        const counts = [...undirected.values()];
+        if (counts.every((n) => n === 2)) {
+            ++stats.closedMeshes;
+        } else {
+            stats.notClosed.push(`${where}: edge uses ${[...new Set(counts)].join('/')}`);
+        }
+        const flipped = [...directed.keys()].filter((key) => {
+            const [a, b] = key.split(',');
+            return directed.get(key) !== 1 || directed.get(`${b},${a}`) !== 1;
+        });
+        if (flipped.length === 0) {
+            ++stats.orientedMeshes;
+        } else {
+            stats.misoriented.push(`${where}: ${flipped.length} directed edges`);
+        }
+    } else {
+        ++stats.openMeshes;
+    }
+}
+
+// (a) of checkExtraction: p lies on a unit grid edge whose end values
+// straddle the level, within (a + 4) 2^-53 of the exact root.
+function onCrossedEdge(p: Vertex, F: (q: readonly number[]) => number, size: number,
+    level: number): boolean {
+    for (let k = 0; k < 3; ++k) {
+        const others = [0, 1, 2].filter((m) => m !== k);
+        if (!others.every((m) => Number.isInteger(p[m]))) { continue; }
+        const lows = Number.isInteger(p[k]) ? [p[k] - 1, p[k]] : [Math.floor(p[k])];
+        for (const a of lows) {
+            if (a < 0 || a + 1 > size - 1) { continue; }
+            const q0 = [p[0], p[1], p[2]], q1 = [p[0], p[1], p[2]];
+            q0[k] = a;
+            q1[k] = a + 1;
+            const f0 = F(q0), f1 = F(q1);
+            if ((f0 > level) === (f1 > level)) { continue; }
+            // |(c - a)(f1 - f0) - (L - f0)| <= (a + 4) 2^-53 |f1 - f0|
+            const E = Math.min(minExponent([p[k], level]), -53);
+            const lhs = (scaled(p[k], E) - (BigInt(a) << BigInt(-E))) * BigInt(f1 - f0)
+                - (scaled(level, E) - (BigInt(f0) << BigInt(-E)));
+            const bound = (BigInt(a + 4) << BigInt(-E - 53)) * BigInt(Math.abs(f1 - f0));
+            if ((lhs < 0n ? -lhs : lhs) <= bound) { return true; }
+        }
+    }
+    return false;
+}
+
+// (b) of checkExtraction.
+function isBranchPoint(p: Vertex, F: (q: readonly number[]) => number, size: number,
+    level: number): boolean {
+    for (let axis = 0; axis < 3; ++axis) {
+        if (!Number.isInteger(p[axis])) { continue; }
+        const ku = axis === 0 ? 1 : 0, kv = axis === 2 ? 1 : 2;
+        const i = Math.floor(p[ku]), j = Math.floor(p[kv]);
+        if (i < 0 || j < 0 || i + 1 > size - 1 || j + 1 > size - 1) { continue; }
+        const corner = (du: number, dv: number): number => {
+            const q = [0, 0, 0];
+            q[axis] = p[axis]; q[ku] = i + du; q[kv] = j + dv;
+            return F(q);
+        };
+        const f00 = corner(0, 0), f10 = corner(1, 0), f01 = corner(0, 1), f11 = corner(1, 1);
+        const g = [f00, f10, f01, f11].map((f) => f > level);
+        if (!(g[0] === g[3] && g[1] === g[2] && g[0] !== g[1])) { continue; }
+        if (saddleSign(f00, f10, f01, f11, level) !== 0) { continue; }
+        if (p[ku] === i + (level - f00) / (f10 - f00) && p[kv] === j + (level - f00) / (f01 - f00)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function tagged(tag: string, body: (io: OracleIO) => void): (io: OracleIO) => void {
+    return (io) => {
+        currentTag = tag;
+        body(io);
+    };
+}
+
 describe('oracle: v27-imaging', () => {
     const family = new OracleFamily('v27-imaging');
     const exact = { exact: true };
 
-    family.case('AdaptiveSkeletonClimbing3.extract', ascCase, exact);
-    family.case('AdaptiveSkeletonClimbing3.extract.types', typesCase, exact);
-    family.case('AdaptiveSkeletonClimbing3.extract.saddle', ascCase, exact);
-    family.case('AdaptiveSkeletonClimbing3.extract.saddlePairing', ascCase, exact);
-    family.case('AdaptiveSkeletonClimbing3.extract.large', largeCase, { exact: true, timeout: 600000 });
-    family.case('AdaptiveSkeletonClimbing3.extract.rootMonobox', ascCase, exact);
+    family.case('AdaptiveSkeletonClimbing3.extract', tagged('extract', ascCase), exact);
+    family.case('AdaptiveSkeletonClimbing3.extract.types', tagged('types', typesCase), exact);
+    family.case('AdaptiveSkeletonClimbing3.extract.saddle', tagged('saddle', ascCase), exact);
+    // Port fix of the face pairing (#544 in 3-D; see the group report and
+    // the header of src/AdaptiveSkeletonClimbing3.ts). Every record has a
+    // four-crossing face on which upstream contradicts the interpolant: the
+    // C++ record's own SaddleCheck counts it, the port's is zero.
+    family.case('AdaptiveSkeletonClimbing3.extract.saddlePairing', tagged('saddlePairing', ascCase),
+        { exact: true, deviation: '#544 (3-D face cases), v27 report' });
+    family.case('AdaptiveSkeletonClimbing3.extract.large', tagged('large', largeCase),
+        { exact: true, timeout: 600000 });
+    family.case('AdaptiveSkeletonClimbing3.extract.rootMonobox', tagged('rootMonobox', ascCase), exact);
     family.case('AdaptiveSkeletonClimbing3.meshOps', meshOpsCase, exact);
     family.case('AdaptiveSkeletonClimbing3.invalid', invalidCase, exact);
+
+    it('AdaptiveSkeletonClimbing3 meshes against the trilinear interpolant (independent checks)', () => {
+        const stats: CheckStats = {
+            extractions: 0, edgeVertices: 0, branchPoints: 0, centroids: 0, degenerate: 0,
+            closedMeshes: 0, openMeshes: 0, notClosed: [], orientedMeshes: 0, misoriented: [], bad: []
+        };
+        const faces = new Map<string, [number, number]>();
+        let rootDropped = 0;
+        let firstBad: unknown;
+        const byDepth = new Map<string, number[]>();
+        for (const c of checked) {
+            const f = faces.get(c.tag) ?? [0, 0];
+            f[0] += c.r.saddle[0];
+            f[1] += c.r.saddle[1];
+            faces.set(c.tag, f);
+            const size = (1 << c.N) + 1;
+            const sample = c.voxels.includes(c.level);
+            if (c.tag === 'rootMonobox') {
+                // The level set is not empty (the level is strictly inside
+                // the voxel range of a monotone image), the mesh is.
+                const crossed = c.voxels.some((v) => v > c.level) && c.voxels.some((v) => v <= c.level);
+                if (crossed && c.r.tu.length === 0 && c.r.boxes.length === 0) { ++rootDropped; }
+            }
+            if (!Number.isFinite(c.level) || sample) { continue; }
+            const before = stats.notClosed.length;
+            const badBefore = stats.bad.length;
+            checkExtraction(c, stats);
+            if (firstBad === undefined && stats.bad.length > badBefore) {
+                firstBad = { tag: c.tag, voxels: c.voxels, level: c.level, depth: c.depth, boxes: c.r.boxes, vu: c.r.vu,
+                    tu: c.r.tu.map((t) => [...t.V]) };
+            }
+            const key = c.depth > c.N ? 'depth>N' : (c.depth <= 0 ? 'depth<=0' : 'depth1..N');
+            const d = byDepth.get(key) ?? [0, 0];
+            d[0] += 1;
+            d[1] += stats.notClosed.length - before;
+            byDepth.set(key, d);
+            void size;
+        }
+        const report = JSON.stringify({
+            ...stats, notClosed: stats.notClosed.length, misoriented: stats.misoriented.length,
+            bad: stats.bad.length, faces: Object.fromEntries(faces), rootDropped,
+            byDepth: Object.fromEntries(byDepth), negativeInterpolations,
+            notClosedSample: stats.notClosed.slice(0, 5), misorientedSample: stats.misoriented.slice(0, 5),
+            badSample: stats.bad.slice(0, 5), firstBad
+        }, null, 1);
+        if (process.env['V27_STATS'] !== undefined) { writeFileSync(process.env['V27_STATS'], report); }
+    });
 
     family.finish();
 });

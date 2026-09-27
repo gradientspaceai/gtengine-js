@@ -23,6 +23,20 @@
 //  - The upstream int64_t determinants that disambiguate the
 //    four-intersection face configuration are computed with bigint so that
 //    products of 32-bit voxel values do not lose precision in IEEE doubles.
+//  - Port fix of an upstream defect (found by the C++ oracle, group 27; the
+//    3-D instance of #544, AdaptiveSkeletonClimbing2): in the
+//    four-intersection face case of the six Get{X,Y,Z}{Min,Max}EdgesS,
+//    upstream pairs the four level-set points by the sign of
+//    det = f00*f11 - f01*f10. That determinant ignores the level (it is the
+//    asymptotic decider for level 0 only) and its two disjoint pairings are
+//    swapped: det > 0 cuts off corners 00 and 11 although det > 0 at level 0
+//    means the interpolant's face saddle has their sign, so they are
+//    connected through the face. For the face 4, -1; -1, 4 at level 0.5
+//    upstream cuts off the two corners of value 4 while the bilinear
+//    interpolant is 1.5 at the face center. The port decides by the exact
+//    sign of dg = det - level*(f00 + f11 - f01 - f10), which is
+//    (f00-L)(f11-L) - (f01-L)(f10-L), and keeps upstream's choice on every
+//    face where it agrees (sign(det) = -sign(dg)); see facePairing.
 //  - Vertex (std::array<Real,3>) becomes the tuple type
 //    AdaptiveSkeletonClimbing3Vertex = [number, number, number]. Triangle
 //    (TriangleKey<true>) becomes TriangleKey constructed with ordered=true.
@@ -99,6 +113,36 @@ const EB_YMIN_ZMIN = 1 << EI_YMIN_ZMIN;
 const EB_YMIN_ZMAX = 1 << EI_YMIN_ZMAX;
 const EB_YMAX_ZMIN = 1 << EI_YMAX_ZMIN;
 const EB_YMAX_ZMAX = 1 << EI_YMAX_ZMAX;
+
+// The exact sign of det - level * s for integers det and s and a finite
+// double level, computed by writing level = m * 2^e with integer m (the same
+// helper as in AdaptiveSkeletonClimbing2).
+function signOfDetMinusLevelTimes(det: bigint, level: number, s: bigint): number {
+    const view = new DataView(new ArrayBuffer(8));
+    view.setFloat64(0, level);
+    const hi = view.getUint32(0), lo = view.getUint32(4);
+    const biased = (hi >>> 20) & 0x7FF;
+    let m = (BigInt(hi & 0xFFFFF) << 32n) | BigInt(lo);
+    let e: number;
+    if (biased === 0) {
+        e = -1074;  // zero or subnormal
+    } else {
+        m |= 1n << 52n;
+        e = biased - 1075;
+    }
+    if ((hi >>> 31) !== 0) {
+        m = -m;
+    }
+    let lhs = det;
+    let rhs = m * s;
+    if (e >= 0) {
+        rhs <<= BigInt(e);
+    } else {
+        lhs <<= BigInt(-e);
+    }
+    const d = lhs - rhs;
+    return (d > 0n ? 1 : (d < 0n ? -1 : 0));
+}
 
 // The error message that upstream uses when a face configuration is
 // impossible for a non-integer level value.
@@ -1381,15 +1425,29 @@ export class AdaptiveSkeletonClimbing3 {
         return type;
     }
 
-    // The determinant f00 * f11 - f01 * f10 of the four face corner values,
-    // computed with bigint to match the upstream int64_t arithmetic. The
-    // sign selects the pairing of the four face intersections.
-    private faceDeterminant(i00: number, i10: number, i11: number, i01: number): bigint {
+    // The pairing of the four intersections of a four-crossing face with
+    // corner values f00, f10, f11, f01 (image indices i00, i10, i11, i01):
+    // 1 joins the two intersections next to corner 00 and the two next to
+    // corner 11 (upstream's det > 0 branch), -1 cuts off corners 10 and 01
+    // (det < 0), 0 is the plus-sign branch point (det = 0).
+    //
+    // Port fix (see the header note): upstream decides by the sign of
+    // det = f00*f11 - f01*f10 alone (int64_t; bigint here, so that products
+    // of 32-bit voxel values stay exact), which ignores the level and swaps
+    // the two disjoint pairings. The bilinear interpolant on the face has its
+    // saddle above the level (corners 00 and 11 connected through the face)
+    // iff dg = det - level*(f00 + f11 - f01 - f10) > 0, evaluated exactly.
+    // Upstream's choice is kept wherever it is right, i.e.
+    // sign(det) = -sign(dg), and replaced by -sign(dg) otherwise.
+    private facePairing(i00: number, i10: number, i11: number, i01: number): number {
         const f00 = BigInt(this.mInputVoxels[i00]);
         const f10 = BigInt(this.mInputVoxels[i10]);
         const f11 = BigInt(this.mInputVoxels[i11]);
         const f01 = BigInt(this.mInputVoxels[i01]);
-        return f00 * f11 - f01 * f10;
+        const det = f00 * f11 - f01 * f10;
+        const upstreamSign = (det > 0n ? 1 : (det < 0n ? -1 : 0));
+        const dgSign = signOfDetMinusLevelTimes(det, this.mLevel, f00 + f11 - f01 - f10);
+        return (upstreamSign === -dgSign ? upstreamSign : -dgSign);
     }
 
     // ------------------------------------------------------------------
@@ -1436,14 +1494,14 @@ export class AdaptiveSkeletonClimbing3 {
                 // Four vertices, one per edge, need to disambiguate.
                 const i = box.x0 + this.mSize * (box.y0 + this.mSize * box.z0);
                 // F(x,y,z), F(x,y+1,z), F(x,y+1,z+1), F(x,y,z+1)
-                const det = this.faceDeterminant(i, i + this.mSize,
+                const decision = this.facePairing(i, i + this.mSize,
                     i + this.mSize + this.mSizeSqr, i + this.mSizeSqr);
 
-                if (det > 0n) {
+                if (decision > 0) {
                     // Disjoint hyperbolic segments, pair <P0,P2>, <P1,P3>.
                     table.insertEdge(EI_XMIN_YMIN, EI_XMIN_ZMIN);
                     table.insertEdge(EI_XMIN_YMAX, EI_XMIN_ZMAX);
-                } else if (det < 0n) {
+                } else if (decision < 0) {
                     // Disjoint hyperbolic segments, pair <P0,P3>, <P1,P2>.
                     table.insertEdge(EI_XMIN_YMIN, EI_XMIN_ZMAX);
                     table.insertEdge(EI_XMIN_YMAX, EI_XMIN_ZMIN);
@@ -1508,14 +1566,14 @@ export class AdaptiveSkeletonClimbing3 {
                 // Four vertices, one per edge, need to disambiguate.
                 const i = box.x1 + this.mSize * (box.y0 + this.mSize * box.z0);
                 // F(x,y,z), F(x,y+1,z), F(x,y+1,z+1), F(x,y,z+1)
-                const det = this.faceDeterminant(i, i + this.mSize,
+                const decision = this.facePairing(i, i + this.mSize,
                     i + this.mSize + this.mSizeSqr, i + this.mSizeSqr);
 
-                if (det > 0n) {
+                if (decision > 0) {
                     // Disjoint hyperbolic segments, pair <P0,P2>, <P1,P3>.
                     table.insertEdge(EI_XMAX_YMIN, EI_XMAX_ZMIN);
                     table.insertEdge(EI_XMAX_YMAX, EI_XMAX_ZMAX);
-                } else if (det < 0n) {
+                } else if (decision < 0) {
                     // Disjoint hyperbolic segments, pair <P0,P3>, <P1,P2>.
                     table.insertEdge(EI_XMAX_YMIN, EI_XMAX_ZMAX);
                     table.insertEdge(EI_XMAX_YMAX, EI_XMAX_ZMIN);
@@ -1580,14 +1638,14 @@ export class AdaptiveSkeletonClimbing3 {
                 // Four vertices, one per edge, need to disambiguate.
                 const i = box.x0 + this.mSize * (box.y0 + this.mSize * box.z0);
                 // F(x,y,z), F(x+1,y,z), F(x+1,y,z+1), F(x,y,z+1)
-                const det = this.faceDeterminant(i, i + 1,
+                const decision = this.facePairing(i, i + 1,
                     i + 1 + this.mSizeSqr, i + this.mSizeSqr);
 
-                if (det > 0n) {
+                if (decision > 0) {
                     // Disjoint hyperbolic segments, pair <P0,P2>, <P1,P3>.
                     table.insertEdge(EI_XMIN_YMIN, EI_YMIN_ZMIN);
                     table.insertEdge(EI_XMAX_YMIN, EI_YMIN_ZMAX);
-                } else if (det < 0n) {
+                } else if (decision < 0) {
                     // Disjoint hyperbolic segments, pair <P0,P3>, <P1,P2>.
                     table.insertEdge(EI_XMIN_YMIN, EI_YMIN_ZMAX);
                     table.insertEdge(EI_XMAX_YMIN, EI_YMIN_ZMIN);
@@ -1652,14 +1710,14 @@ export class AdaptiveSkeletonClimbing3 {
                 // Four vertices, one per edge, need to disambiguate.
                 const i = box.x0 + this.mSize * (box.y1 + this.mSize * box.z0);
                 // F(x,y,z), F(x+1,y,z), F(x+1,y,z+1), F(x,y,z+1)
-                const det = this.faceDeterminant(i, i + 1,
+                const decision = this.facePairing(i, i + 1,
                     i + 1 + this.mSizeSqr, i + this.mSizeSqr);
 
-                if (det > 0n) {
+                if (decision > 0) {
                     // Disjoint hyperbolic segments, pair <P0,P2>, <P1,P3>.
                     table.insertEdge(EI_XMIN_YMAX, EI_YMAX_ZMIN);
                     table.insertEdge(EI_XMAX_YMAX, EI_YMAX_ZMAX);
-                } else if (det < 0n) {
+                } else if (decision < 0) {
                     // Disjoint hyperbolic segments, pair <P0,P3>, <P1,P2>.
                     table.insertEdge(EI_XMIN_YMAX, EI_YMAX_ZMAX);
                     table.insertEdge(EI_XMAX_YMAX, EI_YMAX_ZMIN);
@@ -1724,14 +1782,14 @@ export class AdaptiveSkeletonClimbing3 {
                 // Four vertices, one per edge, need to disambiguate.
                 const i = box.x0 + this.mSize * (box.y0 + this.mSize * box.z0);
                 // F(x,y,z), F(x+1,y,z), F(x+1,y+1,z), F(x,y+1,z)
-                const det = this.faceDeterminant(i, i + 1,
+                const decision = this.facePairing(i, i + 1,
                     i + 1 + this.mSize, i + this.mSize);
 
-                if (det > 0n) {
+                if (decision > 0) {
                     // Disjoint hyperbolic segments, pair <P0,P2>, <P1,P3>.
                     table.insertEdge(EI_XMIN_ZMIN, EI_YMIN_ZMIN);
                     table.insertEdge(EI_XMAX_ZMIN, EI_YMAX_ZMIN);
-                } else if (det < 0n) {
+                } else if (decision < 0) {
                     // Disjoint hyperbolic segments, pair <P0,P3>, <P1,P2>.
                     table.insertEdge(EI_XMIN_ZMIN, EI_YMAX_ZMIN);
                     table.insertEdge(EI_XMAX_ZMIN, EI_YMIN_ZMIN);
@@ -1796,14 +1854,14 @@ export class AdaptiveSkeletonClimbing3 {
                 // Four vertices, one per edge, need to disambiguate.
                 const i = box.x0 + this.mSize * (box.y0 + this.mSize * box.z1);
                 // F(x,y,z), F(x+1,y,z), F(x+1,y+1,z), F(x,y+1,z)
-                const det = this.faceDeterminant(i, i + 1,
+                const decision = this.facePairing(i, i + 1,
                     i + 1 + this.mSize, i + this.mSize);
 
-                if (det > 0n) {
+                if (decision > 0) {
                     // Disjoint hyperbolic segments, pair <P0,P2>, <P1,P3>.
                     table.insertEdge(EI_XMIN_ZMAX, EI_YMIN_ZMAX);
                     table.insertEdge(EI_XMAX_ZMAX, EI_YMAX_ZMAX);
-                } else if (det < 0n) {
+                } else if (decision < 0) {
                     // Disjoint hyperbolic segments, pair <P0,P3>, <P1,P2>.
                     table.insertEdge(EI_XMIN_ZMAX, EI_YMAX_ZMAX);
                     table.insertEdge(EI_XMAX_ZMAX, EI_YMIN_ZMAX);
