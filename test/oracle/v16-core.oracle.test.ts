@@ -4,7 +4,11 @@ import { CurveExtractorEdge, CurveExtractorVertex } from '../../src/CurveExtract
 import { CurveExtractorSquares } from '../../src/CurveExtractorSquares.js';
 import { CurveExtractorTriangles } from '../../src/CurveExtractorTriangles.js';
 import { IEEEBinary16 } from '../../src/IEEEBinary16.js';
+import { EdgeKey } from '../../src/EdgeKey.js';
+import { ETNonmanifoldMesh } from '../../src/ETNonmanifoldMesh.js';
 import { ImplicitSurface3 } from '../../src/ImplicitSurface3.js';
+import { TriangleKey } from '../../src/TriangleKey.js';
+import { VETNonmanifoldMesh } from '../../src/VETNonmanifoldMesh.js';
 import { MeshCurvature } from '../../src/MeshCurvature.js';
 import { MeshSmoother } from '../../src/MeshSmoother.js';
 import { PolygonTreeEx, PolygonTreeExNode } from '../../src/PolygonTree.js';
@@ -311,6 +315,67 @@ class CubicSurface extends ImplicitSurface3 {
     fyy(_p: Vector): number { return 2.0 * this.c[1]; }
     fyz(p: Vector): number { return this.c[4] + this.c[10] * p.get(0); }
     fzz(_p: Vector): number { return 2.0 * this.c[2]; }
+}
+
+// ------------------------------------------------------------ ET/VETNonmanifoldMesh
+
+function emitET(io: OracleIO, mesh: ETNonmanifoldMesh): void {
+    const edges = mesh.getEdges();
+    io.outInt(edges.length);
+    for (const e of edges) {
+        const key = new EdgeKey(false, e.V[0], e.V[1]);
+        io.outInt(key.V[0]); io.outInt(key.V[1]);
+        io.outInt(e.V[0]); io.outInt(e.V[1]);
+        const tris = e.getTriangles();
+        io.outInt(tris.length);
+        for (const t of tris) { for (let j = 0; j < 3; ++j) { io.outInt(t.V[j]); } }
+    }
+    const triangles = mesh.getTriangles();
+    io.outInt(triangles.length);
+    for (const t of triangles) {
+        const key = new TriangleKey(true, t.V[0], t.V[1], t.V[2]);
+        for (let j = 0; j < 3; ++j) { io.outInt(key.V[j]); }
+        for (let j = 0; j < 3; ++j) { io.outInt(t.V[j]); }
+        for (let j = 0; j < 3; ++j) { io.outInt(t.E[j]!.V[0]); io.outInt(t.E[j]!.V[1]); }
+    }
+    io.outBool(mesh.isManifold());
+    io.outBool(mesh.isClosed());
+    const components = mesh.getComponents();
+    io.outInt(components.length);
+    for (const c of components) {
+        io.outInt(c.length);
+        for (const t of c) { for (let j = 0; j < 3; ++j) { io.outInt(t.V[j]); } }
+    }
+    const keyComponents = mesh.getComponentKeys();
+    io.outInt(keyComponents.length);
+    for (const c of keyComponents) {
+        io.outInt(c.length);
+        for (const k of c) { for (let j = 0; j < 3; ++j) { io.outInt(k.V[j]); } }
+    }
+}
+
+function emitVET(io: OracleIO, mesh: VETNonmanifoldMesh): void {
+    emitET(io, mesh);
+    const vertices = mesh.getVertices();
+    io.outInt(vertices.length);
+    for (const v of vertices) {
+        io.outInt(v.V);
+        io.outInt(v.V);
+        const va = v.getVAdjacent();
+        io.outInt(va.length);
+        for (const a of va) { io.outInt(a); }
+        const ea = v.getEAdjacent();
+        io.outInt(ea.length);
+        for (const e of ea) { io.outInt(e.V[0]); io.outInt(e.V[1]); }
+        const ta = v.getTAdjacent();
+        io.outInt(ta.length);
+        for (const t of ta) { for (let j = 0; j < 3; ++j) { io.outInt(t.V[j]); } }
+    }
+}
+
+function readOp(io: OracleIO): { type: number, v: [number, number, number] } {
+    const type = io.integer();
+    return { type, v: [io.integer(), io.integer(), io.integer()] };
 }
 
 describe('oracle: v16-core', () => {
@@ -622,6 +687,82 @@ describe('oracle: v16-core', () => {
         io.outVec(info.direction0);
         io.outVec(info.direction1);
     }, { exact: true });
+
+    // ------------------------------------------------------------ ET/VETNonmanifoldMesh
+
+    family.case('ETNonmanifoldMesh.sequence', (io) => {
+        io.integer();
+        const numOps = io.integer();
+        const mesh = new ETNonmanifoldMesh();
+        for (let k = 0; k < numOps; ++k) {
+            const op = readOp(io);
+            if (op.type === 0) {
+                const tri = mesh.insert(op.v[0], op.v[1], op.v[2]);
+                io.outBool(tri !== null);
+                if (tri) { for (let j = 0; j < 3; ++j) { io.outInt(tri.V[j]); } }
+            } else {
+                io.outBool(mesh.remove(op.v[0], op.v[1], op.v[2]));
+            }
+        }
+        emitET(io, mesh);
+        const copy = mesh.clone();
+        emitET(io, copy);
+        copy.clear();
+        io.outInt(copy.getEdges().length);
+        io.outInt(copy.getTriangles().length);
+    }, { exact: true });
+
+    family.case('ETNonmanifoldMesh.remove.degenerate', (io) => {
+        io.integer();
+        const numOps = io.integer();
+        const mesh = new ETNonmanifoldMesh();
+        for (let k = 0; k < numOps; ++k) {
+            const op = readOp(io);
+            mesh.insert(op.v[0], op.v[1], op.v[2]);
+        }
+        const a = io.integer();
+        const b = io.integer();
+        const which = io.integer();
+        const v = (which === 0 ? [a, a, b] : (which === 1 ? [b, a, a] : [a, b, a]));
+        mesh.insert(v[0], v[1], v[2]);
+        io.outBool(mesh.remove(v[0], v[1], v[2]));
+    }, { exact: true });
+
+    family.case('VETNonmanifoldMesh.sequence', (io) => {
+        io.integer();
+        const numOps = io.integer();
+        const mesh = new VETNonmanifoldMesh();
+        for (let k = 0; k < numOps; ++k) {
+            const op = readOp(io);
+            if (op.type === 0) {
+                io.outBool(mesh.insert(op.v[0], op.v[1], op.v[2]) !== null);
+            } else {
+                io.outBool(mesh.remove(op.v[0], op.v[1], op.v[2]));
+            }
+        }
+        emitVET(io, mesh);
+        const copy = mesh.clone();
+        emitVET(io, copy);
+        copy.clear();
+        io.outInt(copy.getVertices().length);
+    }, { exact: true });
+
+    // Upstream throws on every record (inverted assertion); the port
+    // removes the triangle and reports the mesh.
+    family.case('VETNonmanifoldMesh.remove.isolatesVertex', (io) => {
+        io.integer();
+        const numOps = io.integer();
+        const mesh = new VETNonmanifoldMesh();
+        for (let k = 0; k < numOps; ++k) {
+            const op = readOp(io);
+            mesh.insert(op.v[0], op.v[1], op.v[2]);
+        }
+        const fresh = io.integer();
+        const target = [io.integer(), io.integer(), io.integer()];
+        if (fresh === 1) { mesh.insert(target[0], target[1], target[2]); }
+        io.outBool(mesh.remove(target[0], target[1], target[2]));
+        emitVET(io, mesh);
+    }, { exact: true, deviation: '#240 (VETNonmanifoldMesh::Remove inverted assertion)' });
 
     family.finish();
 });

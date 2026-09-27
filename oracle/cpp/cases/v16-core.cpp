@@ -1165,3 +1165,268 @@ ORACLE_CASE("ImplicitSurface3.queries")
     io.outVec(d0);
     io.outVec(d1);
 }
+
+// ================================================================ ET/VETNonmanifoldMesh
+//
+// Every container these classes iterate is ordered by value (std::map keyed
+// by EdgeKey/TriangleKey; std::set with WeakPtrLT/SharedPtrLT, which
+// compare the pointees' keys; std::set<int32_t>), so every output is
+// emitted in upstream's own order and nothing is re-sorted.
+
+namespace
+{
+    struct MeshOp { int type; int32_t v[3]; };
+
+    void EmitET(oracle::Ctx& io, ETNonmanifoldMesh const& mesh)
+    {
+        io.outInt(mesh.GetEdges().size());
+        for (auto const& e : mesh.GetEdges())
+        {
+            io.outInt(e.first.V[0]); io.outInt(e.first.V[1]);
+            io.outInt(e.second->V[0]); io.outInt(e.second->V[1]);
+            io.outInt(e.second->T.size());
+            for (auto const& tw : e.second->T)
+            {
+                auto t = tw.lock();
+                for (int j = 0; j < 3; ++j) { io.outInt(t->V[j]); }
+            }
+        }
+        io.outInt(mesh.GetTriangles().size());
+        for (auto const& t : mesh.GetTriangles())
+        {
+            for (int j = 0; j < 3; ++j) { io.outInt(t.first.V[j]); }
+            for (int j = 0; j < 3; ++j) { io.outInt(t.second->V[j]); }
+            for (int j = 0; j < 3; ++j)
+            {
+                auto e = t.second->E[j].lock();
+                io.outInt(e->V[0]); io.outInt(e->V[1]);
+            }
+        }
+        io.outBool(mesh.IsManifold());
+        io.outBool(mesh.IsClosed());
+        std::vector<std::vector<std::shared_ptr<ETNonmanifoldMesh::Triangle>>> components;
+        mesh.GetComponents(components);
+        io.outInt(components.size());
+        for (auto const& c : components)
+        {
+            io.outInt(c.size());
+            for (auto const& t : c) { for (int j = 0; j < 3; ++j) { io.outInt(t->V[j]); } }
+        }
+        std::vector<std::vector<TriangleKey<true>>> keyComponents;
+        mesh.GetComponents(keyComponents);
+        io.outInt(keyComponents.size());
+        for (auto const& c : keyComponents)
+        {
+            io.outInt(c.size());
+            for (auto const& k : c) { for (int j = 0; j < 3; ++j) { io.outInt(k.V[j]); } }
+        }
+    }
+
+    void EmitVET(oracle::Ctx& io, VETNonmanifoldMesh const& mesh)
+    {
+        EmitET(io, mesh);
+        io.outInt(mesh.GetVertices().size());
+        for (auto const& v : mesh.GetVertices())
+        {
+            io.outInt(v.first);
+            io.outInt(v.second->V);
+            io.outInt(v.second->VAdjacent.size());
+            for (int32_t a : v.second->VAdjacent) { io.outInt(a); }
+            io.outInt(v.second->EAdjacent.size());
+            for (auto const& e : v.second->EAdjacent) { io.outInt(e->V[0]); io.outInt(e->V[1]); }
+            io.outInt(v.second->TAdjacent.size());
+            for (auto const& t : v.second->TAdjacent)
+            {
+                for (int j = 0; j < 3; ++j) { io.outInt(t->V[j]); }
+            }
+        }
+    }
+
+    // A random triangle over the vertex pool 0..poolSize-1 (distinct
+    // vertices unless 'degenerate'), or, for removals, usually an existing
+    // triangle in one of its three rotations.
+    MeshOp DrawMeshOp(oracle::Ctx& io, ETNonmanifoldMesh const& mesh, int poolSize,
+        bool allowDegenerate)
+    {
+        MeshOp op{};
+        op.type = (io.rawInteger(0, 9) < 7 ? 0 : 1);
+        auto const& tmap = mesh.GetTriangles();
+        if (op.type == 1 && !tmap.empty() && io.rawInteger(0, 3) != 0)
+        {
+            auto it = tmap.begin();
+            std::advance(it, io.rawInteger(0, static_cast<int>(tmap.size()) - 1));
+            int r = io.rawInteger(0, 2);
+            for (int j = 0; j < 3; ++j) { op.v[j] = it->second->V[(j + r) % 3]; }
+            return op;
+        }
+        bool degenerate = allowDegenerate && io.rawInteger(0, 5) == 0;
+        op.v[0] = io.rawInteger(0, poolSize - 1);
+        do { op.v[1] = io.rawInteger(0, poolSize - 1); } while (!degenerate && op.v[1] == op.v[0]);
+        if (degenerate) { op.v[2] = op.v[io.rawInteger(0, 1)]; }
+        else
+        {
+            do { op.v[2] = io.rawInteger(0, poolSize - 1); } while (op.v[2] == op.v[0] || op.v[2] == op.v[1]);
+        }
+        return op;
+    }
+
+    bool IsDegenerate(int32_t const* v)
+    {
+        return v[0] == v[1] || v[1] == v[2] || v[2] == v[0];
+    }
+
+    // True when removing <v0,v1,v2> leaves some vertex of the triangle with
+    // no triangle: VETNonmanifoldMesh::Remove's inverted LogAssert fires
+    // exactly then (finding, #240).
+    bool IsolatesVertex(VETNonmanifoldMesh const& mesh, int32_t const* v)
+    {
+        auto const& tmap = mesh.GetTriangles();
+        if (tmap.find(TriangleKey<true>(v[0], v[1], v[2])) == tmap.end()) { return false; }
+        for (int j = 0; j < 3; ++j)
+        {
+            auto it = mesh.GetVertices().find(v[j]);
+            if (it != mesh.GetVertices().end() && it->second->TAdjacent.size() == 1) { return true; }
+        }
+        return false;
+    }
+
+    void GivenOp(oracle::Ctx& io, MeshOp const& op)
+    {
+        io.given(static_cast<double>(op.type));
+        for (int j = 0; j < 3; ++j) { io.given(static_cast<double>(op.v[j])); }
+    }
+}
+
+ORACLE_CASE("ETNonmanifoldMesh.sequence")
+{
+    // Up to 16 inserts and removes over a pool of 4..6 vertices: shared,
+    // nonmanifold (three or more triangles on an edge), duplicate (the same
+    // key in another rotation: Insert returns null), reversed (a different
+    // key) and degenerate triangles (repeated vertex, #179: accepted by
+    // Insert, one Edge object for two keys). Removing a degenerate triangle
+    // throws after corrupting the mesh (#179, preserved), so such removals
+    // are turned into inserts here (the throw has its own case). After
+    // every operation its result; at the end the whole mesh, a copy
+    // (operator=, which reinserts by key: rotated vertices) and Clear.
+    int poolSize = io.integer(4, 6);
+    int numOps = io.integer(1, 16);
+    ETNonmanifoldMesh mesh;
+    for (int k = 0; k < numOps; ++k)
+    {
+        MeshOp op = DrawMeshOp(io, mesh, poolSize, true);
+        if (op.type == 1 && IsDegenerate(op.v)) { op.type = 0; }
+        GivenOp(io, op);
+        if (op.type == 0)
+        {
+            auto tri = mesh.Insert(op.v[0], op.v[1], op.v[2]);
+            io.outBool(tri != nullptr);
+            if (tri) { for (int j = 0; j < 3; ++j) { io.outInt(tri->V[j]); } }
+        }
+        else
+        {
+            io.outBool(mesh.Remove(op.v[0], op.v[1], op.v[2]));
+        }
+    }
+    EmitET(io, mesh);
+    ETNonmanifoldMesh copy(mesh);
+    EmitET(io, copy);
+    copy.Clear();
+    io.outInt(copy.GetEdges().size());
+    io.outInt(copy.GetTriangles().size());
+}
+
+ORACLE_CASE("ETNonmanifoldMesh.remove.degenerate")
+{
+    // #179 (preserved): Remove of a triangle with a repeated vertex throws
+    // ("Unexpected condition.") on both sides.
+    int poolSize = io.integer(4, 6);
+    int numOps = io.integer(0, 6);
+    ETNonmanifoldMesh mesh;
+    for (int k = 0; k < numOps; ++k)
+    {
+        MeshOp op = DrawMeshOp(io, mesh, poolSize, false);
+        op.type = 0;
+        GivenOp(io, op);
+        mesh.Insert(op.v[0], op.v[1], op.v[2]);
+    }
+    int32_t a = io.integer(0, poolSize - 1);
+    int32_t b = io.integer(0, poolSize - 1);
+    int which = io.integer(0, 2);
+    int32_t v[3] = { a, a, b };
+    if (which == 1) { v[0] = b; v[1] = a; v[2] = a; }
+    if (which == 2) { v[0] = a; v[1] = b; v[2] = a; }
+    mesh.Insert(v[0], v[1], v[2]);
+    bool removed = mesh.Remove(v[0], v[1], v[2]);
+    io.outBool(removed);
+}
+
+ORACLE_CASE("VETNonmanifoldMesh.sequence")
+{
+    // As ETNonmanifoldMesh.sequence, plus the vertex adjacency sets. A
+    // removal that would leave a vertex of the triangle with no triangle
+    // is turned into an insert: upstream's inverted assertion throws there
+    // (#240, fixed in the port; see the deviation case). Degenerate
+    // triangles are inserted but never removed.
+    int poolSize = io.integer(4, 6);
+    int numOps = io.integer(1, 20);
+    VETNonmanifoldMesh mesh;
+    for (int k = 0; k < numOps; ++k)
+    {
+        MeshOp op = DrawMeshOp(io, mesh, poolSize, true);
+        if (op.type == 1 && (IsDegenerate(op.v) || IsolatesVertex(mesh, op.v))) { op.type = 0; }
+        GivenOp(io, op);
+        if (op.type == 0)
+        {
+            auto tri = mesh.Insert(op.v[0], op.v[1], op.v[2]);
+            io.outBool(tri != nullptr);
+        }
+        else
+        {
+            io.outBool(mesh.Remove(op.v[0], op.v[1], op.v[2]));
+        }
+    }
+    EmitVET(io, mesh);
+    VETNonmanifoldMesh copy(mesh);
+    EmitVET(io, copy);
+    copy.Clear();
+    io.outInt(copy.GetVertices().size());
+}
+
+ORACLE_CASE("VETNonmanifoldMesh.remove.isolatesVertex")
+{
+    // Deliberate port fix (#240): upstream's Remove asserts
+    // 'VAdjacent.size() != 0 || EAdjacent.size() != 0' when a vertex loses
+    // its last triangle, which is inverted (both sets have just been
+    // emptied), so every such valid removal throws upstream; the port
+    // removes the triangle. Some inserts, then the removal of an existing
+    // nondegenerate triangle that isolates a vertex.
+    int poolSize = io.integer(4, 6);
+    int numOps = io.integer(0, 8);
+    VETNonmanifoldMesh mesh;
+    for (int k = 0; k < numOps; ++k)
+    {
+        MeshOp op = DrawMeshOp(io, mesh, poolSize, false);
+        op.type = 0;
+        GivenOp(io, op);
+        mesh.Insert(op.v[0], op.v[1], op.v[2]);
+    }
+    std::vector<std::array<int32_t, 3>> candidates;
+    for (auto const& t : mesh.GetTriangles())
+    {
+        if (IsolatesVertex(mesh, t.second->V.data())) { candidates.push_back(t.second->V); }
+    }
+    std::array<int32_t, 3> target{ 0, 1, poolSize };
+    if (candidates.empty())
+    {
+        mesh.Insert(target[0], target[1], target[2]);
+    }
+    else
+    {
+        target = candidates[static_cast<size_t>(io.rawInteger(0, static_cast<int>(candidates.size()) - 1))];
+    }
+    io.given(static_cast<double>(candidates.empty() ? 1 : 0));
+    for (int32_t x : target) { io.given(static_cast<double>(x)); }
+    bool removed = mesh.Remove(target[0], target[1], target[2]);
+    io.outBool(removed);
+    EmitVET(io, mesh);
+}
