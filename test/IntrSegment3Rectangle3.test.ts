@@ -319,6 +319,15 @@ describe('IntrSegment3Rectangle3 verification', () => {
                     }
                     wellInside = wellInside
                         && a.parameter > 1e-4 && a.parameter < 1 - 1e-4;
+                    // A segment grazing the plane (angle 2e-7 rad, seed
+                    // 1545003892) has a parameter conditioned like
+                    // eps / sin(angle): the rounded rotation alone moves it
+                    // by 1e-8 relative, at the tolerance. Skip the grazing
+                    // configurations.
+                    const n = cross(r.axis[0], r.axis[1]);
+                    const d = sub(s.p[1], s.p[0]);
+                    wellInside = wellInside
+                        && Math.abs(dot(n, d)) > 1e-4 * Math.sqrt(dot(n, n) * dot(d, d));
                     if (wellInside) {
                         expect(b.intersect).toBe(true);
                         expectClose(b.parameter, a.parameter, 1e-8, 1e-8);
